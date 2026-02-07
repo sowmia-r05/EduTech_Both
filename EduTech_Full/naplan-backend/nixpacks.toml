@@ -1,0 +1,13 @@
+[phases.setup]
+nixPkgs = ["nodejs", "python3", "python3Packages.pip"]
+
+[phases.install]
+cmds = [
+   "node -v",
+  "npm -v",
+  "npm ci",
+  "python3 -m pip install -r requirements.txt"
+]
+
+[start]
+cmd = "node src/server.js"
