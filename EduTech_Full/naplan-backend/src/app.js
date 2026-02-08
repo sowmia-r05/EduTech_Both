@@ -23,28 +23,15 @@ app.set("trust proxy", 1);
 // - multiple: "http://localhost:5173,https://xxxx.ngrok-free.app"
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
 
-const allowedOrigins = FRONTEND_ORIGIN
-  ? FRONTEND_ORIGIN.split(",").map((s) => s.trim().replace(/\/$/, "")) // remove trailing /
-  : [];
-
 app.use(
   cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // Postman/curl
-      const clean = origin.replace(/\/$/, "");
-      if (!allowedOrigins.length) return cb(null, true); // dev fallback
-      return allowedOrigins.includes(clean)
-        ? cb(null, true)
-        : cb(new Error("CORS blocked: " + origin));
-    },
+    origin: FRONTEND_ORIGIN
+      ? FRONTEND_ORIGIN.split(",").map((s) => s.trim())
+      : true, // allow all in dev if not set
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "DELETE"],
   })
 );
-
-// ✅ must be before routes
-app.options("*", cors());
 
 // ✅ JSON + keep raw body for webhook signature verification if needed
 app.use(
