@@ -1,4 +1,3 @@
-// RegistrationPage.jsx
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -31,38 +30,41 @@ export default function RegistrationPage() {
   });
 
   const [error, setError] = useState("");
-  const [emailStatus, setEmailStatus] = useState("idle"); // idle | checking | exists | available
+  const [emailStatus, setEmailStatus] = useState("idle"); 
+  // idle | checking | exists | available
 
-  // Cache results for the session to avoid re-checks
-  const cacheRef = useRef(new Map()); // email -> "exists" | "available"
-
-  // Abort previous request when user types quickly
+  const cacheRef = useRef(new Map());
   const abortRef = useRef(null);
+  const debounceRef = useRef(null);
 
-  // ✅ Fast + accurate email existence check (debounced + cached + abort)
+  /* ----------------------------------------------------
+     EMAIL CHECK (debounced + cached + abort-safe)
+  ---------------------------------------------------- */
   useEffect(() => {
     const email = normalizeEmail(formData.email);
 
-    // Only check once the email looks valid
+    // reset state if email is invalid
     if (!email || !looksLikeEmail(email)) {
       setEmailStatus("idle");
       return;
     }
 
-    // If we already checked this email, use cached result instantly
+    // use cached result instantly
     const cached = cacheRef.current.get(email);
     if (cached) {
       setEmailStatus(cached);
       return;
     }
 
-    setEmailStatus("checking");
-
-    const t = setTimeout(async () => {
+    // debounce
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
       try {
-        // cancel any previous request
+        // abort previous request
         if (abortRef.current) abortRef.current.abort();
         abortRef.current = new AbortController();
+
+        setEmailStatus("checking");
 
         const exists = await verifyEmailExists(email, {
           signal: abortRef.current.signal,
@@ -72,63 +74,61 @@ export default function RegistrationPage() {
         cacheRef.current.set(email, status);
         setEmailStatus(status);
       } catch (err) {
-        // ignore abort error
         if (err?.name === "AbortError") return;
+        console.error("Email check failed:", err);
         setEmailStatus("idle");
       }
-    }, 180);
+    }, 300);
 
-    return () => clearTimeout(t);
+    return () => clearTimeout(debounceRef.current);
   }, [formData.email]);
 
+  /* ----------------------------------------------------
+     SUBMIT
+  ---------------------------------------------------- */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
-    if (!formData.firstName || !formData.lastName || !formData.yearLevel || !formData.email) {
+    const { firstName, lastName, yearLevel, email } = formData;
+
+    if (!firstName || !lastName || !yearLevel || !email) {
       setError("Please fill in all fields");
       return;
     }
 
-    const email = normalizeEmail(formData.email);
-    if (!email || !looksLikeEmail(email)) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!looksLikeEmail(normalizedEmail)) {
       setError("Please enter a valid email address");
       return;
     }
 
-    // If known exists, block instantly
+    if (emailStatus === "checking") return;
+
     if (emailStatus === "exists") {
-      setError("Email ID already exists. Please try login.");
+      setError("Email ID already exists. Please login.");
       return;
     }
 
-    // If cached exists, block instantly
-    const cached = cacheRef.current.get(email);
-    if (cached === "exists") {
-      setEmailStatus("exists");
-      setError("Email ID already exists. Please try login or check your results.");
-      return;
-    }
-
-    // If we don't have a confident "available" cached, verify once more
-    if (cached !== "available") {
+    // final safety check if not cached
+    if (!cacheRef.current.has(normalizedEmail)) {
       try {
-        const exists = await verifyEmailExists(email);
-        const status = exists ? "exists" : "available";
-        cacheRef.current.set(email, status);
-        setEmailStatus(status);
-
+        const exists = await verifyEmailExists(normalizedEmail);
         if (exists) {
-          setError("Email ID already exists. Please try login or check your results.");
+          setEmailStatus("exists");
+          setError("Email ID already exists. Please login.");
           return;
         }
       } catch {
-        setError("Unable to verify email right now. Please try again.");
+        setError("Unable to verify email. Please try again.");
         return;
       }
     }
 
-    localStorage.setItem("currentStudent", JSON.stringify({ ...formData, email }));
+    localStorage.setItem(
+      "currentStudent",
+      JSON.stringify({ ...formData, email: normalizedEmail })
+    );
 
     const gradeUrls = {
       "Year 3": "https://www.flexiquiz.com/SC/buy-course/Grade3_set-1",
@@ -137,24 +137,31 @@ export default function RegistrationPage() {
       "Year 9": "",
     };
 
-    const url = gradeUrls[formData.yearLevel];
+    const url = gradeUrls[yearLevel];
     if (url) {
       window.location.assign(url);
-      return;
+    } else {
+      setError(`FlexiQuiz link not added yet for ${yearLevel}`);
     }
-
-    setError(`FlexiQuiz link not added yet for ${formData.yearLevel}. Please add the link in RegistrationPage.jsx.`);
   };
 
   const handleLogin = () => {
     window.location.href = "https://www.flexiquiz.com/account/login";
   };
 
+  /* ----------------------------------------------------
+     UI
+  ---------------------------------------------------- */
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-md mx-auto">
         <div className="flex justify-between items-center mb-4">
-          <Button onClick={() => navigate("/")} variant="outline" className="bg-white" size="icon">
+          <Button
+            onClick={() => navigate("/")}
+            variant="outline"
+            className="bg-white"
+            size="icon"
+          >
             <ArrowLeft className="h-5 w-5" />
           </Button>
 
@@ -165,24 +172,35 @@ export default function RegistrationPage() {
 
         <Card className="bg-white shadow-lg">
           <CardHeader>
-            <CardTitle className="text-2xl text-center">User Information</CardTitle>
+            <CardTitle className="text-2xl text-center">
+              User Information
+            </CardTitle>
           </CardHeader>
 
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {emailStatus === "checking" ? (
+              {emailStatus === "checking" && (
                 <Alert>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>Checking email…</AlertDescription>
                 </Alert>
-              ) : emailStatus === "exists" ? (
+              )}
+
+              {emailStatus === "exists" && (
                 <Alert>
                   <CheckCircle className="h-4 w-4 text-green-600" />
                   <AlertDescription>
-                    Email ID already exists. Please click the Login button at the top to check your results.
+                    Email already exists. Please login.
                   </AlertDescription>
                 </Alert>
-              ) : null}
+              )}
+
+              {emailStatus === "available" && (
+                <Alert className="border-green-200 text-green-700">
+                  <CheckCircle className="h-4 w-4" />
+                  <AlertDescription>Email is available</AlertDescription>
+                </Alert>
+              )}
 
               {error && (
                 <Alert variant="destructive">
@@ -192,32 +210,32 @@ export default function RegistrationPage() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
+                <Label>First Name</Label>
                 <Input
-                  id="firstName"
-                  type="text"
                   value={formData.firstName}
-                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                  placeholder="Enter first name"
+                  onChange={(e) =>
+                    setFormData({ ...formData, firstName: e.target.value })
+                  }
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
+                <Label>Last Name</Label>
                 <Input
-                  id="lastName"
-                  type="text"
                   value={formData.lastName}
-                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                  placeholder="Enter last name"
+                  onChange={(e) =>
+                    setFormData({ ...formData, lastName: e.target.value })
+                  }
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="yearLevel">Year Level</Label>
+                <Label>Year Level</Label>
                 <Select
                   value={formData.yearLevel}
-                  onValueChange={(value) => setFormData({ ...formData, yearLevel: value })}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, yearLevel: value })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select year level" />
@@ -232,20 +250,20 @@ export default function RegistrationPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
+                <Label>Email Address</Label>
                 <Input
-                  id="email"
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="Enter email address"
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
                 />
               </div>
 
               <Button
                 type="submit"
                 className="w-full bg-indigo-600 hover:bg-indigo-700"
-                disabled={emailStatus === "exists" || emailStatus === "checking"}
+                disabled={emailStatus === "checking" || emailStatus === "exists"}
               >
                 Next
               </Button>
