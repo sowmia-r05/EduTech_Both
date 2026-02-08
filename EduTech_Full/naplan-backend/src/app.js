@@ -14,7 +14,7 @@ const flexiQuizRoutes = require("./routes/flexiQuizRoutes");
 
 const app = express();
 
-// ✅ If you're running behind a reverse proxy (ngrok/Cloudflare Tunnel/etc.)
+// ✅ If you're running behind a reverse proxy (Render/Cloudflare/etc.)
 app.set("trust proxy", 1);
 
 // ✅ CORS (ONLY ONCE)
@@ -35,21 +35,21 @@ const corsOptions = {
     // If env not set, allow all (dev)
     if (!allowedOrigins.length) return cb(null, true);
 
+    // Allow only known origins
     if (allowedOrigins.includes(cleanOrigin)) return cb(null, true);
 
-    return cb(new Error("CORS blocked: " + origin));
+    // ✅ IMPORTANT: do NOT throw error (prevents 500 on OPTIONS)
+    return cb(null, false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-  // optional:
-  // exposedHeaders: ["Content-Length", "Date"],
 };
 
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions)); // ✅ IMPORTANT: preflight for all routes
+app.options(/.*/, cors(corsOptions)); // ✅ preflight for all routes
 
-// ✅ JSON + keep raw body for webhook signature verification if needed
+// ✅ JSON + keep raw body (for webhook signature verification if needed)
 app.use(
   express.json({
     verify: (req, res, buf) => {
