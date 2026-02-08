@@ -47,7 +47,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // ✅ IMPORTANT: preflight for all routes
+app.options(/.*/, cors(corsOptions)); // ✅ IMPORTANT: preflight for all routes
 
 // ✅ JSON + keep raw body for webhook signature verification if needed
 app.use(
