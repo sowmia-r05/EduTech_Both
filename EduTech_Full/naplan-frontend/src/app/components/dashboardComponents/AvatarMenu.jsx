@@ -4,38 +4,33 @@ export default function AvatarMenu() {
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    // 1. Clear auth data
-    localStorage.clear();        // or removeItem("token")
+    localStorage.clear();
     sessionStorage.clear();
-
-    // 2. Replace history (prevents back button)
     navigate("/NonWritingLookupQuizResults", { replace: true });
   };
 
   return (
-    <div className="flex w-full px-6 py-4">
-      <div className="flex gap-4 ml-auto">
+    <div className="flex items-center gap-3">
+      {/* Back to Quiz */}
+      <button
+        onClick={() =>
+          (window.location.href = "https://www.flexiquiz.com/Dashboard/Index")
+        }
+        className="whitespace-nowrap px-3 py-1.5 rounded-lg text-white text-sm
+                   bg-[#4338CA] hover:bg-[#3730A3] transition"
+                  
+      >
+        Back To Quiz
+      </button>
 
-        {/* Back to Quiz (external site is fine) */}
-        <button
-          onClick={() =>
-            (window.location.href =
-              "https://www.flexiquiz.com/Dashboard/Index")
-          }
-          className="px-4 py-2 rounded-lg bg-gray-800 text-white hover:bg-gray-700"
-        >
-          Back To Quiz
-        </button>
-
-        {/* Logout */}
-        <button
-          onClick={handleLogout}
-          className="px-4 py-2 rounded-lg bg-gray-800 text-white hover:bg-gray-700"
-        >
-          Log Out
-        </button>
-
-      </div>
+      {/* Log Out */}
+      <button
+        onClick={handleLogout}
+        className="whitespace-nowrap px-3 py-1.5 rounded-lg text-white text-sm
+                   bg-[#F87171] hover:bg-[#EF4444] transition"
+      >
+        Log Out
+      </button>
     </div>
   );
 }

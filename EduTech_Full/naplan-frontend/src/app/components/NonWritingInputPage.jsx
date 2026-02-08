@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/app/components/ui/button";
@@ -36,64 +36,48 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 }
 
-/* -----------------------------
-   Component
------------------------------ */
 export default function NonWritingInputPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
   const autoSubmittedRef = useRef(false);
+  const quizCacheRef = useRef(new Map());
 
   const [email, setEmail] = useState("");
   const [quizNames, setQuizNames] = useState([]);
   const [selectedQuiz, setSelectedQuiz] = useState("");
-  const [step, setStep] = useState("email"); // email | quiz
+  const [step, setStep] = useState("email");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   /* -----------------------------
-     Prefill email from URL
+     Core Fetch Logic
   ----------------------------- */
-  useEffect(() => {
-    const emailParam = searchParams.get("email");
-    if (emailParam) {
-      setEmail(normalizeEmail(emailParam));
-    }
-  }, [searchParams]);
-
-  /* -----------------------------
-     Auto-submit ONLY for URL email
-  ----------------------------- */
-  useEffect(() => {
-    if (!email || autoSubmittedRef.current) return;
-    autoSubmittedRef.current = true;
-    handleSubmitEmail();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email]);
-
-  /* -----------------------------
-     Actions
-  ----------------------------- */
-  const handleSubmitEmail = async () => {
-    const normalized = normalizeEmail(email);
+  const submitEmail = useCallback(async (emailValue) => {
+    const normalized = normalizeEmail(emailValue);
 
     if (!isValidEmail(normalized)) {
       setError("Please enter a valid email address");
       return;
     }
 
+    // 🔥 CACHE HIT
+    if (quizCacheRef.current.has(normalized)) {
+      setQuizNames(quizCacheRef.current.get(normalized));
+      setStep("quiz");
+      return;
+    }
+
     setLoading(true);
     setError("");
-    setQuizNames([]);
     setSelectedQuiz("");
 
     try {
-      let exists = true;
-      try {
-        exists = await verifyEmailExists(normalized);
-      } catch {
-        // silent fallback
-      }
+      // ⚡ PARALLEL REQUESTS
+      const [exists, quizzes] = await Promise.all([
+        verifyEmailExists(normalized).catch(() => true),
+        fetchResultQuizNamesByEmail(normalized),
+      ]);
 
       if (!exists) {
         throw new Error(
@@ -101,12 +85,11 @@ export default function NonWritingInputPage() {
         );
       }
 
-      const quizzes = await fetchResultQuizNamesByEmail(normalized);
-
       if (!quizzes || quizzes.length === 0) {
         throw new Error("No quiz results found for this email.");
       }
 
+      quizCacheRef.current.set(normalized, quizzes);
       setQuizNames(quizzes);
       setStep("quiz");
     } catch (err) {
@@ -114,13 +97,27 @@ export default function NonWritingInputPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
+  /* -----------------------------
+     Auto-submit from URL
+  ----------------------------- */
+  useEffect(() => {
+    const emailParam = searchParams.get("email");
+    if (!emailParam || autoSubmittedRef.current) return;
+
+    const normalized = normalizeEmail(emailParam);
+    autoSubmittedRef.current = true;
+    setEmail(normalized);
+    submitEmail(normalized);
+  }, [searchParams, submitEmail]);
+
+  /* -----------------------------
+     Handlers
+  ----------------------------- */
   const handleEmailSubmit = (e) => {
     e.preventDefault();
-    if (loading) return;
-    autoSubmittedRef.current = true;
-    handleSubmitEmail();
+    if (!loading) submitEmail(email);
   };
 
   const handleQuizSubmit = (e) => {
@@ -136,8 +133,6 @@ export default function NonWritingInputPage() {
 
   const handleBack = () => {
     setStep("email");
-    setQuizNames([]);
-    setSelectedQuiz("");
     setError("");
   };
 
@@ -145,23 +140,21 @@ export default function NonWritingInputPage() {
      Render
   ----------------------------- */
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 overflow-hidden flex items-center justify-center px-6">
+    <div className="relative min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center px-6">
       <img
         src={StudentImg}
         alt=""
-        className="hidden xl:block absolute left-[-120px] top-1/2 -translate-y-1/2 w-[520px] opacity-60 pointer-events-none"
+        className="hidden xl:block absolute left-[-120px] top-1/2 -translate-y-1/2 w-[520px] opacity-60"
       />
       <img
         src={AnalyticsImg}
         alt=""
-        className="hidden xl:block absolute right-[-120px] top-1/2 -translate-y-1/2 w-[520px] opacity-50 pointer-events-none"
+        className="hidden xl:block absolute right-[-120px] top-1/2 -translate-y-1/2 w-[520px] opacity-50"
       />
 
-      <Card className="relative z-10 w-full max-w-lg rounded-2xl border shadow-2xl bg-white/90 backdrop-blur-md">
-        <CardHeader className="text-center space-y-2">
-          <CardTitle className="text-2xl font-semibold">
-            User Evaluation Lookup
-          </CardTitle>
+      <Card className="w-full max-w-lg rounded-2xl shadow-2xl bg-white/90 backdrop-blur">
+        <CardHeader className="text-center">
+          <CardTitle>User Evaluation Lookup</CardTitle>
           <CardDescription>
             {step === "email"
               ? "Enter your email to view your non-writing quizzes"
@@ -182,7 +175,6 @@ export default function NonWritingInputPage() {
                   className="pl-9"
                   placeholder="you@example.com"
                   onChange={(e) => {
-                    autoSubmittedRef.current = true;
                     setEmail(e.target.value);
                     setError("");
                   }}
@@ -225,14 +217,10 @@ export default function NonWritingInputPage() {
               {error && <p className="text-sm text-red-600">{error}</p>}
 
               <div className="flex gap-3">
-                <Button variant="outline" onClick={handleBack} className="flex-1">
+                <Button type="button" variant="outline" onClick={handleBack}>
                   Back
                 </Button>
-                <Button
-                  type="submit"
-                  className="flex-1"
-                  disabled={!selectedQuiz}
-                >
+                <Button type="submit" disabled={!selectedQuiz}>
                   View Results
                 </Button>
               </div>

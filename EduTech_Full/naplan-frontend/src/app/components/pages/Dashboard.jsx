@@ -315,14 +315,21 @@ export default function Dashboard() {
   /* -------------------- render -------------------- */
 
   return (
-    <div className="min-h-screen bg-gray-100 px-6 py-4">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900">
-          {displayName} NAPLAN Practice Report
-        </h1>
-        <AvatarMenu />
-      </div>
+<div className="min-h-screen bg-gray-100 px-6 py-4">
+  {/* Header */}
+  <div className="flex justify-between items-center mb-4">
+    <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold">
+      <span className="text-[#2563EB]">
+        {displayName} -{" "}
+      </span>
+
+      <span className="text-[#7C3AED]">
+        {latestResult?.quiz_name || "NAPLAN"} Report
+      </span>
+    </h1>
+
+    <AvatarMenu />
+  </div>
 
       {/* Dashboard Grid */}
       <div className="grid grid-cols-12 gap-4">
