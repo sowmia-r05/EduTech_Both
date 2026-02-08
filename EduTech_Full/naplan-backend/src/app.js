@@ -18,20 +18,36 @@ const app = express();
 app.set("trust proxy", 1);
 
 // ✅ CORS (ONLY ONCE)
-// FRONTEND_ORIGIN can be:
-// - single: "http://localhost:5173"
-// - multiple: "http://localhost:5173,https://xxxx.ngrok-free.app"
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "";
 
-app.use(
-  cors({
-    origin: FRONTEND_ORIGIN
-      ? FRONTEND_ORIGIN.split(",").map((s) => s.trim())
-      : true, // allow all in dev if not set
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-  })
-);
+// normalize: remove trailing slash from env origins
+const allowedOrigins = FRONTEND_ORIGIN
+  ? FRONTEND_ORIGIN.split(",").map((s) => s.trim().replace(/\/$/, ""))
+  : [];
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    // Allow requests with no origin (Postman/curl/server-to-server)
+    if (!origin) return cb(null, true);
+
+    const cleanOrigin = origin.replace(/\/$/, "");
+
+    // If env not set, allow all (dev)
+    if (!allowedOrigins.length) return cb(null, true);
+
+    if (allowedOrigins.includes(cleanOrigin)) return cb(null, true);
+
+    return cb(new Error("CORS blocked: " + origin));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  // optional:
+  // exposedHeaders: ["Content-Length", "Date"],
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // ✅ IMPORTANT: preflight for all routes
 
 // ✅ JSON + keep raw body for webhook signature verification if needed
 app.use(
