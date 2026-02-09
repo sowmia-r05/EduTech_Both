@@ -3,6 +3,12 @@ const env = require("../config/env");
 
 const BASE = "https://www.flexiquiz.com/api/v1";
 
+/* -------------------- small utils -------------------- */
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 function pickFirst(obj, keys, fallback = "") {
   if (!obj || typeof obj !== "object") return fallback;
   for (const k of keys) {
@@ -81,7 +87,6 @@ function extractUserFields(meta) {
 }
 
 function extractAnswerText(q) {
-  // Many schemas store the typed answer directly on the question object
   const direct = pickFirst(
     q,
     ["answer_text", "answer", "response", "entered_text", "text_answer", "user_answer", "value"],
@@ -89,7 +94,6 @@ function extractAnswerText(q) {
   );
   if (typeof direct === "string" && direct.trim()) return direct.trim();
 
-  // Otherwise fall back to selected options
   const selected = (q?.options || []).filter((opt) => opt?.selected === true);
   if (selected.length) {
     const parts = selected
@@ -116,73 +120,136 @@ function extractQna(questions) {
 }
 
 function flexiHeaders() {
-  return {
-    "X-API-KEY": env.flexiQuizApiKey,
-  };
+  return { "X-API-KEY": env.flexiQuizApiKey };
 }
 
-async function fetchResponseMeta(quizId, responseId) {
+function assertApiKey() {
+  if (!env.flexiQuizApiKey) {
+    throw new Error("FLEXIQUIZ_API_KEY is missing. Set it in .env / deployment env vars.");
+  }
+}
+
+/* -------------------- API calls -------------------- */
+
+async function fetchResponseMeta(quizId, responseId, timeoutMs) {
   const url = `${BASE}/quizzes/${quizId}/responses/${responseId}`;
-  const res = await axios.get(url, { headers: flexiHeaders(), timeout: 30000 });
+  const res = await axios.get(url, { headers: flexiHeaders(), timeout: timeoutMs });
   return res.data || {};
 }
 
-async function fetchResponseQuestions(quizId, responseId) {
+async function fetchResponseQuestions(quizId, responseId, timeoutMs) {
   const url = `${BASE}/quizzes/${quizId}/responses/${responseId}/questions`;
-  const res = await axios.get(url, { headers: flexiHeaders(), timeout: 30000 });
-  return res.data || [];
+  const res = await axios.get(url, { headers: flexiHeaders(), timeout: timeoutMs });
+  return Array.isArray(res.data) ? res.data : [];
 }
 
-async function fetchQuizDetails(quizId) {
+async function fetchQuizDetails(quizId, timeoutMs) {
   const url = `${BASE}/quizzes/${quizId}`;
-  const res = await axios.get(url, { headers: flexiHeaders(), timeout: 30000 });
+  const res = await axios.get(url, { headers: flexiHeaders(), timeout: timeoutMs });
   return res.data || {};
 }
 
 /**
+ * Retry wrapper: used because right after submit FlexiQuiz can return:
+ * - status not yet "submitted"
+ * - questions empty for a short time
+ */
+async function withRetry(fn, { retries = 4, baseDelayMs = 800 } = {}) {
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) {
+        const wait = baseDelayMs + (attempt - 1) * 500; // 0.8s, 1.3s, 1.8s, 2.3s
+        await sleep(wait);
+      }
+    }
+  }
+
+  throw lastErr || new Error("Retry failed");
+}
+
+/* -------------------- exports -------------------- */
+
+/**
  * Fetch quiz name by quiz id (used when webhook payload doesn't include quiz_name).
+ * Kept same signature.
  */
 exports.fetchQuizNameById = async (quizId) => {
   if (!quizId) return "";
-  if (!env.flexiQuizApiKey) {
-    throw new Error("FLEXIQUIZ_API_KEY is missing. Set it in .env / deployment env vars.");
-  }
-  const details = await fetchQuizDetails(quizId);
+  assertApiKey();
+
+  // shorter timeout than 30s
+  const details = await fetchQuizDetails(quizId, 10000);
   return String(details?.name || "").trim();
 };
 
 /**
  * Build the Writing document payload by calling FlexiQuiz API.
+ * Kept same signature + same returned shape.
+ *
+ * SPEED IMPROVEMENTS:
+ * - meta + questions fetched in parallel
+ * - retries if not submitted yet / questions empty
+ * - smaller timeout per attempt
  */
-exports.buildWritingDoc = async ({ event_id, event_type, delivery_attempt, quiz_id, quiz_name, response_id }) => {
-  if (!env.flexiQuizApiKey) {
-    throw new Error("FLEXIQUIZ_API_KEY is missing. Set it in .env / deployment env vars.");
-  }
+exports.buildWritingDoc = async ({
+  event_id,
+  event_type,
+  delivery_attempt,
+  quiz_id,
+  quiz_name,
+  response_id,
+}) => {
+  assertApiKey();
 
-  const meta = await fetchResponseMeta(quiz_id, response_id);
-  const { user, date_created, submitted_at, status, duration_sec } = extractUserFields(meta);
+  return withRetry(
+    async (attempt) => {
+      const timeoutMs = 10000; // per attempt
+      // fetch meta + questions in parallel
+      const [meta, questions] = await Promise.all([
+        fetchResponseMeta(quiz_id, response_id, timeoutMs),
+        fetchResponseQuestions(quiz_id, response_id, timeoutMs),
+      ]);
 
-  // Only keep submitted attempts (extra safety)
-  if (String(status || "").toLowerCase() !== "submitted") {
-    return null;
-  }
+      const { user, date_created, submitted_at, status, duration_sec } = extractUserFields(meta);
 
-  const questions = await fetchResponseQuestions(quiz_id, response_id);
-  const qna = extractQna(questions);
+      // If still not submitted, retry (common immediately after webhook)
+      if (String(status || "").toLowerCase() !== "submitted") {
+        throw new Error(`Not submitted yet (status=${status || "NA"})`);
+      }
 
-  return {
-    event_id,
-    event_type,
-    delivery_attempt,
-    response_id,
-    quiz_id,
-    quiz_name,
-    user,
-    date_created,
-    submitted_at,
-    status,
-    duration_sec,
-    attempt: meta?.attempt ?? null,
-    qna,
-  };
+      // If questions empty, retry (also common)
+      if (!Array.isArray(questions) || questions.length === 0) {
+        throw new Error("Questions empty (not finalized yet)");
+      }
+
+      const qna = extractQna(questions);
+
+      return {
+        event_id,
+        event_type,
+        delivery_attempt,
+        response_id,
+        quiz_id,
+        quiz_name,
+        user,
+        date_created,
+        submitted_at,
+        status,
+        duration_sec,
+        attempt: meta?.attempt ?? null,
+        qna,
+      };
+    },
+    { retries: 4, baseDelayMs: 800 }
+  ).catch((err) => {
+    // Helpful context without huge dumps
+    throw new Error(
+      `buildWritingDoc failed (quiz_id=${quiz_id}, response_id=${response_id}): ${err.message}`
+    );
+  });
 };

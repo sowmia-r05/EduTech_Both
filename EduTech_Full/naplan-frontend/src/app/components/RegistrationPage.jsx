@@ -17,7 +17,17 @@ import { AlertCircle, ArrowLeft, CheckCircle } from "lucide-react";
 
 import { verifyEmailExists, normalizeEmail } from "@/app/utils/api";
 
-const looksLikeEmail = (e) => /^\S+@\S+\.\S+$/.test(e);
+const looksLikeEmail = (e) => {
+  const basic =
+    /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}(?:\.[A-Za-z]{2,})*$/.test(e);
+
+  if (!basic) return false;
+
+  // Block gmail.co, gmail.c, etc
+  if (/@gmail\.(?!com$)/i.test(e)) return false;
+
+  return true;
+};
 
 export default function RegistrationPage() {
   const navigate = useNavigate();
