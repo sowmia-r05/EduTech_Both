@@ -16,6 +16,9 @@ import {
   normalizeEmail,
 } from "@/app/utils/api";
 
+import waitingGif from "@/app/components/Public/dragon_play.gif";
+
+
 /* -------------------- helpers -------------------- */
 
 // Handle ISO string OR Mongo export shape { $date: "..." }
@@ -300,26 +303,28 @@ useEffect(() => {
 
   // 3) ✅ AI pending loader (CENTERED) — only if AI feedback not available yet
   if (isAiPending(latestResult)) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl shadow p-8 text-center w-full max-w-xl">
-          <Loader2 className="w-10 h-10 animate-spin text-blue-600 mx-auto" />
-          <h2 className="mt-4 text-xl font-bold text-gray-900">
-            Generating your AI feedback…
-          </h2>
-          <p className="mt-2 text-gray-600">
-            {aiStatusMessage || "Please wait a moment while we prepare your report."}
-          </p>
-          {aiStatus ? (
-            <div className="mt-3 text-sm text-gray-500">
-              Status: <span className="font-semibold">{aiStatus}</span>
+   return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-2 sm:p-3">
+        <Card className="w-full max-w-2xl">
+          <CardContent className="flex flex-col items-center justify-center py-6 px-4 sm:py-8 sm:px-6">
+            <img
+              src={waitingGif}
+              alt="Loading animation"
+              className="w-50 h-50 sm:w-56 sm:h-56 object-contain mb-4"
+            />
+            <div className="text-center space-y-2">
+              <p className="text-xl sm:text-2xl font-semibold text-gray-900">
+                Almost there, {userName}! Getting your feedback ready…
+              </p>
+              <p className="text-sm sm:text-base text-gray-600">
+                Please wait a moment while we prepare your evaluation.
+              </p>
             </div>
-          ) : null}
-        </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
-
   /* -------------------- render -------------------- */
 
   return (
