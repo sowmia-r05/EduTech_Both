@@ -16,7 +16,7 @@ import {
   normalizeEmail,
 } from "@/app/utils/api";
 
-import waitingGif from "@/app/components/Public/dragon_play.gif";
+import waitingGif from "@/app/components/Public/batman.gif";
 
 
 /* -------------------- helpers -------------------- */
@@ -279,10 +279,15 @@ useEffect(() => {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
+        <img
+          src={waitingGif}
+          alt="Loading animation"
+          className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
+        />
       </div>
     );
   }
+
 
   // 2) Error / no data
   if (error || !latestResult) {
