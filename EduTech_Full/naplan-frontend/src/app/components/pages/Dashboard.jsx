@@ -9,6 +9,8 @@ import WeakTopicsBarChart from "@/app/components/dashboardComponents/WeakTopicsB
 import AISuggestionPanel from "@/app/components/dashboardComponents/AISuggestionPanel";
 import AvatarMenu from "@/app/components/dashboardComponents/AvatarMenu";
 import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopicsFunnelChart";
+import waitingGif from "@/app/components/Public/dragon_play.gif";
+
 
 import {
   fetchLatestResultByEmail,
@@ -102,14 +104,22 @@ const buildSuggestionsFromFeedback = (feedback) => {
 // show the centered loading ONLY when AI feedback is NOT available yet
 // (so if data already exists, you won't see the loading in the middle)
 const isAiPending = (latestResult) => {
-  const hasFeedback = !!latestResult?.ai_feedback; // if feedback already exists, don't show AI loading
-  if (hasFeedback) return false;
+  const status = String(latestResult?.ai_feedback_meta?.status || "").toLowerCase();
 
-  // if you store status elsewhere, update this path accordingly
-  const s = String(latestResult?.ai_feedback_meta?.status || "").toLowerCase();
-  if (!s) return false; // if no status, don't block UI
-  return s !== "done" && s !== "completed";
+  // ✅ If status says done/completed, DO NOT show loader
+  if (["done", "completed", "success"].includes(status)) return false;
+
+  // ✅ If status says failed/error, also don't keep spinning forever
+  if (["failed", "error"].includes(status)) return false;
+
+  // ✅ Otherwise, if feedback is still missing → show loader
+  const hasFeedback = !!latestResult?.ai_feedback;
+  if (!hasFeedback) return true;
+
+  // If feedback exists, show dashboard
+  return false;
 };
+
 
 /* -------------------- component -------------------- */
 
@@ -134,78 +144,57 @@ export default function Dashboard() {
   };
 
   // ✅ Initial fetch (latest + list)
-  useEffect(() => {
-    if (!email) {
-      setError("Email is required.");
-      setLoading(false);
+ useEffect(() => {
+  if (!email) return;
+
+  let cancelled = false;
+  let timer = null;
+
+  const start = Date.now();
+  const MAX_MS = 180000; // 3 minutes hard stop
+
+  const poll = async () => {
+    if (cancelled) return;
+
+    // stop after max time (no infinite loading)
+    if (Date.now() - start > MAX_MS) {
+      if (timer) clearTimeout(timer);
+      setError("Your AI feedback is still processing. Please try again in 1–2 minutes.");
       return;
     }
 
-    let cancelled = false;
+    try {
+      const latest = await fetchLatestResultByEmail(
+        email,
+        quizParam ? { quiz_name: quizParam } : {}
+      );
 
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError("");
+      if (cancelled) return;
 
-        const [latest, list] = await Promise.all([
-          fetchLatestResultByEmail(
-            email,
-            quizParam ? { quiz_name: quizParam } : {}
-          ),
-          fetchResultsByEmail(email),
-        ]);
+      setLatestResult(latest);
 
-        if (!cancelled) {
-          setLatestResult(latest);
-          setResultsList(normalizeResultsList(list));
-        }
-      } catch {
-        if (!cancelled) setError("Failed to load dashboard data.");
-      } finally {
-        if (!cancelled) setLoading(false);
+      // keep polling while AI pending
+      if (isAiPending(latest)) {
+        timer = setTimeout(poll, 4000); // ✅ poll every 4s
       }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [email, quizParam]);
-
-  // ✅ Poll ONLY when AI is pending (so the loading disappears automatically once AI is done)
-  useEffect(() => {
-    if (!email) return;
-    if (!latestResult) return;
-
-    let cancelled = false;
-    let timer = null;
-
-    const poll = async () => {
-      try {
-        const latest = await fetchLatestResultByEmail(
-          email,
-          quizParam ? { quiz_name: quizParam } : {}
-        );
-        if (!cancelled) setLatestResult(latest);
-
-        if (!cancelled && isAiPending(latest)) {
-          timer = setTimeout(poll, 4000); // poll every 4s until AI done
-        }
-      } catch {
-        // don't hard-fail the whole dashboard on poll failure
-      }
-    };
-
-    if (isAiPending(latestResult)) {
-      timer = setTimeout(poll, 2500);
+    } catch {
+      if (!cancelled) timer = setTimeout(poll, 6000);
     }
+  };
 
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [email, quizParam, latestResult]);
+  // start polling shortly after page loads
+  timer = setTimeout(poll, 1500);
+
+  return () => {
+    cancelled = true;
+    if (timer) clearTimeout(timer);
+  };
+}, [email, quizParam]); // ✅ DO NOT include latestResult here
+
+// ✅ only depends on email/quiz
+
+
+  
 
   /* -------------------- derived data -------------------- */
 
@@ -291,26 +280,34 @@ export default function Dashboard() {
   }
 
   // 3) ✅ AI pending loader (CENTERED) — only if AI feedback not available yet
-  if (isAiPending(latestResult)) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl shadow p-8 text-center w-full max-w-xl">
-          <Loader2 className="w-10 h-10 animate-spin text-blue-600 mx-auto" />
-          <h2 className="mt-4 text-xl font-bold text-gray-900">
-            Generating your AI feedback…
-          </h2>
-          <p className="mt-2 text-gray-600">
-            {aiStatusMessage || "Please wait a moment while we prepare your report."}
-          </p>
-          {aiStatus ? (
-            <div className="mt-3 text-sm text-gray-500">
-              Status: <span className="font-semibold">{aiStatus}</span>
-            </div>
-          ) : null}
-        </div>
+ if (isAiPending(latestResult)) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-2 sm:p-3">
+      <div className="bg-white rounded-2xl shadow p-8 text-center w-full max-w-xl">
+        <img
+          src={waitingGif}
+          alt="Loading animation"
+          className="w-48 h-48 sm:w-56 sm:h-56 object-contain mx-auto mb-4"
+        />
+
+        <h2 className="mt-2 text-xl sm:text-2xl font-bold text-gray-900">
+          Generating your AI feedback…
+        </h2>
+
+        <p className="mt-2 text-sm sm:text-base text-gray-600">
+          {aiStatusMessage || "Please wait a moment while we prepare your report."}
+        </p>
+
+        {aiStatus ? (
+          <div className="mt-3 text-sm text-gray-500">
+            Status: <span className="font-semibold">{aiStatus}</span>
+          </div>
+        ) : null}
       </div>
-    );
-  }
+    </div>
+  );
+}
+
 
   /* -------------------- render -------------------- */
 

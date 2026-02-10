@@ -26,6 +26,13 @@ import AvatarMenu from "@/app/components/ResultComponents/AvatarMenu";
 
 import { fetchLatestWritingByEmailAndQuiz, normalizeEmail } from "@/app/utils/api";
 
+const isAiPending = (d) => {
+  const s = String(d?.ai?.status || "").toLowerCase();
+  if (["done", "completed", "success"].includes(s)) return false;
+  if (["error", "failed"].includes(s)) return false;
+  return true; // pending/processing/queued/empty
+};
+
 export default function ResultPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -73,6 +80,51 @@ export default function ResultPage() {
     };
   }, [email, quizName, navigate]);
 
+  useEffect(() => {
+  if (!email || !quizName) return;
+  if (!doc) return;
+
+  // if already ready or failed, no polling
+  if (!isAiPending(doc)) return;
+
+  let cancelled = false;
+  let timer = null;
+  const start = Date.now();
+  const MAX_MS = 180000; // 3 minutes
+
+  const poll = async () => {
+    if (cancelled) return;
+
+    // stop after max time (prevents infinite loading)
+    if (Date.now() - start > MAX_MS) {
+      setError("Your feedback is still processing. Please try again in 1–2 minutes.");
+      return;
+    }
+
+    try {
+      const latest = await fetchLatestWritingByEmailAndQuiz(email, quizName);
+      if (cancelled) return;
+
+      setDoc(latest);
+
+      // keep polling while pending
+      if (isAiPending(latest)) {
+        timer = setTimeout(poll, 4000);
+      }
+    } catch {
+      if (!cancelled) timer = setTimeout(poll, 6000);
+    }
+  };
+
+  timer = setTimeout(poll, 2000);
+
+  return () => {
+    cancelled = true;
+    if (timer) clearTimeout(timer);
+  };
+}, [email, quizName, doc]);
+
+
   // If doc returned but missing ai block, route back
   useEffect(() => {
     if (!loading && doc && !doc.ai) {
@@ -89,7 +141,7 @@ export default function ResultPage() {
 
   const isAiReady = aiStatus === "done" || aiStatus === "completed";
   const isAiError = aiStatus === "error";
-  const isProcessing = loading || (!!doc && !isAiReady && !isAiError);
+  const isProcessing = loading || (doc && isAiPending(doc));
   const hasAiFailed = isAiError;
 
   // ----------------------------
