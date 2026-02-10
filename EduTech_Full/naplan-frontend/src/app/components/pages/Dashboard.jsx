@@ -16,7 +16,7 @@ import {
   normalizeEmail,
 } from "@/app/utils/api";
 
-import waitingGif from "@/app/components/Public/dragon_paly.gif";
+import waitingGif from "@/app/components/Public/dragon_play.gif";
 
 
 /* -------------------- helpers -------------------- */
