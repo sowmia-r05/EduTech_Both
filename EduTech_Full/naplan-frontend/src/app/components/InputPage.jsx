@@ -4,14 +4,30 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/app/components/ui/select";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/app/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/app/components/ui/select";
 import { Loader2, Mail } from "lucide-react";
 
 import StudentImg from "@/app/Images/Faq-analytics.svg";
 import AnalyticsImg from "@/app/Images/fetch-data.svg";
 
-import { fetchQuizNamesByEmail, normalizeEmail, verifyEmailExists } from "@/app/utils/api";
+import {
+  fetchQuizNamesByEmail,
+  normalizeEmail,
+  // verifyEmailExists, // ❌ don’t use as hard blocker
+} from "@/app/utils/api";
 
 /* -----------------------------
    Helpers
@@ -20,58 +36,112 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function pollQuizNamesByEmail({
+  email,
+  fetcher,
+  intervalMs = 4000,
+  maxMs = 120000, // ✅ 2 minutes (change to 180000 for 3 minutes)
+  signal,
+}) {
+  const start = Date.now();
+
+  while (Date.now() - start < maxMs) {
+    if (signal?.aborted) throw new Error("ABORTED");
+
+    let quizzes = [];
+    try {
+      quizzes = await fetcher(email);
+    } catch {
+      quizzes = [];
+    }
+
+    if (Array.isArray(quizzes) && quizzes.length > 0) return quizzes;
+
+    await sleep(intervalMs);
+  }
+
+  throw new Error("TIMEOUT");
+}
+
 export default function InputPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const autoSubmittedRef = useRef(false);
+  const pollAbortRef = useRef(null);
+
   const [email, setEmail] = useState("");
   const [quizNames, setQuizNames] = useState([]);
   const [selectedQuiz, setSelectedQuiz] = useState("");
   const [step, setStep] = useState("email");
+
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState(false); // ✅ new
+  const [info, setInfo] = useState(""); // ✅ new
   const [error, setError] = useState("");
 
   /* -----------------------------
      Submit Email
   ----------------------------- */
-  const submitEmail = useCallback(async () => {
-    const eNorm = normalizeEmail(email);
+  const submitEmail = useCallback(async (emailValue) => {
+    const eNorm = normalizeEmail(emailValue);
 
     if (!isValidEmail(eNorm)) {
       setError("Please enter a valid email address");
+      setInfo("");
       return;
     }
 
+    // stop any existing poll
+    if (pollAbortRef.current) pollAbortRef.current.abort();
+    pollAbortRef.current = new AbortController();
+
     setLoading(true);
+    setPending(false);
     setError("");
+    setInfo("");
     setQuizNames([]);
     setSelectedQuiz("");
 
     try {
-      // ⚡ Parallel API calls for faster response
-      const [exists, names] = await Promise.all([
-        verifyEmailExists(eNorm).catch(() => true), // fallback
-        fetchQuizNamesByEmail(eNorm),
-      ]);
-
-      if (!exists) {
-        setError("Email not found. Please use the same email used in the quiz registration.");
+      // First attempt (fast)
+      const first = await fetchQuizNamesByEmail(eNorm).catch(() => []);
+      if (Array.isArray(first) && first.length > 0) {
+        setQuizNames(first);
+        setStep("quiz");
         return;
       }
 
-      if (!names || names.length === 0) {
-        setError("No quiz results found for this email.");
-        return;
-      }
+      // Nothing yet → webhook delay → pending + poll
+      setPending(true);
+      setInfo("We’re still receiving your submission from FlexiQuiz. Please wait 30–60 seconds…");
+
+      const names = await pollQuizNamesByEmail({
+        email: eNorm,
+        fetcher: fetchQuizNamesByEmail,
+        intervalMs: 4000,
+        maxMs: 120000, // 2 min
+        signal: pollAbortRef.current.signal,
+      });
 
       setQuizNames(names);
       setStep("quiz");
+      setInfo("");
     } catch (err) {
-      setError(err?.message || "Failed to fetch quiz names.");
+      const msg = String(err?.message || "");
+      if (msg === "ABORTED") return;
+
+      if (msg === "TIMEOUT") {
+        setError("Your results are still processing. Please try again in 1–2 minutes.");
+      } else {
+        setError(err?.message || "Failed to fetch quiz names.");
+      }
     } finally {
       setLoading(false);
+      setPending(false);
     }
-  }, [email]);
+  }, []);
 
   /* -----------------------------
      Auto-submit from URL
@@ -84,15 +154,23 @@ export default function InputPage() {
     setEmail(normalized);
     autoSubmittedRef.current = true;
 
-    submitEmail();
+    // ✅ IMPORTANT: pass the normalized email directly
+    submitEmail(normalized);
   }, [searchParams, submitEmail]);
+
+  // cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollAbortRef.current) pollAbortRef.current.abort();
+    };
+  }, []);
 
   /* -----------------------------
      Handlers
   ----------------------------- */
   const handleEmailSubmit = (e) => {
     e.preventDefault();
-    if (!loading) submitEmail();
+    if (!loading) submitEmail(email);
   };
 
   const handleQuizSubmit = (e) => {
@@ -100,14 +178,23 @@ export default function InputPage() {
     if (!selectedQuiz) return;
 
     navigate(
-      `/result?email=${encodeURIComponent(normalizeEmail(email))}&quiz=${encodeURIComponent(selectedQuiz)}`
+      `/result?email=${encodeURIComponent(normalizeEmail(email))}&quiz=${encodeURIComponent(
+        selectedQuiz
+      )}`
     );
   };
 
   const handleBack = () => {
+    if (pollAbortRef.current) pollAbortRef.current.abort();
+
     setStep("email");
     setError("");
+    setInfo("");
+    setPending(false);
+    setLoading(false);
   };
+
+  const showSpinner = loading || pending;
 
   /* -----------------------------
      Render
@@ -144,24 +231,43 @@ export default function InputPage() {
                 <Input
                   type="email"
                   value={email}
-                  disabled={loading}
+                  disabled={showSpinner}
                   className="pl-9"
                   placeholder="you@example.com"
                   onChange={(e) => {
                     setEmail(e.target.value);
                     setError("");
+                    setInfo("");
                   }}
                   required
                 />
               </div>
 
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {info && <p className="text-sm text-gray-600">{info}</p>}
 
-              <Button className="w-full" disabled={loading}>
-                {loading ? (
+              {error && (
+                <div className="space-y-2">
+                  <p className="text-sm text-red-600">{error}</p>
+
+                  {error.includes("still processing") && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => submitEmail(email)}
+                      disabled={showSpinner}
+                    >
+                      Retry
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              <Button className="w-full" disabled={showSpinner}>
+                {showSpinner ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Fetching quizzes…
+                    {pending ? "Processing…" : "Fetching quizzes…"}
                   </>
                 ) : (
                   "Continue"
