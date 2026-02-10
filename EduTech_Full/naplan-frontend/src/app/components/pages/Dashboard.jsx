@@ -104,20 +104,15 @@ const buildSuggestionsFromFeedback = (feedback) => {
 const isAiPending = (latestResult) => {
   const status = String(latestResult?.ai_feedback_meta?.status || "").toLowerCase();
 
-  // ✅ If status says done/completed, DO NOT show loader
+  // ✅ If status is done -> not pending
   if (["done", "completed", "success"].includes(status)) return false;
 
-  // ✅ If status says failed/error, also don't keep spinning forever
+  // ✅ If status is failed -> not pending (dashboard will show, you can show error UI inside)
   if (["failed", "error"].includes(status)) return false;
 
-  // ✅ Otherwise, if feedback is still missing → show loader
-  const hasFeedback = !!latestResult?.ai_feedback;
-  if (!hasFeedback) return true;
-
-  // If feedback exists, show dashboard
-  return false;
+  // ✅ For anything else (including empty / missing status) -> pending
+  return true;
 };
-
 
 /* -------------------- component -------------------- */
 

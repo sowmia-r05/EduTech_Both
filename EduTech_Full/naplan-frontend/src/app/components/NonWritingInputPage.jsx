@@ -26,7 +26,7 @@ import { Loader2, Mail } from "lucide-react";
 import {
   fetchResultQuizNamesByEmail,
   normalizeEmail,
-  // verifyEmailExists, // ❌ don't use as hard blocker during webhook delay
+  verifyEmailExists, // ❌ don't use as hard blocker during webhook delay
 } from "@/app/utils/api";
 
 /* -----------------------------
@@ -86,75 +86,83 @@ export default function NonWritingInputPage() {
   /* -----------------------------
      Core Fetch Logic
   ----------------------------- */
-  const submitEmail = useCallback(async (emailValue) => {
-    const normalized = normalizeEmail(emailValue);
+const submitEmail = useCallback(async (emailValue) => {
+  const normalized = normalizeEmail(emailValue);
 
-    if (!isValidEmail(normalized)) {
-      setError("Please enter a valid email address");
-      setInfo("");
-      return;
-    }
+  if (!isValidEmail(normalized)) {
+    setError("Please enter a valid email address");
+    setInfo("");
+    return;
+  }
 
-    // 🔥 CACHE HIT
-    if (quizCacheRef.current.has(normalized)) {
-      setQuizNames(quizCacheRef.current.get(normalized));
-      setStep("quiz");
-      setError("");
-      setInfo("");
-      return;
-    }
-
-    // cancel previous polling
-    if (pollAbortRef.current) pollAbortRef.current.abort();
-    pollAbortRef.current = new AbortController();
-
-    setLoading(true);
-    setPending(false);
+  // 🔥 CACHE HIT
+  if (quizCacheRef.current.has(normalized)) {
+    setQuizNames(quizCacheRef.current.get(normalized));
+    setStep("quiz");
     setError("");
     setInfo("");
-    setSelectedQuiz("");
+    return;
+  }
 
-    try {
-      // First quick attempt
-      const first = await fetchResultQuizNamesByEmail(normalized).catch(() => []);
+  // cancel previous polling
+  if (pollAbortRef.current) pollAbortRef.current.abort();
+  pollAbortRef.current = new AbortController();
 
-      if (Array.isArray(first) && first.length > 0) {
-        quizCacheRef.current.set(normalized, first);
-        setQuizNames(first);
-        setStep("quiz");
-        return;
-      }
+  setLoading(true);
+  setPending(false);
+  setError("");
+  setInfo("");
+  setSelectedQuiz("");
 
-      // No quizzes yet → webhook delay → pending + poll
-      setPending(true);
-      setInfo("Fetching your result… Please wait 30–60 seconds.");
-
-      const quizzes = await pollResultQuizNames({
-        email: normalized,
-        fetcher: fetchResultQuizNamesByEmail,
-        intervalMs: 4000,
-        maxMs: 120000,
-        signal: pollAbortRef.current.signal,
-      });
-
-      quizCacheRef.current.set(normalized, quizzes);
-      setQuizNames(quizzes);
-      setStep("quiz");
-      setInfo("");
-    } catch (err) {
-      const msg = String(err?.message || "");
-      if (msg === "ABORTED") return;
-
-      if (msg === "TIMEOUT") {
-        setError("Your result is still processing. Please try again in 1–2 minutes.");
-      } else {
-        setError(err?.message || "Failed to fetch quiz names.");
-      }
-    } finally {
-      setLoading(false);
-      setPending(false);
+  try {
+    // ✅ STEP 1: check Users table first
+    const exists = await verifyEmailExists(normalized).catch(() => false);
+    if (!exists) {
+      setError("Email ID does not exist. Please use the email used during registration.");
+      return;
     }
-  }, []);
+
+    // ✅ STEP 2: then do your existing results-table logic
+    const first = await fetchResultQuizNamesByEmail(normalized).catch(() => []);
+
+    if (Array.isArray(first) && first.length > 0) {
+      quizCacheRef.current.set(normalized, first);
+      setQuizNames(first);
+      setStep("quiz");
+      return;
+    }
+
+    // No quizzes yet → webhook delay → pending + poll
+    setPending(true);
+    setInfo("Fetching your result… Please wait 30–60 seconds.");
+
+    const quizzes = await pollResultQuizNames({
+      email: normalized,
+      fetcher: fetchResultQuizNamesByEmail,
+      intervalMs: 4000,
+      maxMs: 120000,
+      signal: pollAbortRef.current.signal,
+    });
+
+    quizCacheRef.current.set(normalized, quizzes);
+    setQuizNames(quizzes);
+    setStep("quiz");
+    setInfo("");
+  } catch (err) {
+    const msg = String(err?.message || "");
+    if (msg === "ABORTED") return;
+
+    if (msg === "TIMEOUT") {
+      setError("Your result is still processing. Please try again in 1–2 minutes.");
+    } else {
+      setError(err?.message || "Failed to fetch quiz names.");
+    }
+  } finally {
+    setLoading(false);
+    setPending(false);
+  }
+}, []);
+
 
   /* -----------------------------
      Auto-submit from URL

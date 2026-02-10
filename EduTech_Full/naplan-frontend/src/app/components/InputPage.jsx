@@ -26,8 +26,9 @@ import AnalyticsImg from "@/app/Images/fetch-data.svg";
 import {
   fetchQuizNamesByEmail,
   normalizeEmail,
-  // verifyEmailExists, // ❌ don’t use as hard blocker
+  verifyEmailExists, // ✅ enable
 } from "@/app/utils/api";
+
 
 /* -----------------------------
    Helpers
@@ -85,63 +86,72 @@ export default function InputPage() {
      Submit Email
   ----------------------------- */
   const submitEmail = useCallback(async (emailValue) => {
-    const eNorm = normalizeEmail(emailValue);
+  const eNorm = normalizeEmail(emailValue);
 
-    if (!isValidEmail(eNorm)) {
-      setError("Please enter a valid email address");
-      setInfo("");
+  if (!isValidEmail(eNorm)) {
+    setError("Please enter a valid email address");
+    setInfo("");
+    return;
+  }
+
+  // stop any existing poll
+  if (pollAbortRef.current) pollAbortRef.current.abort();
+  pollAbortRef.current = new AbortController();
+
+  setLoading(true);
+  setPending(false);
+  setError("");
+  setInfo("");
+  setQuizNames([]);
+  setSelectedQuiz("");
+
+  try {
+    // ✅ STEP 1: Check Users table first
+    const exists = await verifyEmailExists(eNorm).catch(() => false);
+
+    if (!exists) {
+      setError("Email ID does not exist. Please use the email used during registration.");
       return;
     }
 
-    // stop any existing poll
-    if (pollAbortRef.current) pollAbortRef.current.abort();
-    pollAbortRef.current = new AbortController();
-
-    setLoading(true);
-    setPending(false);
-    setError("");
-    setInfo("");
-    setQuizNames([]);
-    setSelectedQuiz("");
-
-    try {
-      // First attempt (fast)
-      const first = await fetchQuizNamesByEmail(eNorm).catch(() => []);
-      if (Array.isArray(first) && first.length > 0) {
-        setQuizNames(first);
-        setStep("quiz");
-        return;
-      }
-
-      // Nothing yet → webhook delay → pending + poll
-      setPending(true);
-      setInfo("We’re still receiving your submission from Quiz Page. Please wait 30–60 seconds…");
-
-      const names = await pollQuizNamesByEmail({
-        email: eNorm,
-        fetcher: fetchQuizNamesByEmail,
-        intervalMs: 4000,
-        maxMs: 120000, // 2 min
-        signal: pollAbortRef.current.signal,
-      });
-
-      setQuizNames(names);
+    // ✅ STEP 2: Existing user → now use your original logic (writing/results table)
+    const first = await fetchQuizNamesByEmail(eNorm).catch(() => []);
+    if (Array.isArray(first) && first.length > 0) {
+      setQuizNames(first);
       setStep("quiz");
-      setInfo("");
-    } catch (err) {
-      const msg = String(err?.message || "");
-      if (msg === "ABORTED") return;
-
-      if (msg === "TIMEOUT") {
-        setError("Your results are still processing. Please try again in 1–2 minutes.");
-      } else {
-        setError(err?.message || "Failed to fetch quiz names.");
-      }
-    } finally {
-      setLoading(false);
-      setPending(false);
+      return;
     }
-  }, []);
+
+    // Nothing yet → webhook delay → pending + poll
+    setPending(true);
+    setInfo("We’re still receiving your submission. Please wait 30–60 seconds…");
+
+    const names = await pollQuizNamesByEmail({
+      email: eNorm,
+      fetcher: fetchQuizNamesByEmail,
+      intervalMs: 4000,
+      maxMs: 120000,
+      signal: pollAbortRef.current.signal,
+    });
+
+    setQuizNames(names);
+    setStep("quiz");
+    setInfo("");
+  } catch (err) {
+    const msg = String(err?.message || "");
+    if (msg === "ABORTED") return;
+
+    if (msg === "TIMEOUT") {
+      setError("Your results are still processing. Please try again in 1–2 minutes.");
+    } else {
+      setError(err?.message || "Failed to fetch quiz names.");
+    }
+  } finally {
+    setLoading(false);
+    setPending(false);
+  }
+}, []);
+
 
   /* -----------------------------
      Auto-submit from URL
