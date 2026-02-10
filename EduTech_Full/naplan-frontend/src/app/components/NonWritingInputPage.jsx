@@ -29,6 +29,15 @@ import {
   verifyEmailExists, // ❌ don't use as hard blocker during webhook delay
 } from "@/app/utils/api";
 
+import {
+  createEmailCaches,
+  loadQuizCache,
+  saveQuizCache,
+  loadExistsCache,
+  saveExistsCache,
+} from "@/app/utils/quizCache";
+
+
 /* -----------------------------
    Helpers
 ----------------------------- */
@@ -42,7 +51,7 @@ async function pollResultQuizNames({
   email,
   fetcher,
   intervalMs = 4000,
-  maxMs = 120000, // 2 minutes (change to 180000 for 3 minutes)
+  maxMs = 120000,
   signal,
 }) {
   const start = Date.now();
@@ -70,8 +79,10 @@ export default function NonWritingInputPage() {
   const [searchParams] = useSearchParams();
 
   const autoSubmittedRef = useRef(false);
-  const quizCacheRef = useRef(new Map());
   const pollAbortRef = useRef(null);
+
+  // ✅ add caches ref
+  const cachesRef = useRef(createEmailCaches());
 
   const [email, setEmail] = useState("");
   const [quizNames, setQuizNames] = useState([]);
@@ -79,90 +90,112 @@ export default function NonWritingInputPage() {
   const [step, setStep] = useState("email");
 
   const [loading, setLoading] = useState(false);
-  const [pending, setPending] = useState(false); // ✅ new
-  const [info, setInfo] = useState(""); // ✅ new
+  const [pending, setPending] = useState(false);
+  const [info, setInfo] = useState("");
   const [error, setError] = useState("");
 
   /* -----------------------------
      Core Fetch Logic
   ----------------------------- */
-const submitEmail = useCallback(async (emailValue) => {
-  const normalized = normalizeEmail(emailValue);
+  const submitEmail = useCallback(async (emailValue) => {
+    const normalized = normalizeEmail(emailValue);
 
-  if (!isValidEmail(normalized)) {
-    setError("Please enter a valid email address");
-    setInfo("");
-    return;
-  }
+    // 0) Validate email
+    if (!isValidEmail(normalized)) {
+      setError("Please enter a valid email address");
+      setInfo("");
+      return;
+    }
 
-  // 🔥 CACHE HIT
-  if (quizCacheRef.current.has(normalized)) {
-    setQuizNames(quizCacheRef.current.get(normalized));
-    setStep("quiz");
+    // 1) ✅ FAST PATH: cache hit -> show instantly
+    const cachedQuizzes = loadQuizCache(normalized, cachesRef.current, "nonwriting");
+    if (Array.isArray(cachedQuizzes) && cachedQuizzes.length > 0) {
+      setQuizNames(cachedQuizzes);
+      setStep("quiz");
+      setInfo("");
+      setError("");
+      setSelectedQuiz("");
+      return;
+    }
+
+    // 2) Cancel previous poll
+    if (pollAbortRef.current) pollAbortRef.current.abort();
+    const controller = new AbortController();
+    pollAbortRef.current = controller;
+
+    // 3) Reset UI
+    setLoading(true);
+    setPending(false);
     setError("");
     setInfo("");
-    return;
-  }
+    setSelectedQuiz("");
+    setQuizNames([]);
 
-  // cancel previous polling
-  if (pollAbortRef.current) pollAbortRef.current.abort();
-  pollAbortRef.current = new AbortController();
+    try {
+      // 4) Try fetching quizzes first
+      const first = await fetchResultQuizNamesByEmail(normalized).catch(() => []);
+      if (controller.signal.aborted) return;
 
-  setLoading(true);
-  setPending(false);
-  setError("");
-  setInfo("");
-  setSelectedQuiz("");
+      if (Array.isArray(first) && first.length > 0) {
+        saveQuizCache(normalized, first, cachesRef.current, "nonwriting");
+        setQuizNames(first);
+        setStep("quiz");
+        setInfo("");
+        return;
+      }
 
-  try {
-    // ✅ STEP 1: check Users table first
-    const exists = await verifyEmailExists(normalized).catch(() => false);
-    if (!exists) {
-      setError("Email ID does not exist. Please use the email used during registration.");
-      return;
-    }
+      // 5) Check user exists (cached -> API)
+      let exists = loadExistsCache(normalized, cachesRef.current, "nonwriting");
 
-    // ✅ STEP 2: then do your existing results-table logic
-    const first = await fetchResultQuizNamesByEmail(normalized).catch(() => []);
+      if (exists == null) {
+        exists = await verifyEmailExists(normalized).catch(() => false);
+        saveExistsCache(normalized, exists, cachesRef.current, "nonwriting");
+      }
 
-    if (Array.isArray(first) && first.length > 0) {
-      quizCacheRef.current.set(normalized, first);
-      setQuizNames(first);
+      if (controller.signal.aborted) return;
+
+      if (!exists) {
+        setError("Email ID does not exist. Please use the email used during registration.");
+        setInfo("");
+        return;
+      }
+
+      // 6) Poll until quizzes appear
+      setPending(true);
+      setInfo("Fetching your result… Please wait 30–60 seconds.");
+
+      const quizzes = await pollResultQuizNames({
+        email: normalized,
+        fetcher: fetchResultQuizNamesByEmail,
+        intervalMs: 4000,
+        maxMs: 120000,
+        signal: controller.signal,
+      });
+
+      if (controller.signal.aborted) return;
+
+      saveQuizCache(normalized, quizzes, cachesRef.current, "nonwriting");
+      setQuizNames(quizzes);
       setStep("quiz");
-      return;
+      setInfo("");
+    } catch (err) {
+      const msg = String(err?.message || "");
+      if (msg === "ABORTED" || pollAbortRef.current?.signal?.aborted) return;
+
+      if (msg === "TIMEOUT") {
+        setError("Your result is still processing. Please try again in 1–2 minutes.");
+      } else {
+        setError(err?.message || "Failed to fetch quiz names.");
+      }
+    } finally {
+      if (pollAbortRef.current === controller) {
+        setLoading(false);
+        setPending(false);
+      }
     }
+  }, []);
 
-    // No quizzes yet → webhook delay → pending + poll
-    setPending(true);
-    setInfo("Fetching your result… Please wait 30–60 seconds.");
-
-    const quizzes = await pollResultQuizNames({
-      email: normalized,
-      fetcher: fetchResultQuizNamesByEmail,
-      intervalMs: 4000,
-      maxMs: 120000,
-      signal: pollAbortRef.current.signal,
-    });
-
-    quizCacheRef.current.set(normalized, quizzes);
-    setQuizNames(quizzes);
-    setStep("quiz");
-    setInfo("");
-  } catch (err) {
-    const msg = String(err?.message || "");
-    if (msg === "ABORTED") return;
-
-    if (msg === "TIMEOUT") {
-      setError("Your result is still processing. Please try again in 1–2 minutes.");
-    } else {
-      setError(err?.message || "Failed to fetch quiz names.");
-    }
-  } finally {
-    setLoading(false);
-    setPending(false);
-  }
-}, []);
-
+  // (rest of your component remains the same)
 
   /* -----------------------------
      Auto-submit from URL

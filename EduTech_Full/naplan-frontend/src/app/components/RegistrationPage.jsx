@@ -88,7 +88,7 @@ export default function RegistrationPage() {
         console.error("Email check failed:", err);
         setEmailStatus("idle");
       }
-    }, 300);
+    }, 150);
 
     return () => clearTimeout(debounceRef.current);
   }, [formData.email]);

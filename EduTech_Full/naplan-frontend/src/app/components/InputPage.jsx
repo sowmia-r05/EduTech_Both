@@ -29,6 +29,13 @@ import {
   verifyEmailExists, // ✅ enable
 } from "@/app/utils/api";
 
+import {
+  createEmailCaches,
+  loadQuizCache,
+  saveQuizCache,
+  loadExistsCache,
+  saveExistsCache,
+} from "@/app/utils/quizCache";
 
 /* -----------------------------
    Helpers
@@ -81,22 +88,37 @@ export default function InputPage() {
   const [pending, setPending] = useState(false); // ✅ new
   const [info, setInfo] = useState(""); // ✅ new
   const [error, setError] = useState("");
+  const cachesRef = useRef(createEmailCaches());
+
 
   /* -----------------------------
      Submit Email
   ----------------------------- */
-  const submitEmail = useCallback(async (emailValue) => {
+const submitEmail = useCallback(async (emailValue) => {
   const eNorm = normalizeEmail(emailValue);
 
+  // 0) Validate
   if (!isValidEmail(eNorm)) {
     setError("Please enter a valid email address");
     setInfo("");
     return;
   }
 
+  // ✅ FAST PATH: cache hit (writing scope)
+  const cached = loadQuizCache(eNorm, cachesRef.current, "writing");
+  if (Array.isArray(cached) && cached.length > 0) {
+    setQuizNames(cached);
+    setStep("quiz");
+    setInfo("");
+    setError("");
+    setSelectedQuiz("");
+    return;
+  }
+
   // stop any existing poll
   if (pollAbortRef.current) pollAbortRef.current.abort();
-  pollAbortRef.current = new AbortController();
+  const controller = new AbortController();
+  pollAbortRef.current = controller;
 
   setLoading(true);
   setPending(false);
@@ -106,23 +128,34 @@ export default function InputPage() {
   setSelectedQuiz("");
 
   try {
-    // ✅ STEP 1: Check Users table first
-    const exists = await verifyEmailExists(eNorm).catch(() => false);
+    // 1) Try fetch quizzes first (FAST)
+    const first = await fetchQuizNamesByEmail(eNorm).catch(() => []);
+    if (controller.signal.aborted) return;
+
+    if (Array.isArray(first) && first.length > 0) {
+      saveQuizCache(eNorm, first, cachesRef.current, "writing");
+      setQuizNames(first);
+      setStep("quiz");
+      setInfo("");
+      return;
+    }
+
+    // 2) No quizzes -> verify user exists (cached -> API)
+    let exists = loadExistsCache(eNorm, cachesRef.current, "writing");
+
+    if (exists == null) {
+      exists = await verifyEmailExists(eNorm).catch(() => false);
+      saveExistsCache(eNorm, exists, cachesRef.current, "writing");
+    }
+    if (controller.signal.aborted) return;
 
     if (!exists) {
       setError("Email ID does not exist. Please use the email used during registration.");
+      setInfo("");
       return;
     }
 
-    // ✅ STEP 2: Existing user → now use your original logic (writing/results table)
-    const first = await fetchQuizNamesByEmail(eNorm).catch(() => []);
-    if (Array.isArray(first) && first.length > 0) {
-      setQuizNames(first);
-      setStep("quiz");
-      return;
-    }
-
-    // Nothing yet → webhook delay → pending + poll
+    // 3) User exists -> poll results table until quizzes appear
     setPending(true);
     setInfo("We’re still receiving your submission. Please wait 30–60 seconds…");
 
@@ -131,15 +164,18 @@ export default function InputPage() {
       fetcher: fetchQuizNamesByEmail,
       intervalMs: 4000,
       maxMs: 120000,
-      signal: pollAbortRef.current.signal,
+      signal: controller.signal,
     });
 
+    if (controller.signal.aborted) return;
+
+    saveQuizCache(eNorm, names, cachesRef.current, "writing");
     setQuizNames(names);
     setStep("quiz");
     setInfo("");
   } catch (err) {
     const msg = String(err?.message || "");
-    if (msg === "ABORTED") return;
+    if (msg === "ABORTED" || controller.signal.aborted) return;
 
     if (msg === "TIMEOUT") {
       setError("Your results are still processing. Please try again in 1–2 minutes.");
@@ -147,13 +183,18 @@ export default function InputPage() {
       setError(err?.message || "Failed to fetch quiz names.");
     }
   } finally {
-    setLoading(false);
-    setPending(false);
+    // only stop loading if this request is still the latest one
+    if (pollAbortRef.current === controller) {
+      setLoading(false);
+      setPending(false);
+    }
   }
 }, []);
 
 
-  /* -----------------------------
+
+
+  /* ----------------------------
      Auto-submit from URL
   ----------------------------- */
   useEffect(() => {
