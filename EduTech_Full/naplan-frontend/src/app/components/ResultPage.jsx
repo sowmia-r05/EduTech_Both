@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 
 import waitingGif from "@/app/components/Public/dragon_play.gif";
-import AvatarMenu from "@/app/components/dashboardComponents/AvatarMenu";
+import AvatarMenu from "@/app/components/ResultComponents/AvatarMenu";
 
 import { fetchLatestWritingByEmailAndQuiz, normalizeEmail } from "@/app/utils/api";
 

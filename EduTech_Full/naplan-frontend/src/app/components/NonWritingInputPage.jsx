@@ -26,7 +26,7 @@ import { Loader2, Mail } from "lucide-react";
 import {
   fetchResultQuizNamesByEmail,
   normalizeEmail,
-  verifyEmailExists,
+  // verifyEmailExists, // ❌ don't use as hard blocker during webhook delay
 } from "@/app/utils/api";
 
 /* -----------------------------
@@ -36,18 +36,51 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function pollResultQuizNames({
+  email,
+  fetcher,
+  intervalMs = 4000,
+  maxMs = 120000, // 2 minutes (change to 180000 for 3 minutes)
+  signal,
+}) {
+  const start = Date.now();
+
+  while (Date.now() - start < maxMs) {
+    if (signal?.aborted) throw new Error("ABORTED");
+
+    let quizzes = [];
+    try {
+      quizzes = await fetcher(email);
+    } catch {
+      quizzes = [];
+    }
+
+    if (Array.isArray(quizzes) && quizzes.length > 0) return quizzes;
+
+    await sleep(intervalMs);
+  }
+
+  throw new Error("TIMEOUT");
+}
+
 export default function NonWritingInputPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const autoSubmittedRef = useRef(false);
   const quizCacheRef = useRef(new Map());
+  const pollAbortRef = useRef(null);
 
   const [email, setEmail] = useState("");
   const [quizNames, setQuizNames] = useState([]);
   const [selectedQuiz, setSelectedQuiz] = useState("");
   const [step, setStep] = useState("email");
+
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState(false); // ✅ new
+  const [info, setInfo] = useState(""); // ✅ new
   const [error, setError] = useState("");
 
   /* -----------------------------
@@ -58,6 +91,7 @@ export default function NonWritingInputPage() {
 
     if (!isValidEmail(normalized)) {
       setError("Please enter a valid email address");
+      setInfo("");
       return;
     }
 
@@ -65,37 +99,60 @@ export default function NonWritingInputPage() {
     if (quizCacheRef.current.has(normalized)) {
       setQuizNames(quizCacheRef.current.get(normalized));
       setStep("quiz");
+      setError("");
+      setInfo("");
       return;
     }
 
+    // cancel previous polling
+    if (pollAbortRef.current) pollAbortRef.current.abort();
+    pollAbortRef.current = new AbortController();
+
     setLoading(true);
+    setPending(false);
     setError("");
+    setInfo("");
     setSelectedQuiz("");
 
     try {
-      // ⚡ PARALLEL REQUESTS
-      const [exists, quizzes] = await Promise.all([
-        verifyEmailExists(normalized).catch(() => true),
-        fetchResultQuizNamesByEmail(normalized),
-      ]);
+      // First quick attempt
+      const first = await fetchResultQuizNamesByEmail(normalized).catch(() => []);
 
-      if (!exists) {
-        throw new Error(
-          "Email not found. Please use the same email used during quiz registration."
-        );
+      if (Array.isArray(first) && first.length > 0) {
+        quizCacheRef.current.set(normalized, first);
+        setQuizNames(first);
+        setStep("quiz");
+        return;
       }
 
-      if (!quizzes || quizzes.length === 0) {
-        throw new Error("No quiz results found for this email.");
-      }
+      // No quizzes yet → webhook delay → pending + poll
+      setPending(true);
+      setInfo("Fetching your result… Please wait 30–60 seconds.");
+
+      const quizzes = await pollResultQuizNames({
+        email: normalized,
+        fetcher: fetchResultQuizNamesByEmail,
+        intervalMs: 4000,
+        maxMs: 120000,
+        signal: pollAbortRef.current.signal,
+      });
 
       quizCacheRef.current.set(normalized, quizzes);
       setQuizNames(quizzes);
       setStep("quiz");
+      setInfo("");
     } catch (err) {
-      setError(err?.message || "Failed to fetch quiz names.");
+      const msg = String(err?.message || "");
+      if (msg === "ABORTED") return;
+
+      if (msg === "TIMEOUT") {
+        setError("Your result is still processing. Please try again in 1–2 minutes.");
+      } else {
+        setError(err?.message || "Failed to fetch quiz names.");
+      }
     } finally {
       setLoading(false);
+      setPending(false);
     }
   }, []);
 
@@ -109,8 +166,16 @@ export default function NonWritingInputPage() {
     const normalized = normalizeEmail(emailParam);
     autoSubmittedRef.current = true;
     setEmail(normalized);
+
+    // ✅ pass normalized directly
     submitEmail(normalized);
   }, [searchParams, submitEmail]);
+
+  useEffect(() => {
+    return () => {
+      if (pollAbortRef.current) pollAbortRef.current.abort();
+    };
+  }, []);
 
   /* -----------------------------
      Handlers
@@ -132,9 +197,16 @@ export default function NonWritingInputPage() {
   };
 
   const handleBack = () => {
+    if (pollAbortRef.current) pollAbortRef.current.abort();
+
     setStep("email");
     setError("");
+    setInfo("");
+    setPending(false);
+    setLoading(false);
   };
+
+  const showSpinner = loading || pending;
 
   /* -----------------------------
      Render
@@ -171,24 +243,42 @@ export default function NonWritingInputPage() {
                 <Input
                   type="email"
                   value={email}
-                  disabled={loading}
+                  disabled={showSpinner}
                   className="pl-9"
                   placeholder="you@example.com"
                   onChange={(e) => {
                     setEmail(e.target.value);
                     setError("");
+                    setInfo("");
                   }}
                   required
                 />
               </div>
 
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {info && <p className="text-sm text-gray-600">{info}</p>}
 
-              <Button className="w-full" disabled={loading}>
-                {loading ? (
+              {error && (
+                <div className="space-y-2">
+                  <p className="text-sm text-red-600">{error}</p>
+                  {error.includes("still processing") && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => submitEmail(email)}
+                      disabled={showSpinner}
+                    >
+                      Retry
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              <Button className="w-full" disabled={showSpinner}>
+                {showSpinner ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Fetching quizzes…
+                    {pending ? "Fetching result…" : "Fetching quizzes…"}
                   </>
                 ) : (
                   "Continue"

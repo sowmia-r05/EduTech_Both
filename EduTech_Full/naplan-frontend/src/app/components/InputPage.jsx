@@ -115,7 +115,7 @@ export default function InputPage() {
 
       // Nothing yet → webhook delay → pending + poll
       setPending(true);
-      setInfo("We’re still receiving your submission from FlexiQuiz. Please wait 30–60 seconds…");
+      setInfo("We’re still receiving your submission from Quiz Page. Please wait 30–60 seconds…");
 
       const names = await pollQuizNamesByEmail({
         email: eNorm,
