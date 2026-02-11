@@ -17,6 +17,11 @@ import { AlertCircle, ArrowLeft, CheckCircle } from "lucide-react";
 
 import { verifyEmailExists, normalizeEmail } from "@/app/utils/api";
 
+/* ----------------------------------------------------
+   ✅ GLOBAL EMAIL CACHE (persists across navigation)
+---------------------------------------------------- */
+const emailCache = new Map();
+
 const looksLikeEmail = (e) => {
   const basic =
     /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}(?:\.[A-Za-z]{2,})*$/.test(e);
@@ -40,10 +45,9 @@ export default function RegistrationPage() {
   });
 
   const [error, setError] = useState("");
-  const [emailStatus, setEmailStatus] = useState("idle"); 
+  const [emailStatus, setEmailStatus] = useState("idle");
   // idle | checking | exists | available
 
-  const cacheRef = useRef(new Map());
   const abortRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -53,24 +57,22 @@ export default function RegistrationPage() {
   useEffect(() => {
     const email = normalizeEmail(formData.email);
 
-    // reset state if email is invalid
     if (!email || !looksLikeEmail(email)) {
       setEmailStatus("idle");
       return;
     }
 
-    // use cached result instantly
-    const cached = cacheRef.current.get(email);
+    // ✅ Instant cache check (survives navigation)
+    const cached = emailCache.get(email);
     if (cached) {
       setEmailStatus(cached);
       return;
     }
 
-    // debounce
     clearTimeout(debounceRef.current);
+
     debounceRef.current = setTimeout(async () => {
       try {
-        // abort previous request
         if (abortRef.current) abortRef.current.abort();
         abortRef.current = new AbortController();
 
@@ -81,7 +83,10 @@ export default function RegistrationPage() {
         });
 
         const status = exists ? "exists" : "available";
-        cacheRef.current.set(email, status);
+
+        // ✅ Store in global cache
+        emailCache.set(email, status);
+
         setEmailStatus(status);
       } catch (err) {
         if (err?.name === "AbortError") return;
@@ -108,6 +113,7 @@ export default function RegistrationPage() {
     }
 
     const normalizedEmail = normalizeEmail(email);
+
     if (!looksLikeEmail(normalizedEmail)) {
       setError("Please enter a valid email address");
       return;
@@ -120,11 +126,12 @@ export default function RegistrationPage() {
       return;
     }
 
-    // final safety check if not cached
-    if (!cacheRef.current.has(normalizedEmail)) {
+    // Final safety check if not cached
+    if (!emailCache.has(normalizedEmail)) {
       try {
         const exists = await verifyEmailExists(normalizedEmail);
         if (exists) {
+          emailCache.set(normalizedEmail, "exists");
           setEmailStatus("exists");
           setError("Email ID already exists. Please login.");
           return;
@@ -148,6 +155,7 @@ export default function RegistrationPage() {
     };
 
     const url = gradeUrls[yearLevel];
+
     if (url) {
       window.location.assign(url);
     } else {
