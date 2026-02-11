@@ -137,6 +137,37 @@ router.get("/quizzes", async (req, res) => {
   }
 });
 
+
+/**
+ * ✅ Get ALL results by email (for dashboard filtering)
+ */
+router.get("/by-email", async (req, res) => {
+  try {
+    const email = String(req.query.email || "").trim().toLowerCase();
+    const quiz_name = String(req.query.quiz_name || "").trim();
+
+    if (!email) return res.status(400).json({ error: "email required" });
+
+    const q = { "user.email_address": email };
+
+    if (quiz_name) {
+      q.quiz_name = quiz_name;
+    }
+
+    const results = await Result.find(q).sort({
+      date_submitted: -1,
+      createdAt: -1,
+    });
+
+    return res.json(results || []);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to fetch results by email" });
+  }
+});
+
+
+
 /**
  * ✅ GET one result by response id
  * - supports both response_id and responseId

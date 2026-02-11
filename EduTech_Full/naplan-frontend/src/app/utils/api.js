@@ -109,8 +109,14 @@ export async function fetchLatestResultByEmail(email, options = {}) {
 }
 
 // All results for an email (for progress-over-time chart)
-export async function fetchResultsByEmail(email) {
+export async function fetchResultsByEmail(email, options = {}) {
   const e = normalizeEmail(email);
-  const data = await getJson(`/api/results/by-email?email=${encodeURIComponent(e)}`);
+  const params = new URLSearchParams({ email: e });
+
+  if (options.quiz_name) params.set("quiz_name", options.quiz_name);
+  if (options.year) params.set("year", options.year);
+  if (options.subject) params.set("subject", options.subject);
+
+  const data = await getJson(`/api/results/by-email?${params.toString()}`);
   return Array.isArray(data) ? data : [];
 }
