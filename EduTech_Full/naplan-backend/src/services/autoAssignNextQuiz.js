@@ -2,7 +2,7 @@ const Result = require("../models/result");
 const catalog = require("../config/nextQuizCatalog");
 
 const { findUserId, getAssignedQuizzes, assignQuizToUser } = require("./flexiQuizAssignService");
-const { findQuizIdByName } = require("./flexiQuizQuizLookupService");
+const { findQuizIdByName } = require("./flexiQuizLookupService");
 const { sendNextQuizMail } = require("./mailService");
 
 const norm = (s) => String(s || "").trim().toLowerCase();
