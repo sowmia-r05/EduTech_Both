@@ -1,3 +1,4 @@
+PYTHON_VERSION = 3.11.9
 python-dotenv==1.0.1
 requests
 Pillow
