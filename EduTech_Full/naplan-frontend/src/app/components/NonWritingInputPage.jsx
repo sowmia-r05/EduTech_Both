@@ -200,17 +200,25 @@ export default function NonWritingInputPage() {
   /* -----------------------------
      Auto-submit from URL
   ----------------------------- */
-  useEffect(() => {
-    const emailParam = searchParams.get("email");
-    if (!emailParam || autoSubmittedRef.current) return;
+useEffect(() => {
+  const emailParam = searchParams.get("email");
 
-    const normalized = normalizeEmail(emailParam);
-    autoSubmittedRef.current = true;
-    setEmail(normalized);
+  // 🚀 FIX: only auto-submit if email is valid
+  if (
+    !emailParam ||
+    autoSubmittedRef.current ||
+    !isValidEmail(emailParam)
+  ) {
+    return;
+  }
 
-    // ✅ pass normalized directly
-    submitEmail(normalized);
-  }, [searchParams, submitEmail]);
+  const normalized = normalizeEmail(emailParam);
+  autoSubmittedRef.current = true;
+  setEmail(normalized);
+
+  submitEmail(normalized);
+}, [searchParams, submitEmail]);
+
 
   useEffect(() => {
     return () => {

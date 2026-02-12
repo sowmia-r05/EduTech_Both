@@ -1,4 +1,4 @@
-import { HashRouter as Router, Routes, Route } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 
 import WelcomePage from "@/app/components/WelcomePage";
 import RegistrationPage from "@/app/components/RegistrationPage";
@@ -10,31 +10,24 @@ import NotFound from "@/app/components/pages/NotFound";
 
 export default function AppRoutes() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<WelcomePage />} />
-        <Route path="/register" element={<RegistrationPage />} />
+    <Routes>
+      <Route path="/" element={<WelcomePage />} />
+      <Route path="/register" element={<RegistrationPage />} />
 
-        {/* Writing feedback flow */}
-        <Route path="/WritingLookupQuizResults" element={<InputPage />} />
-        <Route path="/writing-feedback/result" element={<ResultPage />} />
+      <Route path="/WritingLookupQuizResults" element={<InputPage />} />
+      <Route path="/writing-feedback/result" element={<ResultPage />} />
 
-        {/* Non Writing feedback flow */}
-        <Route
-          path="/NonWritingLookupQuizResults"
-          element={<NonWritingInputPage />}
-        />
-        <Route
-          path="/NonWritingLookupQuizResults/results"
-          element={<Dashboard />}
-        />
+      <Route
+        path="/NonWritingLookupQuizResults"
+        element={<NonWritingInputPage />}
+      />
+      <Route
+        path="/NonWritingLookupQuizResults/results"
+        element={<Dashboard />}
+      />
 
-        {/* Backward compat */}
-        <Route path="/result" element={<ResultPage />} />
-
-        {/* 404 – must be last */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Router>
+      <Route path="/result" element={<ResultPage />} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
   );
 }

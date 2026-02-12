@@ -10,8 +10,10 @@ export default function Navbar() {
 
   useEffect(() => {
     const sections = ['home', 'why', 'faq']
+
     const handleScroll = () => {
-      const scrollPosition = window.scrollY + 120 // offset for sticky navbar
+      const scrollPosition = window.scrollY + 120
+
       sections.forEach((id) => {
         const section = document.getElementById(id)
         if (section) {
@@ -38,7 +40,8 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
       <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
-
+        
+        {/* Logo */}
         <div
           className="text-xl font-bold text-indigo-600 cursor-pointer"
           onClick={() => {
@@ -69,13 +72,15 @@ export default function Navbar() {
           ))}
         </nav>
 
+        {/* Desktop Buttons */}
         <div className="hidden md:flex items-center gap-6">
-          <button
-            onClick={() => navigate('/login')}
+          {/* External Login Link */}
+          <a
+            href="https://www.flexiquiz.com/Account/Login"
             className="text-gray-600 hover:text-indigo-600 transition"
           >
             Login
-          </button>
+          </a>
 
           <button
             onClick={() => navigate('/register')}
@@ -108,8 +113,19 @@ export default function Navbar() {
             </ScrollLink>
           ))}
 
+          {/* Mobile Login */}
+          <a
+            href="https://www.flexiquiz.com/Account/Login"
+            className="block text-gray-600"
+          >
+            Login
+          </a>
+
           <button
-            onClick={() => navigate('/register')}
+            onClick={() => {
+              setOpen(false)
+              navigate('/register')
+            }}
             className="w-full bg-indigo-600 text-white py-2 rounded-lg"
           >
             Enroll Now
