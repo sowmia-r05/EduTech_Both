@@ -678,19 +678,4 @@ module.exports = async function responseSubmitted(payload) {
       console.error(`❌ RESULT enrichment fatal (response_id=${response_id}):`, err);
     });
   });
-
-  const { autoAssignNextQuizAndEmail } = require("../../services/autoAssignNextQuiz");
-
-    setImmediate(() => {
-  autoAssignNextQuizAndEmail(newResult._id)
-    .then(() =>
-      console.log("✅ autoAssignNextQuizAndEmail done:", newResult._id)
-    )
-    .catch((e) =>
-      console.error(
-        "❌ autoAssignNextQuizAndEmail failed:",
-        e?.message || e
-      )
-    );
-});
 };
