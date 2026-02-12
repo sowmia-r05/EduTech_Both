@@ -681,9 +681,16 @@ module.exports = async function responseSubmitted(payload) {
 
   const { autoAssignNextQuizAndEmail } = require("../../services/autoAssignNextQuiz");
 
-setImmediate(() => {
-  autoAssignNextQuizAndEmail(newResult._id).catch((e) => {
-    console.error("❌ autoAssignNextQuizAndEmail failed:", e.message);
-  });
+    setImmediate(() => {
+  autoAssignNextQuizAndEmail(newResult._id)
+    .then(() =>
+      console.log("✅ autoAssignNextQuizAndEmail done:", newResult._id)
+    )
+    .catch((e) =>
+      console.error(
+        "❌ autoAssignNextQuizAndEmail failed:",
+        e?.message || e
+      )
+    );
 });
 };
