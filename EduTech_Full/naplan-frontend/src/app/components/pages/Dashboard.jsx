@@ -35,16 +35,14 @@ const buildTopicStrength = (topicBreakdown = {}) => {
   const strong = [];
   const weak = [];
 
-  Object.entries(topicBreakdown || {}).forEach(([topic, v]) => {
+  Object.entries(topicBreakdown).forEach(([topic, v]) => {
     const total = Number(v?.total) || 0;
     const scored = Number(v?.scored) || 0;
     if (!total) return;
 
     const accuracy = scored / total;
-
     if (accuracy >= 0.75) strong.push({ topic, accuracy });
-    else if (accuracy <= 0.5)
-      weak.push({ topic, lostMarks: total - scored });
+    else if (accuracy <= 0.5) weak.push({ topic, lostMarks: total - scored });
   });
 
   return {
@@ -55,7 +53,6 @@ const buildTopicStrength = (topicBreakdown = {}) => {
 
 const buildSuggestionsFromFeedback = (feedback) => {
   if (!feedback) return [];
-
   const list = [];
 
   if (feedback.overall_feedback)
@@ -87,7 +84,7 @@ const isAiPending = (result) => {
   return true;
 };
 
-/* -------------------- component -------------------- */
+/* -------------------- Dashboard Component -------------------- */
 
 export default function Dashboard() {
   const [searchParams] = useSearchParams();
@@ -104,9 +101,7 @@ export default function Dashboard() {
 
   /* -------------------- Redirect if email missing -------------------- */
   useEffect(() => {
-    if (!email) {
-      navigate("/", { replace: true });
-    }
+    if (!email) navigate("/", { replace: true });
   }, [email, navigate]);
 
   /* -------------------- Initial fetch -------------------- */
@@ -121,10 +116,7 @@ export default function Dashboard() {
         setError("");
 
         const [latest, list] = await Promise.all([
-          fetchLatestResultByEmail(
-            email,
-            quizParam ? { quiz_name: quizParam } : {}
-          ),
+          fetchLatestResultByEmail(email, quizParam ? { quiz_name: quizParam } : {}),
           fetchResultsByEmail(email),
         ]);
 
@@ -152,18 +144,11 @@ export default function Dashboard() {
 
     const poll = async () => {
       try {
-        const latest = await fetchLatestResultByEmail(
-          email,
-          quizParam ? { quiz_name: quizParam } : {}
-        );
-
+        const latest = await fetchLatestResultByEmail(email, quizParam ? { quiz_name: quizParam } : {});
         if (cancelled) return;
-
         setLatestResult(latest);
 
-        if (isAiPending(latest)) {
-          timer = setTimeout(poll, 4000);
-        }
+        if (isAiPending(latest)) timer = setTimeout(poll, 4000);
       } catch {
         if (!cancelled) timer = setTimeout(poll, 6000);
       }
@@ -177,7 +162,19 @@ export default function Dashboard() {
     };
   }, [email, quizParam, selectedDate]);
 
-  /* -------------------- Subject + Date Filtering -------------------- */
+  /* -------------------- Dates of Tests (for marking) -------------------- */
+  const testTakenDates = useMemo(() => {
+    return resultsList
+      .map((r) => unwrapDate(r?.createdAt || r?.date_submitted))
+      .filter(Boolean)
+      .map((d) => {
+        const date = new Date(d);
+        date.setHours(0, 0, 0, 0);
+        return date;
+      });
+  }, [resultsList]);
+
+  /* -------------------- Filtered results -------------------- */
   const filteredResults = useMemo(() => {
     let list = resultsList;
 
@@ -193,7 +190,6 @@ export default function Dashboard() {
 
     const start = new Date(selectedDate);
     start.setHours(0, 0, 0, 0);
-
     const end = new Date(selectedDate);
     end.setHours(23, 59, 59, 999);
 
@@ -216,7 +212,7 @@ export default function Dashboard() {
     )[0];
   }, [filteredResults, latestResult, selectedDate]);
 
-  /* -------------------- Guards / Loading states -------------------- */
+  /* -------------------- Loading / Error states -------------------- */
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -264,48 +260,39 @@ export default function Dashboard() {
   }
 
   /* -------------------- Derived Values -------------------- */
-  const percentage = Math.round(
-    Number(selectedResult?.score?.percentage || 0)
-  );
+  const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
   const grade = selectedResult?.score?.grade || "—";
-  const displayGrade =
-    ["fail", "f", "failed"].includes(String(grade).toLowerCase())
-      ? "Practice Needed"
-      : grade;
+  const displayGrade = ["fail", "f", "failed"].includes(String(grade).toLowerCase())
+    ? "Practice Needed"
+    : grade;
   const duration = formatDuration(selectedResult?.duration);
 
-  const { strongTopics, weakTopics } = buildTopicStrength(
-    selectedResult?.topicBreakdown || {}
-  );
+  const { strongTopics, weakTopics } = buildTopicStrength(selectedResult?.topicBreakdown || {});
+  const suggestions = buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
 
-  const suggestions = buildSuggestionsFromFeedback(
-    selectedResult?.ai_feedback
-  );
-
-  const displayName = `${selectedResult?.user?.first_name || ""} ${
-    selectedResult?.user?.last_name || ""
-  }`.trim() || "Student";
+  const displayName = `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim() || "Student";
 
   /* -------------------- Render -------------------- */
   return (
     <div className="min-h-screen bg-gray-100 px-6 py-4">
+      {/* Header */}
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-3xl font-bold">
           <span className="text-blue-600">{displayName} - </span>
-          <span className="text-purple-600">
-            {selectedResult?.quiz_name || "Quiz"} Report
-          </span>
+          <span className="text-purple-600">{selectedResult?.quiz_name || "Quiz"} Report</span>
         </h1>
 
         <div className="flex items-center gap-4">
           <DateRangeFilter
             selectedDate={selectedDate}
-            onChange={(date) => setSelectedDate(date)}
+            onChange={setSelectedDate}
+            testTakenDates={testTakenDates}
           />
           <AvatarMenu />
         </div>
       </div>
 
+      {/* Main Grid */}
       <div className="grid grid-cols-12 gap-4">
         <div className="col-span-7 grid grid-cols-4 gap-4">
           <StatCard title="Overall Score" value={`${percentage}%`} />
@@ -315,19 +302,12 @@ export default function Dashboard() {
         </div>
 
         <div className="col-span-5 row-span-3">
-          <AICoachPanel
-            feedback={selectedResult?.ai_feedback}
-            strongTopics={strongTopics}
-            weakTopics={weakTopics}
-          />
+          <AICoachPanel feedback={selectedResult?.ai_feedback} strongTopics={strongTopics} weakTopics={weakTopics} />
         </div>
 
         <div className="col-span-3">
           <div className="bg-white rounded-xl shadow p-4 h-full">
-            <DonutScoreChart
-              correctPercent={percentage}
-              incorrectPercent={100 - percentage}
-            />
+            <DonutScoreChart correctPercent={percentage} incorrectPercent={100 - percentage} />
           </div>
         </div>
 
@@ -339,21 +319,13 @@ export default function Dashboard() {
 
         <div className="col-span-3">
           <div className="bg-white rounded-xl shadow p-4 h-full">
-            <TopTopicsFunnelChart
-              topicBreakdown={selectedResult?.topicBreakdown}
-              topN={5}
-              height={250}
-              title="Top 5 Topics"
-            />
+            <TopTopicsFunnelChart topicBreakdown={selectedResult?.topicBreakdown} topN={5} height={250} title="Top 5 Topics" />
           </div>
         </div>
 
         <div className="col-span-4">
           <div className="bg-white rounded-xl shadow p-4 h-full">
-            <AISuggestionPanel
-              suggestions={suggestions}
-              studyTips={selectedResult?.ai_feedback?.study_tips || []}
-            />
+            <AISuggestionPanel suggestions={suggestions} studyTips={selectedResult?.ai_feedback?.study_tips || []} />
           </div>
         </div>
       </div>
