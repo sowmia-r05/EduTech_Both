@@ -12,7 +12,6 @@ import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilte
 import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
 
-
 import {
   fetchLatestResultByEmail,
   fetchResultsByEmail,
@@ -21,7 +20,7 @@ import {
 
 import waitingGif from "@/app/components/Public/dragon_play.gif";
 
-/* -------------------- helpers -------------------- */
+/* -------------------- Helpers -------------------- */
 
 const unwrapDate = (d) =>
   d && typeof d === "object" && "$date" in d ? d.$date : d;
@@ -101,7 +100,8 @@ export default function Dashboard() {
 
   const [latestResult, setLatestResult] = useState(null);
   const [resultsList, setResultsList] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingLatest, setLoadingLatest] = useState(true);
+  const [loadingList, setLoadingList] = useState(false);
   const [error, setError] = useState("");
   const [selectedDate, setSelectedDate] = useState(null);
 
@@ -110,96 +110,116 @@ export default function Dashboard() {
     if (!email) navigate("/", { replace: true });
   }, [email, navigate]);
 
-  /* -------------------- Initial fetch -------------------- */
+  /* -------------------- Fetch Latest Result Immediately -------------------- */
   useEffect(() => {
     if (!email) return;
-
     let cancelled = false;
 
-    const load = async () => {
+    const loadLatest = async () => {
       try {
-        setLoading(true);
-        setError("");
-
-        const [latest, list] = await Promise.all([
-          fetchLatestResultByEmail(email, quizParam ? { quiz_name: quizParam } : {}),
-          fetchResultsByEmail(email),
-        ]);
-
-        if (!cancelled) {
-          setLatestResult(latest);
-          setResultsList(Array.isArray(list) ? list : []);
-        }
+        setLoadingLatest(true);
+        const latest = await fetchLatestResultByEmail(
+          email,
+          quizParam ? { quiz_name: quizParam } : {}
+        );
+        if (!cancelled) setLatestResult(latest);
       } catch {
-        if (!cancelled) setError("Failed to load dashboard data.");
+        if (!cancelled) setError("Failed to load latest result.");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingLatest(false);
       }
     };
 
-    load();
+    loadLatest();
     return () => (cancelled = true);
   }, [email, quizParam]);
 
-  /* -------------------- AI Polling -------------------- */
+  /* -------------------- Lazy Load Historical Results -------------------- */
   useEffect(() => {
-    if (!email || selectedDate) return;
-
+    if (!email) return;
     let cancelled = false;
-    let timer = null;
 
-    const poll = async () => {
+    const loadResultsList = async () => {
       try {
-        const latest = await fetchLatestResultByEmail(email, quizParam ? { quiz_name: quizParam } : {});
-        if (cancelled) return;
-        setLatestResult(latest);
-
-        if (isAiPending(latest)) timer = setTimeout(poll, 4000);
+        setLoadingList(true);
+        const list = await fetchResultsByEmail(email, { limit: 50 });
+        if (!cancelled) setResultsList(list);
       } catch {
-        if (!cancelled) timer = setTimeout(poll, 6000);
+        if (!cancelled) console.warn("Failed to load full results list.");
+      } finally {
+        if (!cancelled) setLoadingList(false);
       }
     };
 
-    timer = setTimeout(poll, 1500);
+    // Delay slightly to prioritize latestResult render
+    setTimeout(loadResultsList, 200);
+    return () => (cancelled = true);
+  }, [email]);
 
+  /* -------------------- Optimized AI Polling -------------------- */
+  useEffect(() => {
+    if (!email || selectedDate) return;
+    let cancelled = false;
+    let timer = null;
+    let retryInterval = 4000;
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const latest = await fetchLatestResultByEmail(
+          email,
+          quizParam ? { quiz_name: quizParam } : {}
+        );
+        if (cancelled) return;
+        setLatestResult(latest);
+
+        if (isAiPending(latest)) {
+          retryInterval = Math.min(retryInterval * 1.2, 12000); // exponential backoff
+          timer = setTimeout(poll, retryInterval);
+        }
+      } catch {
+        retryInterval = Math.min(retryInterval * 1.5, 15000);
+        if (!cancelled) timer = setTimeout(poll, retryInterval);
+      }
+    };
+
+    timer = setTimeout(poll, 1000);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
   }, [email, quizParam, selectedDate]);
 
-  /* -------------------- Tour Modal Trigger -------------------- */
+  /* -------------------- Dashboard Tour -------------------- */
   useEffect(() => {
     const hasSeenTourPrompt = localStorage.getItem("dashboardTourPrompted");
     if (!hasSeenTourPrompt) setShowTourModal(true);
   }, []);
 
-  /* -------------------- Dates of Tests -------------------- */
-  const testTakenDates = useMemo(() => {
-    return resultsList
-      .map((r) => unwrapDate(r?.createdAt || r?.date_submitted))
-      .filter(Boolean)
-      .map((d) => {
-        const date = new Date(d);
-        date.setHours(0, 0, 0, 0);
-        return date;
-      });
-  }, [resultsList]);
+  /* -------------------- Dates for Date Filter -------------------- */
+  const testTakenDates = useMemo(
+    () =>
+      resultsList
+        .map((r) => unwrapDate(r?.createdAt || r?.date_submitted))
+        .filter(Boolean)
+        .map((d) => {
+          const date = new Date(d);
+          date.setHours(0, 0, 0, 0);
+          return date;
+        }),
+    [resultsList]
+  );
 
-  /* -------------------- Filtered results -------------------- */
+  /* -------------------- Filtered Results -------------------- */
   const filteredResults = useMemo(() => {
     let list = resultsList;
-
-    if (quizParam) {
+    if (quizParam)
       list = list.filter(
         (r) =>
           r.quiz_name &&
           r.quiz_name.toLowerCase().includes(quizParam.toLowerCase())
       );
-    }
-
     if (!selectedDate) return list;
-
     const start = new Date(selectedDate);
     start.setHours(0, 0, 0, 0);
     const end = new Date(selectedDate);
@@ -224,8 +244,8 @@ export default function Dashboard() {
     )[0];
   }, [filteredResults, latestResult, selectedDate]);
 
-  /* -------------------- Loading / Error states -------------------- */
-  if (loading) {
+  /* -------------------- Loading Skeletons -------------------- */
+  if (loadingLatest) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <img src={waitingGif} alt="Loading" className="w-56 h-56" />
@@ -263,14 +283,6 @@ export default function Dashboard() {
     );
   }
 
-  if (isAiPending(selectedResult)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <img src={waitingGif} alt="Preparing feedback" className="w-56 h-56" />
-      </div>
-    );
-  }
-
   /* -------------------- Derived Values -------------------- */
   const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
   const grade = selectedResult?.score?.grade || "—";
@@ -279,159 +291,110 @@ export default function Dashboard() {
     : grade;
   const duration = formatDuration(selectedResult?.duration);
 
-  const { strongTopics, weakTopics } = buildTopicStrength(selectedResult?.topicBreakdown || {});
+  const { strongTopics, weakTopics } = buildTopicStrength(
+    selectedResult?.topicBreakdown || {}
+  );
   const suggestions = buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
 
-  const displayName = `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim() || "Student";
+  const displayName =
+    `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim() || "Student";
 
   /* -------------------- Render -------------------- */
- return (
-  <div className="relative min-h-screen bg-gray-100">
+  return (
+    <div className="relative min-h-screen bg-gray-100">
+      <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
+      <DashboardTourModal
+        isOpen={showTourModal}
+        onStart={() => {
+          setShowTourModal(false);
+          setTimeout(() => setIsTourActive(true), 150);
+          localStorage.setItem("dashboardTourPrompted", "true");
+        }}
+        onSkip={() => {
+          setShowTourModal(false);
+          localStorage.setItem("dashboardTourPrompted", "true");
+        }}
+      />
 
-    {/* ---------------- TOUR LAYER ---------------- */}
-    <DashboardTour
-      isTourActive={isTourActive}
-      setIsTourActive={setIsTourActive}
-    />
-
-    <DashboardTourModal
-      isOpen={showTourModal}
-      onStart={() => {
-        setShowTourModal(false);
-
-        // small delay prevents layout flicker
-        setTimeout(() => {
-          setIsTourActive(true);
-        }, 150);
-
-        localStorage.setItem("dashboardTourPrompted", "true");
-      }}
-      onSkip={() => {
-        setShowTourModal(false);
-        localStorage.setItem("dashboardTourPrompted", "true");
-      }}
-    />
-
-    {/* ---------------- DASHBOARD CONTENT ---------------- */}
-    <div>
-      {/* Header */}
-      <div className="flex justify-between items-center px-6 py-4 mb-4">
-        <h1 className="text-3xl font-bold">
-          <span className="text-blue-600">
-            {displayName} -
-          </span>{" "}
-          <span className="text-purple-600">
-            {selectedResult?.quiz_name || "Quiz"} Report
-          </span>
-        </h1>
-
-        <div className="flex items-center gap-4">
-          <DateRangeFilter
-            selectedDate={selectedDate}
-            onChange={setSelectedDate}
-            testTakenDates={testTakenDates}
-          />
-          <AvatarMenu />
-        </div>
-      </div>
-
-      {/* Main Grid */}
-      <div className="grid grid-cols-12 gap-4 px-6 pb-6">
-
-        {/* Stat Cards */}
-        <div className="col-span-7 grid grid-cols-4 gap-4">
-          <div id="overall-score">
-            <StatCard
-              title="Overall Score"
-              value={`${percentage}%`}
+      <div>
+        {/* Header */}
+        <div className="flex justify-between items-center px-6 py-4 mb-4">
+          <h1 className="text-3xl font-bold">
+            <span className="text-blue-600">{displayName} -</span>{" "}
+            <span className="text-purple-600">{selectedResult?.quiz_name || "Quiz"} Report</span>
+          </h1>
+          <div className="flex items-center gap-4">
+            <DateRangeFilter
+              selectedDate={selectedDate}
+              onChange={setSelectedDate}
+              testTakenDates={testTakenDates}
             />
-          </div>
-
-          <div id="time-spent">
-            <StatCard
-              title="Time Spent"
-              value={duration}
-            />
-          </div>
-
-          <StatCard
-            title="Result"
-            value={displayGrade}
-          />
-
-          <StatCard
-            title="Attempts Used"
-            value={selectedResult?.attempt || "—"}
-          />
-        </div>
-
-        {/* AI Coach */}
-        <div
-          className="col-span-5 row-span-3"
-          id="ai-coach"
-        >
-          <AICoachPanel
-            feedback={selectedResult?.ai_feedback}
-            strongTopics={strongTopics}
-            weakTopics={weakTopics}
-          />
-        </div>
-
-        {/* Donut Chart */}
-        <div
-          className="col-span-3"
-          id="donut-chart"
-        >
-          <div className="bg-white rounded-xl shadow p-4 h-full">
-            <DonutScoreChart
-              correctPercent={percentage}
-              incorrectPercent={100 - percentage}
-            />
+            <AvatarMenu />
           </div>
         </div>
 
-        {/* Weak Topics */}
-        <div
-          className="col-span-4"
-          id="weak-topics"
-        >
-          <div className="bg-white rounded-xl shadow p-4 h-full">
-            <WeakTopicsBarChart topics={weakTopics} />
+        {/* Main Grid */}
+        <div className="grid grid-cols-12 gap-4 px-6 pb-6">
+          {/* Stat Cards */}
+          <div className="col-span-7 grid grid-cols-4 gap-4">
+            {["Overall Score", "Time Spent", "Result", "Attempts Used"].map((title, idx) => {
+              const valueMap = {
+                "Overall Score": `${percentage}%`,
+                "Time Spent": duration,
+                Result: displayGrade,
+                "Attempts Used": selectedResult?.attempt || "—",
+              };
+              return (
+                <div key={idx} id={title.toLowerCase().replace(/\s/g, "-")}>
+                  <StatCard title={title} value={valueMap[title]} loading={loadingList} />
+                </div>
+              );
+            })}
           </div>
-        </div>
 
-        {/* Top 5 Topics */}
-        <div
-          className="col-span-3"
-          id="top-topics"
-        >
-          <div className="bg-white rounded-xl shadow p-4 h-full">
-            <TopTopicsFunnelChart
-              topicBreakdown={selectedResult?.topicBreakdown}
-              topN={5}
-              height={250}
-              title="Top 5 Topics"
+          {/* AI Coach */}
+          <div className="col-span-5 row-span-3" id="ai-coach">
+            <AICoachPanel
+              feedback={selectedResult?.ai_feedback}
+              strongTopics={strongTopics}
+              weakTopics={weakTopics}
+              loading={loadingList}
             />
           </div>
-        </div>
 
-        {/* AI Suggestions */}
-        <div
-          className="col-span-4"
-          id="suggestions"
-        >
-          <div className="bg-white rounded-xl shadow p-4 h-full">
-            <AISuggestionPanel
-              suggestions={suggestions}
-              studyTips={
-                selectedResult?.ai_feedback?.study_tips || []
-              }
-            />
+          {/* Donut Chart */}
+          <div className="col-span-3" id="donut-chart">
+            <div className="bg-white rounded-xl shadow p-4 h-full">
+              {loadingList ? <div className="h-56 animate-pulse bg-gray-200 rounded-xl" /> :
+                <DonutScoreChart correctPercent={percentage} incorrectPercent={100 - percentage} />}
+            </div>
+          </div>
+
+          {/* Weak Topics */}
+          <div className="col-span-4" id="weak-topics">
+            <div className="bg-white rounded-xl shadow p-4 h-full">
+              {loadingList ? <div className="h-56 animate-pulse bg-gray-200 rounded-xl" /> :
+                <WeakTopicsBarChart topics={weakTopics} />}
+            </div>
+          </div>
+
+          {/* Top Topics */}
+          <div className="col-span-3" id="top-topics">
+            <div className="bg-white rounded-xl shadow p-4 h-full">
+              {loadingList ? <div className="h-56 animate-pulse bg-gray-200 rounded-xl" /> :
+                <TopTopicsFunnelChart topicBreakdown={selectedResult?.topicBreakdown} topN={5} height={250} title="Top 5 Topics" />}
+            </div>
+          </div>
+
+          {/* AI Suggestions */}
+          <div className="col-span-4" id="suggestions">
+            <div className="bg-white rounded-xl shadow p-4 h-full">
+              {loadingList ? <div className="h-56 animate-pulse bg-gray-200 rounded-xl" /> :
+                <AISuggestionPanel suggestions={suggestions} studyTips={selectedResult?.ai_feedback?.study_tips || []} />}
+            </div>
           </div>
         </div>
       </div>
     </div>
-
-  </div>
-);
+  );
 }
