@@ -9,6 +9,9 @@ import AISuggestionPanel from "@/app/components/dashboardComponents/AISuggestion
 import AvatarMenu from "@/app/components/dashboardComponents/AvatarMenu";
 import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopicsFunnelChart";
 import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
+import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
+import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
+
 
 import {
   fetchLatestResultByEmail,
@@ -93,6 +96,9 @@ export default function Dashboard() {
   const email = normalizeEmail(searchParams.get("email") || "");
   const quizParam = searchParams.get("quiz") || "";
 
+  const [isTourActive, setIsTourActive] = useState(false);
+  const [showTourModal, setShowTourModal] = useState(false);
+
   const [latestResult, setLatestResult] = useState(null);
   const [resultsList, setResultsList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -162,7 +168,13 @@ export default function Dashboard() {
     };
   }, [email, quizParam, selectedDate]);
 
-  /* -------------------- Dates of Tests (for marking) -------------------- */
+  /* -------------------- Tour Modal Trigger -------------------- */
+  useEffect(() => {
+    const hasSeenTourPrompt = localStorage.getItem("dashboardTourPrompted");
+    if (!hasSeenTourPrompt) setShowTourModal(true);
+  }, []);
+
+  /* -------------------- Dates of Tests -------------------- */
   const testTakenDates = useMemo(() => {
     return resultsList
       .map((r) => unwrapDate(r?.createdAt || r?.date_submitted))
@@ -273,13 +285,44 @@ export default function Dashboard() {
   const displayName = `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim() || "Student";
 
   /* -------------------- Render -------------------- */
-  return (
-    <div className="min-h-screen bg-gray-100 px-6 py-4">
+ return (
+  <div className="relative min-h-screen bg-gray-100">
+
+    {/* ---------------- TOUR LAYER ---------------- */}
+    <DashboardTour
+      isTourActive={isTourActive}
+      setIsTourActive={setIsTourActive}
+    />
+
+    <DashboardTourModal
+      isOpen={showTourModal}
+      onStart={() => {
+        setShowTourModal(false);
+
+        // small delay prevents layout flicker
+        setTimeout(() => {
+          setIsTourActive(true);
+        }, 150);
+
+        localStorage.setItem("dashboardTourPrompted", "true");
+      }}
+      onSkip={() => {
+        setShowTourModal(false);
+        localStorage.setItem("dashboardTourPrompted", "true");
+      }}
+    />
+
+    {/* ---------------- DASHBOARD CONTENT ---------------- */}
+    <div>
       {/* Header */}
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center px-6 py-4 mb-4">
         <h1 className="text-3xl font-bold">
-          <span className="text-blue-600">{displayName} - </span>
-          <span className="text-purple-600">{selectedResult?.quiz_name || "Quiz"} Report</span>
+          <span className="text-blue-600">
+            {displayName} -
+          </span>{" "}
+          <span className="text-purple-600">
+            {selectedResult?.quiz_name || "Quiz"} Report
+          </span>
         </h1>
 
         <div className="flex items-center gap-4">
@@ -293,42 +336,102 @@ export default function Dashboard() {
       </div>
 
       {/* Main Grid */}
-      <div className="grid grid-cols-12 gap-4">
+      <div className="grid grid-cols-12 gap-4 px-6 pb-6">
+
+        {/* Stat Cards */}
         <div className="col-span-7 grid grid-cols-4 gap-4">
-          <StatCard title="Overall Score" value={`${percentage}%`} />
-          <StatCard title="Time Spent" value={duration} />
-          <StatCard title="Result" value={displayGrade} />
-          <StatCard title="Attempts Used" value={selectedResult?.attempt || "—"} />
+          <div id="overall-score">
+            <StatCard
+              title="Overall Score"
+              value={`${percentage}%`}
+            />
+          </div>
+
+          <div id="time-spent">
+            <StatCard
+              title="Time Spent"
+              value={duration}
+            />
+          </div>
+
+          <StatCard
+            title="Result"
+            value={displayGrade}
+          />
+
+          <StatCard
+            title="Attempts Used"
+            value={selectedResult?.attempt || "—"}
+          />
         </div>
 
-        <div className="col-span-5 row-span-3">
-          <AICoachPanel feedback={selectedResult?.ai_feedback} strongTopics={strongTopics} weakTopics={weakTopics} />
+        {/* AI Coach */}
+        <div
+          className="col-span-5 row-span-3"
+          id="ai-coach"
+        >
+          <AICoachPanel
+            feedback={selectedResult?.ai_feedback}
+            strongTopics={strongTopics}
+            weakTopics={weakTopics}
+          />
         </div>
 
-        <div className="col-span-3">
+        {/* Donut Chart */}
+        <div
+          className="col-span-3"
+          id="donut-chart"
+        >
           <div className="bg-white rounded-xl shadow p-4 h-full">
-            <DonutScoreChart correctPercent={percentage} incorrectPercent={100 - percentage} />
+            <DonutScoreChart
+              correctPercent={percentage}
+              incorrectPercent={100 - percentage}
+            />
           </div>
         </div>
 
-        <div className="col-span-4">
+        {/* Weak Topics */}
+        <div
+          className="col-span-4"
+          id="weak-topics"
+        >
           <div className="bg-white rounded-xl shadow p-4 h-full">
             <WeakTopicsBarChart topics={weakTopics} />
           </div>
         </div>
 
-        <div className="col-span-3">
+        {/* Top 5 Topics */}
+        <div
+          className="col-span-3"
+          id="top-topics"
+        >
           <div className="bg-white rounded-xl shadow p-4 h-full">
-            <TopTopicsFunnelChart topicBreakdown={selectedResult?.topicBreakdown} topN={5} height={250} title="Top 5 Topics" />
+            <TopTopicsFunnelChart
+              topicBreakdown={selectedResult?.topicBreakdown}
+              topN={5}
+              height={250}
+              title="Top 5 Topics"
+            />
           </div>
         </div>
 
-        <div className="col-span-4">
+        {/* AI Suggestions */}
+        <div
+          className="col-span-4"
+          id="suggestions"
+        >
           <div className="bg-white rounded-xl shadow p-4 h-full">
-            <AISuggestionPanel suggestions={suggestions} studyTips={selectedResult?.ai_feedback?.study_tips || []} />
+            <AISuggestionPanel
+              suggestions={suggestions}
+              studyTips={
+                selectedResult?.ai_feedback?.study_tips || []
+              }
+            />
           </div>
         </div>
       </div>
     </div>
-  );
+
+  </div>
+);
 }

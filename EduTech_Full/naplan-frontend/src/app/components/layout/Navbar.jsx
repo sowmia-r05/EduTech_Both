@@ -8,6 +8,7 @@ export default function Navbar() {
   const [active, setActive] = useState('home')
   const [open, setOpen] = useState(false)
 
+  // Highlight active section
   useEffect(() => {
     const sections = ['home', 'why', 'faq']
 
@@ -74,7 +75,6 @@ export default function Navbar() {
 
         {/* Desktop Buttons */}
         <div className="hidden md:flex items-center gap-6">
-          {/* External Login Link */}
           <a
             href="https://www.flexiquiz.com/Account/Login"
             className="text-gray-600 hover:text-indigo-600 transition"
@@ -86,7 +86,7 @@ export default function Navbar() {
             onClick={() => navigate('/register')}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg transition-all duration-300 hover:-translate-y-1"
           >
-            Enroll Now
+            Enroll now
           </button>
         </div>
 
@@ -113,7 +113,6 @@ export default function Navbar() {
             </ScrollLink>
           ))}
 
-          {/* Mobile Login */}
           <a
             href="https://www.flexiquiz.com/Account/Login"
             className="block text-gray-600"
@@ -124,11 +123,11 @@ export default function Navbar() {
           <button
             onClick={() => {
               setOpen(false)
-              navigate('/register')
+              navigate('/free-trial')
             }}
             className="w-full bg-indigo-600 text-white py-2 rounded-lg"
           >
-            Enroll Now
+            Start Free Trial
           </button>
         </div>
       )}

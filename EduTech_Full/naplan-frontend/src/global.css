@@ -1,0 +1,14 @@
+@keyframes spotlightBreathing {
+  0% {
+    box-shadow: 0 0 0 4px var(--glow-color),
+                0 0 20px 6px var(--glow-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 6px var(--glow-color),
+                0 0 35px 16px var(--glow-soft);
+  }
+  100% {
+    box-shadow: 0 0 0 4px var(--glow-color),
+                0 0 20px 6px var(--glow-soft);
+  }
+}
