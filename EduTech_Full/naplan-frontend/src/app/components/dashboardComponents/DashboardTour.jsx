@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import Joyride, { STATUS, EVENTS } from "react-joyride";
 
+/* ---------- Storage Key ---------- */
+const TOUR_STORAGE_KEY = "dashboardTourCompleted";
+
 /* ---------- Glow Presets ---------- */
 
 const createGlow = (color, soft, strong = false) => ({
@@ -78,13 +81,17 @@ export default function DashboardTour({ isTourActive, setIsTourActive }) {
   const [run, setRun] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
 
+  /* ---------- Start Tour Only If Not Completed Before ---------- */
   useEffect(() => {
-    if (isTourActive) {
+    const hasCompletedTour = localStorage.getItem(TOUR_STORAGE_KEY);
+
+    if (isTourActive && !hasCompletedTour) {
       setRun(true);
       setStepIndex(0);
     }
   }, [isTourActive]);
 
+  /* ---------- Joyride Callback ---------- */
   const handleJoyrideCallback = (data) => {
     const { status, type, index } = data;
 
@@ -93,6 +100,9 @@ export default function DashboardTour({ isTourActive, setIsTourActive }) {
     }
 
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
+      // ✅ Mark tour as completed permanently
+      localStorage.setItem(TOUR_STORAGE_KEY, "true");
+
       setRun(false);
       setIsTourActive(false);
       setStepIndex(0);

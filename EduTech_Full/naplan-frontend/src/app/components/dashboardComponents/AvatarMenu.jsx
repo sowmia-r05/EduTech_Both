@@ -4,8 +4,11 @@ export default function AvatarMenu() {
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    localStorage.clear();
-    sessionStorage.clear();
+    // Remove only auth/session items
+    localStorage.removeItem("authToken"); // example, your actual token key
+    sessionStorage.clear(); // OK to clear sessionStorage
+
+    // Navigate to post-logout page
     navigate("/NonWritingLookupQuizResults", { replace: true });
   };
 
@@ -18,7 +21,6 @@ export default function AvatarMenu() {
         }
         className="whitespace-nowrap px-3 py-1.5 rounded-lg text-white text-sm
                    bg-[#4338CA] hover:bg-[#3730A3] transition"
-                  
       >
         Back To Quiz
       </button>
