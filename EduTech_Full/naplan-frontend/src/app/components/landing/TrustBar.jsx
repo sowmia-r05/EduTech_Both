@@ -10,7 +10,7 @@ export default function TrustBar() {
 
         <div>
           <p className="text-lg font-bold text-gray-900">Years 3–9</p>
-          <p>All Major Levels</p>
+          <p>Aligned to NAPLAN Levels</p>
         </div>
 
         <div>
