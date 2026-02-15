@@ -18,7 +18,37 @@ import {
   normalizeEmail,
 } from "@/app/utils/api";
 
-import waitingGif from "@/app/components/Public/dragon_play.gif";
+
+const DotLoader = ({ label = "Loading" }) => {
+  return (
+    <div className="flex flex-col items-center justify-center">
+      <div className="flex items-center gap-2" aria-label={label} role="status">
+        <span className="dot-loader dot1">.</span>
+        <span className="dot-loader dot2">.</span>
+        <span className="dot-loader dot3">.</span>
+      </div>
+
+      <style>{`
+        .dot-loader {
+          font-size: 64px;
+          line-height: 1;
+          font-weight: 700;
+          opacity: 0.25;
+          transform: translateY(-4px);
+          animation: dotPulse 1s infinite ease-in-out;
+        }
+        .dot1 { animation-delay: 0s; }
+        .dot2 { animation-delay: 0.15s; }
+        .dot3 { animation-delay: 0.30s; }
+
+        @keyframes dotPulse {
+          0%, 80%, 100% { opacity: 0.2; transform: translateY(-4px); }
+          40% { opacity: 1; transform: translateY(-14px); }
+        }
+      `}</style>
+    </div>
+  );
+};
 
 /* -------------------- Helpers -------------------- */
 
@@ -245,13 +275,13 @@ export default function Dashboard() {
   }, [filteredResults, latestResult, selectedDate]);
 
   /* -------------------- Loading Skeletons -------------------- */
-  if (loadingLatest) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <img src={waitingGif} alt="Loading" className="w-56 h-56" />
-      </div>
-    );
-  }
+    if (loadingLatest) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-100">
+          <DotLoader label="Loading dashboard" />
+        </div>
+      );
+    }
 
   if (selectedDate && !selectedResult) {
     return (
