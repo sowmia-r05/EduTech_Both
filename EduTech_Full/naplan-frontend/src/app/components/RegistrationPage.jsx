@@ -164,7 +164,7 @@ export default function RegistrationPage() {
   };
 
   const handleLogin = () => {
-    window.location.href = "https://www.flexiquiz.com/account/login";
+    window.location.href = "https://www.flexiquiz.com/account/si?i=t";
   };
 
   /* ----------------------------------------------------
