@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import Joyride, { STATUS, EVENTS } from "react-joyride";
+import Joyride, { STATUS } from "react-joyride";
 
 /* ---------- Storage Key ---------- */
 const TOUR_STORAGE_KEY = "dashboardTourCompleted";
@@ -36,65 +36,58 @@ const glowBlueStrong = createGlow(
 );
 
 /* ---------- Reusable Tour Card ---------- */
-const TourCard = ({ step, total, icon, title, description, tip }) => {
-  return (
-    <div style={{ lineHeight: 1.6 }}>
-      {/* Step Indicator */}
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 500,
-          color: "#6B7280",
-          marginBottom: 6,
-        }}
-      >
-        Step {step} of {total}
-      </div>
+const TourCard = ({ step, total, icon, title, description, tip }) => (
+  <div style={{ lineHeight: 1.6 }}>
+    <div
+      style={{
+        fontSize: 12,
+        fontWeight: 500,
+        color: "#6B7280",
+        marginBottom: 6,
+      }}
+    >
+      Step {step} of {total}
+    </div>
 
-      {/* Title */}
+    <div
+      style={{
+        fontSize: 18,
+        fontWeight: 600,
+        marginBottom: 8,
+        color: "#111827",
+      }}
+    >
+      {icon} {title}
+    </div>
+
+    <div
+      style={{
+        fontSize: 14,
+        color: "#374151",
+        marginBottom: tip ? 12 : 0,
+      }}
+    >
+      {description}
+    </div>
+
+    {tip && (
       <div
         style={{
-          fontSize: 18,
-          fontWeight: 600,
-          marginBottom: 8,
+          background: "#F3F4F6",
+          padding: "10px 12px",
+          borderRadius: 10,
+          fontSize: 13,
           color: "#111827",
         }}
       >
-        {icon} {title}
+        💡 {tip}
       </div>
-
-      {/* Description */}
-      <div
-        style={{
-          fontSize: 14,
-          color: "#374151",
-          marginBottom: tip ? 12 : 0,
-        }}
-      >
-        {description}
-      </div>
-
-      {/* Tip Box */}
-      {tip && (
-        <div
-          style={{
-            background: "#F3F4F6",
-            padding: "10px 12px",
-            borderRadius: 10,
-            fontSize: 13,
-            color: "#111827",
-          }}
-        >
-          💡 {tip}
-        </div>
-      )}
-    </div>
-  );
-};
+    )}
+  </div>
+);
 
 export default function DashboardTour({ isTourActive, setIsTourActive }) {
   const [run, setRun] = useState(false);
-  const [stepIndex, setStepIndex] = useState(0);
 
   /* ---------- Define Steps ---------- */
   const tourSteps = useMemo(() => {
@@ -208,23 +201,17 @@ export default function DashboardTour({ isTourActive, setIsTourActive }) {
 
     if (isTourActive && !hasCompletedTour) {
       setRun(true);
-      setStepIndex(0);
     }
   }, [isTourActive]);
 
   /* ---------- Joyride Callback ---------- */
   const handleJoyrideCallback = (data) => {
-    const { status, type, index } = data;
-
-    if (type === EVENTS.STEP_AFTER) {
-      setStepIndex(index + 1);
-    }
+    const { status } = data;
 
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
       localStorage.setItem(TOUR_STORAGE_KEY, "true");
       setRun(false);
       setIsTourActive(false);
-      setStepIndex(0);
     }
   };
 
@@ -232,7 +219,6 @@ export default function DashboardTour({ isTourActive, setIsTourActive }) {
     <Joyride
       steps={tourSteps}
       run={run}
-      stepIndex={stepIndex}
       continuous
       scrollToFirstStep
       scrollOffset={120}
@@ -254,8 +240,7 @@ export default function DashboardTour({ isTourActive, setIsTourActive }) {
         tooltip: {
           borderRadius: 16,
           padding: "20px",
-          boxShadow:
-            "0 20px 40px rgba(0,0,0,0.15)",
+          boxShadow: "0 20px 40px rgba(0,0,0,0.15)",
         },
         spotlight: {
           borderRadius: 14,
