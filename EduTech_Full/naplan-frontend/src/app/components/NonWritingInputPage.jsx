@@ -26,7 +26,7 @@ import { Loader2, Mail } from "lucide-react";
 import {
   fetchResultQuizNamesByEmail,
   normalizeEmail,
-  verifyEmailExists, // ❌ don't use as hard blocker during webhook delay
+  verifyEmailExists,
 } from "@/app/utils/api";
 
 import {
@@ -36,7 +36,6 @@ import {
   loadExistsCache,
   saveExistsCache,
 } from "@/app/utils/quizCache";
-
 
 /* -----------------------------
    Helpers
@@ -81,7 +80,6 @@ export default function NonWritingInputPage() {
   const autoSubmittedRef = useRef(false);
   const pollAbortRef = useRef(null);
 
-  // ✅ add caches ref
   const cachesRef = useRef(createEmailCaches());
 
   const [email, setEmail] = useState("");
@@ -107,8 +105,12 @@ export default function NonWritingInputPage() {
       return;
     }
 
-    // 1) ✅ FAST PATH: cache hit -> show instantly
-    const cachedQuizzes = loadQuizCache(normalized, cachesRef.current, "nonwriting");
+    // 1) FAST PATH: cache hit
+    const cachedQuizzes = loadQuizCache(
+      normalized,
+      cachesRef.current,
+      "nonwriting"
+    );
     if (Array.isArray(cachedQuizzes) && cachedQuizzes.length > 0) {
       setQuizNames(cachedQuizzes);
       setStep("quiz");
@@ -133,7 +135,9 @@ export default function NonWritingInputPage() {
 
     try {
       // 4) Try fetching quizzes first
-      const first = await fetchResultQuizNamesByEmail(normalized).catch(() => []);
+      const first = await fetchResultQuizNamesByEmail(normalized).catch(
+        () => []
+      );
       if (controller.signal.aborted) return;
 
       if (Array.isArray(first) && first.length > 0) {
@@ -144,25 +148,30 @@ export default function NonWritingInputPage() {
         return;
       }
 
-      // 5) Check user exists (cached -> API)
+      // 5) Soft-check user exists (DO NOT hard block during webhook delay)
       let exists = loadExistsCache(normalized, cachesRef.current, "nonwriting");
 
       if (exists == null) {
-        exists = await verifyEmailExists(normalized).catch(() => false);
-        saveExistsCache(normalized, exists, cachesRef.current, "nonwriting");
+        exists = await verifyEmailExists(normalized).catch(() => null);
+        // store boolean only; if null, don't cache
+        if (typeof exists === "boolean") {
+          saveExistsCache(normalized, exists, cachesRef.current, "nonwriting");
+        }
       }
 
       if (controller.signal.aborted) return;
 
-      if (!exists) {
-        setError("Email ID does not exist. Please use the email used during registration.");
-        setInfo("");
-        return;
+      // If exists is explicitly false, show a soft message but still poll
+      if (exists === false) {
+        setInfo(
+          "We couldn’t confirm this email yet. If you just submitted a quiz, results can take 30–60 seconds. We’ll keep checking…"
+        );
+      } else {
+        setInfo("Fetching your result… Please wait 30–60 seconds.");
       }
 
       // 6) Poll until quizzes appear
       setPending(true);
-      setInfo("Fetching your result… Please wait 30–60 seconds.");
 
       const quizzes = await pollResultQuizNames({
         email: normalized,
@@ -178,12 +187,15 @@ export default function NonWritingInputPage() {
       setQuizNames(quizzes);
       setStep("quiz");
       setInfo("");
+      setError("");
     } catch (err) {
       const msg = String(err?.message || "");
       if (msg === "ABORTED" || pollAbortRef.current?.signal?.aborted) return;
 
       if (msg === "TIMEOUT") {
-        setError("Your result is still processing. Please try again in 1–2 minutes.");
+        setError(
+          "Your result is still processing. Please try again in 1–2 minutes."
+        );
       } else {
         setError(err?.message || "Failed to fetch quiz names.");
       }
@@ -195,30 +207,22 @@ export default function NonWritingInputPage() {
     }
   }, []);
 
-  // (rest of your component remains the same)
-
   /* -----------------------------
-     Auto-submit from URL
+     Auto-submit from URL (FIXED)
   ----------------------------- */
-useEffect(() => {
-  const emailParam = searchParams.get("email");
+  useEffect(() => {
+    const emailParam = searchParams.get("email");
+    if (!emailParam || autoSubmittedRef.current) return;
 
-  // 🚀 FIX: only auto-submit if email is valid
-  if (
-    !emailParam ||
-    autoSubmittedRef.current ||
-    !isValidEmail(emailParam)
-  ) {
-    return;
-  }
+    const normalized = normalizeEmail(emailParam);
 
-  const normalized = normalizeEmail(emailParam);
-  autoSubmittedRef.current = true;
-  setEmail(normalized);
+    // ✅ only auto-submit if valid email
+    if (!isValidEmail(normalized)) return;
 
-  submitEmail(normalized);
-}, [searchParams, submitEmail]);
-
+    autoSubmittedRef.current = true;
+    setEmail(normalized);
+    submitEmail(normalized);
+  }, [searchParams, submitEmail]);
 
   useEffect(() => {
     return () => {
