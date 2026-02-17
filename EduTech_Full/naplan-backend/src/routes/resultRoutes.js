@@ -174,11 +174,15 @@ router.get("/by-email", async (req, res) => {
  */
 router.get("/:responseId", async (req, res) => {
   try {
-    const id = req.params.responseId;
+    const id = String(req.params.responseId || "").trim();
 
+    // FlexiQuiz can reuse the same response_id across attempts (attempt=1,2,3...)
+    // so we must sort and return the latest attempt.
     const result = await Result.findOne({
       $or: [{ response_id: id }, { responseId: id }],
-    });
+    })
+      .sort({ attempt: -1, date_submitted: -1, createdAt: -1 })
+      .lean();
 
     return res.json(result || null);
   } catch (err) {
