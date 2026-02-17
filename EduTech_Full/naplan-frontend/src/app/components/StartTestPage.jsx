@@ -5,20 +5,27 @@ import { motion } from "framer-motion";
 export default function StartTestPage() {
   const navigate = useNavigate();
 
+  const [name, setName] = useState("");
   const [year, setYear] = useState("");
   const [favoriteSubject, setFavoriteSubject] = useState("");
 
   const handleContinue = () => {
+    if (!name.trim()) {
+      alert("Please enter your child’s name.");
+      return;
+    }
+
     if (!year) {
       alert("Please select your child’s year level.");
       return;
     }
 
     // Store info for personalization
+    localStorage.setItem("childName", name);
     localStorage.setItem("yearLevel", year);
     localStorage.setItem("favoriteSubject", favoriteSubject);
 
-    navigate("/trial-test"); // Go to embedded quiz
+    navigate("/trial-test");
   };
 
   return (
@@ -35,8 +42,22 @@ export default function StartTestPage() {
         </h2>
 
         <p className="text-gray-600 text-center mb-8">
-          Choose your child’s year and a fun detail to personalize the experience!
+          Enter a few details to personalise the experience.
         </p>
+
+        {/* Name Field */}
+        <div className="mb-6">
+          <label className="block text-gray-700 font-medium mb-2">
+            Student Name
+          </label>
+          <input
+            type="text"
+            placeholder="Enter name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+          />
+        </div>
 
         {/* Year Dropdown */}
         <div className="mb-6">
