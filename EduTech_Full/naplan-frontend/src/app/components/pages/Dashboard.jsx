@@ -15,6 +15,7 @@ import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTo
 import {
   fetchLatestResultByEmail,
   fetchResultsByEmail,
+  fetchResultByResponseId,
   normalizeEmail,
 } from "@/app/utils/api";
 
@@ -122,8 +123,15 @@ export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const email = normalizeEmail(searchParams.get("email") || "");
+  const emailParam = normalizeEmail(searchParams.get("email") || "");
+  const responseIdParam = String(searchParams.get("r") || "").trim();
+  const subjectParam = String(searchParams.get("subject") || "").trim();
   const quizParam = searchParams.get("quiz") || "";
+
+  // If FlexiQuiz didn't send email, we can resolve it from Mongo using responseId
+  const [resolvedEmail, setResolvedEmail] = useState("");
+  const email = resolvedEmail || emailParam;
+  const hasResponseId = Boolean(responseIdParam && responseIdParam !== "[ResponseId]");
 
   const [isTourActive, setIsTourActive] = useState(false);
   const [showTourModal, setShowTourModal] = useState(false);
@@ -137,11 +145,42 @@ export default function Dashboard() {
 
   /* -------------------- Redirect if email missing -------------------- */
   useEffect(() => {
-    if (!email) navigate("/", { replace: true });
-  }, [email, navigate]);
+    // If we have responseId from FlexiQuiz, don't force redirect even if email param is missing.
+    if (!email && !hasResponseId) navigate("/", { replace: true });
+  }, [email, hasResponseId, navigate]);
+
+  /* -------------------- Load Latest Result by ResponseId -------------------- */
+  useEffect(() => {
+    if (!hasResponseId) return;
+    let cancelled = false;
+
+    const loadByResponseId = async () => {
+      try {
+        setLoadingLatest(true);
+        const doc = await fetchResultByResponseId(responseIdParam);
+        if (cancelled) return;
+
+        if (doc) {
+          setLatestResult(doc);
+          const em = normalizeEmail(doc?.user?.email_address || "");
+          if (em) setResolvedEmail(em);
+        } else {
+          setError("No result found for this attempt yet. Please try again in a moment.");
+        }
+      } catch (e) {
+        if (!cancelled) setError("Failed to load result by ResponseId.");
+      } finally {
+        if (!cancelled) setLoadingLatest(false);
+      }
+    };
+
+    loadByResponseId();
+    return () => (cancelled = true);
+  }, [hasResponseId, responseIdParam]);
 
   /* -------------------- Fetch Latest Result Immediately -------------------- */
   useEffect(() => {
+    if (hasResponseId) return;
     if (!email) return;
     let cancelled = false;
 
@@ -162,10 +201,11 @@ export default function Dashboard() {
 
     loadLatest();
     return () => (cancelled = true);
-  }, [email, quizParam]);
+  }, [email, quizParam, hasResponseId]);
 
   /* -------------------- Lazy Load Historical Results -------------------- */
   useEffect(() => {
+    if (hasResponseId) return;
     if (!email) return;
     let cancelled = false;
 
@@ -188,6 +228,7 @@ export default function Dashboard() {
 
   /* -------------------- Optimized AI Polling -------------------- */
   useEffect(() => {
+    if (hasResponseId) return;
     if (!email || selectedDate) return;
     let cancelled = false;
     let timer = null;
@@ -218,7 +259,7 @@ export default function Dashboard() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [email, quizParam, selectedDate]);
+  }, [email, quizParam, selectedDate, hasResponseId]);
 
   /* -------------------- Dashboard Tour -------------------- */
   useEffect(() => {
