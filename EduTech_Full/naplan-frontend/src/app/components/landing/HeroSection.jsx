@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import FreeTrialPage from "@/app/components/landing/FreeTrialPage"; 
+
 
 export default function HeroSection() {
   const navigate = useNavigate()
