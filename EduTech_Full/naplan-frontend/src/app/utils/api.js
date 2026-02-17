@@ -120,3 +120,12 @@ export async function fetchResultsByEmail(email, options = {}) {
   const data = await getJson(`/api/results/by-email?${params.toString()}`);
   return Array.isArray(data) ? data : [];
 }
+
+
+// ✅ Fetch latest (sorted) result by FlexiQuiz response_id
+export async function fetchResultByResponseId(responseId, options = {}) {
+  const id = String(responseId || '').trim();
+  if (!id) throw new Error('responseId required');
+  const data = await getJson(`/api/results/${encodeURIComponent(id)}`, options);
+  return data;
+}
