@@ -17,8 +17,106 @@ import {
   fetchResultByResponseId,
 } from "@/app/utils/api";
 
-/* -------------------- Helpers -------------------- */
+/* -------------------- Loader -------------------- */
+const DotLoader = ({ label = "Loading" }) => (
+  <div className="flex flex-col items-center justify-center">
+    <div className="flex items-center gap-2" aria-label={label} role="status">
+      <span className="dot-loader dot1">.</span>
+      <span className="dot-loader dot2">.</span>
+      <span className="dot-loader dot3">.</span>
+    </div>
+    <style>{`
+      .dot-loader {
+        font-size: 64px;
+        font-weight: 700;
+        opacity: 0.25;
+        animation: dotPulse 1s infinite ease-in-out;
+      }
+      .dot1 { animation-delay: 0s; }
+      .dot2 { animation-delay: 0.15s; }
+      .dot3 { animation-delay: 0.3s; }
+      @keyframes dotPulse {
+        0%, 80%, 100% { opacity: 0.2; }
+        40% { opacity: 1; }
+      }
+    `}</style>
+  </div>
+);
 
+/* -------------------- No Data Modal -------------------- */
+const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    document.body.style.overflow = "hidden";
+    const handleEsc = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleEsc);
+
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleEsc);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-scaleIn"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <div className="text-2xl">📅</div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">
+              No Results Found
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              There are no quiz attempts recorded for the selected date.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-100 transition"
+          >
+            Close
+          </button>
+
+          <button
+            onClick={onClearFilter}
+            className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+          >
+            Clear Filter
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes scaleIn {
+          from { transform: scale(0.95); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        .animate-fadeIn { animation: fadeIn 0.2s ease-out forwards; }
+        .animate-scaleIn { animation: scaleIn 0.2s ease-out forwards; }
+      `}</style>
+    </div>
+  );
+};
+
+/* -------------------- Helpers -------------------- */
 const unwrapDate = (d) =>
   d && typeof d === "object" && "$date" in d ? d.$date : d;
 
@@ -53,7 +151,6 @@ const buildTopicStrength = (topicBreakdown = {}) => {
 
 const buildSuggestionsFromFeedback = (feedback) => {
   if (!feedback) return [];
-
   const list = [];
 
   if (feedback.overall_feedback)
@@ -79,7 +176,6 @@ const buildSuggestionsFromFeedback = (feedback) => {
 };
 
 /* -------------------- Dashboard -------------------- */
-
 export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -87,44 +183,40 @@ export default function Dashboard() {
   const responseId = String(searchParams.get("r") || "").trim();
   const hasResponseId = Boolean(responseId && responseId !== "[ResponseId]");
 
-  const [quizResults, setQuizResults] = useState([]);
+  const [latestResult, setLatestResult] = useState(null);
+  const [resultsList, setResultsList] = useState([]); 
+  const [loadingLatest, setLoadingLatest] = useState(true);
   const [selectedDate, setSelectedDate] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [showNoDataModal, setShowNoDataModal] = useState(false);
 
   const [isTourActive, setIsTourActive] = useState(false);
   const [showTourModal, setShowTourModal] = useState(false);
 
-  /* -------------------- Redirect -------------------- */
+  /* -------------------- Redirect if no responseId -------------------- */
   useEffect(() => {
     if (!hasResponseId) navigate("/", { replace: true });
   }, [hasResponseId, navigate]);
 
-  /* -------------------- Load Data -------------------- */
+  /* -------------------- Load results -------------------- */
   useEffect(() => {
     if (!hasResponseId) return;
-
     let cancelled = false;
 
     const load = async () => {
       try {
-        setLoading(true);
-
+        setLoadingLatest(true);
         const doc = await fetchResultByResponseId(responseId);
-        if (!doc || cancelled) return;
-
-        const allAttempts = await fetchResultsByEmail(
-          doc.user.email_address,
-          { quiz_name: doc.quiz_name }
-        );
+        if (!doc) return;
 
         if (!cancelled) {
-          setQuizResults(allAttempts?.length ? allAttempts : [doc]);
+          setLatestResult(doc);
+          const all = await fetchResultsByEmail(doc.user.email_address, {
+            quiz_name: doc.quiz_name,
+          });
+          setResultsList(all || [doc]);
         }
-
-      } catch (err) {
-        console.error("Dashboard load failed:", err);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingLatest(false);
       }
     };
 
@@ -138,91 +230,76 @@ export default function Dashboard() {
       setShowTourModal(true);
   }, []);
 
-  /* -------------------- Build Date Map (O1 Filtering) -------------------- */
-  const resultsByDate = useMemo(() => {
-    const map = new Map();
-
-    quizResults.forEach((r) => {
-      const raw = unwrapDate(r?.createdAt || r?.date_submitted);
-      if (!raw) return;
-
-      const d = new Date(raw);
-      d.setHours(0, 0, 0, 0);
-
-      const key = d.getTime();
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(r);
-    });
-
-    return map;
-  }, [quizResults]);
-
-  /* -------------------- Calendar Dates -------------------- */
-  const testTakenDates = useMemo(() => {
-    return Array.from(resultsByDate.keys()).map(
-      (timestamp) => new Date(Number(timestamp))
-    );
-  }, [resultsByDate]);
-
-  /* -------------------- Filtered Results -------------------- */
+  /* -------------------- Filtered dashboard data -------------------- */
   const filteredResults = useMemo(() => {
-    if (!selectedDate) return quizResults;
+    if (!latestResult) return [];
 
-    const key = new Date(selectedDate).setHours(0, 0, 0, 0);
-    return resultsByDate.get(key) || [];
-  }, [selectedDate, resultsByDate, quizResults]);
+    const quizAttempts = resultsList.filter(
+      (r) => r.quiz_name === latestResult.quiz_name
+    );
 
-  /* -------------------- Selected Result -------------------- */
+    if (!selectedDate) return quizAttempts;
+
+    const start = new Date(selectedDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(selectedDate);
+    end.setHours(23, 59, 59, 999);
+
+    return quizAttempts.filter((r) => {
+      const raw = unwrapDate(r?.createdAt || r?.date_submitted);
+      if (!raw) return false;
+      const dt = new Date(raw);
+      return dt >= start && dt <= end;
+    });
+  }, [resultsList, selectedDate, latestResult]);
+
+  /* -------------------- Trigger NoDataModal -------------------- */
+  useEffect(() => {
+    if (selectedDate) {
+      setShowNoDataModal(filteredResults.length === 0);
+    }
+  }, [selectedDate, filteredResults]);
+
   const selectedResult = useMemo(() => {
-    if (!filteredResults.length) return quizResults[0];
-
+    if (!filteredResults.length) return latestResult;
     return [...filteredResults].sort(
       (a, b) =>
         new Date(unwrapDate(b.createdAt || b.date_submitted)) -
         new Date(unwrapDate(a.createdAt || a.date_submitted))
     )[0];
-  }, [filteredResults, quizResults]);
+  }, [filteredResults, latestResult]);
 
-  /* -------------------- Derived Metrics -------------------- */
-  const percentage = Math.round(
-    Number(selectedResult?.score?.percentage || 0)
-  );
-  const grade = selectedResult?.score?.grade || "—";
-  const duration = formatDuration(selectedResult?.duration);
-  const attemptsUsed = filteredResults.length || quizResults.length || "—";
-
-  const { strongTopics, weakTopics } = useMemo(
-    () => buildTopicStrength(selectedResult?.topicBreakdown || {}),
-    [selectedResult?.topicBreakdown]
-  );
-
-  const suggestions = useMemo(
-    () => buildSuggestionsFromFeedback(selectedResult?.ai_feedback),
-    [selectedResult?.ai_feedback]
-  );
-
-  const displayName =
-    `${selectedResult?.user?.first_name || ""} ${
-      selectedResult?.user?.last_name || ""
-    }`.trim() || "Student";
-
-  /* -------------------- Loading -------------------- */
-  if (loading) {
+  if (loadingLatest) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="text-xl font-semibold text-gray-600">
-          Loading Dashboard...
-        </div>
+        <DotLoader label="Loading dashboard" />
       </div>
     );
   }
 
   if (!selectedResult) return null;
 
-  /* -------------------- Render -------------------- */
+  const percentage = Math.round(
+    Number(selectedResult?.score?.percentage || 0)
+  );
+  const grade = selectedResult?.score?.grade || "—";
+  const duration = formatDuration(selectedResult?.duration);
+  const attemptsUsed = filteredResults.length || "—";
+
+  const { strongTopics, weakTopics } =
+    buildTopicStrength(selectedResult?.topicBreakdown || {});
+
+  const suggestions =
+    buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
+
+  const displayName =
+    `${selectedResult?.user?.first_name || ""} ${
+      selectedResult?.user?.last_name || ""
+    }`.trim() || "Student";
 
   return (
     <div className="relative min-h-screen bg-gray-100">
+      {/* Dashboard Tour */}
       <DashboardTour
         isTourActive={isTourActive}
         setIsTourActive={setIsTourActive}
@@ -241,6 +318,16 @@ export default function Dashboard() {
         }}
       />
 
+      {/* No Data Modal */}
+      <NoDataModal
+        isOpen={showNoDataModal}
+        onClose={() => setShowNoDataModal(false)}
+        onClearFilter={() => {
+          setSelectedDate(null);
+          setShowNoDataModal(false);
+        }}
+      />
+
       {/* Header */}
       <div className="flex justify-between items-center px-6 py-4 mb-4">
         <h1 className="text-3xl font-bold">
@@ -249,24 +336,38 @@ export default function Dashboard() {
             {selectedResult?.quiz_name || "Quiz"} Report
           </span>
         </h1>
-
         <div className="flex items-center gap-4">
           <DateRangeFilter
             selectedDate={selectedDate}
             onChange={setSelectedDate}
-            testTakenDates={testTakenDates}
+            testTakenDates={resultsList.map((r) => {
+              const raw = r?.createdAt || r?.date_submitted;
+              if (!raw) return null;
+              const date = new Date(
+                typeof raw === "object" && raw.$date ? raw.$date : raw
+              );
+              date.setHours(0, 0, 0, 0);
+              return date;
+            }).filter(Boolean)}
           />
           <AvatarMenu />
         </div>
       </div>
 
-      {/* Grid */}
+      {/* Dashboard Grid */}
       <div className="grid grid-cols-12 gap-4 px-6 pb-6">
         <div className="col-span-7 grid grid-cols-4 gap-4">
-          <StatCard title="Overall Score" value={`${percentage}%`} />
-          <StatCard title="Time Spent" value={duration} />
-          <StatCard title="Result" value={grade} />
-          <StatCard title="Attempts Used" value={attemptsUsed} />
+          {["Overall Score", "Time Spent", "Result", "Attempts Used"].map(
+            (title, idx) => {
+              const valueMap = {
+                "Overall Score": `${percentage}%`,
+                "Time Spent": duration,
+                Result: grade,
+                "Attempts Used": attemptsUsed,
+              };
+              return <StatCard key={idx} title={title} value={valueMap[title]} />;
+            }
+          )}
         </div>
 
         <div className="col-span-5 row-span-3 bg-white rounded-xl shadow-md p-6">
@@ -297,7 +398,7 @@ export default function Dashboard() {
           />
         </div>
 
-        <div className="col-span-4">
+        <div className="col-span-4" id="suggestions">
           <div className="bg-white rounded-xl shadow p-4 h-full">
             <AISuggestionPanel
               suggestions={suggestions}
