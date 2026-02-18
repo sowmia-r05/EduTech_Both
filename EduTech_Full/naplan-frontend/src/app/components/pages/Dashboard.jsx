@@ -13,38 +13,109 @@ import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
 
 import {
-  fetchLatestResultByEmail,
   fetchResultsByEmail,
   fetchResultByResponseId,
-  normalizeEmail,
 } from "@/app/utils/api";
 
+/* -------------------- Loader -------------------- */
+const DotLoader = ({ label = "Loading" }) => (
+  <div className="flex flex-col items-center justify-center">
+    <div className="flex items-center gap-2" aria-label={label} role="status">
+      <span className="dot-loader dot1">.</span>
+      <span className="dot-loader dot2">.</span>
+      <span className="dot-loader dot3">.</span>
+    </div>
+    <style>{`
+      .dot-loader {
+        font-size: 64px;
+        font-weight: 700;
+        opacity: 0.25;
+        animation: dotPulse 1s infinite ease-in-out;
+      }
+      .dot1 { animation-delay: 0s; }
+      .dot2 { animation-delay: 0.15s; }
+      .dot3 { animation-delay: 0.3s; }
+      @keyframes dotPulse {
+        0%, 80%, 100% { opacity: 0.2; }
+        40% { opacity: 1; }
+      }
+    `}</style>
+  </div>
+);
 
-const DotLoader = ({ label = "Loading" }) => {
+/* -------------------- No Data Modal -------------------- */
+const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    document.body.style.overflow = "hidden";
+
+    const handleEsc = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", handleEsc);
+
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleEsc);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
   return (
-    <div className="flex flex-col items-center justify-center">
-      <div className="flex items-center gap-2" aria-label={label} role="status">
-        <span className="dot-loader dot1">.</span>
-        <span className="dot-loader dot2">.</span>
-        <span className="dot-loader dot3">.</span>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-scaleIn"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <div className="text-2xl">📅</div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">
+              No Results Found
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              There are no quiz attempts recorded for the selected date.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-100 transition"
+          >
+            Close
+          </button>
+
+          <button
+            onClick={onClearFilter}
+            className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+          >
+            Clear Filter
+          </button>
+        </div>
       </div>
 
       <style>{`
-        .dot-loader {
-          font-size: 64px;
-          line-height: 1;
-          font-weight: 700;
-          opacity: 0.25;
-          transform: translateY(-4px);
-          animation: dotPulse 1s infinite ease-in-out;
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
-        .dot1 { animation-delay: 0s; }
-        .dot2 { animation-delay: 0.15s; }
-        .dot3 { animation-delay: 0.30s; }
-
-        @keyframes dotPulse {
-          0%, 80%, 100% { opacity: 0.2; transform: translateY(-4px); }
-          40% { opacity: 1; transform: translateY(-14px); }
+        @keyframes scaleIn {
+          from { transform: scale(0.95); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.2s ease-out forwards;
+        }
+        .animate-scaleIn {
+          animation: scaleIn 0.2s ease-out forwards;
         }
       `}</style>
     </div>
@@ -52,7 +123,6 @@ const DotLoader = ({ label = "Loading" }) => {
 };
 
 /* -------------------- Helpers -------------------- */
-
 const unwrapDate = (d) =>
   d && typeof d === "object" && "$date" in d ? d.$date : d;
 
@@ -75,7 +145,8 @@ const buildTopicStrength = (topicBreakdown = {}) => {
 
     const accuracy = scored / total;
     if (accuracy >= 0.75) strong.push({ topic, accuracy });
-    else if (accuracy <= 0.5) weak.push({ topic, lostMarks: total - scored });
+    else if (accuracy <= 0.5)
+      weak.push({ topic, lostMarks: total - scored });
   });
 
   return {
@@ -110,270 +181,136 @@ const buildSuggestionsFromFeedback = (feedback) => {
   return list;
 };
 
-const isAiPending = (result) => {
-  const status = String(result?.ai_feedback_meta?.status || "").toLowerCase();
-  if (["done", "completed", "success"].includes(status)) return false;
-  if (["failed", "error"].includes(status)) return false;
-  return true;
-};
-
-/* -------------------- Dashboard Component -------------------- */
-
+/* -------------------- Dashboard -------------------- */
 export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const emailParam = normalizeEmail(searchParams.get("email") || "");
-  const responseIdParam = String(searchParams.get("r") || "").trim();
-  const subjectParam = String(searchParams.get("subject") || "").trim();
-  const quizParam = searchParams.get("quiz") || "";
+  const responseId = String(searchParams.get("r") || "").trim();
+  const hasResponseId = Boolean(responseId && responseId !== "[ResponseId]");
 
-  // If FlexiQuiz didn't send email, we can resolve it from Mongo using responseId
-  const [resolvedEmail, setResolvedEmail] = useState("");
-  const email = resolvedEmail || emailParam;
-  const hasResponseId = Boolean(responseIdParam && responseIdParam !== "[ResponseId]");
+  const [latestResult, setLatestResult] = useState(null);
+  const [resultsList, setResultsList] = useState([]); // <-- All attempts for calendar
+  const [loadingLatest, setLoadingLatest] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [showNoDataModal, setShowNoDataModal] = useState(false);
 
   const [isTourActive, setIsTourActive] = useState(false);
   const [showTourModal, setShowTourModal] = useState(false);
 
-  const [latestResult, setLatestResult] = useState(null);
-  const [resultsList, setResultsList] = useState([]);
-  const [loadingLatest, setLoadingLatest] = useState(true);
-  const [loadingList, setLoadingList] = useState(false);
-  const [error, setError] = useState("");
-  const [selectedDate, setSelectedDate] = useState(null);
-
-  /* -------------------- Redirect if email missing -------------------- */
+  /* Redirect if no responseId */
   useEffect(() => {
-    // If we have responseId from FlexiQuiz, don't force redirect even if email param is missing.
-    if (!email && !hasResponseId) navigate("/", { replace: true });
-  }, [email, hasResponseId, navigate]);
+    if (!hasResponseId) navigate("/", { replace: true });
+  }, [hasResponseId, navigate]);
 
-  /* -------------------- Load Latest Result by ResponseId -------------------- */
+  /* Load result + all attempts */
   useEffect(() => {
     if (!hasResponseId) return;
     let cancelled = false;
 
-    const loadByResponseId = async () => {
+    const load = async () => {
       try {
         setLoadingLatest(true);
-        const doc = await fetchResultByResponseId(responseIdParam);
-        if (cancelled) return;
+        const doc = await fetchResultByResponseId(responseId);
+        if (!doc) return;
 
-        if (doc) {
+        if (!cancelled) {
           setLatestResult(doc);
-          const em = normalizeEmail(doc?.user?.email_address || "");
-          if (em) setResolvedEmail(em);
-        } else {
-          setError("No result found for this attempt yet. Please try again in a moment.");
+          const all = await fetchResultsByEmail(doc.user.email_address, {
+            quiz_name: doc.quiz_name,
+          });
+          setResultsList(all || [doc]);
         }
-      } catch (e) {
-        if (!cancelled) setError("Failed to load result by ResponseId.");
       } finally {
         if (!cancelled) setLoadingLatest(false);
       }
     };
 
-    loadByResponseId();
+    load();
     return () => (cancelled = true);
-  }, [hasResponseId, responseIdParam]);
+  }, [responseId, hasResponseId]);
 
-  /* -------------------- Fetch Latest Result Immediately -------------------- */
+  /* Tour */
   useEffect(() => {
-    if (hasResponseId) return;
-    if (!email) return;
-    let cancelled = false;
-
-    const loadLatest = async () => {
-      try {
-        setLoadingLatest(true);
-        const latest = await fetchLatestResultByEmail(
-          email,
-          quizParam ? { quiz_name: quizParam } : {}
-        );
-        if (!cancelled) setLatestResult(latest);
-      } catch {
-        if (!cancelled) setError("Failed to load latest result.");
-      } finally {
-        if (!cancelled) setLoadingLatest(false);
-      }
-    };
-
-    loadLatest();
-    return () => (cancelled = true);
-  }, [email, quizParam, hasResponseId]);
-
-  /* -------------------- Lazy Load Historical Results -------------------- */
-  useEffect(() => {
-    if (hasResponseId) return;
-    if (!email) return;
-    let cancelled = false;
-
-    const loadResultsList = async () => {
-      try {
-        setLoadingList(true);
-        const list = await fetchResultsByEmail(email, { limit: 50 });
-        if (!cancelled) setResultsList(list);
-      } catch {
-        if (!cancelled) console.warn("Failed to load full results list.");
-      } finally {
-        if (!cancelled) setLoadingList(false);
-      }
-    };
-
-    // Delay slightly to prioritize latestResult render
-    setTimeout(loadResultsList, 200);
-    return () => (cancelled = true);
-  }, [email]);
-
-  /* -------------------- Optimized AI Polling -------------------- */
-  useEffect(() => {
-    if (hasResponseId) return;
-    if (!email || selectedDate) return;
-    let cancelled = false;
-    let timer = null;
-    let retryInterval = 4000;
-
-    const poll = async () => {
-      if (cancelled) return;
-      try {
-        const latest = await fetchLatestResultByEmail(
-          email,
-          quizParam ? { quiz_name: quizParam } : {}
-        );
-        if (cancelled) return;
-        setLatestResult(latest);
-
-        if (isAiPending(latest)) {
-          retryInterval = Math.min(retryInterval * 1.2, 12000); // exponential backoff
-          timer = setTimeout(poll, retryInterval);
-        }
-      } catch {
-        retryInterval = Math.min(retryInterval * 1.5, 15000);
-        if (!cancelled) timer = setTimeout(poll, retryInterval);
-      }
-    };
-
-    timer = setTimeout(poll, 1000);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [email, quizParam, selectedDate, hasResponseId]);
-
-  /* -------------------- Dashboard Tour -------------------- */
-  useEffect(() => {
-    const hasSeenTourPrompt = localStorage.getItem("dashboardTourPrompted");
-    if (!hasSeenTourPrompt) setShowTourModal(true);
+    if (!localStorage.getItem("dashboardTourPrompted"))
+      setShowTourModal(true);
   }, []);
 
-  /* -------------------- Dates for Date Filter -------------------- */
-  const testTakenDates = useMemo(
-    () =>
-      resultsList
-        .map((r) => unwrapDate(r?.createdAt || r?.date_submitted))
-        .filter(Boolean)
-        .map((d) => {
-          const date = new Date(d);
-          date.setHours(0, 0, 0, 0);
-          return date;
-        }),
-    [resultsList]
-  );
-
-  /* -------------------- Filtered Results -------------------- */
+  /* Filtered dashboard data */
   const filteredResults = useMemo(() => {
-    let list = resultsList;
-    if (quizParam)
-      list = list.filter(
-        (r) =>
-          r.quiz_name &&
-          r.quiz_name.toLowerCase().includes(quizParam.toLowerCase())
-      );
-    if (!selectedDate) return list;
+    if (!latestResult) return [];
+
+    let quizAttempts = resultsList.filter(
+      (r) => r.quiz_name === latestResult.quiz_name
+    );
+
+    if (!selectedDate) return quizAttempts;
+
     const start = new Date(selectedDate);
     start.setHours(0, 0, 0, 0);
     const end = new Date(selectedDate);
     end.setHours(23, 59, 59, 999);
 
-    return list.filter((r) => {
+    return quizAttempts.filter((r) => {
       const raw = unwrapDate(r?.createdAt || r?.date_submitted);
       if (!raw) return false;
       const dt = new Date(raw);
       return dt >= start && dt <= end;
     });
-  }, [resultsList, selectedDate, quizParam]);
+  }, [resultsList, selectedDate, latestResult]);
 
+  /* Trigger modal if date has no results */
+  useEffect(() => {
+    if (selectedDate && filteredResults.length === 0) {
+      setShowNoDataModal(true);
+    }
+  }, [selectedDate, filteredResults]);
+
+  /* Selected result */
   const selectedResult = useMemo(() => {
-    if (selectedDate && !filteredResults.length) return null;
     if (!filteredResults.length) return latestResult;
-
     return [...filteredResults].sort(
       (a, b) =>
         new Date(unwrapDate(b.createdAt || b.date_submitted)) -
         new Date(unwrapDate(a.createdAt || a.date_submitted))
     )[0];
-  }, [filteredResults, latestResult, selectedDate]);
+  }, [filteredResults, latestResult]);
 
-  /* -------------------- Loading Skeletons -------------------- */
-    if (loadingLatest) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
-          <DotLoader label="Loading dashboard" />
-        </div>
-      );
-    }
-
-  if (selectedDate && !selectedResult) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100">
-        <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-6 py-4 rounded-xl shadow-md text-center">
-          <h2 className="text-lg font-semibold mb-2">No Data Available</h2>
-          <p>No quiz result exists for the selected date.</p>
-          <button
-            onClick={() => setSelectedDate(null)}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Clear Date Filter
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !selectedResult) {
+  if (loadingLatest) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <button
-          onClick={() => navigate("/")}
-          className="text-blue-600 hover:underline"
-        >
-          {error || "No results found."}
-        </button>
+        <DotLoader label="Loading dashboard" />
       </div>
     );
   }
 
-  /* -------------------- Derived Values -------------------- */
-  const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
-  const grade = selectedResult?.score?.grade || "—";
-  const displayGrade = ["fail", "f", "failed"].includes(String(grade).toLowerCase())
-    ? "Practice Needed"
-    : grade;
-  const duration = formatDuration(selectedResult?.duration);
+  if (!selectedResult) return null;
 
-  const { strongTopics, weakTopics } = buildTopicStrength(
-    selectedResult?.topicBreakdown || {}
+  const percentage = Math.round(
+    Number(selectedResult?.score?.percentage || 0)
   );
-  const suggestions = buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
+  const grade = selectedResult?.score?.grade || "—";
+  const duration = formatDuration(selectedResult?.duration);
+  const attemptsUsed = filteredResults.length || "—";
+
+  const { strongTopics, weakTopics } =
+    buildTopicStrength(selectedResult?.topicBreakdown || {});
+
+  const suggestions =
+    buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
 
   const displayName =
-    `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim() || "Student";
+    `${selectedResult?.user?.first_name || ""} ${
+      selectedResult?.user?.last_name || ""
+    }`.trim() || "Student";
 
-  /* -------------------- Render -------------------- */
   return (
     <div className="relative min-h-screen bg-gray-100">
-      <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
+      <DashboardTour
+        isTourActive={isTourActive}
+        setIsTourActive={setIsTourActive}
+      />
+
       <DashboardTourModal
         isOpen={showTourModal}
         onStart={() => {
@@ -387,82 +324,99 @@ export default function Dashboard() {
         }}
       />
 
-      <div>
-        {/* Header */}
-        <div className="flex justify-between items-center px-6 py-4 mb-4">
-          <h1 className="text-3xl font-bold">
-            <span className="text-blue-600">{displayName} -</span>{" "}
-            <span className="text-purple-600">{selectedResult?.quiz_name || "Quiz"} Report</span>
-          </h1>
-          <div className="flex items-center gap-4">
-            <DateRangeFilter
-              selectedDate={selectedDate}
-              onChange={setSelectedDate}
-              testTakenDates={testTakenDates}
-            />
-            <AvatarMenu />
-          </div>
-        </div>
+      {/* No Data Modal */}
+      <NoDataModal
+        isOpen={showNoDataModal}
+        onClose={() => setShowNoDataModal(false)}
+        onClearFilter={() => {
+          setSelectedDate(null);
+          setShowNoDataModal(false);
+        }}
+      />
 
-        {/* Main Grid */}
-        <div className="grid grid-cols-12 gap-4 px-6 pb-6">
-          {/* Stat Cards */}
-          <div className="col-span-7 grid grid-cols-4 gap-4">
-            {["Overall Score", "Time Spent", "Result", "Attempts Used"].map((title, idx) => {
+      {/* Header */}
+      <div className="flex justify-between items-center px-6 py-4 mb-4">
+        <h1 className="text-3xl font-bold">
+          <span className="text-blue-600">{displayName} - </span>
+          <span className="text-purple-600">
+            {selectedResult?.quiz_name || "Quiz"} Report
+          </span>
+        </h1>
+        <div className="flex items-center gap-4">
+          {/* Pass full resultsList for calendar dots */}
+          <DateRangeFilter
+            selectedDate={selectedDate}
+            onChange={setSelectedDate}
+            testTakenDates={resultsList.map((r) => {
+              const raw = r?.createdAt || r?.date_submitted;
+              if (!raw) return null;
+
+              const date = new Date(
+                typeof raw === "object" && raw.$date ? raw.$date : raw
+              );
+
+              date.setHours(0, 0, 0, 0); // normalize
+              return date;
+            }).filter(Boolean)}
+          />
+          <AvatarMenu />
+        </div>
+      </div>
+
+      {/* Dashboard Grid */}
+      <div className="grid grid-cols-12 gap-4 px-6 pb-6">
+        <div className="col-span-7 grid grid-cols-4 gap-4">
+          {["Overall Score", "Time Spent", "Result", "Attempts Used"].map(
+            (title, idx) => {
               const valueMap = {
                 "Overall Score": `${percentage}%`,
                 "Time Spent": duration,
-                Result: displayGrade,
-                "Attempts Used": selectedResult?.attempt || "—",
+                Result: grade,
+                "Attempts Used": attemptsUsed,
               };
               return (
-                <div key={idx} id={title.toLowerCase().replace(/\s/g, "-")}>
-                  <StatCard title={title} value={valueMap[title]} loading={loadingList} />
+                <div key={idx}>
+                  <StatCard title={title} value={valueMap[title]} />
                 </div>
               );
-            })}
-          </div>
+            }
+          )}
+        </div>
 
-          {/* AI Coach */}
-          <div className="col-span-5 row-span-3" id="ai-coach">
-            <AICoachPanel
-              feedback={selectedResult?.ai_feedback}
-              strongTopics={strongTopics}
-              weakTopics={weakTopics}
-              loading={loadingList}
+        <div className="col-span-5 row-span-3 bg-white rounded-xl shadow-md p-6">
+          <AICoachPanel
+            feedback={selectedResult?.ai_feedback}
+            strongTopics={strongTopics}
+            weakTopics={weakTopics}
+          />
+        </div>
+
+        <div className="col-span-3 bg-white rounded-xl shadow-md p-6">
+          <DonutScoreChart
+            correctPercent={percentage}
+            incorrectPercent={100 - percentage}
+          />
+        </div>
+
+        <div className="col-span-4 bg-white rounded-xl shadow-md p-6">
+          <WeakTopicsBarChart topics={weakTopics} />
+        </div>
+
+        <div className="col-span-3 bg-white rounded-xl shadow-md p-6">
+          <TopTopicsFunnelChart
+            topicBreakdown={selectedResult?.topicBreakdown}
+            topN={5}
+            height={250}
+            title="Top 5 Topics"
+          />
+        </div>
+
+        <div className="col-span-4" id="suggestions">
+          <div className="bg-white rounded-xl shadow p-4 h-full">
+            <AISuggestionPanel
+              suggestions={suggestions}
+              studyTips={selectedResult?.ai_feedback?.study_tips || []}
             />
-          </div>
-
-          {/* Donut Chart */}
-          <div className="col-span-3" id="donut-chart">
-            <div className="bg-white rounded-xl shadow p-4 h-full">
-              {loadingList ? <div className="h-56 animate-pulse bg-gray-200 rounded-xl" /> :
-                <DonutScoreChart correctPercent={percentage} incorrectPercent={100 - percentage} />}
-            </div>
-          </div>
-
-          {/* Weak Topics */}
-          <div className="col-span-4" id="weak-topics">
-            <div className="bg-white rounded-xl shadow p-4 h-full">
-              {loadingList ? <div className="h-56 animate-pulse bg-gray-200 rounded-xl" /> :
-                <WeakTopicsBarChart topics={weakTopics} />}
-            </div>
-          </div>
-
-          {/* Top Topics */}
-          <div className="col-span-3" id="top-topics">
-            <div className="bg-white rounded-xl shadow p-4 h-full">
-              {loadingList ? <div className="h-56 animate-pulse bg-gray-200 rounded-xl" /> :
-                <TopTopicsFunnelChart topicBreakdown={selectedResult?.topicBreakdown} topN={5} height={250} title="Top 5 Topics" />}
-            </div>
-          </div>
-
-          {/* AI Suggestions */}
-          <div className="col-span-4" id="suggestions">
-            <div className="bg-white rounded-xl shadow p-4 h-full">
-              {loadingList ? <div className="h-56 animate-pulse bg-gray-200 rounded-xl" /> :
-                <AISuggestionPanel suggestions={suggestions} studyTips={selectedResult?.ai_feedback?.study_tips || []} />}
-            </div>
           </div>
         </div>
       </div>
