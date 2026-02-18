@@ -67,10 +67,22 @@ router.get("/", async (req, res) => {
 });
 
 // ✅ Get one writing submission by response_id
+// ✅ Get latest writing submission by response_id (latest attempt)
 router.get("/:responseId", async (req, res) => {
-  const id = req.params.responseId;
-  const result = await Writing.findOne({ response_id: id });
+  const id = String(req.params.responseId || "").trim();
+  if (!id) return res.status(400).json({ error: "responseId required" });
+
+  const result = await Writing.findOne({ response_id: id }).sort({
+    attempt: -1,          // ✅ latest attempt first
+    submitted_at: -1,     // ✅ newest submission first
+    date_submitted: -1,
+    date_created: -1,
+    createdAt: -1,
+    _id: -1,              // ✅ final fallback
+  });
+
   res.json(result || null);
 });
+
 
 module.exports = router;

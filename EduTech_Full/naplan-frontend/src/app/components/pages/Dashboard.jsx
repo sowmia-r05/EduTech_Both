@@ -345,7 +345,7 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <button
-          onClick={() => navigate("/NonWritingLookupQuizResults")}
+          onClick={() => navigate("/")}
           className="text-blue-600 hover:underline"
         >
           {error || "No results found."}

@@ -24,7 +24,11 @@ import {
 import waitingGif from "@/app/components/Public/dragon_play.gif";
 import AvatarMenu from "@/app/components/ResultComponents/AvatarMenu";
 
-import { fetchLatestWritingByEmailAndQuiz, normalizeEmail } from "@/app/utils/api";
+import {
+  fetchLatestWritingByEmailAndQuiz,
+  fetchWritingByResponseId,
+  normalizeEmail,
+} from "@/app/utils/api";
 
 const isAiPending = (d) => {
   const s = String(d?.ai?.status || "").toLowerCase();
@@ -37,8 +41,14 @@ export default function ResultPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
+  // ✅ NEW: dynamic ResponseId param (your URL uses r=...)
+  const responseId = String(searchParams.get("r") || "").trim();
+
+  // Old fallback params (still supported)
   const email = normalizeEmail(searchParams.get("email"));
   const quizName = String(searchParams.get("quiz") || "").trim();
+
+  const hasFallback = !!email && !!quizName;
 
   const userName = useMemo(() => (email ? email.split("@")[0] : "User"), [email]);
 
@@ -47,10 +57,13 @@ export default function ResultPage() {
   const [error, setError] = useState(null);
 
   // ----------------------------
-  // Fetch latest evaluation
+  // Fetch evaluation
+  // Priority:
+  // 1) r=responseId
+  // 2) email+quiz fallback
   // ----------------------------
   useEffect(() => {
-    if (!email || !quizName) {
+    if (!responseId && !hasFallback) {
       navigate("/");
       return;
     }
@@ -62,9 +75,11 @@ export default function ResultPage() {
         setLoading(true);
         setError(null);
 
-        const data = await fetchLatestWritingByEmailAndQuiz(email, quizName);
-        if (cancelled) return;
+        const data = responseId
+          ? await fetchWritingByResponseId(responseId)
+          : await fetchLatestWritingByEmailAndQuiz(email, quizName);
 
+        if (cancelled) return;
         setDoc(data);
       } catch (e) {
         if (cancelled) return;
@@ -78,57 +93,58 @@ export default function ResultPage() {
     return () => {
       cancelled = true;
     };
-  }, [email, quizName, navigate]);
+  }, [responseId, hasFallback, email, quizName, navigate]);
 
+  // ----------------------------
+  // Poll until AI done (max 3 mins)
+  // ----------------------------
   useEffect(() => {
-  if (!email || !quizName) return;
-  if (!doc) return;
+    if (!responseId && !hasFallback) return;
+    if (!doc) return;
+    if (!isAiPending(doc)) return; // already ready or failed
 
-  // if already ready or failed, no polling
-  if (!isAiPending(doc)) return;
+    let cancelled = false;
+    let timer = null;
+    const start = Date.now();
+    const MAX_MS = 180000; // 3 minutes
 
-  let cancelled = false;
-  let timer = null;
-  const start = Date.now();
-  const MAX_MS = 180000; // 3 minutes
-
-  const poll = async () => {
-    if (cancelled) return;
-
-    // stop after max time (prevents infinite loading)
-    if (Date.now() - start > MAX_MS) {
-      setError("Your feedback is still processing. Please try again in 1–2 minutes.");
-      return;
-    }
-
-    try {
-      const latest = await fetchLatestWritingByEmailAndQuiz(email, quizName);
+    const poll = async () => {
       if (cancelled) return;
 
-      setDoc(latest);
-
-      // keep polling while pending
-      if (isAiPending(latest)) {
-        timer = setTimeout(poll, 4000);
+      if (Date.now() - start > MAX_MS) {
+        setError("Your feedback is still processing. Please try again in 1–2 minutes.");
+        return;
       }
-    } catch {
-      if (!cancelled) timer = setTimeout(poll, 6000);
-    }
-  };
 
-  timer = setTimeout(poll, 2000);
+      try {
+        const latest = responseId
+          ? await fetchWritingByResponseId(responseId)
+          : await fetchLatestWritingByEmailAndQuiz(email, quizName);
 
-  return () => {
-    cancelled = true;
-    if (timer) clearTimeout(timer);
-  };
-}, [email, quizName, doc]);
+        if (cancelled) return;
 
+        setDoc(latest);
+
+        if (isAiPending(latest)) {
+          timer = setTimeout(poll, 4000);
+        }
+      } catch {
+        if (!cancelled) timer = setTimeout(poll, 6000);
+      }
+    };
+
+    timer = setTimeout(poll, 2000);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [responseId, hasFallback, email, quizName, doc]);
 
   // If doc returned but missing ai block, route back
   useEffect(() => {
     if (!loading && doc && !doc.ai) {
-      navigate("/WritingLookupQuizResults");
+      navigate("https://www.flexiquiz.com/Dashboard/Index");
     }
   }, [loading, doc, navigate]);
 
@@ -136,10 +152,9 @@ export default function ResultPage() {
   // AI state (robust)
   // ----------------------------
   const feedback = doc?.ai?.feedback;
-  const aiStatus = doc?.ai?.status;      // expect: processing | done/completed | error
+  const aiStatus = doc?.ai?.status;
   const aiMessage = doc?.ai?.message;
 
-  const isAiReady = aiStatus === "done" || aiStatus === "completed";
   const isAiError = aiStatus === "error";
   const isProcessing = loading || (doc && isAiPending(doc));
   const hasAiFailed = isAiError;
@@ -182,7 +197,8 @@ export default function ResultPage() {
             <p className="text-xl font-medium text-red-600 mb-4">
               {error || "No data found"}
             </p>
-            <Button onClick={() => navigate("/WritingLookupQuizResults")}>
+            <Button onClick={() => navigate("/WritingLookupQuizResults")}
+              >
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Input
             </Button>
@@ -201,7 +217,6 @@ export default function ResultPage() {
     let errorSuggestion =
       "Please ensure you have written a substantial response and try again.";
 
-    // Show message details if provided (but don't rely on exact text)
     if (aiMessage) {
       errorMessage = "The AI encountered an error while processing your evaluation.";
       errorSuggestion = "Please try again later or contact support if the issue persists.";
@@ -216,13 +231,12 @@ export default function ResultPage() {
             <p className="text-gray-700 mb-2">{errorMessage}</p>
 
             {aiMessage && (
-              <p className="text-sm text-gray-600 mb-6 italic">
-                Error details: {aiMessage}
-              </p>
+              <p className="text-sm text-gray-600 mb-6 italic">Error details: {aiMessage}</p>
             )}
 
             <p className="text-gray-600 mb-6">{errorSuggestion}</p>
-            <Button onClick={() => navigate("/WritingLookupQuizResults")}>
+            <Button onClick={() => navigate("/WritingLookupQuizResults")}
+              >
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Input
             </Button>
@@ -287,6 +301,7 @@ export default function ResultPage() {
             </p>
           </div>
 
+
           <div className="shrink-0 self-start">
             <AvatarMenu />
           </div>
@@ -301,9 +316,7 @@ export default function ResultPage() {
 
                 <div className="flex-1">
                   <h3 className="font-semibold text-lg text-orange-900 mb-2">
-                    {feedbackStatus === "not_enough_response"
-                      ? "Insufficient Response"
-                      : "Evaluation Notice"}
+                    {feedbackStatus === "not_enough_response" ? "Insufficient Response" : "Evaluation Notice"}
                   </h3>
 
                   <p className="text-orange-800 mb-3">
@@ -314,17 +327,15 @@ export default function ResultPage() {
                   {wordCount !== undefined && wordCount !== null && (
                     <p className="text-sm text-orange-700">
                       Word count: <span className="font-semibold">{wordCount}</span>
-                      {wordCount < 20 &&
-                        " (minimum ~20 words recommended for evaluation)"}
+                      {wordCount < 20 && " (minimum ~20 words recommended for evaluation)"}
                     </p>
                   )}
 
                   <div className="mt-4 p-3 bg-white rounded border border-orange-200">
                     <p className="text-sm text-gray-700">
                       <span className="font-semibold">💡 Tip: </span>
-                      Please provide a more detailed response to receive comprehensive
-                      feedback on your writing. Try expanding your ideas with examples,
-                      explanations, and supporting details.
+                      Please provide a more detailed response to receive comprehensive feedback on your writing.
+                      Try expanding your ideas with examples, explanations, and supporting details.
                     </p>
                   </div>
                 </div>
@@ -366,8 +377,8 @@ export default function ResultPage() {
                         band.includes("Above")
                           ? "default"
                           : band.includes("Below")
-                          ? "destructive"
-                          : "secondary"
+                            ? "destructive"
+                            : "secondary"
                       }
                       className="mt-2"
                     >
@@ -454,24 +465,18 @@ export default function ResultPage() {
                     >
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-sm font-semibold">
-                          Prompt Relevance:{" "}
-                          {feedback.meta.prompt_relevance.verdict === "on_topic"
-                            ? "On Topic ✓"
-                            : "Off Topic ✗"}
+                          Prompt Relevance: {" "}
+                          {feedback.meta.prompt_relevance.verdict === "on_topic" ? "On Topic ✓" : "Off Topic ✗"}
                         </p>
                         <Badge
                           variant={
-                            feedback.meta.prompt_relevance.verdict === "on_topic"
-                              ? "default"
-                              : "destructive"
+                            feedback.meta.prompt_relevance.verdict === "on_topic" ? "default" : "destructive"
                           }
                         >
                           {feedback.meta.prompt_relevance.score}%
                         </Badge>
                       </div>
-                      <p className="text-sm text-gray-700 mb-2">
-                        {feedback.meta.prompt_relevance.note}
-                      </p>
+                      <p className="text-sm text-gray-700 mb-2">{feedback.meta.prompt_relevance.note}</p>
                       {feedback.meta.prompt_relevance.evidence && (
                         <p className="text-sm text-gray-600 italic">
                           Evidence: "{feedback.meta.prompt_relevance.evidence}"
@@ -486,8 +491,8 @@ export default function ResultPage() {
                         wordCountReview.status === "below_recommended"
                           ? "bg-yellow-50 border-yellow-500"
                           : wordCountReview.status === "within_range"
-                          ? "bg-green-50 border-green-500"
-                          : "bg-blue-50 border-blue-500"
+                            ? "bg-green-50 border-green-500"
+                            : "bg-blue-50 border-blue-500"
                       }`}
                     >
                       <div className="flex items-start gap-2 mb-2">
@@ -576,9 +581,7 @@ export default function ResultPage() {
                   >
                     <div className="flex items-start gap-3 mb-3">
                       <Lightbulb className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                      <h3 className="font-bold text-lg text-gray-900">
-                        {section?.title || "Feedback"}
-                      </h3>
+                      <h3 className="font-bold text-lg text-gray-900">{section?.title || "Feedback"}</h3>
                     </div>
 
                     {section?.items && section.items.length > 0 ? (
@@ -617,8 +620,7 @@ export default function ResultPage() {
 
                     const score = criterion?.score ?? 0;
                     const max = criterion?.max ?? 0;
-                    const pct =
-                      max > 0 ? Math.max(0, Math.min(100, (score / max) * 100)) : 0;
+                    const pct = max > 0 ? Math.max(0, Math.min(100, (score / max) * 100)) : 0;
 
                     return (
                       <div
@@ -627,9 +629,7 @@ export default function ResultPage() {
                       >
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex-1">
-                            <p className="font-semibold text-lg">
-                              {criterion?.name || "Unknown Criterion"}
-                            </p>
+                            <p className="font-semibold text-lg">{criterion?.name || "Unknown Criterion"}</p>
                           </div>
                           <div className="text-right ml-4">
                             <p className="text-2xl font-bold">
@@ -649,8 +649,7 @@ export default function ResultPage() {
                         {criterion?.evidence_quote?.trim() ? (
                           <div className="mt-2 p-3 bg-gray-50 border-l-4 border-gray-400 rounded italic">
                             <p className="text-sm text-gray-700">
-                              <span className="font-semibold not-italic">Evidence: </span>"
-                              {criterion.evidence_quote}"
+                              <span className="font-semibold not-italic">Evidence: </span>"{criterion.evidence_quote}"
                             </p>
                           </div>
                         ) : null}
@@ -681,9 +680,7 @@ export default function ResultPage() {
             </CardHeader>
             <CardContent>
               <div className="prose max-w-none bg-white p-6 rounded-lg border">
-                <p className="whitespace-pre-wrap text-gray-700 leading-relaxed">
-                  {doc.qna[0].answer_text}
-                </p>
+                <p className="whitespace-pre-wrap text-gray-700 leading-relaxed">{doc.qna[0].answer_text}</p>
               </div>
             </CardContent>
           </Card>

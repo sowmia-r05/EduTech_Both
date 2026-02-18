@@ -6,7 +6,7 @@ export default function AvatarMenu({ className = "" }) {
   const handleLogout = () => {
     localStorage.clear();
     sessionStorage.clear();
-    navigate("/WritingLookupQuizResults", { replace: true });
+    navigate("/", { replace: true });
   };
 
   return (
