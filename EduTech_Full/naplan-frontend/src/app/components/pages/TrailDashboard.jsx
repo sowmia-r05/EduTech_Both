@@ -53,8 +53,11 @@ const buildTopicStrength = (topicBreakdown = {}) => {
 
   Object.entries(topicBreakdown).forEach(([topic, v]) => {
     const accuracy = v.scored / v.total;
-    if (accuracy >= 0.75) strong.push({ topic, accuracy });
-    else weak.push({ topic, lostMarks: v.total - v.scored });
+    if (accuracy >= 0.75) {
+      strong.push({ topic, accuracy });
+    } else {
+      weak.push({ topic, lostMarks: v.total - v.scored });
+    }
   });
 
   return { strongTopics: strong, weakTopics: weak };
@@ -72,18 +75,31 @@ export default function TrailDashboard() {
     []
   );
 
+  /* 🔥 Redirect Handler */
+  const handleUnlockClick = () => {
+    window.location.href =
+      "https://www.flexiquiz.com/SC/buy-course/Grade3_set-1";
+  };
+
   return (
     <div className="relative min-h-screen bg-gray-100">
 
       {/* 🔒 UNLOCK OVERLAY */}
-      <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm text-white text-center px-6">
-        <div className="bg-white text-gray-900 p-8 rounded-2xl shadow-2xl max-w-md w-full">
-          <h2 className="text-2xl font-bold mb-4">🔒 Unlock Your Dashboard</h2>
+      <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-6">
+        <div className="bg-white text-gray-900 p-8 rounded-2xl shadow-2xl max-w-md w-full text-center">
+          <h2 className="text-2xl font-bold mb-4">
+            🔒 Unlock Your Dashboard
+          </h2>
+
           <p className="mb-6 text-gray-600">
             Upgrade your plan to unlock detailed analytics, AI insights,
             performance charts, and personalized study recommendations.
           </p>
-          <button className="w-full py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition">
+
+          <button
+            onClick={handleUnlockClick}
+            className="w-full py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition duration-200"
+          >
             Unlock to Watch Dashboard
           </button>
         </div>
@@ -95,7 +111,7 @@ export default function TrailDashboard() {
         {/* Header */}
         <div className="flex justify-between items-center px-6 py-4 mb-4">
           <h1 className="text-3xl font-bold">
-            <span className="text-blue-600">{displayName} -</span>{" "}
+            <span className="text-blue-600">{displayName} - </span>
             <span className="text-purple-600">
               {mockResult.quiz_name} Report
             </span>
@@ -103,7 +119,7 @@ export default function TrailDashboard() {
           <AvatarMenu />
         </div>
 
-        {/* Grid */}
+        {/* Grid Layout */}
         <div className="grid grid-cols-12 gap-4 px-6 pb-6">
 
           {/* Stat Cards */}
@@ -140,7 +156,7 @@ export default function TrailDashboard() {
             </div>
           </div>
 
-          {/* Top Topics */}
+          {/* Top Topics Funnel */}
           <div className="col-span-3">
             <div className="bg-white rounded-xl shadow p-4 h-full">
               <TopTopicsFunnelChart
@@ -157,8 +173,14 @@ export default function TrailDashboard() {
             <div className="bg-white rounded-xl shadow p-4 h-full">
               <AISuggestionPanel
                 suggestions={[
-                  { title: "Focus Area", description: "Improve grammar accuracy" },
-                  { title: "Tip", description: "Practice paraphrasing daily" },
+                  {
+                    title: "Focus Area",
+                    description: "Improve grammar accuracy",
+                  },
+                  {
+                    title: "Tip",
+                    description: "Practice paraphrasing daily",
+                  },
                 ]}
                 studyTips={mockResult.ai_feedback.study_tips}
               />
