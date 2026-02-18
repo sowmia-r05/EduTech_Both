@@ -65,7 +65,7 @@ const buildTopicStrength = (topicBreakdown = {}) => {
 
 /* -------------------- Component -------------------- */
 
-export default function TrialDashboard() {
+export default function TrailDashboard() {
   const percentage = mockResult.score.percentage;
   const duration = formatDuration(mockResult.duration);
   const displayName = `${mockResult.user.first_name} ${mockResult.user.last_name}`;
