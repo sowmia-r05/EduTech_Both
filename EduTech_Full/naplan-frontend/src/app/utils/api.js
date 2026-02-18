@@ -12,9 +12,11 @@
 //   GET /api/users/exists?email=...
 //   GET /api/writing/quizzes?email=...
 //   GET /api/writing/latest?email=...&quiz=...
+//   GET /api/writing/:responseId
 //   GET /api/results/quizzes?email=...
 //   GET /api/results/latest/by-filters?email=...&quiz_name=...&year=...&subject=...
 //   GET /api/results/by-email?email=...
+//   GET /api/results/:responseId
 
 // In dev with Vite proxy, use "" so /api goes to backend via proxy. Otherwise use env or default.
 const API_BASE =
@@ -25,25 +27,53 @@ const API_BASE =
       : "http://localhost:3000";
 
 /**
- * ✅ UPDATED:
+ * ✅ FIXED getJson:
+ * - Prevents 304 Not Modified from breaking JSON parsing
+ * - Disables caching (cache: 'no-store' + no-cache headers)
  * - Accepts fetch options (e.g., { signal } from AbortController)
- * - Spreads options into fetch so requests can be aborted
+ * - Tries to surface server error messages when possible
  */
 async function getJson(path, options = {}) {
-  const url = `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-    ...options, // ✅ enables AbortController signal etc.
-  });
+  const baseUrl = `${API_BASE}${path}`;
 
-  // Handle 204 No Content responses
+  const doFetch = async (url) => {
+    return fetch(url, {
+      method: "GET",
+      // For GET requests, prefer Accept. Content-Type is unnecessary here.
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+        ...(options.headers || {}),
+      },
+      cache: "no-store",
+      ...options, // keeps signal, etc.
+    });
+  };
+
+  let res = await doFetch(baseUrl);
+
+  // 204 No Content
   if (res.status === 204) return null;
 
-  // Try to parse JSON even on errors (to show server message)
+  // ✅ 304 Not Modified often comes with NO body.
+  // Retry once with a cache-busting query param.
+  if (res.status === 304) {
+    const bustedUrl = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}_ts=${Date.now()}`;
+    res = await doFetch(bustedUrl);
+    if (res.status === 204) return null;
+  }
+
+  // Parse JSON if possible
   let body = null;
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
   try {
-    body = await res.json();
+    if (contentType.includes("application/json")) {
+      body = await res.json();
+    } else {
+      const text = await res.text();
+      body = text ? { message: text } : null;
+    }
   } catch {
     body = null;
   }
@@ -63,41 +93,43 @@ export function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
-/**
- * ✅ UPDATED:
- * - Accepts options (e.g. { signal })
- * - Passes options into getJson to support abort + faster UX while typing
- */
 export async function verifyEmailExists(email, options = {}) {
   const e = normalizeEmail(email);
   const data = await getJson(`/api/users/exists?email=${encodeURIComponent(e)}`, options);
   return !!data?.exists;
 }
 
-export async function fetchQuizNamesByEmail(email) {
+export async function fetchQuizNamesByEmail(email, options = {}) {
   const e = normalizeEmail(email);
-  const data = await getJson(`/api/writing/quizzes?email=${encodeURIComponent(e)}`);
+  const data = await getJson(`/api/writing/quizzes?email=${encodeURIComponent(e)}`, options);
   return Array.isArray(data?.quizNames) ? data.quizNames : [];
 }
 
-export async function fetchLatestWritingByEmailAndQuiz(email, quizName) {
+export async function fetchLatestWritingByEmailAndQuiz(email, quizName, options = {}) {
   const e = normalizeEmail(email);
   const q = String(quizName || "").trim();
   const data = await getJson(
-    `/api/writing/latest?email=${encodeURIComponent(e)}&quiz=${encodeURIComponent(q)}`
+    `/api/writing/latest?email=${encodeURIComponent(e)}&quiz=${encodeURIComponent(q)}`,
+    options
   );
   return data;
 }
 
+export async function fetchWritingByResponseId(responseId, options = {}) {
+  const id = String(responseId || "").trim();
+  if (!id) throw new Error("responseId is required");
+  const data = await getJson(`/api/writing/${encodeURIComponent(id)}`, options);
+  return data;
+}
+
 // Quiz names from results collection (for non-writing dashboard lookup)
-export async function fetchResultQuizNamesByEmail(email) {
+export async function fetchResultQuizNamesByEmail(email, options = {}) {
   const e = normalizeEmail(email);
-  const data = await getJson(`/api/results/quizzes?email=${encodeURIComponent(e)}`);
+  const data = await getJson(`/api/results/quizzes?email=${encodeURIComponent(e)}`, options);
   return Array.isArray(data?.quizNames) ? data.quizNames : [];
 }
 
 // ——— Dashboard (non-writing results) ———
-// Latest result for an email, optionally filtered by quiz/year/subject
 export async function fetchLatestResultByEmail(email, options = {}) {
   const e = normalizeEmail(email);
   const params = new URLSearchParams({ email: e });
@@ -108,7 +140,6 @@ export async function fetchLatestResultByEmail(email, options = {}) {
   return data;
 }
 
-// All results for an email (for progress-over-time chart)
 export async function fetchResultsByEmail(email, options = {}) {
   const e = normalizeEmail(email);
   const params = new URLSearchParams({ email: e });
@@ -121,11 +152,9 @@ export async function fetchResultsByEmail(email, options = {}) {
   return Array.isArray(data) ? data : [];
 }
 
-
-// ✅ Fetch latest (sorted) result by FlexiQuiz response_id
 export async function fetchResultByResponseId(responseId, options = {}) {
-  const id = String(responseId || '').trim();
-  if (!id) throw new Error('responseId required');
+  const id = String(responseId || "").trim();
+  if (!id) throw new Error("responseId required");
   const data = await getJson(`/api/results/${encodeURIComponent(id)}`, options);
   return data;
 }
