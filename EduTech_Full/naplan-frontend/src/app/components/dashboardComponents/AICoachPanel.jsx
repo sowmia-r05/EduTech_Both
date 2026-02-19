@@ -93,7 +93,7 @@ const AICoachPanel = ({
             </div>
 
             {/* Scrollable Rows */}
-            <div className="max-h-[300px] overflow-y-auto pr-1 space-y-1 custom-scroll">
+            <div className="max-h-[500px] overflow-y-auto pr-1 space-y-1 custom-scroll">
               {Array.from({ length: 20 }).map((_, i) => (
                 <div key={i} className="grid grid-cols-2 gap-3">
                   <div className="bg-slate-100 rounded px-3 py-1 text-sm text-slate-700">
