@@ -297,50 +297,52 @@ export default function Dashboard() {
       selectedResult?.user?.last_name || ""
     }`.trim() || "Student";
 
-  return (
-    <div className="relative min-h-screen bg-gray-100">
-      {/* Dashboard Tour */}
-      <DashboardTour
-        isTourActive={isTourActive}
-        setIsTourActive={setIsTourActive}
-      />
+ return (
+  <div className="relative min-h-screen bg-gray-100">
+    {/* Dashboard Tour */}
+    <DashboardTour
+      isTourActive={isTourActive}
+      setIsTourActive={setIsTourActive}
+    />
 
-      <DashboardTourModal
-        isOpen={showTourModal}
-        onStart={() => {
-          setShowTourModal(false);
-          setTimeout(() => setIsTourActive(true), 150);
-          localStorage.setItem("dashboardTourPrompted", "true");
-        }}
-        onSkip={() => {
-          setShowTourModal(false);
-          localStorage.setItem("dashboardTourPrompted", "true");
-        }}
-      />
+    <DashboardTourModal
+      isOpen={showTourModal}
+      onStart={() => {
+        setShowTourModal(false);
+        setTimeout(() => setIsTourActive(true), 150);
+        localStorage.setItem("dashboardTourPrompted", "true");
+      }}
+      onSkip={() => {
+        setShowTourModal(false);
+        localStorage.setItem("dashboardTourPrompted", "true");
+      }}
+    />
 
-      {/* No Data Modal */}
-      <NoDataModal
-        isOpen={showNoDataModal}
-        onClose={() => setShowNoDataModal(false)}
-        onClearFilter={() => {
-          setSelectedDate(null);
-          setShowNoDataModal(false);
-        }}
-      />
+    {/* No Data Modal */}
+    <NoDataModal
+      isOpen={showNoDataModal}
+      onClose={() => setShowNoDataModal(false)}
+      onClearFilter={() => {
+        setSelectedDate(null);
+        setShowNoDataModal(false);
+      }}
+    />
 
-      {/* Header */}
-      <div className="flex justify-between items-center px-6 py-4 mb-4">
-        <h1 className="text-3xl font-bold">
-          <span className="text-blue-600">{displayName} - </span>
-          <span className="text-purple-600">
-            {selectedResult?.quiz_name || "Quiz"} Report
-          </span>
-        </h1>
-        <div className="flex items-center gap-4">
-          <DateRangeFilter
-            selectedDate={selectedDate}
-            onChange={setSelectedDate}
-            testTakenDates={resultsList.map((r) => {
+    {/* Header */}
+    <div className="flex justify-between items-center px-6 py-4 mb-4">
+      <h1 className="text-3xl font-bold">
+        <span className="text-blue-600">{displayName} - </span>
+        <span className="text-purple-600">
+          {selectedResult?.quiz_name || "Quiz"} Report
+        </span>
+      </h1>
+
+      <div className="flex items-center gap-4">
+        <DateRangeFilter
+          selectedDate={selectedDate}
+          onChange={setSelectedDate}
+          testTakenDates={resultsList
+            .map((r) => {
               const raw = r?.createdAt || r?.date_submitted;
               if (!raw) return null;
               const date = new Date(
@@ -348,65 +350,73 @@ export default function Dashboard() {
               );
               date.setHours(0, 0, 0, 0);
               return date;
-            }).filter(Boolean)}
-          />
-          <AvatarMenu />
-        </div>
+            })
+            .filter(Boolean)}
+        />
+        <AvatarMenu />
+      </div>
+    </div>
+
+    {/* Dashboard Grid */}
+    <div className="grid grid-cols-12 gap-4 px-6 pb-6 min-h-[80vh]">
+      {/* Stat Cards */}
+      <div className="col-span-7 grid grid-cols-4 gap-4">
+        {["Overall Score", "Time Spent", "Result", "Attempts Used"].map(
+          (title, idx) => {
+            const valueMap = {
+              "Overall Score": `${percentage}%`,
+              "Time Spent": duration,
+              Result: grade,
+              "Attempts Used": attemptsUsed,
+            };
+            return <StatCard key={idx} title={title} value={valueMap[title]} />;
+          }
+        )}
       </div>
 
-      {/* Dashboard Grid */}
-      <div className="grid grid-cols-12 gap-4 px-6 pb-6">
-        <div className="col-span-7 grid grid-cols-4 gap-4">
-          {["Overall Score", "Time Spent", "Result", "Attempts Used"].map(
-            (title, idx) => {
-              const valueMap = {
-                "Overall Score": `${percentage}%`,
-                "Time Spent": duration,
-                Result: grade,
-                "Attempts Used": attemptsUsed,
-              };
-              return <StatCard key={idx} title={title} value={valueMap[title]} />;
-            }
-          )}
-        </div>
+      {/* AI Coach Panel */}
+      <div className="col-span-5 row-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
+        <AICoachPanel
+          feedback={selectedResult?.ai_feedback}
+          strongTopics={strongTopics}
+          weakTopics={weakTopics}
+        />
+      </div>
 
-        <div className="col-span-5 row-span-3 bg-white rounded-xl shadow-md p-6">
-          <AICoachPanel
-            feedback={selectedResult?.ai_feedback}
-            strongTopics={strongTopics}
-            weakTopics={weakTopics}
+      {/* Donut Chart */}
+      <div className="col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
+        <DonutScoreChart
+          correctPercent={percentage}
+          incorrectPercent={100 - percentage}
+          height="100%"
+        />
+      </div>
+
+      {/* Weak Topics Bar Chart */}
+      <div className="col-span-4 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
+        <WeakTopicsBarChart topics={weakTopics} height="100%" />
+      </div>
+
+      {/* Top Topics Funnel */}
+      <div className="col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
+        <TopTopicsFunnelChart
+          topicBreakdown={selectedResult?.topicBreakdown}
+          topN={5}
+          height={250}
+          title="Top 5 Topics Overview"
+        />
+      </div>
+
+      {/* AI Suggestions */}
+      <div className="col-span-4">
+        <div className="bg-white rounded-xl shadow p-4 h-full flex flex-col min-h-0">
+          <AISuggestionPanel
+            suggestions={suggestions}
+            studyTips={selectedResult?.ai_feedback?.study_tips || []}
           />
-        </div>
-
-        <div className="col-span-3 bg-white rounded-xl shadow-md p-6">
-          <DonutScoreChart
-            correctPercent={percentage}
-            incorrectPercent={100 - percentage}
-          />
-        </div>
-
-        <div className="col-span-4 bg-white rounded-xl shadow-md p-6">
-          <WeakTopicsBarChart topics={weakTopics} />
-        </div>
-
-        <div className="col-span-3 bg-white rounded-xl shadow-md p-6">
-          <TopTopicsFunnelChart
-            topicBreakdown={selectedResult?.topicBreakdown}
-            topN={5}
-            height={250}
-            title="Top 5 Topics"
-          />
-        </div>
-
-        <div className="col-span-4" id="suggestions">
-          <div className="bg-white rounded-xl shadow p-4 h-full">
-            <AISuggestionPanel
-              suggestions={suggestions}
-              studyTips={selectedResult?.ai_feedback?.study_tips || []}
-            />
-          </div>
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 }
