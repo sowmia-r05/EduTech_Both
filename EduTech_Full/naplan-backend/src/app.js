@@ -1,3 +1,9 @@
+// ✅ Force IPv4 first (fixes ENETUNREACH to Gmail IPv6 on Render)
+
+const dns = require("dns");
+
+dns.setDefaultResultOrder("ipv4first");
+
 require("dotenv").config();
 const express = require("express");
 const rateLimit = require("express-rate-limit");
