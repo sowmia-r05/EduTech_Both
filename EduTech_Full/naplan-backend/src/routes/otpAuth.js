@@ -8,17 +8,18 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 
-// ✅ Force IPv4 first (fixes ENETUNREACH to Gmail IPv6 on Render)
+// ✅ Force IPv4 first (helps on some hosts like Render when IPv6 route is not reachable)
 const dns = require("dns");
 try {
   dns.setDefaultResultOrder("ipv4first");
 } catch (e) {
-  // If Node is older, this may not exist.
-  // In that case, set Render env: NODE_OPTIONS=--dns-result-order=ipv4first
+  // If your Node version doesn't support this:
+  // Set Render env: NODE_OPTIONS=--dns-result-order=ipv4first
 }
 
-const connectDB = require("../config/db"); // <-- update path if different
-const User = require("../models/user"); // <-- update model file name/path if different
+// ✅ DB + User model (make sure paths match your project)
+const connectDB = require("../config/db");
+const User = require("../models/user");
 
 const router = express.Router();
 
@@ -37,32 +38,26 @@ function otpExpiresSeconds() {
   return Math.max(5, mins) * 60;
 }
 
+// ✅ UPDATED mailer(): correct secure handling + requireTLS + force IPv4
 function mailer() {
   const host = requiredEnv("SMTP_HOST");
   const port = Number(requiredEnv("SMTP_PORT"));
 
-  // ✅ Rule of thumb:
-  // - 587 (STARTTLS): secure=false
-  // - 465 (SSL): secure=true
-  const secure =
-    String(process.env.SMTP_SECURE || "").trim() !== ""
-      ? String(process.env.SMTP_SECURE).toLowerCase() === "true"
-      : port === 465;
-
   return nodemailer.createTransport({
     host,
     port,
-    secure,
-    auth: { user: requiredEnv("SMTP_USER"), pass: requiredEnv("SMTP_PASS") },
 
-    // ✅ Force IPv4 (extra safety; fixes Render IPv6 route issues)
-    family: 4,
+    // ✅ 465 = SSL (secure true), 587 = STARTTLS (secure false)
+    secure: port === 465,
+    requireTLS: port === 587,
 
-    // ✅ For STARTTLS (587) this helps on some hosts; safe for 465 too
-    // Remove this if you want strict TLS verification and your SMTP cert chain is perfect.
-    tls: {
-      rejectUnauthorized: false,
+    auth: {
+      user: requiredEnv("SMTP_USER"),
+      pass: requiredEnv("SMTP_PASS"),
     },
+
+    // ✅ Forces IPv4 (fixes ENETUNREACH IPv6 issues)
+    family: 4,
   });
 }
 
@@ -72,7 +67,7 @@ function escapeRegExp(s) {
 
 /**
  * ✅ LOOKUP EMAIL BY USERNAME (MongoDB)
- * Update field names if needed.
+ * Ensure the fields below match your schema.
  */
 async function lookupEmailByUsername(username) {
   const u = String(username || "").trim();
@@ -93,23 +88,17 @@ async function lookupEmailByUsername(username) {
     (await User.findOne({ userId: rx }).select("email email_address").lean()) ||
     (await User.findOne({ studentId: rx }).select("email email_address").lean());
 
-  const email = String(doc?.email || doc?.email_address || "")
-    .trim()
-    .toLowerCase();
+  const email = String(doc?.email || doc?.email_address || "").trim().toLowerCase();
   return email || null;
 }
 
-// ✅ Store OTPs by username (not email)
-// NOTE: This is in-memory; on Render multiple instances / restarts will lose OTPs.
-// For production, store in Redis or DB.
+// ✅ Store OTPs by username (in-memory)
+// NOTE: This will reset if Render restarts; for production use Redis/DB.
 const otpStore = new Map(); // username -> { email, hash, expiresAt, attempts, lastSentAt }
 
 function hashOtp(username, otp) {
   const secret = requiredEnv("OTP_SECRET");
-  return crypto
-    .createHmac("sha256", secret)
-    .update(`${username}:${otp}`)
-    .digest("hex");
+  return crypto.createHmac("sha256", secret).update(`${username}:${otp}`).digest("hex");
 }
 
 function makeOtp() {
@@ -136,9 +125,7 @@ router.post("/otp/request", async (req, res) => {
 
     // Rate limit: one OTP per 30 seconds per username
     if (existing?.lastSentAt && now - existing.lastSentAt < 30_000) {
-      return res
-        .status(429)
-        .json({ error: "Please wait before requesting another OTP." });
+      return res.status(429).json({ error: "Please wait before requesting another OTP." });
     }
 
     const otp = makeOtp();
@@ -156,6 +143,10 @@ router.post("/otp/request", async (req, res) => {
     const from = process.env.MAIL_FROM || requiredEnv("SMTP_USER");
     const transport = mailer();
 
+    // ✅ Optional but recommended: verifies SMTP connection & auth (helps debugging)
+    // If this fails, Render logs will show the real reason (EAUTH, ETIMEDOUT, etc.)
+    await transport.verify();
+
     await transport.sendMail({
       from,
       to: email,
@@ -165,7 +156,7 @@ router.post("/otp/request", async (req, res) => {
              <p>It expires in ${process.env.OTP_EXPIRES_MIN || 10} minutes.</p>`,
     });
 
-    // Show masked email in UI
+    // Mask email for UI
     const masked = email.replace(/(^.).*(@.*$)/, "$1****$2");
     return res.json({ ok: true, email_masked: masked });
   } catch (err) {
@@ -198,9 +189,7 @@ router.post("/otp/verify", async (req, res) => {
     record.attempts += 1;
     if (record.attempts > 5) {
       otpStore.delete(username);
-      return res
-        .status(429)
-        .json({ error: "Too many attempts. Request a new OTP." });
+      return res.status(429).json({ error: "Too many attempts. Request a new OTP." });
     }
 
     const expected = record.hash;
