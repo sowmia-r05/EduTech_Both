@@ -1,15 +1,24 @@
 // src/routes/otpAuth.js
 // OTP-by-username -> lookup email from MongoDB -> send OTP -> verify -> return login_token
 
+require("dotenv").config();
+
 const express = require("express");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 
-// ✅ If you use MongoDB (mongoose) in your project, import your DB connect + User model here.
-// CHANGE THESE TWO LINES to match YOUR project structure:
-const connectDB = require("../config/db");     // <-- update path if different
-const User = require("../models/user");        // <-- update model file name/path if different
+// ✅ Force IPv4 first (fixes ENETUNREACH to Gmail IPv6 on Render)
+const dns = require("dns");
+try {
+  dns.setDefaultResultOrder("ipv4first");
+} catch (e) {
+  // If Node is older, this may not exist.
+  // In that case, set Render env: NODE_OPTIONS=--dns-result-order=ipv4first
+}
+
+const connectDB = require("../config/db"); // <-- update path if different
+const User = require("../models/user"); // <-- update model file name/path if different
 
 const router = express.Router();
 
@@ -29,11 +38,31 @@ function otpExpiresSeconds() {
 }
 
 function mailer() {
+  const host = requiredEnv("SMTP_HOST");
+  const port = Number(requiredEnv("SMTP_PORT"));
+
+  // ✅ Rule of thumb:
+  // - 587 (STARTTLS): secure=false
+  // - 465 (SSL): secure=true
+  const secure =
+    String(process.env.SMTP_SECURE || "").trim() !== ""
+      ? String(process.env.SMTP_SECURE).toLowerCase() === "true"
+      : port === 465;
+
   return nodemailer.createTransport({
-    host: requiredEnv("SMTP_HOST"),
-    port: Number(requiredEnv("SMTP_PORT")),
-    secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true", // optional
+    host,
+    port,
+    secure,
     auth: { user: requiredEnv("SMTP_USER"), pass: requiredEnv("SMTP_PASS") },
+
+    // ✅ Force IPv4 (extra safety; fixes Render IPv6 route issues)
+    family: 4,
+
+    // ✅ For STARTTLS (587) this helps on some hosts; safe for 465 too
+    // Remove this if you want strict TLS verification and your SMTP cert chain is perfect.
+    tls: {
+      rejectUnauthorized: false,
+    },
   });
 }
 
@@ -43,14 +72,7 @@ function escapeRegExp(s) {
 
 /**
  * ✅ LOOKUP EMAIL BY USERNAME (MongoDB)
- *
- * You MUST ensure the fields below match your schema.
- * Common patterns:
- *   - username field: username / user_name / userId / studentId
- *   - email field: email / email_address
- *
- * Current code tries multiple common field names.
- * If you want it strict, keep only the one that matches your DB.
+ * Update field names if needed.
  */
 async function lookupEmailByUsername(username) {
   const u = String(username || "").trim();
@@ -71,11 +93,15 @@ async function lookupEmailByUsername(username) {
     (await User.findOne({ userId: rx }).select("email email_address").lean()) ||
     (await User.findOne({ studentId: rx }).select("email email_address").lean());
 
-  const email = String(doc?.email || doc?.email_address || "").trim().toLowerCase();
+  const email = String(doc?.email || doc?.email_address || "")
+    .trim()
+    .toLowerCase();
   return email || null;
 }
 
 // ✅ Store OTPs by username (not email)
+// NOTE: This is in-memory; on Render multiple instances / restarts will lose OTPs.
+// For production, store in Redis or DB.
 const otpStore = new Map(); // username -> { email, hash, expiresAt, attempts, lastSentAt }
 
 function hashOtp(username, otp) {
@@ -100,14 +126,7 @@ router.post("/otp/request", async (req, res) => {
     const username = String(req.body?.username || "").trim();
     if (!username) return res.status(400).json({ error: "Username required" });
 
-    // ✅ DEBUG (optional): uncomment while testing
-    // console.log("OTP request username:", username);
-
     const emailRaw = await lookupEmailByUsername(username);
-
-    // ✅ DEBUG (optional)
-    // console.log("lookupEmailByUsername email:", emailRaw);
-
     if (!emailRaw) return res.status(404).json({ error: "User not found" });
 
     const email = String(emailRaw).trim().toLowerCase();
