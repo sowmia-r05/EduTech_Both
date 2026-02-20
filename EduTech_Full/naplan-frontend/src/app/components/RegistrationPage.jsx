@@ -16,7 +16,6 @@ import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { AlertCircle, ArrowLeft, CheckCircle } from "lucide-react";
 
 import { verifyEmailExists, normalizeEmail } from "@/app/utils/api";
-
 /* ----------------------------------------------------
    ✅ GLOBAL EMAIL CACHE (persists across navigation)
 ---------------------------------------------------- */
@@ -164,8 +163,9 @@ export default function RegistrationPage() {
   };
 
   const handleLogin = () => {
-    window.location.href = "https://www.flexiquiz.com/account/si?i=t";
-  };
+  navigate("/respondent"); // ✅ go to RespondentPortal (SSO)
+};
+
 
   /* ----------------------------------------------------
      UI

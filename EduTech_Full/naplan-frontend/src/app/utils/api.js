@@ -1,4 +1,4 @@
-// utils/api.js
+// src/app/utils/api.js
 // Simple fetch-based API client for your MongoDB-backed backend.
 //
 // IMPORTANT:
@@ -17,6 +17,10 @@
 //   GET /api/results/latest/by-filters?email=...&quiz_name=...&year=...&subject=...
 //   GET /api/results/by-email?email=...
 //   GET /api/results/:responseId
+//
+// OTP endpoints (new requirements):
+//   POST /api/auth/otp/request  { username }
+//   POST /api/auth/otp/verify   { username, otp }
 
 // In dev with Vite proxy, use "" so /api goes to backend via proxy. Otherwise use env or default.
 const API_BASE =
@@ -39,7 +43,6 @@ async function getJson(path, options = {}) {
   const doFetch = async (url) => {
     return fetch(url, {
       method: "GET",
-      // For GET requests, prefer Accept. Content-Type is unnecessary here.
       headers: {
         Accept: "application/json",
         "Cache-Control": "no-cache",
@@ -47,7 +50,7 @@ async function getJson(path, options = {}) {
         ...(options.headers || {}),
       },
       cache: "no-store",
-      ...options, // keeps signal, etc.
+      ...options,
     });
   };
 
@@ -157,4 +160,51 @@ export async function fetchResultByResponseId(responseId, options = {}) {
   if (!id) throw new Error("responseId required");
   const data = await getJson(`/api/results/${encodeURIComponent(id)}`, options);
   return data;
+}
+
+/* =========================================================
+   ✅ OTP (NEW REQUIREMENT: username-based, not email-based)
+   Backend:
+     POST /api/auth/otp/request { username }
+     POST /api/auth/otp/verify  { username, otp }
+========================================================= */
+
+export function normalizeUsername(username) {
+  return String(username || "").trim();
+}
+
+export async function requestOtpByUsername(username) {
+  const u = normalizeUsername(username);
+  if (!u) throw new Error("User ID required");
+
+  const r = await fetch(`${API_BASE}/api/auth/otp/request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: u }),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to send OTP");
+
+  // backend may return { ok:true, email_masked:"v****@gmail.com" }
+  return j;
+}
+
+export async function verifyOtpByUsername(username, otp) {
+  const u = normalizeUsername(username);
+  const code = String(otp || "").trim();
+
+  if (!u) throw new Error("User ID required");
+  if (!code) throw new Error("OTP required");
+
+  const r = await fetch(`${API_BASE}/api/auth/otp/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: u, otp: code }),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "OTP verification failed");
+
+  return j.login_token; // ✅ use for /api/flexiquiz/sso?login_token=...
 }

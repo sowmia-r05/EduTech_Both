@@ -1,0 +1,213 @@
+// src/routes/otpAuth.js
+// OTP-by-username -> lookup email from MongoDB -> send OTP -> verify -> return login_token
+
+const express = require("express");
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
+
+// ✅ If you use MongoDB (mongoose) in your project, import your DB connect + User model here.
+// CHANGE THESE TWO LINES to match YOUR project structure:
+const connectDB = require("../config/db");     // <-- update path if different
+const User = require("../models/user");        // <-- update model file name/path if different
+
+const router = express.Router();
+
+/* -----------------------------
+   Helpers
+----------------------------- */
+
+function requiredEnv(name) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env var: ${name}`);
+  return v;
+}
+
+function otpExpiresSeconds() {
+  const mins = Number(process.env.OTP_EXPIRES_MIN || 10);
+  return Math.max(5, mins) * 60;
+}
+
+function mailer() {
+  return nodemailer.createTransport({
+    host: requiredEnv("SMTP_HOST"),
+    port: Number(requiredEnv("SMTP_PORT")),
+    secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true", // optional
+    auth: { user: requiredEnv("SMTP_USER"), pass: requiredEnv("SMTP_PASS") },
+  });
+}
+
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * ✅ LOOKUP EMAIL BY USERNAME (MongoDB)
+ *
+ * You MUST ensure the fields below match your schema.
+ * Common patterns:
+ *   - username field: username / user_name / userId / studentId
+ *   - email field: email / email_address
+ *
+ * Current code tries multiple common field names.
+ * If you want it strict, keep only the one that matches your DB.
+ */
+async function lookupEmailByUsername(username) {
+  const u = String(username || "").trim();
+  if (!u) return null;
+
+  // Ensure DB connected
+  if (typeof connectDB === "function") {
+    await connectDB();
+  }
+
+  // Case-insensitive exact match
+  const rx = new RegExp(`^${escapeRegExp(u)}$`, "i");
+
+  // Try multiple possible username fields
+  const doc =
+    (await User.findOne({ username: rx }).select("email email_address").lean()) ||
+    (await User.findOne({ user_name: rx }).select("email email_address").lean()) ||
+    (await User.findOne({ userId: rx }).select("email email_address").lean()) ||
+    (await User.findOne({ studentId: rx }).select("email email_address").lean());
+
+  const email = String(doc?.email || doc?.email_address || "").trim().toLowerCase();
+  return email || null;
+}
+
+// ✅ Store OTPs by username (not email)
+const otpStore = new Map(); // username -> { email, hash, expiresAt, attempts, lastSentAt }
+
+function hashOtp(username, otp) {
+  const secret = requiredEnv("OTP_SECRET");
+  return crypto
+    .createHmac("sha256", secret)
+    .update(`${username}:${otp}`)
+    .digest("hex");
+}
+
+function makeOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
+}
+
+/* -----------------------------
+   Routes
+----------------------------- */
+
+// POST /api/auth/otp/request { username }
+router.post("/otp/request", async (req, res) => {
+  try {
+    const username = String(req.body?.username || "").trim();
+    if (!username) return res.status(400).json({ error: "Username required" });
+
+    // ✅ DEBUG (optional): uncomment while testing
+    // console.log("OTP request username:", username);
+
+    const emailRaw = await lookupEmailByUsername(username);
+
+    // ✅ DEBUG (optional)
+    // console.log("lookupEmailByUsername email:", emailRaw);
+
+    if (!emailRaw) return res.status(404).json({ error: "User not found" });
+
+    const email = String(emailRaw).trim().toLowerCase();
+
+    const now = Date.now();
+    const existing = otpStore.get(username);
+
+    // Rate limit: one OTP per 30 seconds per username
+    if (existing?.lastSentAt && now - existing.lastSentAt < 30_000) {
+      return res
+        .status(429)
+        .json({ error: "Please wait before requesting another OTP." });
+    }
+
+    const otp = makeOtp();
+    const hash = hashOtp(username, otp);
+    const expiresAt = now + otpExpiresSeconds() * 1000;
+
+    otpStore.set(username, {
+      email,
+      hash,
+      expiresAt,
+      attempts: 0,
+      lastSentAt: now,
+    });
+
+    const from = process.env.MAIL_FROM || requiredEnv("SMTP_USER");
+    const transport = mailer();
+
+    await transport.sendMail({
+      from,
+      to: email,
+      subject: "Your NAPLAN OTP Code",
+      text: `Your OTP is ${otp}. It expires in ${process.env.OTP_EXPIRES_MIN || 10} minutes.`,
+      html: `<p>Your OTP is <b style="font-size:18px">${otp}</b></p>
+             <p>It expires in ${process.env.OTP_EXPIRES_MIN || 10} minutes.</p>`,
+    });
+
+    // Show masked email in UI
+    const masked = email.replace(/(^.).*(@.*$)/, "$1****$2");
+    return res.json({ ok: true, email_masked: masked });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      error: "Failed to send OTP",
+      detail: err.message,
+    });
+  }
+});
+
+// POST /api/auth/otp/verify { username, otp }
+router.post("/otp/verify", async (req, res) => {
+  try {
+    const username = String(req.body?.username || "").trim();
+    const otp = String(req.body?.otp || "").trim();
+
+    if (!username || !otp) {
+      return res.status(400).json({ error: "Username and OTP required" });
+    }
+
+    const record = otpStore.get(username);
+    if (!record) return res.status(401).json({ error: "OTP not requested" });
+
+    if (Date.now() > record.expiresAt) {
+      otpStore.delete(username);
+      return res.status(401).json({ error: "OTP expired" });
+    }
+
+    record.attempts += 1;
+    if (record.attempts > 5) {
+      otpStore.delete(username);
+      return res
+        .status(429)
+        .json({ error: "Too many attempts. Request a new OTP." });
+    }
+
+    const expected = record.hash;
+    const got = hashOtp(username, otp);
+    if (got !== expected) return res.status(401).json({ error: "Invalid OTP" });
+
+    otpStore.delete(username);
+
+    const loginSecret = requiredEnv("OTP_SECRET");
+    const now = Math.floor(Date.now() / 1000);
+
+    // login_token used by /api/flexiquiz/sso
+    const loginToken = jwt.sign(
+      { sub: username, email: record.email, iat: now, exp: now + 15 * 60 },
+      loginSecret,
+      { algorithm: "HS256" }
+    );
+
+    return res.json({ ok: true, login_token: loginToken });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      error: "Failed to verify OTP",
+      detail: err.message,
+    });
+  }
+});
+
+module.exports = router;

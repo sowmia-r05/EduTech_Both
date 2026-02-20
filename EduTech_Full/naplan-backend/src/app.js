@@ -12,15 +12,15 @@ const catalogRoutes = require("./routes/catalogRoutes");
 const userRoutes = require("./routes/userRoutes");
 const flexiQuizRoutes = require("./routes/flexiQuizRoutes");
 
+const otpAuth = require("./routes/otpAuth");
+const flexiquizSso = require("./routes/flexiquizSso");
+
 const app = express();
 
 // ✅ If you're running behind a reverse proxy (ngrok/Cloudflare Tunnel/etc.)
 app.set("trust proxy", 1);
 
 // ✅ CORS (ONLY ONCE)
-// FRONTEND_ORIGIN can be:
-// - single: "http://localhost:5173"
-// - multiple: "http://localhost:5173,https://xxxx.ngrok-free.app"
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
 
 app.use(
@@ -66,7 +66,11 @@ app.use("/api", apiLimiter);
 
 // ✅ Routes
 app.use("/api/webhooks", webhookRoutes);
+
 app.use("/api/flexiquiz", flexiQuizRoutes);
+app.use("/api/flexiquiz", flexiquizSso);
+
+app.use("/api/auth", otpAuth);
 
 app.use("/api/results", resultsRoutes);
 app.use("/api/writing", writingRoutes);
