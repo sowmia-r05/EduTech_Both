@@ -1,53 +1,53 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Menu, X } from 'lucide-react'
-import { Link as ScrollLink } from 'react-scroll'
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Menu, X } from "lucide-react";
+import { Link as ScrollLink } from "react-scroll";
 
 export default function Navbar() {
-  const navigate = useNavigate()
-  const [active, setActive] = useState('home')
-  const [open, setOpen] = useState(false)
+  const navigate = useNavigate();
+  const [active, setActive] = useState("home");
+  const [open, setOpen] = useState(false);
+
 
   // Highlight active section
   useEffect(() => {
-    const sections = ['home', 'why', 'faq']
+    const sections = ["home", "why", "faq"];
 
     const handleScroll = () => {
-      const scrollPosition = window.scrollY + 120
+      const scrollPosition = window.scrollY + 120;
 
       sections.forEach((id) => {
-        const section = document.getElementById(id)
+        const section = document.getElementById(id);
         if (section) {
           if (
             scrollPosition >= section.offsetTop &&
             scrollPosition < section.offsetTop + section.offsetHeight
           ) {
-            setActive(id)
+            setActive(id);
           }
         }
-      })
-    }
+      });
+    };
 
-    window.addEventListener('scroll', handleScroll)
-    return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const links = [
-    { id: 'home', label: 'Home' },
-    { id: 'why', label: 'Why Choose Us' },
-    { id: 'faq', label: 'FAQ' },
-  ]
+    { id: "home", label: "Home" },
+    { id: "why", label: "Why Choose Us" },
+    { id: "faq", label: "FAQ" },
+  ];
 
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
       <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
-        
         {/* Logo */}
         <div
           className="text-xl font-bold text-indigo-600 cursor-pointer"
           onClick={() => {
-            const el = document.getElementById('home')
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            const el = document.getElementById("home");
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
         >
           NAPLAN Prep
@@ -64,8 +64,8 @@ export default function Navbar() {
               duration={500}
               className={`cursor-pointer transition ${
                 active === item.id
-                  ? 'text-indigo-600'
-                  : 'text-gray-600 hover:text-indigo-600'
+                  ? "text-indigo-600"
+                  : "text-gray-600 hover:text-indigo-600"
               }`}
             >
               {item.label}
@@ -75,15 +75,15 @@ export default function Navbar() {
 
         {/* Desktop Buttons */}
         <div className="hidden md:flex items-center gap-6">
-          <a
-            href="https://www.flexiquiz.com/Account/Login"
+          <button
+            onClick={() => navigate("/respondent")}
             className="text-gray-600 hover:text-indigo-600 transition"
           >
             Login
-          </a>
+          </button>
 
           <button
-            onClick={() => navigate('/register')}
+            onClick={() => navigate("/register")}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg transition-all duration-300 hover:-translate-y-1"
           >
             Enroll now
@@ -113,17 +113,20 @@ export default function Navbar() {
             </ScrollLink>
           ))}
 
-          <a
-            href="https://www.flexiquiz.com/Account/Login"
+          <button
+            onClick={() => {
+              setOpen(false);
+              navigate("/respondent");
+            }}
             className="block text-gray-600"
           >
             Login
-          </a>
+          </button>
 
           <button
             onClick={() => {
-              setOpen(false)
-              navigate('/free-trial')
+              setOpen(false);
+              navigate("/free-trial");
             }}
             className="w-full bg-indigo-600 text-white py-2 rounded-lg"
           >
@@ -132,5 +135,5 @@ export default function Navbar() {
         </div>
       )}
     </header>
-  )
+  );
 }
