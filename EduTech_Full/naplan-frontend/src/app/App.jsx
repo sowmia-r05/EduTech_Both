@@ -2,10 +2,10 @@ import { Routes, Route } from "react-router-dom";
 
 import WelcomePage from "@/app/components/WelcomePage";
 import RegistrationPage from "@/app/components/RegistrationPage";
-import InputPage from "@/app/components/InputPage";
+
 import ResultPage from "@/app/components/ResultPage";
 import Dashboard from "@/app/components/pages/Dashboard";
-import NonWritingInputPage from "@/app/components/NonWritingInputPage";
+
 import NotFound from "@/app/components/pages/NotFound";
 import FreeTrialPage from "@/app/components/landing/FreeTrialPage";
 import StartTestPage from "@/app/components/StartTestPage";
