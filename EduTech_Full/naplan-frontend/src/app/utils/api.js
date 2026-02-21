@@ -162,6 +162,33 @@ export async function fetchResultByResponseId(responseId, options = {}) {
   return data;
 }
 
+export async function fetchWritingResultByResponseId(responseId, options = {}) {
+  const id = String(responseId || "").trim();
+  if (!id) throw new Error("responseId required");
+  const data = await getJson(`/api/results/${encodeURIComponent(id)}`, options);
+  return data;
+}
+
+export async function fetchWritingAttemptsByEmailAndQuiz(email, quiz) {
+  const e = normalizeEmail(email);
+  const q = String(quiz || "").trim();
+
+  const data = await getJson(
+    `/api/writing/by-email-and-quiz?email=${encodeURIComponent(e)}&quiz=${encodeURIComponent(q)}`,
+  );
+
+  return Array.isArray(data) ? data : [];
+}
+
+export async function fetchWritingByEmail(email, options = {}) {
+  const e = normalizeEmail(email);
+  const data = await getJson(
+    `/api/writing/by-email?email=${encodeURIComponent(e)}`,
+    options,
+  );
+  return Array.isArray(data) ? data : [];
+}
+
 /* =========================================================
    ✅ OTP (NEW REQUIREMENT: username-based, not email-based)
    Backend:
