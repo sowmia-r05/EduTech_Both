@@ -1,129 +1,180 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
+  CardDescription,
 } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
-import { Button } from "@/app/components/ui/button";
 import {
-  ArrowLeft,
-  CheckCircle2,
-  AlertCircle,
   AlertTriangle,
+  AlertCircle,
+  CheckCircle2,
   BookOpen,
   Target,
   Lightbulb,
   FileText,
 } from "lucide-react";
-
-import waitingGif from "@/app/components/Public/dragon_play.gif";
+import DateFilterWriting from "@/app/components/ResultComponents/DateFilterWriting";
 import AvatarMenu from "@/app/components/ResultComponents/AvatarMenu";
 
 import {
   fetchLatestWritingByEmailAndQuiz,
+  fetchWritingAttemptsByEmailAndQuiz,
   fetchWritingByResponseId,
   normalizeEmail,
 } from "@/app/utils/api";
 
 const isAiPending = (d) => {
   const s = String(d?.ai?.status || "").toLowerCase();
-  if (["done", "completed", "success"].includes(s)) return false;
-  if (["error", "failed"].includes(s)) return false;
-  return true; // pending/processing/queued/empty
+  return !["done", "completed", "success", "error", "failed"].includes(s);
 };
 
 export default function ResultPage() {
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  // ✅ NEW: dynamic ResponseId param (your URL uses r=...)
-  const responseId = String(searchParams.get("r") || "").trim();
-
-  // Old fallback params (still supported)
+  // ----------------------------
+  // URL Params
+  // ----------------------------
+  const responseIdParam = String(searchParams.get("r") || "").trim();
   const email = normalizeEmail(searchParams.get("email"));
   const quizName = String(searchParams.get("quiz") || "").trim();
-
   const hasFallback = !!email && !!quizName;
 
-  const userName = useMemo(() => (email ? email.split("@")[0] : "User"), [email]);
-
+  // ----------------------------
+  // State
+  // ----------------------------
+  const [currentResponseId, setCurrentResponseId] = useState(null);
   const [doc, setDoc] = useState(null);
+
+  const [allAttempts, setAllAttempts] = useState([]);
+  const [testTakenDates, setTestTakenDates] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
 
-  // ----------------------------
-  // Fetch evaluation
-  // Priority:
-  // 1) r=responseId
-  // 2) email+quiz fallback
-  // ----------------------------
+  const userName = useMemo(
+    () => (email ? email.split("@")[0] : "User"),
+    [email]
+  );
+
+  // ============================================================
+  // 1️⃣ Initialize → Determine which response to load
+  // ============================================================
   useEffect(() => {
-    if (!responseId && !hasFallback) {
+    console.log("🚀 Initializing ResultPage...");
+    console.log("URL Params:", { responseIdParam, email, quizName });
+
+    if (!responseIdParam && !hasFallback) {
+      console.warn("No responseId or fallback info. Redirecting to /");
       navigate("/");
       return;
     }
 
-    let cancelled = false;
-
-    const load = async () => {
+    const init = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        const data = responseId
-          ? await fetchWritingByResponseId(responseId)
-          : await fetchLatestWritingByEmailAndQuiz(email, quizName);
+        let idToLoad = null;
 
-        if (cancelled) return;
-        setDoc(data);
-      } catch (e) {
-        if (cancelled) return;
-        setError(e?.message || "Failed to load evaluation data.");
+        if (responseIdParam) {
+          console.log("Using responseId from URL:", responseIdParam);
+          idToLoad = responseIdParam;
+        } else {
+          console.log("Fetching latest attempt for email + quiz...");
+          const latest = await fetchLatestWritingByEmailAndQuiz(email, quizName);
+          console.log("Latest attempt fetched:", latest);
+
+          if (!latest?.response_id) {
+            throw new Error("No latest attempt found for this email & quiz");
+          }
+
+          idToLoad = latest.response_id;
+        }
+
+        setCurrentResponseId(idToLoad);
+      } catch (err) {
+        console.error("Initialization failed:", err);
+        setError(err?.message || "Failed to initialize evaluation.");
+        setLoading(false);
+      }
+    };
+
+    init();
+  }, [responseIdParam, hasFallback, email, quizName, navigate]);
+
+  // ============================================================
+  // 2️⃣ Load document
+  // ============================================================
+  useEffect(() => {
+    if (!currentResponseId) return;
+
+    console.log("Loading document for responseId:", currentResponseId);
+
+    let cancelled = false;
+
+    const loadDoc = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const data = await fetchWritingByResponseId(currentResponseId);
+        console.log("Fetched document:", data);
+
+        if (!cancelled) {
+          if (!data) {
+            console.warn("Document is null or empty for this responseId");
+            setError("No data found for this response.");
+          } else {
+            setDoc(data);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Failed to load document:", err);
+          setError(err?.message || "Failed to load evaluation data.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
 
-    load();
+    loadDoc();
+
     return () => {
       cancelled = true;
     };
-  }, [responseId, hasFallback, email, quizName, navigate]);
+  }, [currentResponseId]);
 
-  // ----------------------------
-  // Poll until AI done (max 3 mins)
-  // ----------------------------
+  // ============================================================
+  // 3️⃣ Polling (for pending AI feedback)
+  // ============================================================
   useEffect(() => {
-    if (!responseId && !hasFallback) return;
-    if (!doc) return;
-    if (!isAiPending(doc)) return; // already ready or failed
+    if (!currentResponseId || !doc || !isAiPending(doc)) return;
 
     let cancelled = false;
     let timer = null;
     const start = Date.now();
-    const MAX_MS = 180000; // 3 minutes
+    const MAX_MS = 180000;
 
     const poll = async () => {
       if (cancelled) return;
 
       if (Date.now() - start > MAX_MS) {
-        setError("Your feedback is still processing. Please try again in 1–2 minutes.");
+        setError("Feedback is still processing. Please try again soon.");
         return;
       }
 
       try {
-        const latest = responseId
-          ? await fetchWritingByResponseId(responseId)
-          : await fetchLatestWritingByEmailAndQuiz(email, quizName);
+        const latest = await fetchWritingByResponseId(currentResponseId);
 
-        if (cancelled) return;
-
-        setDoc(latest);
+        if (!cancelled) setDoc(latest);
 
         if (isAiPending(latest)) {
           timer = setTimeout(poll, 4000);
@@ -139,149 +190,138 @@ export default function ResultPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [responseId, hasFallback, email, quizName, doc]);
+  }, [currentResponseId, doc]);
 
-  // If doc returned but missing ai block, route back
+  // ============================================================
+  // 4️⃣ Load all attempts for calendar
+  // ============================================================
   useEffect(() => {
-    if (!loading && doc && !doc.ai) {
-      navigate("https://www.flexiquiz.com/Dashboard/Index");
-    }
-  }, [loading, doc, navigate]);
+    if (!doc?.user?.email_address || !doc?.quiz_name) return;
 
-  // ----------------------------
-  // AI state (robust)
-  // ----------------------------
-  const feedback = doc?.ai?.feedback;
+    let cancelled = false;
+
+    const loadAttempts = async () => {
+      try {
+        const attempts = await fetchWritingAttemptsByEmailAndQuiz(
+          doc.user.email_address,
+          doc.quiz_name
+        );
+
+        if (cancelled) return;
+
+        setAllAttempts(attempts);
+
+        const dates = attempts
+          .map((item) => {
+            const raw = item?.ai?.evaluated_at || item?.submitted_at;
+            if (!raw) return null;
+            const d = new Date(typeof raw === "object" && raw.$date ? raw.$date : raw);
+            return isNaN(d.getTime()) ? null : d;
+          })
+          .filter(Boolean);
+
+        setTestTakenDates(dates);
+      } catch (err) {
+        console.error("Failed loading attempts:", err);
+      }
+    };
+
+    loadAttempts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [doc]);
+
+  // ============================================================
+  // 5️⃣ Handle calendar selection
+  // ============================================================
+useEffect(() => {
+  if (!selectedDate || !allAttempts.length) return;
+
+  const selected = new Date(selectedDate);
+
+  const match = allAttempts.find((item) => {
+    const raw = item?.ai?.evaluated_at || item?.submitted_at;
+    if (!raw) return false;
+
+    const attemptDateRaw =
+      typeof raw === "object" && raw.$date ? raw.$date : raw;
+
+    const attemptDate = new Date(attemptDateRaw);
+
+    return (
+      attemptDate.getFullYear() === selected.getFullYear() &&
+      attemptDate.getMonth() === selected.getMonth() &&
+      attemptDate.getDate() === selected.getDate()
+    );
+  });
+
+  if (!match?.response_id) return;
+  if (match.response_id === currentResponseId) return;
+
+  console.log("Switching to responseId:", match.response_id);
+
+  setCurrentResponseId(match.response_id);
+
+  navigate(
+    `?r=${match.response_id}&email=${email}&quiz=${quizName}`,
+    { replace: true }
+  );
+}, [selectedDate, allAttempts]);
+
+  // ============================================================
+  // 6️⃣ Derived UI values
+  // ============================================================
+  const feedback = doc?.ai?.feedback || {};
   const aiStatus = doc?.ai?.status;
-  const aiMessage = doc?.ai?.message;
-
-  const isAiError = aiStatus === "error";
   const isProcessing = loading || (doc && isAiPending(doc));
-  const hasAiFailed = isAiError;
+  const hasAiFailed = aiStatus === "error";
 
-  // ----------------------------
-  // Loading UI
-  // ----------------------------
-  if (isProcessing) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-2 sm:p-3">
-        <Card className="w-full max-w-2xl">
-          <CardContent className="flex flex-col items-center justify-center py-6 px-4 sm:py-8 sm:px-6">
-            <img
-              src={waitingGif}
-              alt="Loading animation"
-              className="w-50 h-50 sm:w-56 sm:h-56 object-contain mb-4"
-            />
-            <div className="text-center space-y-2">
-              <p className="text-xl sm:text-2xl font-semibold text-gray-900">
-                Almost there, {userName}! Getting your feedback ready…
-              </p>
-              <p className="text-sm sm:text-base text-gray-600">
-                Please wait a moment while we prepare your evaluation.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // ----------------------------
-  // Error / No doc
-  // ----------------------------
-  if (error || !doc) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="w-full max-w-2xl">
-          <CardContent className="py-12 text-center">
-            <p className="text-xl font-medium text-red-600 mb-4">
-              {error || "No data found"}
-            </p>
-            <Button onClick={() => navigate("/WritingLookupQuizResults")}
-              >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Input
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // ----------------------------
-  // AI failed UI
-  // ----------------------------
-  if (hasAiFailed) {
-    let errorTitle = "AI Evaluation Failed";
-    let errorMessage = "The AI was unable to evaluate your writing.";
-    let errorSuggestion =
-      "Please ensure you have written a substantial response and try again.";
-
-    if (aiMessage) {
-      errorMessage = "The AI encountered an error while processing your evaluation.";
-      errorSuggestion = "Please try again later or contact support if the issue persists.";
-    }
-
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="w-full max-w-2xl">
-          <CardContent className="py-12 text-center">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-red-600 mb-4">{errorTitle}</h2>
-            <p className="text-gray-700 mb-2">{errorMessage}</p>
-
-            {aiMessage && (
-              <p className="text-sm text-gray-600 mb-6 italic">Error details: {aiMessage}</p>
-            )}
-
-            <p className="text-gray-600 mb-6">{errorSuggestion}</p>
-            <Button onClick={() => navigate("/WritingLookupQuizResults")}
-              >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Input
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // ----------------------------
-  // Helpers
-  // ----------------------------
-  const getDateValue = (dateObj) => {
-    if (!dateObj) return null;
-    if (typeof dateObj === "string") return dateObj;
-    if (typeof dateObj === "object" && "$date" in dateObj) return dateObj.$date;
-    return dateObj;
-  };
-
-  const evaluatedAtRaw =
-    getDateValue(doc?.ai?.evaluated_at) || getDateValue(doc?.submitted_at);
-
-  const evaluatedAtLabel =
-    evaluatedAtRaw && !Number.isNaN(new Date(evaluatedAtRaw).getTime())
-      ? new Date(evaluatedAtRaw).toLocaleDateString()
-      : null;
-
-  const criteria = feedback?.criteria || [];
-  const reviewSections = feedback?.review_sections || [];
   const strengths = feedback?.overall?.strengths || [];
   const weaknesses = feedback?.overall?.weaknesses || [];
-  const oneLineSummary = feedback?.overall?.one_line_summary;
-  const band = feedback?.overall?.band;
-
-  const totalScore = feedback?.overall?.total_score || 0;
-  const maxScore = feedback?.overall?.max_score || 0;
+  const oneLineSummary = feedback?.overall?.one_line_summary || "";
+  const band = feedback?.overall?.band || "";
+  const totalScore = feedback?.overall?.total_score ?? 0;
+  const maxScore = feedback?.overall?.max_score ?? 0;
   const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
 
-  const wordCount = feedback?.meta?.word_count ?? feedback?.word_count;
-  const wordCountReview =
-    feedback?.meta?.word_count_review || feedback?.meta?.word_count_feedback;
+  const wordCount = doc?.qna?.[0]?.word_count ?? null;
+  const wordCountReview = feedback?.meta?.word_count_review || null;
 
-  const isLocalEval = feedback?.local_eval === true;
-  const feedbackStatus = feedback?.status;
-  const feedbackMessage = feedback?.message;
+  const reviewSections = feedback?.sections || [];
+  const criteria = feedback?.criteria || [];
+  const isLocalEval = doc?.ai?.source === "local"; 
+const feedbackStatus = feedback?.status || null;
+const feedbackMessage = doc?.ai?.message || null;
+
+  const evaluatedAtLabel = doc?.ai?.evaluated_at
+    ? new Date(doc.ai.evaluated_at).toLocaleString()
+    : null;
+
+  // ============================================================
+  // 7️⃣ Render
+  // ============================================================
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-red-600 font-semibold text-lg">{error}</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-600 font-medium">Loading evaluation...</p>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // 🔥 STOP HERE — MAIN UI STARTS BELOW
+  // ============================================================
+
 
   // ----------------------------
   // Main UI
@@ -295,19 +335,21 @@ export default function ResultPage() {
             <h1 className="text-2xl sm:text-3xl font-bold leading-tight">
               Evaluation Results
             </h1>
-
             <p className="text-sm text-gray-500 mt-1 truncate">
               {email} • {quizName}
             </p>
           </div>
-
-
-          <div className="shrink-0 self-start">
+          <div className="flex items-center gap-3 shrink-0 self-start">
+            <DateFilterWriting
+              selectedDate={selectedDate}
+              onChange={setSelectedDate}
+              testTakenDates={testTakenDates}
+            />
             <AvatarMenu />
           </div>
         </div>
 
-        {/* Warning for local eval */}
+ {/* Warning for local eval */}
         {isLocalEval && (feedbackStatus === "not_enough_response" || feedbackMessage) && (
           <Card className="border-orange-200 bg-orange-50">
             <CardContent className="pt-6">
@@ -687,5 +729,6 @@ export default function ResultPage() {
         )}
       </div>
     </div>
-  );
+  )
 }
+

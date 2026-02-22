@@ -1,25 +1,15 @@
 // src/routes/otpAuth.js
 // OTP-by-username -> lookup email from MongoDB -> send OTP -> verify -> return login_token
 
-require("dotenv").config();
-
 const express = require("express");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 
-// ✅ Force IPv4 first (helps on some hosts like Render when IPv6 route is not reachable)
-const dns = require("dns");
-try {
-  dns.setDefaultResultOrder("ipv4first");
-} catch (e) {
-  // If your Node version doesn't support this:
-  // Set Render env: NODE_OPTIONS=--dns-result-order=ipv4first
-}
-
-// ✅ DB + User model (make sure paths match your project)
-const connectDB = require("../config/db");
-const User = require("../models/user");
+// ✅ If you use MongoDB (mongoose) in your project, import your User model here.
+// NOTE: connectDB SHOULD be called once in your main server (server.js/index.js),
+// not inside this route file. So we DO NOT call connectDB() here.
+const User = require("../models/user"); // <-- update if your path/model name differs
 
 const router = express.Router();
 
@@ -38,26 +28,17 @@ function otpExpiresSeconds() {
   return Math.max(5, mins) * 60;
 }
 
-// ✅ UPDATED mailer(): correct secure handling + requireTLS + force IPv4
 function mailer() {
-  const host = requiredEnv("SMTP_HOST");
-  const port = Number(requiredEnv("SMTP_PORT"));
-
+  // ✅ Brevo SMTP on port 587 uses STARTTLS, so secure must be false + requireTLS true
   return nodemailer.createTransport({
-    host,
-    port,
-
-    // ✅ 465 = SSL (secure true), 587 = STARTTLS (secure false)
-    secure: port === 465,
-    requireTLS: port === 587,
-
+    host: requiredEnv("SMTP_HOST"),
+    port: Number(requiredEnv("SMTP_PORT")), // 587
+    secure: false, // ✅ MUST be false for 587
+    requireTLS: true, // ✅ enforce STARTTLS
     auth: {
-      user: requiredEnv("SMTP_USER"),
-      pass: requiredEnv("SMTP_PASS"),
+      user: requiredEnv("SMTP_USER"), // e.g. a2e07f001@smtp-brevo.com
+      pass: requiredEnv("SMTP_PASS"), // ✅ SMTP key value
     },
-
-    // ✅ Forces IPv4 (fixes ENETUNREACH IPv6 issues)
-    family: 4,
   });
 }
 
@@ -67,16 +48,14 @@ function escapeRegExp(s) {
 
 /**
  * ✅ LOOKUP EMAIL BY USERNAME (MongoDB)
- * Ensure the fields below match your schema.
+ *
+ * Update these field names if needed:
+ * - username field could be: username / user_name / userId / studentId
+ * - email field could be: email / email_address
  */
 async function lookupEmailByUsername(username) {
   const u = String(username || "").trim();
   if (!u) return null;
-
-  // Ensure DB connected
-  if (typeof connectDB === "function") {
-    await connectDB();
-  }
 
   // Case-insensitive exact match
   const rx = new RegExp(`^${escapeRegExp(u)}$`, "i");
@@ -88,21 +67,31 @@ async function lookupEmailByUsername(username) {
     (await User.findOne({ userId: rx }).select("email email_address").lean()) ||
     (await User.findOne({ studentId: rx }).select("email email_address").lean());
 
-  const email = String(doc?.email || doc?.email_address || "").trim().toLowerCase();
+  const email = String(doc?.email || doc?.email_address || "")
+    .trim()
+    .toLowerCase();
+
   return email || null;
 }
 
-// ✅ Store OTPs by username (in-memory)
-// NOTE: This will reset if Render restarts; for production use Redis/DB.
+// ✅ Store OTPs by username (in-memory for now)
 const otpStore = new Map(); // username -> { email, hash, expiresAt, attempts, lastSentAt }
 
 function hashOtp(username, otp) {
   const secret = requiredEnv("OTP_SECRET");
-  return crypto.createHmac("sha256", secret).update(`${username}:${otp}`).digest("hex");
+  return crypto
+    .createHmac("sha256", secret)
+    .update(`${username}:${otp}`)
+    .digest("hex");
 }
 
 function makeOtp() {
   return String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
+}
+
+function maskEmail(email) {
+  const e = String(email || "");
+  return e.replace(/(^.).*(@.*$)/, "$1****$2");
 }
 
 /* -----------------------------
@@ -125,7 +114,9 @@ router.post("/otp/request", async (req, res) => {
 
     // Rate limit: one OTP per 30 seconds per username
     if (existing?.lastSentAt && now - existing.lastSentAt < 30_000) {
-      return res.status(429).json({ error: "Please wait before requesting another OTP." });
+      return res
+        .status(429)
+        .json({ error: "Please wait 30 seconds before requesting another OTP." });
     }
 
     const otp = makeOtp();
@@ -140,27 +131,31 @@ router.post("/otp/request", async (req, res) => {
       lastSentAt: now,
     });
 
-    const from = process.env.MAIL_FROM || requiredEnv("SMTP_USER");
-    const transport = mailer();
+    // ✅ Proper FROM (must be a verified sender in Brevo + domain authenticated)
+    const fromName = process.env.MAIL_FROM_NAME || "KAI Solutions";
+    const fromEmail = process.env.MAIL_FROM_EMAIL || "no-reply@kaisolutions.ai";
+    const from = `"${fromName}" <${fromEmail}>`;
 
-    // ✅ Optional but recommended: verifies SMTP connection & auth (helps debugging)
-    // If this fails, Render logs will show the real reason (EAUTH, ETIMEDOUT, etc.)
-    await transport.verify();
+    const transport = mailer();
 
     await transport.sendMail({
       from,
       to: email,
-      subject: "Your NAPLAN OTP Code",
+      subject: "Your OTP Code",
       text: `Your OTP is ${otp}. It expires in ${process.env.OTP_EXPIRES_MIN || 10} minutes.`,
-      html: `<p>Your OTP is <b style="font-size:18px">${otp}</b></p>
-             <p>It expires in ${process.env.OTP_EXPIRES_MIN || 10} minutes.</p>`,
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+          <p>Your one-time password is:</p>
+          <div style="font-size: 24px; font-weight: bold; letter-spacing: 2px;">${otp}</div>
+          <p>This code expires in ${process.env.OTP_EXPIRES_MIN || 10} minutes.</p>
+          <p>If you didn’t request this code, you can ignore this email.</p>
+        </div>
+      `,
     });
 
-    // Mask email for UI
-    const masked = email.replace(/(^.).*(@.*$)/, "$1****$2");
-    return res.json({ ok: true, email_masked: masked });
+    return res.json({ ok: true, email_masked: maskEmail(email) });
   } catch (err) {
-    console.error(err);
+    console.error("OTP request error:", err);
     return res.status(500).json({
       error: "Failed to send OTP",
       detail: err.message,
@@ -189,7 +184,9 @@ router.post("/otp/verify", async (req, res) => {
     record.attempts += 1;
     if (record.attempts > 5) {
       otpStore.delete(username);
-      return res.status(429).json({ error: "Too many attempts. Request a new OTP." });
+      return res
+        .status(429)
+        .json({ error: "Too many attempts. Request a new OTP." });
     }
 
     const expected = record.hash;
@@ -198,6 +195,7 @@ router.post("/otp/verify", async (req, res) => {
 
     otpStore.delete(username);
 
+    // ✅ Use OTP_SECRET to sign token (same secret used to hash OTP)
     const loginSecret = requiredEnv("OTP_SECRET");
     const now = Math.floor(Date.now() / 1000);
 
@@ -210,7 +208,7 @@ router.post("/otp/verify", async (req, res) => {
 
     return res.json({ ok: true, login_token: loginToken });
   } catch (err) {
-    console.error(err);
+    console.error("OTP verify error:", err);
     return res.status(500).json({
       error: "Failed to verify OTP",
       detail: err.message,

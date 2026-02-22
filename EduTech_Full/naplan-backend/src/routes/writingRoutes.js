@@ -66,6 +66,24 @@ router.get("/", async (req, res) => {
   res.json(results);
 });
 
+// ✅ Get all attempts by email + quiz This is for Writing
+router.get("/by-email-and-quiz", async (req, res) => {
+  const email = String(req.query.email || "").trim().toLowerCase();
+  const quiz = String(req.query.quiz || "").trim();
+
+  if (!email) return res.status(400).json({ error: "email required" });
+  if (!quiz) return res.status(400).json({ error: "quiz required" });
+
+  const results = await Writing.find({
+    "user.email_address": email,
+    quiz_name: quiz,
+  })
+    .sort({ submitted_at: -1 })
+    .select("submitted_at ai.evaluated_at response_id attempt");
+
+  res.json(results);
+});
+
 // ✅ Get one writing submission by response_id
 // ✅ Get latest writing submission by response_id (latest attempt)
 router.get("/:responseId", async (req, res) => {
