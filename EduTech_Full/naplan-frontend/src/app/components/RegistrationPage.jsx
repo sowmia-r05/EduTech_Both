@@ -13,8 +13,10 @@ import {
   SelectValue,
 } from "@/app/components/ui/select";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
-import { AlertCircle, ArrowLeft, CheckCircle, Loader2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle, Loader2, X } from "lucide-react";
 
+import TermsAndConditions from "@/app/components/TermsAndConditions";
+import PrivacyPolicy from "@/app/components/PrivacyPolicy";
 import { verifyEmailExists, normalizeEmail } from "@/app/utils/api";
 
 /* -----------------------------
@@ -29,6 +31,38 @@ const looksLikeEmail = (e) => {
   return true;
 };
 
+/* -----------------------------
+   Modal Component
+----------------------------- */
+/* -----------------------------
+   Modal Component
+----------------------------- */
+function Modal({ title, children, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* Light translucent overlay */}
+      <div
+        className="absolute inset-0 bg-white/40 backdrop-blur-sm"
+        onClick={onClose} // click outside to close
+      ></div>
+
+      <div className="relative bg-white rounded-xl shadow-lg max-w-lg w-full max-h-[80vh] overflow-y-auto p-6 z-10">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <h2 className="text-xl font-bold text-indigo-600 mb-4">{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* -----------------------------
+   Registration Page
+----------------------------- */
 export default function RegistrationPage() {
   const navigate = useNavigate();
 
@@ -41,6 +75,7 @@ export default function RegistrationPage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState("");
   const [emailStatus, setEmailStatus] = useState("idle"); // idle | checking | exists | available
+  const [modalContent, setModalContent] = useState(null); // "terms" | "privacy" | null
 
   const abortRef = useRef(null);
   const debounceRef = useRef(null);
@@ -135,14 +170,6 @@ export default function RegistrationPage() {
   };
 
   const handleLogin = () => navigate("/respondent");
-
-  /* -----------------------------
-     OPEN HASHROUTER-FRIENDLY LINKS
-  ----------------------------- */
-  const openLink = (path) => {
-    // Always open with hash to work with HashRouter
-    window.open(`#${path}`, "_blank");
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
@@ -264,14 +291,14 @@ export default function RegistrationPage() {
                 <p>
                   I agree to the{" "}
                   <span
-                    onClick={() => openLink("/terms")}
+                    onClick={() => setModalContent("terms")}
                     className="text-indigo-600 underline cursor-pointer"
                   >
                     Terms & Conditions
                   </span>{" "}
                   and{" "}
                   <span
-                    onClick={() => openLink("/privacy")}
+                    onClick={() => setModalContent("privacy")}
                     className="text-indigo-600 underline cursor-pointer"
                   >
                     Privacy Policy
@@ -299,6 +326,18 @@ export default function RegistrationPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modals */}
+      {modalContent === "terms" && (
+        <Modal title="Terms & Conditions" onClose={() => setModalContent(null)}>
+          <TermsAndConditions />
+        </Modal>
+      )}
+      {modalContent === "privacy" && (
+        <Modal title="Privacy Policy" onClose={() => setModalContent(null)}>
+          <PrivacyPolicy />
+        </Modal>
+      )}
     </div>
   );
 }
