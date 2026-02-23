@@ -7,7 +7,7 @@ export default function StartTestPage() {
 
   const [name, setName] = useState("");
   const [year, setYear] = useState("");
-  const [favoriteSubject, setFavoriteSubject] = useState("");
+ 
 
   const handleContinue = () => {
     if (!name.trim()) {
@@ -23,7 +23,7 @@ export default function StartTestPage() {
     // Store info for personalization
     localStorage.setItem("childName", name);
     localStorage.setItem("yearLevel", year);
-    localStorage.setItem("favoriteSubject", favoriteSubject);
+    
 
     navigate("/trial-test");
   };
@@ -77,19 +77,7 @@ export default function StartTestPage() {
           </select>
         </div>
 
-        {/* Optional Fun Field */}
-        <div className="mb-8">
-          <label className="block text-gray-700 font-medium mb-2">
-            Favorite Subject (Optional)
-          </label>
-          <input
-            type="text"
-            placeholder="e.g. Math, Reading, Science"
-            value={favoriteSubject}
-            onChange={(e) => setFavoriteSubject(e.target.value)}
-            className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-          />
-        </div>
+
 
         {/* Continue Button */}
         <motion.button
