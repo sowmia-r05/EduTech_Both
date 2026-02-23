@@ -100,6 +100,19 @@ const ResultSchema = new mongoose.Schema(
       },
       study_tips: { type: [String], default: [] },
       encouragement: { type: String, default: "" },
+       topic_wise_tips: {
+    type: [
+      new mongoose.Schema(
+        {
+          topic: { type: String, default: "" },
+          tips: { type: [String], default: [] },
+        },
+        { _id: false }
+      ),
+    ],
+    default: [],
+  },
+
     },
 
       ai_feedback_meta: {
