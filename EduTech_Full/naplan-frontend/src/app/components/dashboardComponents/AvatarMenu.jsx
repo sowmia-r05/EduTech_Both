@@ -9,7 +9,7 @@ export default function AvatarMenu() {
     sessionStorage.clear(); // OK to clear sessionStorage
 
     // Navigate to post-logout page
-    navigate("/NonWritingLookupQuizResults", { replace: true });
+    navigate("/", { replace: true });
   };
 
   return (
