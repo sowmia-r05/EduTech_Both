@@ -124,7 +124,7 @@ export default function TermsAndConditions() {
       <section>
         <h3 className="font-semibold text-gray-900 mb-2">11. Contact Information</h3>
         <p>For questions regarding these Terms, contact:</p>
-        <p className="mt-2">[Your Support Email]</p>
+        <p className="mt-2">[insert company mail]</p>
         <p>KAI Solutions</p>
       </section>
 
