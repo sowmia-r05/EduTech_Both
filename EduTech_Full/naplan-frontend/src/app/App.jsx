@@ -2,17 +2,16 @@ import { Routes, Route } from "react-router-dom";
 
 import WelcomePage from "@/app/components/WelcomePage";
 import RegistrationPage from "@/app/components/RegistrationPage";
-
 import ResultPage from "@/app/components/ResultPage";
 import Dashboard from "@/app/components/pages/Dashboard";
-
 import NotFound from "@/app/components/pages/NotFound";
 import FreeTrialPage from "@/app/components/landing/FreeTrialPage";
 import StartTestPage from "@/app/components/StartTestPage";
 import TrailDashboard from "@/app/components/pages/TrailDashboard";
 import TrialTestPage from "@/app/components/pages/TrialTestPage";
-
 import RespondentPortal from "@/app/components/pages/RespondentPortal";
+import TermsAndConditions from "@/app/components/TermsAndConditions";
+import PrivacyPolicy  from "@/app/components/PrivacyPolicy";
 
 export default function AppRoutes() {
   return (
@@ -33,7 +32,9 @@ export default function AppRoutes() {
      
       <Route path="/writing-feedback/result" element={<ResultPage />} />
 
-    
+          {/* Privacy policy and Terms and Conditions*/}
+      <Route path="/terms" element={<TermsAndConditions />} />
+      <Route path="/privacy" element={<PrivacyPolicy />} />
 
       {/* ✅ Real Dashboard (Protected) */}
       <Route
@@ -43,6 +44,9 @@ export default function AppRoutes() {
 
       {/* Fallback */}
       <Route path="*" element={<NotFound />} />
+
+
+
     </Routes>
   );
 }

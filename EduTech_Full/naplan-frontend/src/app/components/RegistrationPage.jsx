@@ -13,23 +13,19 @@ import {
   SelectValue,
 } from "@/app/components/ui/select";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
-import { AlertCircle, ArrowLeft, CheckCircle } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle, Loader2 } from "lucide-react";
 
 import { verifyEmailExists, normalizeEmail } from "@/app/utils/api";
-/* ----------------------------------------------------
-   ✅ GLOBAL EMAIL CACHE (persists across navigation)
----------------------------------------------------- */
+
+/* -----------------------------
+   GLOBAL EMAIL CACHE
+----------------------------- */
 const emailCache = new Map();
 
 const looksLikeEmail = (e) => {
-  const basic =
-    /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}(?:\.[A-Za-z]{2,})*$/.test(e);
-
+  const basic = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}(?:\.[A-Za-z]{2,})*$/.test(e);
   if (!basic) return false;
-
-  // Block gmail.co, gmail.c, etc
   if (/@gmail\.(?!com$)/i.test(e)) return false;
-
   return true;
 };
 
@@ -42,17 +38,16 @@ export default function RegistrationPage() {
     yearLevel: "",
     email: "",
   });
-
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState("");
-  const [emailStatus, setEmailStatus] = useState("idle");
-  // idle | checking | exists | available
+  const [emailStatus, setEmailStatus] = useState("idle"); // idle | checking | exists | available
 
   const abortRef = useRef(null);
   const debounceRef = useRef(null);
 
-  /* ----------------------------------------------------
+  /* -----------------------------
      EMAIL CHECK (debounced + cached + abort-safe)
-  ---------------------------------------------------- */
+  ----------------------------- */
   useEffect(() => {
     const email = normalizeEmail(formData.email);
 
@@ -61,7 +56,6 @@ export default function RegistrationPage() {
       return;
     }
 
-    // ✅ Instant cache check (survives navigation)
     const cached = emailCache.get(email);
     if (cached) {
       setEmailStatus(cached);
@@ -82,10 +76,7 @@ export default function RegistrationPage() {
         });
 
         const status = exists ? "exists" : "available";
-
-        // ✅ Store in global cache
         emailCache.set(email, status);
-
         setEmailStatus(status);
       } catch (err) {
         if (err?.name === "AbortError") return;
@@ -97,50 +88,32 @@ export default function RegistrationPage() {
     return () => clearTimeout(debounceRef.current);
   }, [formData.email]);
 
-  /* ----------------------------------------------------
+  /* -----------------------------
+     FORM VALIDITY
+  ----------------------------- */
+  const isFormValid =
+    formData.firstName &&
+    formData.lastName &&
+    formData.yearLevel &&
+    looksLikeEmail(normalizeEmail(formData.email)) &&
+    emailStatus === "available" &&
+    acceptedTerms;
+
+  /* -----------------------------
      SUBMIT
-  ---------------------------------------------------- */
+  ----------------------------- */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
-    const { firstName, lastName, yearLevel, email } = formData;
-
-    if (!firstName || !lastName || !yearLevel || !email) {
-      setError("Please fill in all fields");
+    if (!isFormValid) {
+      setError(
+        "Please fill all fields correctly and accept Terms & Privacy Policy."
+      );
       return;
     }
 
-    const normalizedEmail = normalizeEmail(email);
-
-    if (!looksLikeEmail(normalizedEmail)) {
-      setError("Please enter a valid email address");
-      return;
-    }
-
-    if (emailStatus === "checking") return;
-
-    if (emailStatus === "exists") {
-      setError("Email ID already exists. Please login.");
-      return;
-    }
-
-    // Final safety check if not cached
-    if (!emailCache.has(normalizedEmail)) {
-      try {
-        const exists = await verifyEmailExists(normalizedEmail);
-        if (exists) {
-          emailCache.set(normalizedEmail, "exists");
-          setEmailStatus("exists");
-          setError("Email ID already exists. Please login.");
-          return;
-        }
-      } catch {
-        setError("Unable to verify email. Please try again.");
-        return;
-      }
-    }
-
+    const normalizedEmail = normalizeEmail(formData.email);
     localStorage.setItem(
       "currentStudent",
       JSON.stringify({ ...formData, email: normalizedEmail })
@@ -153,23 +126,24 @@ export default function RegistrationPage() {
       "Year 9": "",
     };
 
-    const url = gradeUrls[yearLevel];
-
+    const url = gradeUrls[formData.yearLevel];
     if (url) {
       window.location.assign(url);
     } else {
-      setError(`FlexiQuiz link not added yet for ${yearLevel}`);
+      setError(`FlexiQuiz link not added yet for ${formData.yearLevel}`);
     }
   };
 
-  const handleLogin = () => {
-  navigate("/respondent"); // ✅ go to RespondentPortal (SSO)
-};
+  const handleLogin = () => navigate("/respondent");
 
+  /* -----------------------------
+     OPEN HASHROUTER-FRIENDLY LINKS
+  ----------------------------- */
+  const openLink = (path) => {
+    // Always open with hash to work with HashRouter
+    window.open(`#${path}`, "_blank");
+  };
 
-  /* ----------------------------------------------------
-     UI
-  ---------------------------------------------------- */
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-md mx-auto">
@@ -190,36 +164,12 @@ export default function RegistrationPage() {
 
         <Card className="bg-white shadow-lg">
           <CardHeader>
-            <CardTitle className="text-2xl text-center">
-              User Information
-            </CardTitle>
+            <CardTitle className="text-2xl text-center">User Information</CardTitle>
           </CardHeader>
 
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {emailStatus === "checking" && (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>Checking email…</AlertDescription>
-                </Alert>
-              )}
-
-              {emailStatus === "exists" && (
-                <Alert>
-                  <CheckCircle className="h-4 w-4 text-green-600" />
-                  <AlertDescription>
-                    Email already exists. Please login.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {emailStatus === "available" && (
-                <Alert className="border-green-200 text-green-700">
-                  <CheckCircle className="h-4 w-4" />
-                  <AlertDescription>Email is available</AlertDescription>
-                </Alert>
-              )}
-
+              {/* Error */}
               {error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -227,6 +177,7 @@ export default function RegistrationPage() {
                 </Alert>
               )}
 
+              {/* First Name */}
               <div className="space-y-2">
                 <Label>First Name</Label>
                 <Input
@@ -237,6 +188,7 @@ export default function RegistrationPage() {
                 />
               </div>
 
+              {/* Last Name */}
               <div className="space-y-2">
                 <Label>Last Name</Label>
                 <Input
@@ -247,6 +199,7 @@ export default function RegistrationPage() {
                 />
               </div>
 
+              {/* Year Level */}
               <div className="space-y-2">
                 <Label>Year Level</Label>
                 <Select
@@ -267,6 +220,7 @@ export default function RegistrationPage() {
                 </Select>
               </div>
 
+              {/* Email */}
               <div className="space-y-2">
                 <Label>Email Address</Label>
                 <Input
@@ -276,14 +230,70 @@ export default function RegistrationPage() {
                     setFormData({ ...formData, email: e.target.value })
                   }
                 />
+
+                {emailStatus === "checking" && (
+                  <Alert>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <AlertDescription>Checking email…</AlertDescription>
+                  </Alert>
+                )}
+
+                {emailStatus === "exists" && (
+                  <Alert>
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <AlertDescription>Email already exists. Please login.</AlertDescription>
+                  </Alert>
+                )}
+
+                {emailStatus === "available" && (
+                  <Alert className="border-green-200 text-green-700">
+                    <CheckCircle className="h-4 w-4" />
+                    <AlertDescription>Email is available</AlertDescription>
+                  </Alert>
+                )}
               </div>
 
+              {/* Terms & Privacy */}
+              <div className="flex items-start space-x-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  className="mt-1"
+                />
+                <p>
+                  I agree to the{" "}
+                  <span
+                    onClick={() => openLink("/terms")}
+                    className="text-indigo-600 underline cursor-pointer"
+                  >
+                    Terms & Conditions
+                  </span>{" "}
+                  and{" "}
+                  <span
+                    onClick={() => openLink("/privacy")}
+                    className="text-indigo-600 underline cursor-pointer"
+                  >
+                    Privacy Policy
+                  </span>
+                </p>
+              </div>
+
+              {/* Next Button */}
               <Button
                 type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-700"
-                disabled={emailStatus === "checking" || emailStatus === "exists"}
+                className={`w-full ${
+                  isFormValid
+                    ? "bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
+                    : "bg-gray-400 cursor-not-allowed"
+                }`}
+                disabled={!isFormValid}
               >
-                Next
+                {emailStatus === "checking" ? (
+                  <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+                ) : (
+                  "Next"
+                )}
               </Button>
             </form>
           </CardContent>
