@@ -24,23 +24,21 @@ import { verifyEmailExists, normalizeEmail } from "@/app/utils/api";
 ----------------------------- */
 const emailCache = new Map();
 
+/**
+ * Keep this permissive; don't block gmail.* while typing
+ * (it causes "idle" flicker and extra checks).
+ */
 const looksLikeEmail = (e) => {
-  const basic = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}(?:\.[A-Za-z]{2,})*$/.test(e);
-  if (!basic) return false;
-  if (/@gmail\.(?!com$)/i.test(e)) return false;
-  return true;
+  const s = (e || "").trim();
+  return /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}(?:\.[A-Za-z]{2,})*$/.test(s);
 };
 
-/* -----------------------------
-   Modal Component
------------------------------ */
 /* -----------------------------
    Modal Component
 ----------------------------- */
 function Modal({ title, children, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      
       {/* Overlay */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-md transition-opacity"
@@ -49,7 +47,6 @@ function Modal({ title, children, onClose }) {
 
       {/* Modal */}
       <div className="relative z-10 w-full max-w-4xl max-h-[85vh] rounded-3xl bg-white shadow-[0_25px_70px_rgba(0,0,0,0.15)] overflow-hidden">
-        
         {/* Header */}
         <div className="flex items-center justify-between px-10 py-6 bg-gradient-to-r from-indigo-50 to-white border-b border-gray-100">
           <h2 className="text-2xl font-semibold text-indigo-600 tracking-tight">
@@ -64,7 +61,7 @@ function Modal({ title, children, onClose }) {
           </button>
         </div>
 
-        {/* Body (Natural Scroll) */}
+        {/* Body */}
         <div className="px-12 py-10 overflow-y-auto max-h-[70vh] text-gray-700 leading-relaxed space-y-6">
           {children}
         </div>
@@ -85,6 +82,7 @@ export default function RegistrationPage() {
     yearLevel: "",
     email: "",
   });
+
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState("");
   const [emailStatus, setEmailStatus] = useState("idle"); // idle | checking | exists | available
@@ -92,36 +90,66 @@ export default function RegistrationPage() {
 
   const abortRef = useRef(null);
   const debounceRef = useRef(null);
+  const quickStatusRef = useRef(null);
 
   /* -----------------------------
-     EMAIL CHECK (debounced + cached + abort-safe)
+     EMAIL CHECK (FAST + FEWER CALLS)
+     - only checks when email is "formed enough"
+     - shows checking quickly
+     - longer debounce reduces backend spam
+     - aborts in-flight requests properly
   ----------------------------- */
   useEffect(() => {
     const email = normalizeEmail(formData.email);
 
-    if (!email || !looksLikeEmail(email)) {
+    // cleanup old timers
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (quickStatusRef.current) clearTimeout(quickStatusRef.current);
+
+    // abort in-flight request
+    if (abortRef.current) abortRef.current.abort();
+
+    // gate: don't hit backend while user is still typing partial email
+    const shouldCheck =
+      email &&
+      email.length >= 6 &&
+      email.includes("@") &&
+      email.includes(".") &&
+      looksLikeEmail(email);
+
+    if (!shouldCheck) {
       setEmailStatus("idle");
       return;
     }
 
+    // cache fast path
     const cached = emailCache.get(email);
     if (cached) {
       setEmailStatus(cached);
       return;
     }
 
-    clearTimeout(debounceRef.current);
+    // show checking quickly (UI feels responsive)
+    quickStatusRef.current = setTimeout(() => {
+      setEmailStatus("checking");
+    }, 120);
 
+    // actual API call (debounced)
     debounceRef.current = setTimeout(async () => {
       try {
-        if (abortRef.current) abortRef.current.abort();
         abortRef.current = new AbortController();
 
-        setEmailStatus("checking");
-
-        const exists = await verifyEmailExists(email, {
-          signal: abortRef.current.signal,
-        });
+        let exists;
+        try {
+          // if your verifyEmailExists supports signal
+          exists = await verifyEmailExists(email, {
+            signal: abortRef.current.signal,
+          });
+        } catch (err) {
+          // fallback if verifyEmailExists doesn't accept signal
+          if (err?.name === "AbortError") return;
+          exists = await verifyEmailExists(email);
+        }
 
         const status = exists ? "exists" : "available";
         emailCache.set(email, status);
@@ -131,19 +159,24 @@ export default function RegistrationPage() {
         console.error("Email check failed:", err);
         setEmailStatus("idle");
       }
-    }, 150);
+    }, 400);
 
-    return () => clearTimeout(debounceRef.current);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (quickStatusRef.current) clearTimeout(quickStatusRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
   }, [formData.email]);
 
   /* -----------------------------
      FORM VALIDITY
   ----------------------------- */
+  const normalizedEmail = normalizeEmail(formData.email);
   const isFormValid =
-    formData.firstName &&
-    formData.lastName &&
+    formData.firstName.trim() &&
+    formData.lastName.trim() &&
     formData.yearLevel &&
-    looksLikeEmail(normalizeEmail(formData.email)) &&
+    looksLikeEmail(normalizedEmail) &&
     emailStatus === "available" &&
     acceptedTerms;
 
@@ -154,14 +187,50 @@ export default function RegistrationPage() {
     e.preventDefault();
     setError("");
 
-    if (!isFormValid) {
-      setError(
-        "Please fill all fields correctly and accept Terms & Privacy Policy."
-      );
+    if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.yearLevel) {
+      setError("Please fill in all fields.");
       return;
     }
 
-    const normalizedEmail = normalizeEmail(formData.email);
+    if (!looksLikeEmail(normalizedEmail)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    if (!acceptedTerms) {
+      setError("Please accept the Terms & Privacy Policy to continue.");
+      return;
+    }
+
+    // If still checking, stop submit and let it finish
+    if (emailStatus === "checking") {
+      setError("Please wait… verifying email.");
+      return;
+    }
+
+    if (emailStatus === "exists") {
+      setError("Email ID already exists. Please login.");
+      return;
+    }
+
+    // Safety: if status is idle (rare), verify once on submit
+    if (emailStatus !== "available") {
+      try {
+        const exists = await verifyEmailExists(normalizedEmail);
+        const status = exists ? "exists" : "available";
+        emailCache.set(normalizedEmail, status);
+        setEmailStatus(status);
+
+        if (exists) {
+          setError("Email ID already exists. Please login.");
+          return;
+        }
+      } catch {
+        setError("Unable to verify email right now. Please try again.");
+        return;
+      }
+    }
+
     localStorage.setItem(
       "currentStudent",
       JSON.stringify({ ...formData, email: normalizedEmail })
@@ -281,7 +350,9 @@ export default function RegistrationPage() {
                 {emailStatus === "exists" && (
                   <Alert>
                     <CheckCircle className="h-4 w-4 text-green-600" />
-                    <AlertDescription>Email already exists. Please login.</AlertDescription>
+                    <AlertDescription>
+                      Email already exists. Please login.
+                    </AlertDescription>
                   </Alert>
                 )}
 
@@ -327,7 +398,7 @@ export default function RegistrationPage() {
                     ? "bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
                     : "bg-gray-400 cursor-not-allowed"
                 }`}
-                disabled={!isFormValid}
+                disabled={!isFormValid || emailStatus === "checking"}
               >
                 {emailStatus === "checking" ? (
                   <Loader2 className="h-4 w-4 animate-spin mx-auto" />
