@@ -1,8 +1,14 @@
-export default function AISuggestionPanel({ suggestions, studyTips = [] }) {
+export default function AISuggestionPanel({
+  suggestions,
+  studyTips = [],
+  topicWiseTips = [], // ✅ 1) add this
+}) {
   const hasSuggestions = Array.isArray(suggestions) && suggestions.length > 0;
   const hasStudyTips = Array.isArray(studyTips) && studyTips.length > 0;
+  const hasTopicWiseTips =
+    Array.isArray(topicWiseTips) && topicWiseTips.length > 0;
 
-  if (!hasSuggestions && !hasStudyTips) return null;
+  if (!hasSuggestions && !hasStudyTips && !hasTopicWiseTips) return null;
 
   const displayTitleMap = {
     Improvement: "What to Focus On Next",
@@ -25,16 +31,10 @@ export default function AISuggestionPanel({ suggestions, studyTips = [] }) {
     grouped["Study Tips"] = studyTips.filter(Boolean);
   }
 
-  // 🔹 Structured Topic Wise Tips (Mock Data)
-  grouped["Topic Wise Tips"] = {
-    Algebra: [
-      "Practice solving linear equations daily.",
-      "Revise factorization techniques before attempting word problems."
-    ],
-    Geometry: [
-      "Focus on understanding angle properties and theorems."
-    ]
-  };
+  // ✅ 2) Inject REAL topic wise tips (remove mock data)
+  if (hasTopicWiseTips) {
+    grouped["Topic Wise Tips"] = topicWiseTips;
+  }
 
   const getStyles = (title) => {
     switch (title) {
@@ -51,12 +51,7 @@ export default function AISuggestionPanel({ suggestions, studyTips = [] }) {
     }
   };
 
-  const sectionOrder = [
-    "Improvement",
-    "Encouragement",
-    "Study Tips",
-    "Topic Wise Tips",
-  ];
+  const sectionOrder = ["Improvement", "Encouragement", "Study Tips", "Topic Wise Tips"];
 
   return (
     <div>
@@ -92,17 +87,17 @@ export default function AISuggestionPanel({ suggestions, studyTips = [] }) {
                   </div>
                 )}
 
-                {/* Topic Wise Tips */}
+                {/* ✅ 3) Topic Wise Tips (NEW RENDER LOGIC) */}
                 {title === "Topic Wise Tips" && (
                   <div className="space-y-4">
-                    {Object.entries(items).map(([topic, tips]) => (
-                      <div key={topic}>
+                    {items.map((block, idx) => (
+                      <div key={`${block?.topic || "topic"}-${idx}`}>
                         <h5 className="text-sm font-semibold text-gray-700 mb-1">
-                          {topic}
+                          {block?.topic}
                         </h5>
 
                         <div className="space-y-1 pl-3">
-                          {tips.map((tip, i) => (
+                          {(block?.tips || []).map((tip, i) => (
                             <p
                               key={i}
                               className="text-sm text-gray-600 flex items-start gap-2"
@@ -118,12 +113,11 @@ export default function AISuggestionPanel({ suggestions, studyTips = [] }) {
                 )}
 
                 {/* Default Sections */}
-                {title !== "Study Tips" &&
-                  title !== "Topic Wise Tips" && (
-                    <p className="text-sm text-gray-600 text-justify">
-                      {items.join(" ")}
-                    </p>
-                  )}
+                {title !== "Study Tips" && title !== "Topic Wise Tips" && (
+                  <p className="text-sm text-gray-600 text-justify">
+                    {Array.isArray(items) ? items.join(" ") : String(items)}
+                  </p>
+                )}
               </div>
             );
           })}

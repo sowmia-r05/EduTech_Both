@@ -12,10 +12,7 @@ import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilte
 import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
 
-import {
-  fetchResultsByEmail,
-  fetchResultByResponseId,
-} from "@/app/utils/api";
+import { fetchResultsByEmail, fetchResultByResponseId } from "@/app/utils/api";
 
 /* -------------------- Loader -------------------- */
 const DotLoader = ({ label = "Loading" }) => (
@@ -149,12 +146,22 @@ const buildTopicStrength = (topicBreakdown = {}) => {
   };
 };
 
+/**
+ * Build the "suggestions" list used by AISuggestionPanel.
+ * Important:
+ * - Supports NEW fields: growth_areas
+ * - Still supports old fields: areas_of_improvement
+ */
 const buildSuggestionsFromFeedback = (feedback) => {
   if (!feedback) return [];
   const list = [];
 
-  if (feedback.overall_feedback)
-    list.push({ title: "Overall Feedback", description: feedback.overall_feedback });
+  if (feedback.overall_feedback) {
+    list.push({
+      title: "Overall Feedback",
+      description: feedback.overall_feedback,
+    });
+  }
 
   (feedback.strengths || []).forEach((s) =>
     list.push({ title: "Strength", description: s })
@@ -164,13 +171,20 @@ const buildSuggestionsFromFeedback = (feedback) => {
     list.push({ title: "Weak Area", description: w })
   );
 
+  // ✅ NEW: growth_areas (array of strings)
+  (feedback.growth_areas || []).forEach((g) => {
+    if (g) list.push({ title: "Improvement", description: g });
+  });
+
+  // ✅ OLD SUPPORT: areas_of_improvement (objects)
   (feedback.areas_of_improvement || []).forEach((a) => {
-    const desc = [a.issue, a.how_to_improve].filter(Boolean).join(" — ");
+    const desc = [a?.issue, a?.how_to_improve].filter(Boolean).join(" — ");
     if (desc) list.push({ title: "Improvement", description: desc });
   });
 
-  if (feedback.encouragement)
+  if (feedback.encouragement) {
     list.push({ title: "Encouragement", description: feedback.encouragement });
+  }
 
   return list;
 };
@@ -184,7 +198,7 @@ export default function Dashboard() {
   const hasResponseId = Boolean(responseId && responseId !== "[ResponseId]");
 
   const [latestResult, setLatestResult] = useState(null);
-  const [resultsList, setResultsList] = useState([]); 
+  const [resultsList, setResultsList] = useState([]);
   const [loadingLatest, setLoadingLatest] = useState(true);
   const [selectedDate, setSelectedDate] = useState(null);
   const [showNoDataModal, setShowNoDataModal] = useState(false);
@@ -205,14 +219,17 @@ export default function Dashboard() {
     const load = async () => {
       try {
         setLoadingLatest(true);
+
         const doc = await fetchResultByResponseId(responseId);
         if (!doc) return;
 
         if (!cancelled) {
           setLatestResult(doc);
+
           const all = await fetchResultsByEmail(doc.user.email_address, {
             quiz_name: doc.quiz_name,
           });
+
           setResultsList(all || [doc]);
         }
       } finally {
@@ -226,11 +243,10 @@ export default function Dashboard() {
 
   /* -------------------- Tour -------------------- */
   useEffect(() => {
-    if (!localStorage.getItem("dashboardTourPrompted"))
-      setShowTourModal(true);
+    if (!localStorage.getItem("dashboardTourPrompted")) setShowTourModal(true);
   }, []);
 
-  /* -------------------- Filtered dashboard data -------------------- */
+  /* -------------------- Filtered results by date -------------------- */
   const filteredResults = useMemo(() => {
     if (!latestResult) return [];
 
@@ -242,6 +258,7 @@ export default function Dashboard() {
 
     const start = new Date(selectedDate);
     start.setHours(0, 0, 0, 0);
+
     const end = new Date(selectedDate);
     end.setHours(23, 59, 59, 999);
 
@@ -253,15 +270,17 @@ export default function Dashboard() {
     });
   }, [resultsList, selectedDate, latestResult]);
 
-  /* -------------------- Trigger NoDataModal -------------------- */
+  /* -------------------- NoDataModal trigger -------------------- */
   useEffect(() => {
     if (selectedDate) {
       setShowNoDataModal(filteredResults.length === 0);
     }
   }, [selectedDate, filteredResults]);
 
+  /* -------------------- Pick selected result (latest in filter) -------------------- */
   const selectedResult = useMemo(() => {
     if (!filteredResults.length) return latestResult;
+
     return [...filteredResults].sort(
       (a, b) =>
         new Date(unwrapDate(b.createdAt || b.date_submitted)) -
@@ -269,6 +288,7 @@ export default function Dashboard() {
     )[0];
   }, [filteredResults, latestResult]);
 
+  /* -------------------- Loading / empty -------------------- */
   if (loadingLatest) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -279,144 +299,141 @@ export default function Dashboard() {
 
   if (!selectedResult) return null;
 
-  const percentage = Math.round(
-    Number(selectedResult?.score?.percentage || 0)
-  );
+  /* -------------------- Derived stats -------------------- */
+  const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
   const grade = selectedResult?.score?.grade || "—";
   const duration = formatDuration(selectedResult?.duration);
   const attemptsUsed = filteredResults.length || "—";
 
-  const { strongTopics, weakTopics } =
-    buildTopicStrength(selectedResult?.topicBreakdown || {});
+  const { strongTopics, weakTopics } = buildTopicStrength(
+    selectedResult?.topicBreakdown || {}
+  );
 
-  const suggestions =
-    buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
+  const suggestions = buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
 
   const displayName =
     `${selectedResult?.user?.first_name || ""} ${
       selectedResult?.user?.last_name || ""
     }`.trim() || "Student";
 
- return (
-  <div className="relative min-h-screen bg-gray-100">
-    {/* Dashboard Tour */}
-    <DashboardTour
-      isTourActive={isTourActive}
-      setIsTourActive={setIsTourActive}
-    />
+  return (
+    <div className="relative min-h-screen bg-gray-100">
+      {/* Dashboard Tour */}
+      <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
 
-    <DashboardTourModal
-      isOpen={showTourModal}
-      onStart={() => {
-        setShowTourModal(false);
-        setTimeout(() => setIsTourActive(true), 150);
-        localStorage.setItem("dashboardTourPrompted", "true");
-      }}
-      onSkip={() => {
-        setShowTourModal(false);
-        localStorage.setItem("dashboardTourPrompted", "true");
-      }}
-    />
+      <DashboardTourModal
+        isOpen={showTourModal}
+        onStart={() => {
+          setShowTourModal(false);
+          setTimeout(() => setIsTourActive(true), 150);
+          localStorage.setItem("dashboardTourPrompted", "true");
+        }}
+        onSkip={() => {
+          setShowTourModal(false);
+          localStorage.setItem("dashboardTourPrompted", "true");
+        }}
+      />
 
-    {/* No Data Modal */}
-    <NoDataModal
-      isOpen={showNoDataModal}
-      onClose={() => setShowNoDataModal(false)}
-      onClearFilter={() => {
-        setSelectedDate(null);
-        setShowNoDataModal(false);
-      }}
-    />
+      {/* No Data Modal */}
+      <NoDataModal
+        isOpen={showNoDataModal}
+        onClose={() => setShowNoDataModal(false)}
+        onClearFilter={() => {
+          setSelectedDate(null);
+          setShowNoDataModal(false);
+        }}
+      />
 
-    {/* Header */}
-    <div className="flex justify-between items-center px-6 py-4 mb-4">
-      <h1 className="text-3xl font-bold">
-        <span className="text-blue-600">{displayName} - </span>
-        <span className="text-purple-600">
-          {selectedResult?.quiz_name || "Quiz"} Report
-        </span>
-      </h1>
+      {/* Header */}
+      <div className="flex justify-between items-center px-6 py-4 mb-4">
+        <h1 className="text-3xl font-bold">
+          <span className="text-blue-600">{displayName} - </span>
+          <span className="text-purple-600">
+            {selectedResult?.quiz_name || "Quiz"} Report
+          </span>
+        </h1>
 
-      <div className="flex items-center gap-4">
-        <DateRangeFilter
-          selectedDate={selectedDate}
-          onChange={setSelectedDate}
-          testTakenDates={resultsList
-            .map((r) => {
-              const raw = r?.createdAt || r?.date_submitted;
-              if (!raw) return null;
-              const date = new Date(
-                typeof raw === "object" && raw.$date ? raw.$date : raw
-              );
-              date.setHours(0, 0, 0, 0);
-              return date;
-            })
-            .filter(Boolean)}
-        />
-        <AvatarMenu />
-      </div>
-    </div>
-
-    {/* Dashboard Grid */}
-    <div className="grid grid-cols-12 gap-4 px-6 pb-6 min-h-[80vh]">
-      {/* Stat Cards */}
-      <div className="col-span-7 grid grid-cols-4 gap-4">
-        {["Overall Score", "Time Spent", "Result", "Attempts Used"].map(
-          (title, idx) => {
-            const valueMap = {
-              "Overall Score": `${percentage}%`,
-              "Time Spent": duration,
-              Result: grade,
-              "Attempts Used": attemptsUsed,
-            };
-            return <StatCard key={idx} title={title} value={valueMap[title]} />;
-          }
-        )}
-      </div>
-
-      {/* AI Coach Panel */}
-      <div className="col-span-5 row-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-        <AICoachPanel
-          feedback={selectedResult?.ai_feedback}
-          strongTopics={strongTopics}
-          weakTopics={weakTopics}
-        />
-      </div>
-
-      {/* Donut Chart */}
-      <div className="col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-        <DonutScoreChart
-          correctPercent={percentage}
-          incorrectPercent={100 - percentage}
-          height="100%"
-        />
-      </div>
-
-      {/* Weak Topics Bar Chart */}
-      <div className="col-span-4 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-        <WeakTopicsBarChart topics={weakTopics} height="100%" />
-      </div>
-
-      {/* Top Topics Funnel */}
-      <div className="col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-        <TopTopicsFunnelChart
-          topicBreakdown={selectedResult?.topicBreakdown}
-          topN={5}
-          height={250}
-          title="Top 5 Topics Overview"
-        />
-      </div>
-
-      {/* AI Suggestions */}
-      <div className="col-span-4">
-        <div className="bg-white rounded-xl shadow p-4 h-full flex flex-col min-h-0">
-          <AISuggestionPanel
-            suggestions={suggestions}
-            studyTips={selectedResult?.ai_feedback?.study_tips || []}
+        <div className="flex items-center gap-4">
+          <DateRangeFilter
+            selectedDate={selectedDate}
+            onChange={setSelectedDate}
+            testTakenDates={resultsList
+              .map((r) => {
+                const raw = r?.createdAt || r?.date_submitted;
+                if (!raw) return null;
+                const date = new Date(
+                  typeof raw === "object" && raw.$date ? raw.$date : raw
+                );
+                date.setHours(0, 0, 0, 0);
+                return date;
+              })
+              .filter(Boolean)}
           />
+          <AvatarMenu />
+        </div>
+      </div>
+
+      {/* Dashboard Grid */}
+      <div className="grid grid-cols-12 gap-4 px-6 pb-6 min-h-[80vh]">
+        {/* Stat Cards */}
+        <div className="col-span-7 grid grid-cols-4 gap-4">
+          {["Overall Score", "Time Spent", "Result", "Attempts Used"].map(
+            (title, idx) => {
+              const valueMap = {
+                "Overall Score": `${percentage}%`,
+                "Time Spent": duration,
+                Result: grade,
+                "Attempts Used": attemptsUsed,
+              };
+              return <StatCard key={idx} title={title} value={valueMap[title]} />;
+            }
+          )}
+        </div>
+
+        {/* AI Coach Panel */}
+        <div className="col-span-5 row-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
+          <AICoachPanel
+            feedback={selectedResult?.ai_feedback}
+            strongTopics={strongTopics}
+            weakTopics={weakTopics}
+          />
+        </div>
+
+        {/* Donut Chart */}
+        <div className="col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
+          <DonutScoreChart
+            correctPercent={percentage}
+            incorrectPercent={100 - percentage}
+            height="100%"
+          />
+        </div>
+
+        {/* Weak Topics Bar Chart */}
+        <div className="col-span-4 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
+          <WeakTopicsBarChart topics={weakTopics} height="100%" />
+        </div>
+
+        {/* Top Topics Funnel */}
+        <div className="col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
+          <TopTopicsFunnelChart
+            topicBreakdown={selectedResult?.topicBreakdown}
+            topN={5}
+            height={250}
+            title="Top 5 Topics Overview"
+          />
+        </div>
+
+        {/* AI Suggestions */}
+        <div className="col-span-4">
+          <div className="bg-white rounded-xl shadow p-4 h-full flex flex-col min-h-0">
+            <AISuggestionPanel
+              suggestions={suggestions}
+              studyTips={selectedResult?.ai_feedback?.study_tips || []}
+              topicWiseTips={selectedResult?.ai_feedback?.topic_wise_tips || []} 
+            />
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
 }
