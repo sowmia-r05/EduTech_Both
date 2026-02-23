@@ -7,25 +7,42 @@ export default function StartTestPage() {
 
   const [name, setName] = useState("");
   const [year, setYear] = useState("");
- 
+  const [betaMessage, setBetaMessage] = useState("");
 
   const handleContinue = () => {
     if (!name.trim()) {
-      alert("Please enter your child’s name.");
+      setBetaMessage("Please enter your child’s name.");
       return;
     }
 
     if (!year) {
-      alert("Please select your child’s year level.");
+      setBetaMessage("Please select your child’s year level.");
       return;
     }
+
+    // Only Year 3 is live
+    if (year !== "3") {
+      setBetaMessage("🚧 This year level is currently in Beta. Coming soon!");
+      return;
+    }
+
+    // Clear any previous message
+    setBetaMessage("");
 
     // Store info for personalization
     localStorage.setItem("childName", name);
     localStorage.setItem("yearLevel", year);
-    
 
     navigate("/trial-test");
+  };
+
+  const handleYearChange = (value) => {
+    setYear(value);
+
+    // Clear beta message if Year 3 selected
+    if (value === "3") {
+      setBetaMessage("");
+    }
   };
 
   return (
@@ -54,30 +71,38 @@ export default function StartTestPage() {
             type="text"
             placeholder="Enter name"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              setBetaMessage("");
+            }}
             className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
           />
         </div>
 
         {/* Year Dropdown */}
-        <div className="mb-6">
+        <div className="mb-4">
           <label className="block text-gray-700 font-medium mb-2">
             Select Year Level
           </label>
           <select
             value={year}
-            onChange={(e) => setYear(e.target.value)}
+            onChange={(e) => handleYearChange(e.target.value)}
             className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
           >
             <option value="">Choose Year</option>
             <option value="3">Year 3</option>
-            <option value="5">Year 5</option>
-            <option value="7">Year 7</option>
-            <option value="9">Year 9</option>
+            <option value="5">Year 5 (Beta)</option>
+            <option value="7">Year 7 (Beta)</option>
+            <option value="9">Year 9 (Beta)</option>
           </select>
         </div>
 
-
+        {/* Message Display */}
+        {betaMessage && (
+          <p className="text-orange-600 text-sm mb-6 font-medium text-center">
+            {betaMessage}
+          </p>
+        )}
 
         {/* Continue Button */}
         <motion.button
