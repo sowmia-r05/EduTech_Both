@@ -39,22 +39,35 @@ const looksLikeEmail = (e) => {
 ----------------------------- */
 function Modal({ title, children, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Light translucent overlay */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+      
+      {/* Overlay */}
       <div
-        className="absolute inset-0 bg-white/40 backdrop-blur-sm"
-        onClick={onClose} // click outside to close
-      ></div>
+        className="absolute inset-0 bg-black/50 backdrop-blur-md transition-opacity"
+        onClick={onClose}
+      />
 
-      <div className="relative bg-white rounded-xl shadow-lg max-w-lg w-full max-h-[80vh] overflow-y-auto p-6 z-10">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
-        >
-          <X className="h-5 w-5" />
-        </button>
-        <h2 className="text-xl font-bold text-indigo-600 mb-4">{title}</h2>
-        {children}
+      {/* Modal */}
+      <div className="relative z-10 w-full max-w-4xl max-h-[85vh] rounded-3xl bg-white shadow-[0_25px_70px_rgba(0,0,0,0.15)] overflow-hidden">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between px-10 py-6 bg-gradient-to-r from-indigo-50 to-white border-b border-gray-100">
+          <h2 className="text-2xl font-semibold text-indigo-600 tracking-tight">
+            {title}
+          </h2>
+
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Body (Natural Scroll) */}
+        <div className="px-12 py-10 overflow-y-auto max-h-[70vh] text-gray-700 leading-relaxed space-y-6">
+          {children}
+        </div>
       </div>
     </div>
   );
