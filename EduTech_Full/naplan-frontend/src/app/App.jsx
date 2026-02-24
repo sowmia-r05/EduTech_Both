@@ -5,6 +5,9 @@ import RegistrationPage from "@/app/components/RegistrationPage";
 import ResultPage from "@/app/components/ResultPage";
 import Dashboard from "@/app/components/pages/Dashboard";
 import ParentDashboard from "@/app/components/pages/ParentDashboard";
+import ChildDashboard from "@/app/components/pages/ChildDashboard"
+
+
 import NotFound from "@/app/components/pages/NotFound";
 import FreeTrialPage from "@/app/components/landing/FreeTrialPage";
 import StartTestPage from "@/app/components/StartTestPage";
@@ -31,6 +34,8 @@ export default function AppRoutes() {
       <Route path="/respondent" element={<RespondentPortal />} />
 
       <Route path="/parent-dashboard" element={<ParentDashboard />} />
+      <Route path="/child-dashboard" element={<ChildDashboard />} />
+
 
 
      
