@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -12,6 +12,7 @@ import {
 } from "recharts";
 
 /* ---------------- MOCK DATA ---------------- */
+
 const trendData = [
   { month: "Jan", Language: 60, Numeracy: 70, Reading: 75, Writing: 60 },
   { month: "Feb", Language: 65, Numeracy: 72, Reading: 78, Writing: 60 },
@@ -28,9 +29,9 @@ const comparisonData = [
 ];
 
 const difficultyData = [
-  { level: "Easy", score: 92 },
-  { level: "Medium", score: 81 },
-  { level: "Hard", score: 64 },
+  { level: "Easy", score: 92, color: "bg-emerald-500" },
+  { level: "Medium", score: 81, color: "bg-amber-500" },
+  { level: "Hard", score: 64, color: "bg-rose-500" },
 ];
 
 const recentActivity = [
@@ -40,185 +41,196 @@ const recentActivity = [
   { subject: "Writing", testName: "Global Summit AI", date: "May 02", accuracy: 89, timeTaken: "20 min", difficulty: "Medium" },
 ];
 
-/* ---------------- MAIN COMPONENT ---------------- */
-export default function ParentDashboard() {
-  const overallAverage = comparisonData.reduce((acc, s) => acc + s.score, 0) / comparisonData.length;
+/* ---------------- MAIN ---------------- */
 
-  const strongest = comparisonData.reduce((prev, curr) => curr.score > prev.score ? curr : prev).subject;
-  const weakest = comparisonData.reduce((prev, curr) => curr.score < prev.score ? curr : prev).subject;
+export default function ParentDashboard() {
+  const overallAverage = useMemo(
+    () => comparisonData.reduce((a, s) => a + s.score, 0) / comparisonData.length,
+    []
+  );
+
+  const strongest = useMemo(
+    () => comparisonData.reduce((p, c) => (c.score > p.score ? c : p)).subject,
+    []
+  );
+
+  const weakest = useMemo(
+    () => comparisonData.reduce((p, c) => (c.score < p.score ? c : p)).subject,
+    []
+  );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-gray-100 to-indigo-50">
-      <div className="max-w-screen-2xl mx-auto px-8 py-6 space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
+      <div className="max-w-screen-2xl mx-auto px-8 py-8 space-y-8">
 
-        {/* ---------------- HEADER ---------------- */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-4 border-b border-gray-200">
+        {/* HEADER */}
+        <header className="flex flex-col lg:flex-row justify-between gap-6 pb-6 border-b border-slate-200">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900">Vishaka Radha</h1>
-            <p className="text-gray-500 mt-1 text-sm">Year 3 • Academic Performance Overview</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              Vishaka Radha
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Year 3 • Academic Performance Overview
+            </p>
           </div>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
-            <select className="px-4 py-2 rounded-xl border border-gray-300 bg-white text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+
+          <div className="flex items-center gap-3">
+            <select className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm shadow-sm focus:ring-2 focus:ring-indigo-400 outline-none">
               <option>Last 30 Days</option>
               <option>This Term</option>
               <option>This Year</option>
             </select>
-            <button className="px-5 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium shadow hover:bg-indigo-600 transition">Download Report</button>
-            <button className="px-5 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium shadow hover:bg-rose-600 transition">Logout</button>
+            <button className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium shadow hover:bg-indigo-700 transition">
+              Download Report
+            </button>
+            <button className="px-5 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium shadow hover:bg-rose-600 transition">
+              Logout
+            </button>
           </div>
-        </div>
+        </header>
 
-        {/* ---------------- KPI CARDS ---------------- */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-          <KPI title="Overall Average" value={`${overallAverage.toFixed(0)}%`} trend="+5% from last term" />
-          <KPI title="Strongest Subject" value={strongest} trend="Consistent growth" positive />
-          <KPI title="Needs Attention" value={weakest} trend="Below target" negative />
-          <KPI title="Total Assessments" value="24" trend="This term" />
-        </div>
+        {/* KPI ROW */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+          <KPI title="Overall Average" value={`${overallAverage.toFixed(0)}%`} />
+          <KPI title="Strongest Subject" value={strongest} accent />
+          <KPI title="Needs Attention" value={weakest} warning />
+          <KPI title="Total Assessments" value="24" />
+        </section>
 
-        {/* ---------------- ANALYTICS ROW ---------------- */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* PERFORMANCE TREND */}
-          <div className="xl:col-span-2 bg-white rounded-2xl p-8 border border-gray-200 shadow hover:shadow-lg transition">
-            <h2 className="text-lg font-semibold mb-6 text-gray-800">Performance Trend</h2>
+        {/* ANALYTICS */}
+        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+          {/* LINE CHART */}
+          <Card className="xl:col-span-2">
+            <CardTitle>Performance Trend</CardTitle>
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={trendData}>
-                <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" />
-                <XAxis dataKey="month" stroke="#6B7280" />
-                <YAxis domain={[0, 100]} stroke="#6B7280" />
-                <Tooltip />
-                <Line type="monotone" dataKey="Language" stroke="#6366F1" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="Numeracy" stroke="#10B981" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="Reading" stroke="#F59E0B" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="Writing" stroke="#EF4444" strokeWidth={3} dot={false} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="month" stroke="#64748b" />
+                <YAxis domain={[0, 100]} stroke="#64748b" />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: 12,
+                    border: "none",
+                    boxShadow: "0 15px 30px rgba(0,0,0,0.08)",
+                  }}
+                />
+                {["Language", "Numeracy", "Reading", "Writing"].map((key, i) => {
+                  const colors = ["#6366F1", "#10B981", "#F59E0B", "#EF4444"];
+                  return (
+                    <Line
+                      key={key}
+                      type="monotone"
+                      dataKey={key}
+                      stroke={colors[i]}
+                      strokeWidth={3}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  );
+                })}
               </LineChart>
             </ResponsiveContainer>
-          </div>
+          </Card>
 
-          {/* SUBJECT COMPARISON */}
-          <div className="bg-white rounded-2xl p-8 border border-gray-200 shadow hover:shadow-lg transition">
-            <h2 className="text-lg font-semibold mb-6 text-gray-800">Subject Comparison</h2>
+          {/* BAR CHART */}
+          <Card>
+            <CardTitle>Subject Comparison</CardTitle>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={comparisonData}>
-                <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" />
-                <XAxis dataKey="subject" stroke="#6B7280" />
-                <YAxis domain={[0, 100]} stroke="#6B7280" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="subject" stroke="#64748b" />
+                <YAxis domain={[0, 100]} stroke="#64748b" />
                 <Tooltip />
-                <Bar dataKey="score" fill="#6366F1" radius={[6, 6, 0, 0]} />
+                <defs>
+                  <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6366F1" />
+                    <stop offset="100%" stopColor="#8B5CF6" />
+                  </linearGradient>
+                </defs>
+                <Bar dataKey="score" fill="url(#barGradient)" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </div>
+          </Card>
+        </section>
 
-        {/* ---------------- SECOND ROW ---------------- */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* SECOND ROW */}
+        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
-          {/* ACADEMIC SUMMARY */}
-          <div className="bg-white rounded-2xl p-8 border border-gray-200 shadow hover:shadow-lg transition space-y-5">
-            <h2 className="text-lg font-semibold text-gray-800">Academic Summary</h2>
-            <Summary label="Target Average" value="85%" />
-            <Summary label="Term Improvement" value="+10%" positive />
-            <Summary label="Completed Quizzes" value="24" />
-            <Summary label="Subjects Active" value="4" />
-            <div>
-              <p className="text-xs text-gray-500 mb-2">Progress Toward Target</p>
-              <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+          <Card>
+            <CardTitle>Academic Summary</CardTitle>
+            <div className="space-y-4 text-sm">
+              <Summary label="Target Average" value="85%" />
+              <Summary label="Term Improvement" value="+10%" positive />
+              <Summary label="Completed Quizzes" value="24" />
+              <Summary label="Subjects Active" value="4" />
+            </div>
+
+            <div className="mt-6">
+              <p className="text-xs text-slate-500 mb-2">Progress Toward Target</p>
+              <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full"
+                  className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-700"
                   style={{ width: `${overallAverage}%` }}
                 />
               </div>
             </div>
-          </div>
+          </Card>
 
-          {/* DIFFICULTY BREAKDOWN */}
-          <div className="bg-white rounded-2xl p-8 border border-gray-200 shadow hover:shadow-lg transition">
-            <h2 className="text-lg font-semibold mb-6 text-gray-800">Difficulty Breakdown</h2>
-            {difficultyData.map((item, i) => (
-              <div key={i} className="mb-5">
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600">{item.level}</span>
-                  <span className="font-medium text-gray-900">{item.score}%</span>
+          <Card>
+            <CardTitle>Difficulty Breakdown</CardTitle>
+            <div className="space-y-5">
+              {difficultyData.map((item) => (
+                <div key={item.level}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-slate-600">{item.level}</span>
+                    <span className="font-medium text-slate-900">{item.score}%</span>
+                  </div>
+                  <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${item.color} transition-all duration-700`}
+                      style={{ width: `${item.score}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${item.level === "Hard" ? "bg-rose-500" : item.level === "Medium" ? "bg-yellow-500" : "bg-green-500"}`}
-                    style={{ width: `${item.score}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* INSIGHTS PANEL */}
-<div className="bg-gradient-to-br from-indigo-600 to-purple-600 text-white rounded-2xl p-8 shadow-lg">
-  <h2 className="text-lg font-semibold mb-6">Performance Insights</h2>
-  <ul className="space-y-4 text-sm">
-    {[
-      { text: "Reading performance has steadily improved.", type: "success", progress: 90 },
-      { text: "Language remains below target benchmark.", type: "warning", progress: 60 },
-      { text: "Hard-level assessments need reinforcement.", type: "alert", progress: 40 },
-      { text: "Completion time improving consistently.", type: "success", progress: 80 },
-    ].map((item, i) => (
-      <li key={i} className="flex items-center space-x-3 group">
-        <span
-          className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold ${
-            item.type === "success"
-              ? "bg-green-400 text-green-900"
-              : item.type === "warning"
-              ? "bg-yellow-400 text-yellow-900"
-              : "bg-red-400 text-red-900"
-          }`}
-        >
-          {item.type === "success" ? "✓" : item.type === "warning" ? "⚠" : "!"}
-        </span>
-        <div className="flex-1">
-          <p>{item.text}</p>
-          {item.progress && (
-            <div className="mt-1 h-1 bg-white bg-opacity-30 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-white rounded-full transition-all group-hover:scale-x-105"
-                style={{ width: `${item.progress}%` }}
-              />
+              ))}
             </div>
-          )}
-        </div>
-      </li>
-    ))}
-  </ul>
-</div>
-        </div>
+          </Card>
 
-        {/* ---------------- RECENT TABLE ---------------- */}
-        <div className="bg-white rounded-2xl p-8 border border-gray-200 shadow hover:shadow-lg transition">
-          <h2 className="text-lg font-semibold mb-6 text-gray-800">Recent Assessments</h2>
-          <div className="overflow-hidden rounded-2xl border border-gray-200">
+          <Card className="bg-gradient-to-br from-indigo-600/95 to-purple-600/95 text-white shadow-xl">
+            <CardTitle light>Performance Insights</CardTitle>
+            <ul className="space-y-4 text-sm">
+              <li>✓ Reading performance steadily improving</li>
+              <li>⚠ Language below target benchmark</li>
+              <li>! Hard-level assessments need reinforcement</li>
+              <li>✓ Completion time improving consistently</li>
+            </ul>
+          </Card>
+        </section>
+
+        {/* TABLE */}
+        <Card>
+          <CardTitle>Recent Assessments</CardTitle>
+          <div className="overflow-hidden rounded-xl border border-slate-200">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 uppercase text-xs tracking-wide">
+              <thead className="bg-slate-50 text-slate-500 uppercase text-xs">
                 <tr>
-                  <th className="py-4 px-6 text-left">Subject</th>
-                  <th className="px-6 text-left">Test</th>
-                  <th className="px-6 text-left">Date</th>
-                  <th className="px-6 text-left">Accuracy</th>
-                  <th className="px-6 text-left">Time</th>
-                  <th className="px-6 text-left">Difficulty</th>
-                  <th className="px-6 text-left">Action</th>
+                  {["Subject", "Test", "Date", "Accuracy", "Time", "Difficulty", "Action"].map((h) => (
+                    <th key={h} className="px-6 py-4 text-left">{h}</th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-slate-100">
                 {recentActivity.map((row, i) => (
-                  <tr key={i} className="hover:bg-gray-50 transition">
-                    <td className="py-4 px-6 font-medium text-gray-800">{row.subject}</td>
+                  <tr key={i} className="hover:bg-indigo-50/40 transition">
+                    <td className="px-6 py-4 font-medium">{row.subject}</td>
                     <td className="px-6">{row.testName}</td>
-                    <td className="px-6 text-gray-500">{row.date}</td>
+                    <td className="px-6 text-slate-500">{row.date}</td>
                     <td className="px-6 font-semibold">{row.accuracy}%</td>
-                    <td className="px-6 text-gray-500">{row.timeTaken}</td>
-                    <td className="px-6 text-gray-600">{row.difficulty}</td>
+                    <td className="px-6 text-slate-500">{row.timeTaken}</td>
+                    <td className="px-6">{row.difficulty}</td>
                     <td className="px-6">
-                      <button
-                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-500 text-white text-xs font-medium hover:from-purple-600 hover:to-indigo-600 transition"
-                        onClick={() => console.log("Go to Quiz", row.testName)}
-                      >
+                      <button className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition">
                         View Quiz
                       </button>
                     </td>
@@ -227,30 +239,53 @@ export default function ParentDashboard() {
               </tbody>
             </table>
           </div>
-        </div>
+        </Card>
 
       </div>
     </div>
   );
 }
 
-/* ---------------- REUSABLE COMPONENTS ---------------- */
-function KPI({ title, value, trend, positive, negative }) {
+/* ---------------- UI COMPONENTS ---------------- */
+
+function Card({ children, className = "" }) {
   return (
-    <div className="relative bg-white rounded-2xl p-6 border border-gray-200 shadow hover:shadow-lg transition">
-      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-t-2xl"></div>
-      <p className="text-xs uppercase tracking-wide text-gray-400">{title}</p>
-      <p className="text-2xl font-semibold mt-3 text-gray-900">{value}</p>
-      <p className={`text-xs mt-2 ${positive ? "text-green-600" : negative ? "text-rose-600" : "text-gray-500"}`}>{trend}</p>
+    <div className={`bg-white rounded-2xl p-8 border border-slate-200 shadow-sm hover:shadow-lg transition-all duration-300 ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+function CardTitle({ children, light }) {
+  return (
+    <h2 className={`text-lg font-semibold mb-6 ${light ? "text-white" : "text-slate-800"}`}>
+      {children}
+    </h2>
+  );
+}
+
+function KPI({ title, value, accent, warning }) {
+  return (
+    <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+      <p className="text-xs uppercase tracking-wider text-slate-400">{title}</p>
+      <p
+        className={`text-3xl font-bold mt-3 ${
+          accent ? "text-indigo-600" : warning ? "text-rose-500" : "text-slate-900"
+        }`}
+      >
+        {value}
+      </p>
     </div>
   );
 }
 
 function Summary({ label, value, positive }) {
   return (
-    <div className="flex justify-between text-sm">
-      <span className="text-gray-600">{label}</span>
-      <span className={`font-medium ${positive ? "text-green-600" : "text-gray-900"}`}>{value}</span>
+    <div className="flex justify-between">
+      <span className="text-slate-600">{label}</span>
+      <span className={`font-medium ${positive ? "text-emerald-600" : "text-slate-900"}`}>
+        {value}
+      </span>
     </div>
   );
 }
