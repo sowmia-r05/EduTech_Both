@@ -14,13 +14,17 @@ import RespondentPortal from "@/app/components/pages/RespondentPortal";
 import TermsAndConditions from "@/app/components/TermsAndConditions";
 import PrivacyPolicy from "@/app/components/PrivacyPolicy";
 
-// ─── NEW: Phase 2 pages ───
+// ─── Auth pages ───
 import LoginPage from "@/app/components/pages/LoginPage";
 import RegisterPage from "@/app/components/pages/RegisterPage";
 import ParentDashboard from "@/app/components/pages/ParentDashboard";
 import VerifyEmailPage from "@/app/components/pages/VerifyEmailPage";
-import ForgotPasswordPage from "@/app/components/pages/ForgotPasswordPage";
 import RequireAuth from "@/app/components/auth/RequireAuth";
+
+// ─── Phase 3: Payment pages ───
+import BundleSelectPage from "@/app/components/pages/BundleSelectPage";
+import PaymentSuccessPage from "@/app/components/pages/PaymentSuccessPage";
+import PaymentCancelPage from "@/app/components/pages/PaymentCancelPage";
 
 export default function AppRoutes() {
   return (
@@ -32,36 +36,35 @@ export default function AppRoutes() {
       <Route path="/dashboard-preview" element={<TrailDashboard />} />
       <Route path="/trial-test" element={<TrialTestPage />} />
 
-      {/* ═══ NEW: Auth (Phase 2) ═══ */}
+      {/* Auth */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
-      {/* ═══ NEW: Protected Parent Dashboard (Phase 2) ═══ */}
+      {/* Protected: Parent Dashboard */}
       <Route
         path="/parent-dashboard"
-        element={
-          <RequireAuth role="parent">
-            <ParentDashboard />
-          </RequireAuth>
-        }
+        element={<RequireAuth role="parent"><ParentDashboard /></RequireAuth>}
       />
 
-      {/* ═══ Existing (kept for now, will be updated in Phase 5) ═══ */}
+      {/* Phase 3: Payments */}
+      <Route
+        path="/bundles"
+        element={<RequireAuth role="parent"><BundleSelectPage /></RequireAuth>}
+      />
+      <Route
+        path="/payment-success"
+        element={<RequireAuth role="parent"><PaymentSuccessPage /></RequireAuth>}
+      />
+      <Route path="/payment-cancel" element={<PaymentCancelPage />} />
+
+      {/* Existing */}
       <Route path="/child-dashboard" element={<ChildDashboard />} />
       <Route path="/respondent" element={<RespondentPortal />} />
       <Route path="/writing-feedback/result" element={<ResultPage />} />
-
-      {/* Privacy & Terms */}
       <Route path="/terms" element={<TermsAndConditions />} />
       <Route path="/privacy" element={<PrivacyPolicy />} />
-
-      {/* Existing Dashboard (Protected) */}
-      <Route
-        path="/NonWritingLookupQuizResults/results"
-        element={<Dashboard />}
-      />
+      <Route path="/NonWritingLookupQuizResults/results" element={<Dashboard />} />
 
       {/* Fallback */}
       <Route path="*" element={<NotFound />} />

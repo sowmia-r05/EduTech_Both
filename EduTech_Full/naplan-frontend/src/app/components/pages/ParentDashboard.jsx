@@ -39,7 +39,7 @@ function YearBadge({ year }) {
 }
 
 // ─── Child Card ───
-function ChildCard({ child, onEdit, onDelete }) {
+function ChildCard({ child, onEdit, onDelete, onPurchase }) {
   const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async () => {
@@ -109,7 +109,11 @@ function ChildCard({ child, onEdit, onDelete }) {
               <Button size="sm" variant="outline" className="flex-1 text-xs">
                 Try Sample Test
               </Button>
-              <Button size="sm" className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700">
+              <Button
+                size="sm"
+                className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700"
+                onClick={() => onPurchase(child)}
+              >
                 Purchase Bundle
               </Button>
             </div>
@@ -120,7 +124,11 @@ function ChildCard({ child, onEdit, onDelete }) {
             </Button>
           )}
           {child.status === "expired" && (
-            <Button size="sm" className="w-full text-xs bg-indigo-600 hover:bg-indigo-700">
+            <Button
+              size="sm"
+              className="w-full text-xs bg-indigo-600 hover:bg-indigo-700"
+              onClick={() => onPurchase(child)}
+            >
               Renew Bundle
             </Button>
           )}
@@ -214,6 +222,11 @@ export default function ParentDashboard() {
     } catch (err) {
       setError(err.message || "Failed to delete child");
     }
+  };
+
+  // ─── Phase 3: Navigate to bundle selection ───
+  const handlePurchase = (child) => {
+    navigate(`/bundles?childId=${child._id}&year=${child.year_level}`);
   };
 
   const handleLogout = () => {
@@ -332,6 +345,7 @@ export default function ParentDashboard() {
                 child={child}
                 onEdit={setEditChild}
                 onDelete={handleDeleteChild}
+                onPurchase={handlePurchase}
               />
             ))}
           </div>

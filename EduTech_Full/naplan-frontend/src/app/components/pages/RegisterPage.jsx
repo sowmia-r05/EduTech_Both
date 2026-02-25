@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 
 import { Button } from "@/app/components/ui/button";
@@ -7,79 +7,148 @@ import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
-import { AlertCircle, ArrowLeft, Loader2, Eye, EyeOff, CheckCircle } from "lucide-react";
+import { AlertCircle, Loader2, ArrowLeft, Mail } from "lucide-react";
 
+/**
+ * RegisterPage — Two modes:
+ *
+ * MODE A (from LoginPage redirect): email already verified via OTP.
+ *   → Just collect first_name + last_name, then call verify-otp again with name.
+ *
+ * MODE B (direct visit): full flow — email → OTP → name → create account.
+ */
 export default function RegisterPage() {
   const navigate = useNavigate();
-  const { register } = useAuth();
+  const location = useLocation();
+  const { sendOTP, verifyOTP, isAuthenticated } = useAuth();
 
-  const [form, setForm] = useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-  });
+  // If redirected from LoginPage with verified email
+  const preVerifiedEmail = location.state?.email || "";
+  const preVerified = !!location.state?.verified;
 
-  const [showPassword, setShowPassword] = useState(false);
+  const [step, setStep] = useState(preVerified ? "name" : "email"); // email | otp | name
+  const [email, setEmail] = useState(preVerifiedEmail);
+  const [otp, setOtp] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [emailMasked, setEmailMasked] = useState("");
 
-  const updateField = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    if (error) setError("");
+  useEffect(() => {
+    if (isAuthenticated) navigate("/parent-dashboard", { replace: true });
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const t = setTimeout(() => setCountdown(countdown - 1), 1000);
+    return () => clearTimeout(t);
+  }, [countdown]);
+
+  // Step 1: Send OTP
+  const handleSendOTP = async (e) => {
+    e?.preventDefault();
+    setError("");
+    if (!email.trim()) { setError("Email is required"); return; }
+
+    setLoading(true);
+    try {
+      const data = await sendOTP(email.trim().toLowerCase());
+
+      if (data.is_existing) {
+        // Already has an account — redirect to login
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      setEmailMasked(data.email_masked);
+      setStep("otp");
+      setCountdown(30);
+    } catch (err) {
+      setError(err.message || "Failed to send code");
+    }
+    setLoading(false);
   };
 
-  const passwordValid = form.password.length >= 8 && /[a-zA-Z]/.test(form.password) && /\d/.test(form.password);
-  const passwordsMatch = form.password === form.confirmPassword && form.confirmPassword.length > 0;
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  // Step 2: Verify OTP → show name fields
+  const handleVerifyOTP = async (e) => {
+    e?.preventDefault();
     setError("");
+    if (otp.length !== 6) { setError("Please enter the 6-digit code"); return; }
 
-    if (!form.first_name.trim() || !form.last_name.trim()) {
+    // We don't actually call verify-otp yet — we need the name first.
+    // Just move to name step (OTP will be verified with the name in step 3)
+    setStep("name");
+  };
+
+  // Step 3: Submit name + create account
+  const handleCreateAccount = async (e) => {
+    e?.preventDefault();
+    setError("");
+    if (!firstName.trim() || !lastName.trim()) {
       setError("First and last name are required");
-      return;
-    }
-    if (!form.email.trim()) {
-      setError("Email is required");
-      return;
-    }
-    if (!passwordValid) {
-      setError("Password must be at least 8 characters with at least 1 letter and 1 number");
-      return;
-    }
-    if (!passwordsMatch) {
-      setError("Passwords do not match");
       return;
     }
 
     setLoading(true);
     try {
-      await register({
-        email: form.email.trim().toLowerCase(),
-        password: form.password,
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
+      // If pre-verified (from LoginPage), the OTP was already validated there
+      // and the backend returned is_new=true. We need to re-send OTP and verify with name.
+      if (preVerified) {
+        // Re-send OTP for the verified email, then user needs to enter code
+        // Actually — the LoginPage already called verify-otp which returned is_new
+        // but didn't create the account because name was missing.
+        // We need to re-do the OTP flow with name included.
+        // Send a fresh OTP:
+        await sendOTP(email.trim().toLowerCase());
+        setStep("otp_final");
+        setCountdown(30);
+        setLoading(false);
+        return;
+      }
+
+      // Normal flow: we have the OTP from step 2
+      await verifyOTP({
+        email: email.trim().toLowerCase(),
+        otp: otp.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+      });
+
+      navigate("/parent-dashboard", { replace: true });
+    } catch (err) {
+      setError(err.message || "Failed to create account");
+    }
+    setLoading(false);
+  };
+
+  // Final OTP verification (for pre-verified flow)
+  const handleFinalVerify = async (e) => {
+    e?.preventDefault();
+    setError("");
+    if (otp.length !== 6) { setError("Please enter the 6-digit code"); return; }
+
+    setLoading(true);
+    try {
+      await verifyOTP({
+        email: email.trim().toLowerCase(),
+        otp: otp.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
       });
       navigate("/parent-dashboard", { replace: true });
     } catch (err) {
-      setError(err.message || "Registration failed. Please try again.");
-    } finally {
-      setLoading(false);
+      setError(err.message || "Failed to create account");
     }
+    setLoading(false);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="flex justify-between items-center mb-6">
-          <Button
-            onClick={() => navigate("/")}
-            variant="outline"
-            className="bg-white"
-            size="icon"
-          >
+        <div className="mb-6">
+          <Button onClick={() => navigate("/")} variant="outline" size="icon" className="bg-white">
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </div>
@@ -87,122 +156,121 @@ export default function RegisterPage() {
         <Card className="bg-white shadow-lg">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">Create Account</CardTitle>
-            <p className="text-sm text-gray-500 mt-1">Set up your parent account to get started</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {step === "email" && "Enter your email to get started"}
+              {step === "otp" && `Enter the code sent to ${emailMasked}`}
+              {step === "name" && "One last step — tell us your name"}
+              {step === "otp_final" && `Verify your email to complete registration`}
+            </p>
           </CardHeader>
 
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
+          <CardContent className="space-y-5">
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-              <div className="grid grid-cols-2 gap-3">
+            {/* Step: Email */}
+            {step === "email" && (
+              <form onSubmit={handleSendOTP} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="first_name">First Name</Label>
+                  <Label htmlFor="reg_email">Email</Label>
                   <Input
-                    id="first_name"
-                    value={form.first_name}
-                    onChange={(e) => updateField("first_name", e.target.value)}
-                    placeholder="Jane"
+                    id="reg_email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     disabled={loading}
+                    autoFocus
                   />
                 </div>
+                <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" disabled={loading || !email.trim()}>
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                    <><Mail className="h-4 w-4 mr-2" />Send Verification Code</>
+                  )}
+                </Button>
+                <p className="text-center text-sm text-gray-500">
+                  Already have an account?{" "}
+                  <button onClick={() => navigate("/login")} className="text-indigo-600 hover:underline font-medium">Sign in</button>
+                </p>
+              </form>
+            )}
+
+            {/* Step: OTP */}
+            {(step === "otp" || step === "otp_final") && (
+              <form onSubmit={step === "otp_final" ? handleFinalVerify : handleVerifyOTP} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="last_name">Last Name</Label>
+                  <Label htmlFor="reg_otp">6-Digit Code</Label>
                   <Input
-                    id="last_name"
-                    value={form.last_name}
-                    onChange={(e) => updateField("last_name", e.target.value)}
-                    placeholder="Smith"
+                    id="reg_otp"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
                     disabled={loading}
+                    autoFocus
+                    className="text-center text-2xl tracking-[0.4em] font-mono"
                   />
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => updateField("email", e.target.value)}
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={form.password}
-                    onChange={(e) => updateField("password", e.target.value)}
-                    placeholder="Min 8 chars, 1 letter, 1 number"
-                    autoComplete="new-password"
-                    disabled={loading}
-                  />
+                <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" disabled={loading || otp.length !== 6}>
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (step === "otp_final" ? "Create Account" : "Verify Code")}
+                </Button>
+                <div className="flex justify-end">
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    tabIndex={-1}
+                    onClick={async () => {
+                      if (countdown > 0) return;
+                      try { await sendOTP(email.trim().toLowerCase()); setCountdown(30); } catch {}
+                    }}
+                    disabled={countdown > 0}
+                    className={`text-sm ${countdown > 0 ? "text-gray-300" : "text-indigo-600 hover:text-indigo-700"}`}
                   >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {countdown > 0 ? `Resend in ${countdown}s` : "Resend code"}
                   </button>
                 </div>
-                {form.password.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-xs mt-1">
-                    {passwordValid ? (
-                      <>
-                        <CheckCircle className="h-3.5 w-3.5 text-green-500" />
-                        <span className="text-green-600">Strong password</span>
-                      </>
-                    ) : (
-                      <span className="text-gray-400">
-                        Min 8 chars, at least 1 letter and 1 number
-                      </span>
-                    )}
+              </form>
+            )}
+
+            {/* Step: Name */}
+            {step === "name" && (
+              <form onSubmit={handleCreateAccount} className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="reg_first">First Name</Label>
+                    <Input
+                      id="reg_first"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="Jane"
+                      disabled={loading}
+                      autoFocus
+                    />
                   </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  value={form.confirmPassword}
-                  onChange={(e) => updateField("confirmPassword", e.target.value)}
-                  placeholder="Re-enter password"
-                  autoComplete="new-password"
-                  disabled={loading}
-                />
-                {form.confirmPassword.length > 0 && !passwordsMatch && (
-                  <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
-                )}
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-700"
-                disabled={loading || !passwordValid || !passwordsMatch}
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Account"}
-              </Button>
-
-              <p className="text-center text-sm text-gray-500">
-                Already have an account?{" "}
-                <Link to="/login" className="text-indigo-600 hover:underline font-medium">
-                  Sign in
-                </Link>
-              </p>
-            </form>
+                  <div className="space-y-2">
+                    <Label htmlFor="reg_last">Last Name</Label>
+                    <Input
+                      id="reg_last"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="Smith"
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700"
+                  disabled={loading || !firstName.trim() || !lastName.trim()}
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue"}
+                </Button>
+              </form>
+            )}
           </CardContent>
         </Card>
       </div>
