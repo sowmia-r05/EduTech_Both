@@ -91,9 +91,13 @@ export default function ParentDashboard() {
   };
 
   /* ─── Navigate to child's results ─── */
-  const handleViewChild = (child) => {
-    // Navigate to child dashboard or results view
-    navigate(`/child-dashboard?childId=${child._id}`);
+const handleViewChild = (child) => {
+    const params = new URLSearchParams({
+      childId: child._id,
+      childName: child.name || child.display_name || child.username || "",
+      yearLevel: child.year_level || "",
+    });
+    navigate(`/child-dashboard?${params.toString()}`);
   };
 
   /* ─── Logout ─── */
