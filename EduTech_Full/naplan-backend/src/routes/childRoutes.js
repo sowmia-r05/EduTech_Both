@@ -3,6 +3,10 @@ const mongoose = require("mongoose");
 const Child = require("../models/child");
 const Result = require("../models/result");
 const Writing = require("../models/writing");
+const Parent = require("../models/parent");
+const { registerRespondent } = require("../services/flexiQuizUsersService");
+const { encryptPassword } = require("../utils/flexiquizCrypto");
+
 const {
   verifyToken,
   requireParent,
@@ -186,6 +190,100 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       return res.status(409).json({ error: "Username is already taken" });
     }
 
+       // ── 3. Fetch parent email for FlexiQuiz ──
+
+    const parent = await Parent.findById(parentId).lean();
+
+    const parentEmail = parent?.email || req.user?.email || "";
+
+    const parentLastName = parent?.lastName || "";
+
+
+
+    // ── 4. Create FlexiQuiz respondent ──
+
+    // Uses the child's unique username directly as the FlexiQuiz user_name
+
+    let fqResult;
+
+    try {
+
+      fqResult = await registerRespondent({
+
+        firstName: display_name,
+
+        lastName: parentLastName,
+
+        yearLevel: year_level,
+
+        email: parentEmail,
+
+        username, // ← exact same username as our DB → FlexiQuiz
+
+        userType: "respondent",
+
+        sendWelcomeEmail: false,
+
+        suspended: false,
+
+        manageUsers: false,
+
+        manageGroups: false,
+
+        editQuizzes: false,
+
+      });
+
+    } catch (fqErr) {
+
+      console.error("FlexiQuiz user creation failed:", fqErr?.response?.data || fqErr?.message || fqErr);
+
+      return res.status(502).json({
+
+        error: "Failed to create account on quiz platform. Please try again.",
+
+        detail: fqErr?.response?.data?.message || fqErr?.message || "FlexiQuiz API error",
+
+      });
+
+    }
+
+
+
+    if (!fqResult?.user_id) {
+
+      console.error("FlexiQuiz returned no user_id:", fqResult);
+
+      return res.status(502).json({
+
+        error: "Quiz platform did not return a valid user ID. Please try again.",
+
+      });
+
+    }
+
+
+
+    // ── 5. Encrypt the auto-generated FlexiQuiz password ──
+
+    let encryptedPassword = null;
+
+    try {
+
+      if (fqResult.password) {
+
+        encryptedPassword = encryptPassword(fqResult.password);
+
+      }
+
+    } catch (encErr) {
+
+      console.error("Password encryption failed:", encErr.message);
+
+      // Non-fatal: child can still be created, fallback login just won't work
+
+    }
+
     // Create child instance
     const child = new Child({
       parent_id: parentId,
@@ -193,6 +291,9 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       username,
       year_level,
       pin_hash: pin, // pre-save hook will hash this
+      flexiquiz_user_id: fqResult.user_id,
+      flexiquiz_password_enc: encryptedPassword,
+      flexiquiz_provisioned_at: new Date(),
     });
 
     try {
@@ -205,6 +306,51 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
         .status(500)
         .json({ error: "Failed to create child", detail: saveErr.message });
     }
+      // ── 7. Upsert into legacy User collection (for webhook matching) ──
+
+    try {
+
+      await User.updateOne(
+
+        { user_id: fqResult.user_id },
+
+        {
+
+          $set: {
+
+            user_id: fqResult.user_id,
+
+            user_name: fqResult.user_name,
+
+            first_name: display_name,
+
+            last_name: parentLastName,
+
+            email_address: parentEmail,
+
+            year_level: String(year_level),
+
+            deleted: false,
+
+            updatedAt: new Date(),
+
+          },
+
+          $setOnInsert: { createdAt: new Date() },
+
+        },
+
+        { upsert: true }
+
+      );
+
+    } catch (userErr) {
+
+      // Non-fatal: child is created, User doc is just for legacy compatibility
+
+      console.error("User upsert warning (non-fatal):", userErr.message);
+
+    }
 
     return res.status(201).json({
       _id: child._id,
@@ -213,6 +359,9 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       username: child.username,
       year_level: child.year_level,
       status: child.status,
+      flexiquiz_user_id: child.flexiquiz_user_id,
+      flexiquiz_user_name: fqResult.user_name,
+      flexiquiz_provisioned_at: child.flexiquiz_provisioned_at,
       createdAt: child.createdAt,
     });
   } catch (err) {

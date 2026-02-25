@@ -42,6 +42,7 @@ const ChildSchema = new mongoose.Schema(
     // FlexiQuiz link (set after purchase + auto-provisioning)
     flexiquiz_user_id: { type: String, default: null, index: true },
     flexiquiz_password_enc: { type: String, default: null },
+    flexiquiz_provisioned_at: { type: Date, default: null }, // ✅ add this
 
     // Status
     status: {
