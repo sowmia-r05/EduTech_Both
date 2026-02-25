@@ -25,10 +25,11 @@ import waitingGif from "@/app/components/Public/dragon_play.gif";
 import AvatarMenu from "@/app/components/ResultComponents/AvatarMenu";
 import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
 
+// ✅ CHANGED: import fetchWritingsByUsername (array) instead of fetchLatestWritingByUsername (single)
 import {
   fetchLatestWritingByEmailAndQuiz,
   fetchWritingByResponseId,
-  fetchLatestWritingByUsername,
+  fetchWritingsByUsername,
   normalizeEmail,
 } from "@/app/utils/api";
 
@@ -124,6 +125,9 @@ export default function ResultPage() {
   // ✅ Dynamic ResponseId param (URL uses r=...)
   const responseId = String(searchParams.get("r") || "").trim();
 
+  // ✅ NEW: username param passed from ChildDashboard for sibling-safe filtering
+  const usernameParam = String(searchParams.get("username") || "").trim();
+
   // Old fallback params (still supported)
   const email = normalizeEmail(searchParams.get("email"));
   const quizName = String(searchParams.get("quiz") || "").trim();
@@ -137,12 +141,12 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // ✅ NEW: Date picker state
+  // ✅ Date picker state
   const [selectedDate, setSelectedDate] = useState(null);
   const [showNoDataModal, setShowNoDataModal] = useState(false);
 
   // ----------------------------
-  // Fetch evaluation + all writings for this quiz
+  // Fetch evaluation + all writings for this child (sibling-safe)
   // ----------------------------
   useEffect(() => {
     if (!responseId && !hasFallback) {
@@ -157,6 +161,7 @@ export default function ResultPage() {
         setLoading(true);
         setError(null);
 
+        // 1) Load the specific writing doc
         const data = responseId
           ? await fetchWritingByResponseId(responseId)
           : await fetchLatestWritingByEmailAndQuiz(email, quizName);
@@ -164,16 +169,32 @@ export default function ResultPage() {
         if (cancelled) return;
         setDoc(data);
 
-        // ✅ NEW: Fetch all writing submissions for this quiz (for date picker dots)
-        if (data?.user?.email_address && data?.quiz_name) {
+        // 2) Fetch ALL writing attempts for THIS CHILD only (sibling-safe)
+        //    Priority: usernameParam from URL → doc.user.user_name → email fallback
+        const childUsername = usernameParam || data?.user?.user_name || "";
+
+        if (childUsername) {
+          // ✅ SIBLING-SAFE: fetch by unique username
           try {
-            const all = await fetchLatestWritingByUsername(data.user.email_address, {
-              quiz_name: data.quiz_name,
-            });
-            if (!cancelled) setWritingsList(all || [data]);
+            const all = await fetchWritingsByUsername(childUsername);
+            if (!cancelled) setWritingsList(Array.isArray(all) ? all : [data]);
           } catch {
             if (!cancelled) setWritingsList([data]);
           }
+        } else if (data?.user?.email_address && data?.quiz_name) {
+          // ⚠️ LEGACY FALLBACK: no username available (old bookmarks etc.)
+          // This path may mix siblings — kept for backward compatibility only
+          try {
+            const res = await fetch(
+              `/api/writing/latest?email=${encodeURIComponent(data.user.email_address)}&quiz=${encodeURIComponent(data.quiz_name)}`
+            );
+            const single = await res.json();
+            if (!cancelled) setWritingsList(single ? [single] : [data]);
+          } catch {
+            if (!cancelled) setWritingsList([data]);
+          }
+        } else {
+          if (!cancelled) setWritingsList([data]);
         }
       } catch (e) {
         if (cancelled) return;
@@ -187,7 +208,7 @@ export default function ResultPage() {
     return () => {
       cancelled = true;
     };
-  }, [responseId, hasFallback, email, quizName, navigate]);
+  }, [responseId, hasFallback, email, quizName, usernameParam, navigate]);
 
   // ----------------------------
   // Poll until AI done (max 3 mins)
@@ -243,16 +264,29 @@ export default function ResultPage() {
   }, [loading, doc, navigate]);
 
   // ----------------------------
-  // ✅ NEW: Quiz-scoped attempts (for date dots + filtering)
+  // ✅ UPDATED: Quiz-scoped attempts — sibling-safe
+  // When username was used, writingsList is already child-scoped.
+  // If subject param is "Writing", show all writing attempts for this child.
+  // Otherwise filter by exact quiz_name.
   // ----------------------------
   const quizAttempts = useMemo(() => {
     if (!doc) return [];
+
+    const subjectParam = searchParams.get("subject") || "";
+
+    if (subjectParam === "Writing" && usernameParam) {
+      // Show ALL writing attempts for this child (across quiz names)
+      // Already filtered by username on the backend
+      return writingsList;
+    }
+
+    // Default: filter by exact quiz_name
     return writingsList.filter(
       (w) => w.quiz_name === doc.quiz_name
     );
-  }, [writingsList, doc]);
+  }, [writingsList, doc, searchParams, usernameParam]);
 
-  // ✅ NEW: Filtered results by selected date
+  // ✅ Filtered results by selected date
   const filteredResults = useMemo(() => {
     if (!selectedDate) return quizAttempts;
 
@@ -270,14 +304,14 @@ export default function ResultPage() {
     });
   }, [quizAttempts, selectedDate]);
 
-  // ✅ NEW: NoDataModal trigger
+  // ✅ NoDataModal trigger
   useEffect(() => {
     if (selectedDate) {
       setShowNoDataModal(filteredResults.length === 0);
     }
   }, [selectedDate, filteredResults]);
 
-  // ✅ NEW: Pick selected doc (latest in filtered range, or original doc)
+  // ✅ Pick selected doc (latest in filtered range, or original doc)
   const selectedDoc = useMemo(() => {
     if (!filteredResults.length) return doc;
 
@@ -288,7 +322,7 @@ export default function ResultPage() {
     )[0];
   }, [filteredResults, doc]);
 
-  // ✅ NEW: Consistent date parsing for testTakenDates (dots in calendar)
+  // ✅ Consistent date parsing for testTakenDates (dots in calendar)
   const testTakenDates = useMemo(() => {
     return quizAttempts
       .map((w) => {
@@ -393,7 +427,7 @@ export default function ResultPage() {
   const feedbackStatus = feedback?.status;
   const feedbackMessage = feedback?.message;
 
-  // ✅ NEW: Attempts count (scoped to date or quiz)
+  // ✅ Attempts count (scoped to date or quiz)
   const attemptsUsed = selectedDate
     ? filteredResults.length || "—"
     : quizAttempts.length || "—";
@@ -430,7 +464,7 @@ export default function ResultPage() {
             </p>
           </div>
 
-          {/* ✅ NEW: Date picker + Avatar */}
+          {/* ✅ Date picker + Avatar */}
           <div className="shrink-0 self-start flex items-center gap-3">
             <DateRangeFilter
               selectedDate={selectedDate}
@@ -441,7 +475,7 @@ export default function ResultPage() {
           </div>
         </div>
 
-        {/* ✅ NEW: KPI Summary Cards */}
+        {/* ✅ KPI Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-4 pb-4 text-center">
@@ -561,7 +595,7 @@ export default function ResultPage() {
                     variant={
                       percentage >= 70 ? "default" : percentage >= 50 ? "secondary" : "destructive"
                     }
-                    className="text-2xl px-6 py-3"
+                    className="text-3xl px-6 py-3"
                   >
                     {percentage}%
                   </Badge>
@@ -570,123 +604,99 @@ export default function ResultPage() {
             )}
 
             {oneLineSummary && (
-              <div className={!isLocalEval ? "pt-4 border-t" : ""}>
-                <div className="flex items-start gap-2">
-                  <BookOpen className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                  <p className="text-gray-900 font-semibold text-lg">{oneLineSummary}</p>
-                </div>
-              </div>
+              <p className="text-gray-700 mt-2 italic">{oneLineSummary}</p>
             )}
 
-            {feedback?.overall?.summary && (
-              <div className="pt-4 border-t">
-                <p className="text-gray-700">{feedback.overall.summary}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
+              <div>
+                <p className="text-sm text-gray-500">Year Level</p>
+                <p className="font-medium">
+                  {feedback?.meta?.year_level || feedback?.year_level
+                    ? `Year ${feedback?.meta?.year_level || feedback?.year_level}`
+                    : "-"}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Text Type</p>
+                <p className="font-medium">{feedback?.meta?.text_type || "-"}</p>
+              </div>
+
+              {!isLocalEval && (
+                <div>
+                  <p className="text-sm text-gray-500">Valid Response</p>
+                  <p className="font-medium">{feedback?.meta?.valid_response ? "✓ Yes" : "✗ No"}</p>
+                </div>
+              )}
+
+              {wordCount !== undefined && wordCount !== null && (
+                <div>
+                  <p className="text-sm text-gray-500">Word Count</p>
+                  <p className="font-medium">{wordCount}</p>
+                </div>
+              )}
+            </div>
+
+            {!isLocalEval && (
+              <div className="grid md:grid-cols-2 gap-4 mt-4">
+                {feedback?.meta?.prompt_relevance && (
+                  <div
+                    className={`p-3 border-l-4 rounded ${
+                      feedback.meta.prompt_relevance.verdict === "on_topic"
+                        ? "bg-green-50 border-green-500"
+                        : "bg-red-50 border-red-500"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-semibold">
+                        Prompt Relevance:{" "}
+                        {feedback.meta.prompt_relevance.verdict === "on_topic" ? "On Topic ✓" : "Off Topic ✗"}
+                      </p>
+                      <Badge
+                        variant={
+                          feedback.meta.prompt_relevance.verdict === "on_topic" ? "default" : "destructive"
+                        }
+                      >
+                        {feedback.meta.prompt_relevance.score}%
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-gray-700 mb-2">{feedback.meta.prompt_relevance.note}</p>
+                    {feedback.meta.prompt_relevance.evidence && (
+                      <p className="text-sm text-gray-600 italic">
+                        Evidence: "{feedback.meta.prompt_relevance.evidence}"
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {wordCountReview && (
+                  <div
+                    className={`p-3 border-l-4 rounded ${
+                      wordCountReview.status === "below_recommended"
+                        ? "bg-yellow-50 border-yellow-500"
+                        : wordCountReview.status === "within_range"
+                          ? "bg-green-50 border-green-500"
+                          : "bg-red-50 border-red-500"
+                    }`}
+                  >
+                    <p className="text-sm font-semibold mb-1">Word Count Review</p>
+                    <p className="text-sm text-gray-700">{wordCountReview.message}</p>
+                    {wordCountReview.suggestion && (
+                      <p className="text-sm text-gray-600 mt-1 italic">{wordCountReview.suggestion}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Assignment Details */}
-        {(!isLocalEval || feedback?.meta || feedback?.year_level) && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Assignment Details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-500">Year Level</p>
-                  <p className="font-medium">
-                    {(feedback?.meta?.year_level || feedback?.year_level)
-                      ? `Year ${feedback?.meta?.year_level || feedback?.year_level}`
-                      : "-"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Text Type</p>
-                  <p className="font-medium">{feedback?.meta?.text_type || "-"}</p>
-                </div>
-
-                {!isLocalEval && (
-                  <div>
-                    <p className="text-sm text-gray-500">Valid Response</p>
-                    <p className="font-medium">{feedback?.meta?.valid_response ? "✓ Yes" : "✗ No"}</p>
-                  </div>
-                )}
-
-                {wordCount !== undefined && wordCount !== null && (
-                  <div>
-                    <p className="text-sm text-gray-500">Word Count</p>
-                    <p className="font-medium">{wordCount}</p>
-                  </div>
-                )}
-              </div>
-
-              {!isLocalEval && (
-                <div className="grid md:grid-cols-2 gap-4 mt-4">
-                  {feedback?.meta?.prompt_relevance && (
-                    <div
-                      className={`p-3 border-l-4 rounded ${
-                        feedback.meta.prompt_relevance.verdict === "on_topic"
-                          ? "bg-green-50 border-green-500"
-                          : "bg-red-50 border-red-500"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-sm font-semibold">
-                          Prompt Relevance: {" "}
-                          {feedback.meta.prompt_relevance.verdict === "on_topic" ? "On Topic ✓" : "Off Topic ✗"}
-                        </p>
-                        <Badge
-                          variant={
-                            feedback.meta.prompt_relevance.verdict === "on_topic" ? "default" : "destructive"
-                          }
-                        >
-                          {feedback.meta.prompt_relevance.score}%
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-gray-700 mb-2">{feedback.meta.prompt_relevance.note}</p>
-                      {feedback.meta.prompt_relevance.evidence && (
-                        <p className="text-sm text-gray-600 italic">
-                          Evidence: "{feedback.meta.prompt_relevance.evidence}"
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {wordCountReview && (
-                    <div
-                      className={`p-3 border-l-4 rounded ${
-                        wordCountReview.status === "below_recommended"
-                          ? "bg-yellow-50 border-yellow-500"
-                          : wordCountReview.status === "within_range"
-                            ? "bg-green-50 border-green-500"
-                            : "bg-blue-50 border-blue-500"
-                      }`}
-                    >
-                      <div className="flex items-start gap-2 mb-2">
-                        <FileText className="w-4 h-4 text-gray-600 mt-0.5 flex-shrink-0" />
-                        <p className="text-sm font-semibold">Word Count Review</p>
-                      </div>
-                      <p className="text-sm text-gray-700 mb-2">{wordCountReview.message}</p>
-                      {wordCountReview.suggestion && (
-                        <p className="text-sm text-gray-600 italic">{wordCountReview.suggestion}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Strengths / Weaknesses */}
+        {/* Strengths & Weaknesses */}
         {!isLocalEval && (strengths.length > 0 || weaknesses.length > 0) && (
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card>
+          <div className="grid md:grid-cols-2 gap-4">
+            <Card className="border-green-200">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+                <CardTitle className="flex items-center gap-2 text-green-700">
+                  <CheckCircle2 className="w-5 h-5" />
                   Strengths
                 </CardTitle>
               </CardHeader>
@@ -706,10 +716,10 @@ export default function ResultPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border-orange-200">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5 text-orange-600" />
+                <CardTitle className="flex items-center gap-2 text-orange-700">
+                  <AlertTriangle className="w-5 h-5" />
                   Areas for Improvement
                 </CardTitle>
               </CardHeader>
