@@ -9,72 +9,8 @@ import {
 } from "@/app/utils/api-children";
 import { createCheckout } from "@/app/utils/api-payments";
 import { BUNDLE_CATALOG } from "@/app/data/bundleCatalog";
-
-const MOCK_BUNDLES = [
-  {
-    bundle_id: "year3_full",
-    bundle_name: "Year 3 Full Pack",
-    description: "All subjects — Reading, Writing, Maths & Conventions",
-    year_level: 3,
-    subjects: ["Reading", "Writing", "Maths", "Conventions"],
-    price_cents: 4900,
-    is_active: true,
-  },
-  {
-    bundle_id: "year3_maths",
-    bundle_name: "Year 3 Maths Only",
-    description: "Focused Maths practice — 6 full-length tests",
-    year_level: 3,
-    subjects: ["Maths"],
-    price_cents: 1900,
-    is_active: true,
-  },
-  {
-    bundle_id: "year3_english",
-    bundle_name: "Year 3 English Pack",
-    description: "Reading, Writing & Conventions combined",
-    year_level: 3,
-    subjects: ["Reading", "Writing", "Conventions"],
-    price_cents: 3500,
-    is_active: true,
-  },
-  {
-    bundle_id: "year5_full",
-    bundle_name: "Year 5 Full Pack",
-    description: "All subjects — Reading, Writing, Maths & Conventions",
-    year_level: 5,
-    subjects: ["Reading", "Writing", "Maths", "Conventions"],
-    price_cents: 5900,
-    is_active: true,
-  },
-  {
-    bundle_id: "year5_maths",
-    bundle_name: "Year 5 Maths Only",
-    description: "Focused Maths practice — 8 full-length tests",
-    year_level: 5,
-    subjects: ["Maths"],
-    price_cents: 2400,
-    is_active: true,
-  },
-  {
-    bundle_id: "year7_full",
-    bundle_name: "Year 7 Full Pack",
-    description: "All subjects — Reading, Writing, Maths & Conventions",
-    year_level: 7,
-    subjects: ["Reading", "Writing", "Maths", "Conventions"],
-    price_cents: 6900,
-    is_active: true,
-  },
-  {
-    bundle_id: "year9_full",
-    bundle_name: "Year 9 Full Pack",
-    description: "All subjects — Reading, Writing, Maths & Conventions",
-    year_level: 9,
-    subjects: ["Reading", "Writing", "Maths", "Conventions"],
-    price_cents: 6900,
-    is_active: true,
-  },
-];
+import PaymentSuccessModal from "@/app/components/payments/PaymentSuccessModal";
+import PurchaseHistory from "@/app/components/payments/PurchaseHistory";
 
 const formatAUD = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)} AUD`;
 
@@ -94,6 +30,7 @@ export default function ParentDashboard() {
   const [paymentMessage, setPaymentMessage] = useState(null);
   const [bundleModalChild, setBundleModalChild] = useState(null);
   const [checkoutLoadingBundle, setCheckoutLoadingBundle] = useState(null);
+  const [successSessionId, setSuccessSessionId] = useState(null);
 
   const loadChildren = useCallback(async () => {
     if (!parentToken) return;
@@ -119,25 +56,31 @@ export default function ParentDashboard() {
     if (!payment) return;
 
     if (payment === "success") {
-      setPaymentMessage({
-        type: "success",
-        text: "Payment successful! Bundle access will be reflected shortly.",
-      });
+      const sessionId = searchParams.get("session_id");
+      if (sessionId) {
+        setSuccessSessionId(sessionId);
+      } else {
+        setPaymentMessage({
+          type: "success",
+          text: "Payment successful! Bundle access will be reflected shortly.",
+        });
+      }
       loadChildren();
     } else if (payment === "cancelled") {
       setPaymentMessage({
         type: "warning",
-        text: "Payment was cancelled.",
+        text: "Payment was cancelled. No charge was made.",
       });
     } else if (payment === "failed") {
       setPaymentMessage({
         type: "error",
-        text: "Payment failed. Please try again.",
+        text: "Payment failed. Please try again or contact support.",
       });
     }
 
     const next = new URLSearchParams(searchParams);
     next.delete("payment");
+    next.delete("session_id");
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams, loadChildren]);
 
@@ -184,7 +127,18 @@ export default function ParentDashboard() {
 
       window.location.href = result.checkout_url;
     } catch (err) {
-      setError(err?.message || "Failed to start checkout");
+      if (err.code === "DUPLICATE_PURCHASE") {
+        setError(
+          `${err.child_name || child.name} already has the "${err.bundle_name || bundle.bundle_name}" bundle.`
+        );
+        setBundleModalChild(null);
+      } else if (err.code === "CHECKOUT_IN_PROGRESS") {
+        setError(
+          `A checkout is already in progress for this bundle. Please complete or wait for it to expire.`
+        );
+      } else {
+        setError(err?.message || "Failed to start checkout");
+      }
     } finally {
       setCheckoutLoadingBundle(null);
     }
@@ -259,7 +213,8 @@ export default function ParentDashboard() {
   }, [children]);
 
   const totalQuizzes = useMemo(
-    () => enhancedChildren.reduce((sum, c) => sum + Number(c.quizCount || 0), 0),
+    () =>
+      enhancedChildren.reduce((sum, c) => sum + Number(c.quizCount || 0), 0),
     [enhancedChildren]
   );
 
@@ -296,10 +251,8 @@ export default function ParentDashboard() {
   return (
     <div className="min-h-screen bg-slate-50">
       {/* TOP NAVIGATION */}
-
       <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-10">
         <h1 className="text-lg font-semibold text-slate-900">KAI Solutions</h1>
-
         <div className="flex gap-3">
           <button
             onClick={() => navigate("/")}
@@ -307,7 +260,6 @@ export default function ParentDashboard() {
           >
             Back to Menu
           </button>
-
           <button
             onClick={handleLogout}
             className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700"
@@ -318,10 +270,8 @@ export default function ParentDashboard() {
       </header>
 
       {/* MAIN CONTENT */}
-
       <main className="px-6 lg:px-10 py-8 space-y-8">
         {/* PAGE HEADER */}
-
         <section className="flex items-center justify-between">
           <div>
             <h2 className="text-xl sm:text-2xl font-semibold text-slate-900">
@@ -332,44 +282,46 @@ export default function ParentDashboard() {
               manage children and access bundles
             </p>
           </div>
-
           <div className="flex items-center gap-2">
-              <button
-                  onClick={() => navigate("/bundles")}
-                  className="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700"
-                >
-                  Practice Packs
-                </button> 
-
-              <button
-                onClick={() => setIsAddModalOpen(true)}
-                className="px-3 sm:px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
-              >
-                + Add Child
-              </button>
-            </div>
+            <button
+              onClick={() => navigate("/bundles")}
+              className="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700"
+            >
+              Practice Packs
+            </button>
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="px-3 sm:px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+            >
+              + Add Child
+            </button>
+          </div>
         </section>
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* PAYMENT BANNER */}
           {paymentMessage && (
             <div
-              className={`mb-4 rounded-lg border px-4 py-3 text-sm ${
+              className={`rounded-lg border px-4 py-3 text-sm ${
                 paymentMessage.type === "success"
                   ? "bg-emerald-50 border-emerald-200 text-emerald-800"
                   : paymentMessage.type === "warning"
-                  ? "bg-amber-50 border-amber-200 text-amber-800"
-                  : "bg-rose-50 border-rose-200 text-rose-800"
+                    ? "bg-amber-50 border-amber-200 text-amber-800"
+                    : "bg-rose-50 border-rose-200 text-rose-800"
               }`}
             >
               {paymentMessage.text}
             </div>
           )}
 
+          {/* ERROR BANNER */}
           {error && (
-            <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
             </div>
           )}
+
+  
 
           {loading ? (
             <div className="py-20 text-center text-slate-500">
@@ -377,6 +329,7 @@ export default function ParentDashboard() {
             </div>
           ) : (
             <>
+              {/* KPI CARDS */}
               <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <KPI label="Children" value={enhancedChildren.length} />
                 <KPI label="Total Quizzes" value={totalQuizzes} />
@@ -387,18 +340,20 @@ export default function ParentDashboard() {
                 />
               </section>
 
+              {/* EMPTY STATE */}
               {enhancedChildren.length === 0 && !error && (
                 <div className="text-center py-16">
                   <p className="text-slate-500 text-lg">
                     No children added yet.
                   </p>
                   <p className="text-slate-400 text-sm mt-2">
-                    Click “+ Add Child” to create your first child profile.
+                    Click "+ Add Child" to create your first child profile.
                   </p>
                 </div>
               )}
 
-              <section className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {/* CHILD CARDS */}
+              <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {enhancedChildren.map((child) => (
                   <ChildCard
                     key={child._id}
@@ -407,7 +362,9 @@ export default function ParentDashboard() {
                     onDelete={() => setDeleteTarget(child)}
                     onView={() => handleViewChild(child)}
                     onUpgrade={() =>
-                      navigate(`/bundles?year=${child.year_level || child.yearLevel}`)
+                      navigate(
+                        `/bundles?year=${child.year_level || child.yearLevel}`
+                      )
                     }
                     onFreeTrial={() =>
                       navigate(
@@ -422,42 +379,67 @@ export default function ParentDashboard() {
               </section>
             </>
           )}
-        </main>
-
-        {isAddModalOpen && (
-          <AddChildModal
-            onClose={() => setIsAddModalOpen(false)}
-            onAdd={handleAddChild}
-            loading={actionLoading}
-          />
-        )}
-
-        {deleteTarget && (
-          <DeleteConfirmModal
-            child={deleteTarget}
-            onCancel={() => setDeleteTarget(null)}
-            onConfirm={confirmDelete}
-            loading={actionLoading}
-          />
-        )}
-
-        {bundleModalChild && (
-          <BundleSelectionModal
-            child={bundleModalChild}
-            bundles={BUNDLE_CATALOG.filter(
-              (bundle) =>
-              Number(bundle.year_level) === Number(bundleModalChild.year_level || bundleModalChild.yearLevel) &&
-                 bundle.is_active
-                )}
-            loadingBundleId={checkoutLoadingBundle}
-            onSelect={(bundle) => handleCheckout(bundleModalChild, bundle)}
-            onClose={() => setBundleModalChild(null)}
-          />
-        )}
+        </div>
+            {/* PURCHASE HISTORY */}
+          <PurchaseHistory parentToken={parentToken} />
       </main>
+
+
+      {/* ═══════════════════════════════════════
+          MODALS — all at the top level of the component
+         ═══════════════════════════════════════ */}
+
+      {isAddModalOpen && (
+        <AddChildModal
+          onClose={() => setIsAddModalOpen(false)}
+          onAdd={handleAddChild}
+          loading={actionLoading}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteConfirmModal
+          child={deleteTarget}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={confirmDelete}
+          loading={actionLoading}
+        />
+      )}
+
+      {bundleModalChild && (
+        <BundleSelectionModal
+          child={bundleModalChild}
+          bundles={BUNDLE_CATALOG.filter(
+            (bundle) =>
+              Number(bundle.year_level) ===
+                Number(
+                  bundleModalChild.year_level || bundleModalChild.yearLevel
+                ) && bundle.is_active
+          )}
+          loadingBundleId={checkoutLoadingBundle}
+          onSelect={(bundle) => handleCheckout(bundleModalChild, bundle)}
+          onClose={() => setBundleModalChild(null)}
+        />
+      )}
+
+      {/* ← PAYMENT SUCCESS MODAL — at the top level, NOT inside ModalWrapper */}
+      {successSessionId && (
+        <PaymentSuccessModal
+          sessionId={successSessionId}
+          parentToken={parentToken}
+          onClose={() => {
+            setSuccessSessionId(null);
+            loadChildren();
+          }}
+        />
+      )}
     </div>
   );
 }
+
+/* ═══════════════════════════════════════
+   SUB-COMPONENTS
+   ═══════════════════════════════════════ */
 
 function KPI({ label, value, highlight }) {
   return (
@@ -485,7 +467,11 @@ function ChildCard({
 }) {
   const score = Number(child.averageScore || 0);
   const performanceColor =
-    score >= 85 ? "bg-emerald-500" : score >= 70 ? "bg-amber-500" : "bg-rose-500";
+    score >= 85
+      ? "bg-emerald-500"
+      : score >= 70
+        ? "bg-amber-500"
+        : "bg-rose-500";
 
   const statusStyles = {
     active: "bg-emerald-100 text-emerald-700",
@@ -612,13 +598,20 @@ function ChildCard({
   );
 }
 
-function BundleSelectionModal({ child, bundles, loadingBundleId, onSelect, onClose }) {
+function BundleSelectionModal({
+  child,
+  bundles,
+  loadingBundleId,
+  onSelect,
+  onClose,
+}) {
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-3xl">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-xl font-semibold text-slate-900">
-            Choose a Bundle for <span className="text-indigo-600">{child.name}</span>
+            Choose a Bundle for{" "}
+            <span className="text-indigo-600">{child.name}</span>
           </h3>
           <p className="text-sm text-slate-500 mt-1">
             Year {child.year_level || child.yearLevel} bundles available
@@ -634,7 +627,8 @@ function BundleSelectionModal({ child, bundles, loadingBundleId, onSelect, onClo
 
       {bundles.length === 0 ? (
         <p className="text-slate-500 text-sm text-center py-12">
-          No bundles available for Year {child.year_level || child.yearLevel} yet.
+          No bundles available for Year{" "}
+          {child.year_level || child.yearLevel} yet.
         </p>
       ) : (
         <div className="mt-5 space-y-4">
@@ -647,9 +641,12 @@ function BundleSelectionModal({ child, bundles, loadingBundleId, onSelect, onClo
                 className="rounded-xl border border-slate-200 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
               >
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-semibold text-slate-900">{bundle.bundle_name}</h4>
-                  <p className="text-sm text-slate-500 mt-1">{bundle.description}</p>
-
+                  <h4 className="font-semibold text-slate-900">
+                    {bundle.bundle_name}
+                  </h4>
+                  <p className="text-sm text-slate-500 mt-1">
+                    {bundle.description}
+                  </p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {bundle.subjects.map((subject) => (
                       <span
@@ -738,7 +735,8 @@ function AddChildModal({ onClose, onAdd, loading }) {
     if (!pin || !/^\d{4}$/.test(pin))
       return setError("PIN must be exactly 4 digits");
     if (pin !== confirmPin) return setError("PINs do not match");
-    if (usernameStatus === "taken") return setError("Username is already taken");
+    if (usernameStatus === "taken")
+      return setError("Username is already taken");
 
     await onAdd({
       display_name: cleanDisplayName,
@@ -752,14 +750,19 @@ function AddChildModal({ onClose, onAdd, loading }) {
     <ModalWrapper onClose={onClose}>
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-lg font-semibold text-slate-900">Add Child</h3>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-700"
+        >
           ✕
         </button>
       </div>
 
       <form onSubmit={handleSubmit} className="mt-4 space-y-4">
         <div>
-          <label className="block text-sm text-slate-700 mb-1">Child Name</label>
+          <label className="block text-sm text-slate-700 mb-1">
+            Child Name
+          </label>
           <input
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
@@ -795,7 +798,9 @@ function AddChildModal({ onClose, onAdd, loading }) {
         </div>
 
         <div>
-          <label className="block text-sm text-slate-700 mb-1">Year Level</label>
+          <label className="block text-sm text-slate-700 mb-1">
+            Year Level
+          </label>
           <select
             value={yearLevel}
             onChange={(e) => setYearLevel(e.target.value)}
@@ -878,9 +883,14 @@ function DeleteConfirmModal({ child, onCancel, onConfirm, loading }) {
       <h3 className="text-lg font-semibold text-slate-900">
         Delete {child.name || child.display_name}?
       </h3>
-      <p className="text-sm text-slate-500 mt-2">This action cannot be undone.</p>
+      <p className="text-sm text-slate-500 mt-2">
+        This action cannot be undone.
+      </p>
       <div className="flex justify-end gap-3 mt-6">
-        <button onClick={onCancel} className="px-4 py-2 border rounded-lg text-sm">
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 border rounded-lg text-sm"
+        >
           Cancel
         </button>
         <button
@@ -895,6 +905,7 @@ function DeleteConfirmModal({ child, onCancel, onConfirm, loading }) {
   );
 }
 
+/* ModalWrapper — clean utility, no business logic */
 function ModalWrapper({ children, onClose, maxWidth = "max-w-md" }) {
   return (
     <div

@@ -24,6 +24,8 @@ const parentAuthRoutes = require("./routes/parentAuthRoutes");
 // ─── NEW routes ───
 const childRoutes = require("./routes/childRoutes");
 const childAuthRoutes = require("./routes/childAuthRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");  // ← ADD THIS
+
 
 const app = express();
 
@@ -111,5 +113,5 @@ app.get("/", (req, res) => {
 app.get("/api/test-flexiquiz-key", (req, res) => {
   res.json({ hasKey: !(!process.env.FLEXIQUIZ_API_KEY) });
 });
-
+app.use("/api/payments", paymentRoutes);
 module.exports = app;

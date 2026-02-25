@@ -1,9 +1,10 @@
 /**
  * src/routes/paymentRoutes.js
  *
- * POST /api/payments/checkout   → Create Stripe Checkout session (Parent JWT)
- * POST /api/payments/webhook    → Stripe webhook (signature verified, no JWT)
- * GET  /api/payments/history    → Parent's purchase history (Parent JWT)
+ * POST /api/payments/checkout       → Create Stripe Checkout session (Parent JWT)
+ * POST /api/payments/webhook        → Stripe webhook (signature verified, no JWT)
+ * GET  /api/payments/history        → Parent's purchase history (Parent JWT)
+ * GET  /api/payments/verify/:sessionId → Verify payment + return purchase details (Parent JWT)
  */
 
 const router = require("express").Router();
@@ -45,7 +46,55 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
     }).lean();
 
     if (children.length !== child_ids.length) {
-      return res.status(403).json({ error: "One or more children do not belong to you" });
+      return res
+        .status(403)
+        .json({ error: "One or more children do not belong to you" });
+    }
+
+    // ── Check for duplicate purchases ──
+    for (const childId of child_ids) {
+      const existingPurchase = await Purchase.findOne({
+        parent_id: parentId,
+        bundle_id: bundle_id,
+        child_ids: childId,
+        status: { $in: ["paid", "pending"] },
+      }).lean();
+
+      if (existingPurchase) {
+        const child = children.find(
+          (c) => c._id.toString() === childId.toString()
+        );
+        const childName = child?.display_name || child?.username || childId;
+
+        if (existingPurchase.status === "paid") {
+          return res.status(409).json({
+            error: `${childName} already has the "${bundle.bundle_name}" bundle. No need to purchase again.`,
+            code: "DUPLICATE_PURCHASE",
+            child_name: childName,
+            bundle_name: bundle.bundle_name,
+          });
+        }
+
+        if (existingPurchase.status === "pending") {
+          const sessionAge =
+            Date.now() - new Date(existingPurchase.createdAt).getTime();
+          const ONE_HOUR = 60 * 60 * 1000;
+
+          if (sessionAge < ONE_HOUR) {
+            return res.status(409).json({
+              error: `A checkout session for ${childName} + "${bundle.bundle_name}" is already in progress. Please complete or cancel it first.`,
+              code: "CHECKOUT_IN_PROGRESS",
+              child_name: childName,
+              bundle_name: bundle.bundle_name,
+            });
+          } else {
+            // Old pending session — mark as failed and allow new checkout
+            await Purchase.findByIdAndUpdate(existingPurchase._id, {
+              $set: { status: "failed" },
+            });
+          }
+        }
+      }
     }
 
     // Get or create Stripe customer
@@ -89,8 +138,8 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
       payment_method_types: ["card"],
       line_items: lineItems,
       mode: "payment",
-      success_url: `${FRONTEND_URL}/parent-dashboard?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${FRONTEND_URL}/parent-dashboard?payment=cancelled`,
+      success_url: `${FRONTEND_URL}#/parent-dashboard?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${FRONTEND_URL}#/parent-dashboard?payment=cancelled`,
       metadata: {
         parentId: parentId.toString(),
         childIds: child_ids.join(","),
@@ -117,7 +166,9 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
     });
   } catch (err) {
     console.error("Checkout error:", err);
-    return res.status(500).json({ error: "Failed to create checkout session" });
+    return res
+      .status(500)
+      .json({ error: "Failed to create checkout session" });
   }
 });
 
@@ -180,7 +231,6 @@ router.post("/webhook", async (req, res) => {
         console.log(`💰 Payment confirmed for purchase ${purchase._id}`);
 
         // ── Trigger provisioning ──
-        // This assigns quizzes to children on FlexiQuiz and sets child.status → 'active'
         const result = await provisionPurchase(purchase._id.toString());
 
         if (result.success) {
@@ -216,5 +266,85 @@ router.get("/history", verifyToken, requireParent, async (req, res) => {
     return res.status(500).json({ error: "Failed to fetch payment history" });
   }
 });
+
+// ────────────────────────────────────────────
+// GET /api/payments/verify/:sessionId
+// Returns purchase details after Stripe redirect (for the success modal).
+// Populates child names + bundle info so the frontend can show a proper receipt.
+// ────────────────────────────────────────────
+router.get(
+  "/verify/:sessionId",
+  verifyToken,
+  requireParent,
+  async (req, res) => {
+    try {
+      const parentId = req.user?.parentId || req.user?.parent_id;
+      const { sessionId } = req.params;
+
+      if (!sessionId) {
+        return res.status(400).json({ error: "sessionId is required" });
+      }
+
+      const purchase = await Purchase.findOne({
+        stripe_session_id: sessionId,
+        parent_id: parentId,
+      }).lean();
+
+      if (!purchase) {
+        return res.status(404).json({ error: "Purchase not found" });
+      }
+
+      // Fetch child details
+      const childDocs = await Child.find({
+        _id: { $in: purchase.child_ids },
+      })
+        .select("display_name username year_level status")
+        .lean();
+
+      // Fetch bundle details
+      const bundle = await QuizCatalog.findOne({
+        bundle_id: purchase.bundle_id,
+      })
+        .select("bundle_name description year_level subjects price_cents")
+        .lean();
+
+      return res.json({
+        ok: true,
+        purchase: {
+          _id: purchase._id,
+          bundle_id: purchase.bundle_id,
+          bundle_name: purchase.bundle_name,
+          amount_cents: purchase.amount_cents,
+          currency: purchase.currency,
+          status: purchase.status,
+          provisioned: purchase.provisioned,
+          provisioned_at: purchase.provisioned_at,
+          createdAt: purchase.createdAt,
+        },
+        children: childDocs.map((c) => ({
+          _id: c._id,
+          name: c.display_name,
+          username: c.username,
+          year_level: c.year_level,
+          status: c.status,
+        })),
+        bundle: bundle
+          ? {
+              bundle_name: bundle.bundle_name,
+              description: bundle.description,
+              year_level: bundle.year_level,
+              subjects: bundle.subjects,
+              price_cents: bundle.price_cents,
+            }
+          : null,
+      });
+    } catch (err) {
+      console.error("Payment verify error:", err);
+      return res
+        .status(500)
+        .json({ error: "Failed to verify payment session" });
+    }
+  }
+);
 
 module.exports = router;
