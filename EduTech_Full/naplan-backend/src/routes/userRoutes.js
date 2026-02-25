@@ -1,14 +1,12 @@
 const router = require("express").Router();
 const User = require("../models/user");
-const connectDB = require("../config/db"); // ✅ Import cached Mongo connection
+const connectDB = require("../config/db");
+const { registerRespondent } = require("../services/flexiQuizUsersService");
 
-/* ----------------------------------------------------
-   List users (most recently updated first)
----------------------------------------------------- */
+/* List users */
 router.get("/", async (req, res) => {
   try {
-    await connectDB(); // ✅ ensure connection is ready
-
+    await connectDB();
     const users = await User.find().sort({ updatedAt: -1, createdAt: -1 });
     res.json(users);
   } catch (err) {
@@ -17,38 +15,72 @@ router.get("/", async (req, res) => {
   }
 });
 
-/* ----------------------------------------------------
-   Check if a user already exists by email_address
----------------------------------------------------- */
-router.get("/exists", async (req, res) => {
+/* ✅ (Optional) REMOVE this if email not unique anymore
+router.get("/exists", async (req, res) => { ... });
+*/
+
+/* Register user in FlexiQuiz */
+router.post("/register", async (req, res) => {
   try {
-    await connectDB(); // ✅ ensure connection is ready
+    await connectDB();
 
-    const email = String(req.query.email || "")
-      .trim()
-      .toLowerCase();
+    const { firstName, lastName, yearLevel, email } = req.body || {};
 
-    if (!email) {
-      return res.status(400).json({ error: "email required" });
+    if (!firstName || !lastName || !yearLevel || !email) {
+      return res.status(400).json({
+        ok: false,
+        error: "firstName, lastName, yearLevel, email are required",
+      });
     }
 
-    // ⚡ Fast existence check
-    const exists = await User.exists({ email_address: email });
+    const created = await registerRespondent({
+      firstName,
+      lastName,
+      yearLevel,
+      email,
+    });
 
-    return res.json({ exists: !!exists });
+    if (created?.user_id) {
+      await User.updateOne(
+        { user_id: created.user_id },
+        {
+          $set: {
+            user_id: created.user_id,
+            user_name: created.user_name,
+            first_name: String(firstName || "").trim(),
+            last_name: String(lastName || "").trim(),
+            email_address: String(email || "").trim().toLowerCase(),
+            year_level: String(yearLevel),
+            deleted: false,
+            updatedAt: new Date(),
+          },
+          $setOnInsert: { createdAt: new Date() },
+        },
+        { upsert: true }
+      );
+    }
+
+    return res.json({
+      ok: true,
+      user_id: created.user_id,
+      user_name: created.user_name,
+      // password: created.password, // keep ONLY if you need to show it
+      mode: created.mode || "created",
+    });
   } catch (err) {
-    console.error("Email exists check failed:", err);
-    return res.status(500).json({ exists: false });
+    console.error("FlexiQuiz register failed:", err?.detail || err?.response?.data || err);
+    return res.status(500).json({
+      ok: false,
+      error: "Failed to register in FlexiQuiz",
+      detail: err?.detail || err?.response?.data || err?.message || "Unknown error",
+    });
   }
 });
 
-/* ----------------------------------------------------
-   Fetch a single user by user_id
----------------------------------------------------- */
+/* Fetch a user by user_id (keep at bottom) */
 router.get("/:user_id", async (req, res) => {
   try {
-    await connectDB(); // ✅ ensure connection is ready
-
+    await connectDB();
     const user = await User.findOne({ user_id: req.params.user_id });
     res.json(user || null);
   } catch (err) {
