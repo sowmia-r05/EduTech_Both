@@ -12,6 +12,8 @@ import TrialTestPage from "@/app/components/pages/TrialTestPage";
 import RespondentPortal from "@/app/components/pages/RespondentPortal";
 import TermsAndConditions from "@/app/components/TermsAndConditions";
 import PrivacyPolicy  from "@/app/components/PrivacyPolicy";
+import ParentCreatePage  from "@/app/components/pages/ParentCreatePage";
+import ParentVerifyPage  from "@/app/components/pages/ParentVerifyPage";
 
 export default function AppRoutes() {
   return (
@@ -45,6 +47,8 @@ export default function AppRoutes() {
       {/* Fallback */}
       <Route path="*" element={<NotFound />} />
 
+      <Route path="/parent/create" element={<ParentCreatePage />} />
+      <Route path="/parent/verify" element={<ParentVerifyPage />} />
 
 
     </Routes>

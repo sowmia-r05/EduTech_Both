@@ -20,6 +20,8 @@ const flexiQuizRoutes = require("./routes/flexiQuizRoutes");
 
 const otpAuth = require("./routes/otpAuth");
 const flexiquizSso = require("./routes/flexiquizSso");
+const parentRoutes = require("./routes/parentRoutes");
+const parentAuthRoutes = require("./routes/parentAuthRoutes");
 
 const app = express();
 
@@ -95,5 +97,9 @@ app.get("/", (req, res) => {
 app.get("/api/test-flexiquiz-key", (req, res) => {
   res.json({ hasKey: !!process.env.FLEXIQUIZ_API_KEY });
 });
+app.use("/api/parents", parentRoutes);
 
+// ✅ auth routes under separate prefix to avoid /create collision
+app.use("/api/parents/auth", parentAuthRoutes);
 module.exports = app;
+
