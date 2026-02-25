@@ -59,9 +59,9 @@ export default function AppRoutes() {
         <Route
           path="/child-dashboard"
           element={
-            <RequireChild>
+            <RequireAuth>
               <ChildDashboard />
-            </RequireChild>
+            </RequireAuth>
           }
         />
 
