@@ -9,6 +9,7 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const cors = require("cors");
 
+// ─── Existing routes ───
 const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const webhookRoutes = require("./routes/webhookRoutes");
@@ -20,6 +21,11 @@ const flexiQuizRoutes = require("./routes/flexiQuizRoutes");
 
 const otpAuth = require("./routes/otpAuth");
 const flexiquizSso = require("./routes/flexiquizSso");
+
+// ─── NEW: Phase 1 routes ───
+const parentAuthRoutes = require("./routes/parentAuthRoutes");
+const childRoutes = require("./routes/childRoutes");
+const { requireParent } = require("./middleware/auth");
 
 const app = express();
 
@@ -66,11 +72,45 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// 🛡️ Auth rate limiting
+// Dev: 100/min (so tests can run); Production: 10/min (brute force protection)
+const authLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 10 : 100,
+  message: { error: "Too many login attempts. Please wait a minute." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ✅ Apply rate limiting
 app.use("/api/webhooks", webhookLimiter);
+app.use("/api/auth", authLimiter);
 app.use("/api", apiLimiter);
 
-// ✅ Routes
+// ═══════════════════════════════════════════
+// ✅ NEW: Parent auth routes (Phase 1)
+// ═══════════════════════════════════════════
+// Public: register, login, verify-email, forgot/reset-password
+// Protected: GET /api/auth/me (requireParent applied inline)
+app.use("/api/auth", (req, res, next) => {
+  // Apply requireParent ONLY to GET /me; let all other routes pass through
+  if (req.method === "GET" && req.path === "/me") {
+    return requireParent(req, res, next);
+  }
+  next();
+}, parentAuthRoutes);
+
+// ═══════════════════════════════════════════
+// ✅ NEW: Child routes (Phase 1)
+// ═══════════════════════════════════════════
+// POST /api/children/login — public (child login with username + PIN)
+// GET/POST/PUT/DELETE /api/children/* — parent JWT required (handled inside childRoutes)
+// GET /api/children/check-username — public (live uniqueness check)
+app.use("/api/children", childRoutes);
+
+// ═══════════════════════════════════════════
+// ✅ Existing routes (unchanged)
+// ═══════════════════════════════════════════
 app.use("/api/webhooks", webhookRoutes);
 
 app.use("/api/flexiquiz", flexiQuizRoutes);
