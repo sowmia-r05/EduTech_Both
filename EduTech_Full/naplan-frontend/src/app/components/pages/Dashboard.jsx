@@ -12,7 +12,8 @@ import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilte
 import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
 
-import { fetchResultsByEmail, fetchResultByResponseId } from "@/app/utils/api";
+// ✅ CHANGED: added fetchResultsByUsername import
+import { fetchResultsByEmail, fetchResultsByUsername, fetchResultByResponseId } from "@/app/utils/api";
 
 /* -------------------- Loader -------------------- */
 const DotLoader = ({ label = "Loading" }) => (
@@ -212,6 +213,7 @@ export default function Dashboard() {
   }, [hasResponseId, navigate]);
 
   /* -------------------- Load results -------------------- */
+  // ✅ CHANGED: Now prefers username-based lookup (sibling-safe) over email
   useEffect(() => {
     if (!hasResponseId) return;
     let cancelled = false;
@@ -226,9 +228,23 @@ export default function Dashboard() {
         if (!cancelled) {
           setLatestResult(doc);
 
-          const all = await fetchResultsByEmail(doc.user.email_address, {
-            quiz_name: doc.quiz_name,
-          });
+          // ✅ Prefer username-based lookup (sibling-safe)
+          // Username comes from: URL param (passed by ChildDashboard) or result doc
+          const username = searchParams.get("username") || doc.user?.user_name || "";
+          const subject = searchParams.get("subject") || "";
+
+          let all;
+          if (username) {
+            // ✅ NEW: Fetch by username + subject — doesn't mix siblings
+            all = await fetchResultsByUsername(username, {
+              subject: subject || undefined,
+            });
+          } else {
+            // Fallback: legacy email-based lookup (for direct links without username)
+            all = await fetchResultsByEmail(doc.user.email_address, {
+              quiz_name: doc.quiz_name,
+            });
+          }
 
           setResultsList(all || [doc]);
         }
@@ -239,7 +255,7 @@ export default function Dashboard() {
 
     load();
     return () => (cancelled = true);
-  }, [responseId, hasResponseId]);
+  }, [responseId, hasResponseId, searchParams]);
 
   /* -------------------- Tour -------------------- */
   useEffect(() => {
@@ -247,13 +263,23 @@ export default function Dashboard() {
   }, []);
 
   /* -------------------- BUG FIX 1: Quiz-scoped attempts -------------------- */
-  // Derive quiz-scoped attempts ONCE — reused by filteredResults, testTakenDates, and attemptsUsed
+  // ✅ CHANGED: When subject param is present, results are already filtered by backend
   const quizAttempts = useMemo(() => {
     if (!latestResult) return [];
+
+    const subject = searchParams.get("subject") || "";
+
+    if (subject) {
+      // When subject is passed, show ALL attempts for this subject (across quiz names)
+      // Results are already filtered by subject on the backend via fetchResultsByUsername
+      return resultsList;
+    }
+
+    // Default: filter by exact quiz_name (original behavior)
     return resultsList.filter(
       (r) => r.quiz_name === latestResult.quiz_name
     );
-  }, [resultsList, latestResult]);
+  }, [resultsList, latestResult, searchParams]);
 
   /* -------------------- Filtered results by date -------------------- */
   const filteredResults = useMemo(() => {
@@ -292,7 +318,6 @@ export default function Dashboard() {
   }, [filteredResults, latestResult]);
 
   /* -------------------- BUG FIX 3: Consistent date parsing for testTakenDates -------------------- */
-  // Uses the same unwrapDate helper so dots and date-filter are always in sync
   const testTakenDates = useMemo(() => {
     return quizAttempts
       .map((r) => {
@@ -323,8 +348,6 @@ export default function Dashboard() {
   const duration = formatDuration(selectedResult?.duration);
 
   /* BUG FIX 2: attemptsUsed scoped correctly */
-  // When a date is selected  → show attempts for that date only
-  // When no date is selected → show total attempts for this quiz
   const attemptsUsed = selectedDate
     ? filteredResults.length || "—"
     : quizAttempts.length || "—";
