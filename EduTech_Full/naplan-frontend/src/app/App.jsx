@@ -18,7 +18,7 @@ import PrivacyPolicy from "@/app/components/PrivacyPolicy";
 import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
 import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
-import BundleSelectionPage from "@/app/components/pages/BundleSelectionPage";
+import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
 
 export default function AppRoutes() {
   return (
