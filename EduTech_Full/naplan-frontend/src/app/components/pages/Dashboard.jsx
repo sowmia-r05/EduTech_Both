@@ -246,14 +246,17 @@ export default function Dashboard() {
     if (!localStorage.getItem("dashboardTourPrompted")) setShowTourModal(true);
   }, []);
 
-  /* -------------------- Filtered results by date -------------------- */
-  const filteredResults = useMemo(() => {
+  /* -------------------- BUG FIX 1: Quiz-scoped attempts -------------------- */
+  // Derive quiz-scoped attempts ONCE — reused by filteredResults, testTakenDates, and attemptsUsed
+  const quizAttempts = useMemo(() => {
     if (!latestResult) return [];
-
-    const quizAttempts = resultsList.filter(
+    return resultsList.filter(
       (r) => r.quiz_name === latestResult.quiz_name
     );
+  }, [resultsList, latestResult]);
 
+  /* -------------------- Filtered results by date -------------------- */
+  const filteredResults = useMemo(() => {
     if (!selectedDate) return quizAttempts;
 
     const start = new Date(selectedDate);
@@ -268,7 +271,7 @@ export default function Dashboard() {
       const dt = new Date(raw);
       return dt >= start && dt <= end;
     });
-  }, [resultsList, selectedDate, latestResult]);
+  }, [quizAttempts, selectedDate]);
 
   /* -------------------- NoDataModal trigger -------------------- */
   useEffect(() => {
@@ -288,6 +291,21 @@ export default function Dashboard() {
     )[0];
   }, [filteredResults, latestResult]);
 
+  /* -------------------- BUG FIX 3: Consistent date parsing for testTakenDates -------------------- */
+  // Uses the same unwrapDate helper so dots and date-filter are always in sync
+  const testTakenDates = useMemo(() => {
+    return quizAttempts
+      .map((r) => {
+        const raw = unwrapDate(r?.createdAt || r?.date_submitted);
+        if (!raw) return null;
+        const date = new Date(raw);
+        if (isNaN(date.getTime())) return null;
+        date.setHours(0, 0, 0, 0);
+        return date;
+      })
+      .filter(Boolean);
+  }, [quizAttempts]);
+
   /* -------------------- Loading / empty -------------------- */
   if (loadingLatest) {
     return (
@@ -303,7 +321,13 @@ export default function Dashboard() {
   const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
   const grade = selectedResult?.score?.grade || "—";
   const duration = formatDuration(selectedResult?.duration);
-  const attemptsUsed = filteredResults.length || "—";
+
+  /* BUG FIX 2: attemptsUsed scoped correctly */
+  // When a date is selected  → show attempts for that date only
+  // When no date is selected → show total attempts for this quiz
+  const attemptsUsed = selectedDate
+    ? filteredResults.length || "—"
+    : quizAttempts.length || "—";
 
   const { strongTopics, weakTopics } = buildTopicStrength(
     selectedResult?.topicBreakdown || {}
@@ -354,20 +378,11 @@ export default function Dashboard() {
         </h1>
 
         <div className="flex items-center gap-4">
+          {/* BUG FIX 1 + 3: testTakenDates now uses quiz-scoped + unwrapDate-consistent dates */}
           <DateRangeFilter
             selectedDate={selectedDate}
             onChange={setSelectedDate}
-            testTakenDates={resultsList
-              .map((r) => {
-                const raw = r?.createdAt || r?.date_submitted;
-                if (!raw) return null;
-                const date = new Date(
-                  typeof raw === "object" && raw.$date ? raw.$date : raw
-                );
-                date.setHours(0, 0, 0, 0);
-                return date;
-              })
-              .filter(Boolean)}
+            testTakenDates={testTakenDates}
           />
           <AvatarMenu />
         </div>
@@ -429,7 +444,7 @@ export default function Dashboard() {
             <AISuggestionPanel
               suggestions={suggestions}
               studyTips={selectedResult?.ai_feedback?.study_tips || []}
-              topicWiseTips={selectedResult?.ai_feedback?.topic_wise_tips || []} 
+              topicWiseTips={selectedResult?.ai_feedback?.topic_wise_tips || []}
             />
           </div>
         </div>
