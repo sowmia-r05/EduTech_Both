@@ -26,20 +26,15 @@ const looksLikeEmail = (e) => {
 function Modal({ title, children, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      {/* Overlay */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
-
-      {/* Modal */}
       <div className="relative z-10 w-full max-w-4xl max-h-[85vh] rounded-3xl bg-white shadow-[0_25px_70px_rgba(0,0,0,0.15)] overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 md:px-10 py-5 bg-gradient-to-r from-indigo-50 to-white border-b border-gray-100">
           <h2 className="text-xl md:text-2xl font-semibold text-indigo-600 tracking-tight">
             {title}
           </h2>
-
           <button
             onClick={onClose}
             className="p-2 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
@@ -48,8 +43,6 @@ function Modal({ title, children, onClose }) {
             <X className="h-5 w-5" />
           </button>
         </div>
-
-        {/* Body */}
         <div className="px-6 md:px-12 py-8 md:py-10 overflow-y-auto max-h-[70vh] text-gray-700 leading-relaxed space-y-6">
           {children}
         </div>
@@ -71,7 +64,7 @@ export default function ParentCreatePage() {
   });
 
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [modalContent, setModalContent] = useState(null); // "terms" | "privacy" | null
+  const [modalContent, setModalContent] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -115,25 +108,18 @@ export default function ParentCreatePage() {
     try {
       setLoading(true);
 
-      // ✅ Updated payload to match backend: firstName, lastName, email
       const result = await createParentAccount({
         firstName,
         lastName,
         email,
       });
 
-      // Save only what verify page needs
       localStorage.setItem("parent_pending_email", email);
       localStorage.setItem("parent_pending_masked", result?.otp_sent_to || "");
 
-      // Optional local save
       localStorage.setItem(
         "parent_pending_profile",
-        JSON.stringify({
-          firstName,
-          lastName,
-          email,
-        })
+        JSON.stringify({ firstName, lastName, email })
       );
 
       navigate("/parent/verify");
@@ -142,12 +128,6 @@ export default function ParentCreatePage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleLogin = () => {
-    // Change if your route is different
-    navigate("/parent/login");
-    // or navigate("/respondent");
   };
 
   return (
@@ -166,7 +146,7 @@ export default function ParentCreatePage() {
           </Button>
 
           <Button
-            onClick={handleLogin}
+            onClick={() => navigate("/parent-login")}
             variant="outline"
             className="bg-white"
             type="button"
@@ -183,7 +163,6 @@ export default function ParentCreatePage() {
 
           <CardContent>
             <form onSubmit={onSubmit} className="space-y-5">
-              {/* Error */}
               {error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -191,7 +170,6 @@ export default function ParentCreatePage() {
                 </Alert>
               )}
 
-              {/* First Name */}
               <div className="space-y-2">
                 <Label>First Name</Label>
                 <Input
@@ -203,7 +181,6 @@ export default function ParentCreatePage() {
                 />
               </div>
 
-              {/* Last Name */}
               <div className="space-y-2">
                 <Label>Last Name</Label>
                 <Input
@@ -215,7 +192,6 @@ export default function ParentCreatePage() {
                 />
               </div>
 
-              {/* Email */}
               <div className="space-y-2">
                 <Label>Email ID</Label>
                 <Input
@@ -228,7 +204,6 @@ export default function ParentCreatePage() {
                 />
               </div>
 
-              {/* Terms & Privacy (smaller text) */}
               <div className="flex items-start space-x-2 text-xs">
                 <input
                   id="accept-parent-terms"
@@ -275,7 +250,6 @@ export default function ParentCreatePage() {
                 </label>
               </div>
 
-              {/* Submit */}
               <Button
                 className={`w-full ${
                   canSubmit
@@ -296,7 +270,6 @@ export default function ParentCreatePage() {
         </Card>
       </div>
 
-      {/* Modals */}
       {modalContent === "terms" && (
         <Modal title="Terms & Conditions" onClose={() => setModalContent(null)}>
           <TermsAndConditions />

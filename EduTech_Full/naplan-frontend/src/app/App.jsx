@@ -17,6 +17,7 @@ import TermsAndConditions from "@/app/components/TermsAndConditions";
 import PrivacyPolicy from "@/app/components/PrivacyPolicy";
 import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
 import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
+import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 
 export default function AppRoutes() {
   return (
@@ -37,6 +38,8 @@ export default function AppRoutes() {
 
         {/* ─── Child Auth (public) ─── */}
         <Route path="/child-login" element={<ChildLoginPage />} />
+
+        <Route path="/parent-login" element={<ParentLoginPage />} />
 
     
         {/* ─── Parent-protected routes ─── */}

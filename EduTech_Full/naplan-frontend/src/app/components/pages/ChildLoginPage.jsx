@@ -1,5 +1,13 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
+import { Button } from "@/app/components/ui/button";
+import { Input } from "@/app/components/ui/input";
+import { Label } from "@/app/components/ui/label";
+import { Alert, AlertDescription } from "@/app/components/ui/alert";
+import { AlertCircle, Loader2, ArrowLeft, LogIn } from "lucide-react";
+
 import { useAuth } from "@/app/context/AuthContext";
 import { childLogin } from "@/app/utils/api-children";
 
@@ -11,6 +19,12 @@ export default function ChildLoginPage() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  /* ── Validation flag (drives button color) ────── */
+  const canSubmit = useMemo(
+    () => username.trim().length >= 3 && pin.trim().length >= 4,
+    [username, pin]
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -41,79 +55,114 @@ export default function ChildLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-100 to-blue-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-        {/* Fun header */}
-        <div className="text-center mb-8">
-          <div className="text-5xl mb-3">🎓</div>
-          <h1 className="text-2xl font-bold text-indigo-700">Student Login</h1>
-          <p className="text-slate-500 text-sm mt-1">Enter your username and PIN to start</p>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
+      <div className="max-w-md mx-auto">
+        {/* Top bar — same layout as ParentLoginPage */}
+        <div className="flex justify-between items-center mb-4">
+          <Button
+            onClick={() => navigate("/")}
+            variant="outline"
+            className="bg-white"
+            size="icon"
+            type="button"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+
+          <Button
+            onClick={() => navigate("/parent-login")}
+            variant="outline"
+            className="bg-white"
+            type="button"
+          >
+            <LogIn className="h-4 w-4 mr-2" />
+            Parent Login
+          </Button>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-lg p-6 space-y-5">
-          {error && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">
-              {error}
-            </div>
-          )}
+        <Card className="bg-white shadow-lg">
+          <CardHeader>
+            <CardTitle className="text-2xl text-center">Student Login</CardTitle>
+          </CardHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Username */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
-              <input
-                type="text"
-                placeholder="e.g. vishaka_y3"
-                className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-base focus:border-indigo-500 focus:outline-none transition"
-                value={username}
-                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                autoComplete="username"
-                autoFocus
-              />
-            </div>
-
-            {/* PIN */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">PIN</label>
-              <input
-                type="password"
-                inputMode="numeric"
-                placeholder="Enter your PIN"
-                className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-base text-center tracking-[0.5em] focus:border-indigo-500 focus:outline-none transition"
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                maxLength={6}
-                autoComplete="current-password"
-              />
-            </div>
-
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-xl text-lg hover:bg-indigo-700 transition disabled:opacity-50"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Logging in...
-                </span>
-              ) : (
-                "Let's Go!"
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Error */}
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
-            </button>
-          </form>
 
-          {/* Back link */}
-          <div className="text-center pt-2">
-            <button
-              onClick={() => navigate("/")}
-              className="text-sm text-slate-500 hover:text-indigo-600 transition"
-            >
-              &larr; Back to home
-            </button>
-          </div>
-        </div>
+              {/* Username */}
+              <div className="space-y-2">
+                <Label htmlFor="child-username">Username</Label>
+                <Input
+                  id="child-username"
+                  type="text"
+                  placeholder="e.g. vishaka_y3"
+                  autoComplete="username"
+                  autoFocus
+                  value={username}
+                  onChange={(e) =>
+                    setUsername(
+                      e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "")
+                    )
+                  }
+                  disabled={loading}
+                />
+              </div>
+
+              {/* PIN */}
+              <div className="space-y-2">
+                <Label htmlFor="child-pin">PIN</Label>
+                <Input
+                  id="child-pin"
+                  type="password"
+                  inputMode="numeric"
+                  placeholder="Enter your PIN"
+                  autoComplete="current-password"
+                  maxLength={6}
+                  value={pin}
+                  onChange={(e) =>
+                    setPin(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  disabled={loading}
+                  className="text-center tracking-[0.3em] text-lg"
+                />
+              </div>
+
+              {/* Submit — gray → indigo (same as ParentLoginPage) */}
+              <Button
+                type="submit"
+                disabled={!canSubmit || loading}
+                className={`w-full ${
+                  canSubmit && !loading
+                    ? "bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
+                    : "bg-gray-400 cursor-not-allowed"
+                }`}
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+                ) : (
+                  "Let's Go!"
+                )}
+              </Button>
+
+              {/* Back link */}
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => navigate("/")}
+                  className="text-sm text-slate-500 hover:text-indigo-600 transition"
+                >
+                  &larr; Back to home
+                </button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
