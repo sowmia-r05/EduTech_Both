@@ -15,6 +15,7 @@
 //   GET  /api/results/quizzes?email=...
 //   GET  /api/results/latest/by-filters?email=...&quiz_name=...&year=...&subject=...
 //   GET  /api/results/by-email?email=...
+//   GET  /api/results/by-username?username=...       ← NEW
 //   GET  /api/results/:responseId
 //
 // OTP endpoints:
@@ -81,7 +82,8 @@ async function getJson(path, options = {}) {
   }
 
   if (!res.ok) {
-    const msg = body?.error || body?.message || `Request failed (${res.status})`;
+    const msg =
+      body?.error || body?.message || `Request failed (${res.status})`;
     const err = new Error(msg);
     err.status = res.status;
     err.body = body;
@@ -92,7 +94,9 @@ async function getJson(path, options = {}) {
 }
 
 export function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
 /* =========================================================
@@ -129,16 +133,23 @@ export async function registerUserInFlexiQuiz({
 
 export async function fetchQuizNamesByEmail(email, options = {}) {
   const e = normalizeEmail(email);
-  const data = await getJson(`/api/writing/quizzes?email=${encodeURIComponent(e)}`, options);
+  const data = await getJson(
+    `/api/writing/quizzes?email=${encodeURIComponent(e)}`,
+    options,
+  );
   return Array.isArray(data?.quizNames) ? data.quizNames : [];
 }
 
-export async function fetchLatestWritingByEmailAndQuiz(email, quizName, options = {}) {
+export async function fetchLatestWritingByEmailAndQuiz(
+  email,
+  quizName,
+  options = {},
+) {
   const e = normalizeEmail(email);
   const q = String(quizName || "").trim();
   const data = await getJson(
     `/api/writing/latest?email=${encodeURIComponent(e)}&quiz=${encodeURIComponent(q)}`,
-    options
+    options,
   );
   return data;
 }
@@ -153,7 +164,10 @@ export async function fetchWritingByResponseId(responseId, options = {}) {
 // Quiz names from results collection (for non-writing dashboard lookup)
 export async function fetchResultQuizNamesByEmail(email, options = {}) {
   const e = normalizeEmail(email);
-  const data = await getJson(`/api/results/quizzes?email=${encodeURIComponent(e)}`, options);
+  const data = await getJson(
+    `/api/results/quizzes?email=${encodeURIComponent(e)}`,
+    options,
+  );
   return Array.isArray(data?.quizNames) ? data.quizNames : [];
 }
 
@@ -164,7 +178,9 @@ export async function fetchLatestResultByEmail(email, options = {}) {
   if (options.quiz_name) params.set("quiz_name", options.quiz_name);
   if (options.year) params.set("year", options.year);
   if (options.subject) params.set("subject", options.subject);
-  const data = await getJson(`/api/results/latest/by-filters?${params.toString()}`);
+  const data = await getJson(
+    `/api/results/latest/by-filters?${params.toString()}`,
+  );
   return data;
 }
 
@@ -178,6 +194,55 @@ export async function fetchResultsByEmail(email, options = {}) {
 
   const data = await getJson(`/api/results/by-email?${params.toString()}`);
   return Array.isArray(data) ? data : [];
+}
+
+/**
+ * ✅ NEW: Fetch all results for a specific child by username (not email).
+ * This avoids mixing results from siblings who share the same parent email.
+ *
+ * @param {string} username - The child's unique username (= FlexiQuiz user_name)
+ * @param {Object} [options]
+ * @param {string} [options.quiz_name] - Filter to a specific quiz
+ * @param {string} [options.subject] - Filter by inferred subject (e.g. "Reading")
+ */
+export async function fetchResultsByUsername(username, options = {}) {
+  const u = String(username || "").trim();
+  if (!u) throw new Error("username is required");
+
+  const params = new URLSearchParams({ username: u });
+  if (options.quiz_name) params.set("quiz_name", options.quiz_name);
+  if (options.subject) params.set("subject", options.subject);
+
+  const data = await getJson(`/api/results/by-username?${params.toString()}`);
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * ✅ NEW: Fetch all writing submissions for a specific child by username.
+ * Sibling-safe — doesn't mix children sharing the same parent email.
+ */
+export async function fetchWritingsByUsername(username, options = {}) {
+  const u = String(username || "").trim();
+  if (!u) throw new Error("username is required");
+
+  const params = new URLSearchParams({ username: u });
+  if (options.quiz_name) params.set("quiz_name", options.quiz_name);
+
+  const data = await getJson(`/api/writing/by-username?${params.toString()}`);
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * ✅ NEW: Fetch latest writing submission by username (sibling-safe).
+ */
+export async function fetchLatestWritingByUsername(username, options = {}) {
+  const u = String(username || "").trim();
+  if (!u) throw new Error("username is required");
+
+  const data = await getJson(
+    `/api/writing/latest/by-username?username=${encodeURIComponent(u)}`,
+  );
+  return data;
 }
 
 export async function fetchResultByResponseId(responseId, options = {}) {
