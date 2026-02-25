@@ -96,6 +96,7 @@ const handleViewChild = (child) => {
       childId: child._id,
       childName: child.name || child.display_name || child.username || "",
       yearLevel: child.year_level || "",
+      username: child.username || "",
     });
     navigate(`/child-dashboard?${params.toString()}`);
   };

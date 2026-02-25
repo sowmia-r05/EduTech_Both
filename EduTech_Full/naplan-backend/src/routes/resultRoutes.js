@@ -8,13 +8,28 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// ✅ NEW: Infer subject from quiz name (same logic as catalogRoutes.js)
+function inferSubjectFromQuizName(quizName = "") {
+  const s = String(quizName || "").toLowerCase();
+  if (s.includes("calculator")) return "Numeracy_with_calculator";
+  if (s.includes("language") || s.includes("convention") || s.includes("lang"))
+    return "Language_convention";
+  if (s.includes("reading")) return "Reading";
+  if (s.includes("writing")) return "Writing";
+  if (s.includes("numeracy")) return "Numeracy";
+  return null;
+}
+
 /**
  * ✅ GET all results (stable sort)
  * - Prefer date_submitted (FlexiQuiz) then createdAt
  */
 router.get("/", async (req, res) => {
   try {
-    const results = await Result.find().sort({ date_submitted: -1, createdAt: -1 });
+    const results = await Result.find().sort({
+      date_submitted: -1,
+      createdAt: -1,
+    });
     return res.json(results);
   } catch (err) {
     console.error(err);
@@ -27,7 +42,10 @@ router.get("/", async (req, res) => {
  */
 router.get("/latest", async (req, res) => {
   try {
-    const doc = await Result.findOne().sort({ date_submitted: -1, createdAt: -1 });
+    const doc = await Result.findOne().sort({
+      date_submitted: -1,
+      createdAt: -1,
+    });
     return res.json(doc || null);
   } catch (err) {
     console.error(err);
@@ -40,7 +58,9 @@ router.get("/latest", async (req, res) => {
  */
 router.get("/latest/by-email", async (req, res) => {
   try {
-    const email = String(req.query.email || "").trim().toLowerCase();
+    const email = String(req.query.email || "")
+      .trim()
+      .toLowerCase();
     if (!email) return res.status(400).json({ error: "email required" });
 
     const doc = await Result.findOne({ "user.email_address": email }).sort({
@@ -51,7 +71,9 @@ router.get("/latest/by-email", async (req, res) => {
     return res.json(doc || null);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: "Failed to fetch latest result by email" });
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch latest result by email" });
   }
 });
 
@@ -71,7 +93,52 @@ router.get("/latest/by-userid", async (req, res) => {
     return res.json(doc || null);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: "Failed to fetch latest result by user_id" });
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch latest result by user_id" });
+  }
+});
+
+/**
+ * ✅ NEW: Latest result by username + optional filters
+ * Query params:
+ *   username (required) — child's unique FlexiQuiz user_name
+ *   quiz_name (optional) — exact quiz name match
+ *   subject (optional) — inferred subject filter
+ */
+router.get("/latest/by-username", async (req, res) => {
+  try {
+    const username = String(req.query.username || "").trim();
+    if (!username) return res.status(400).json({ error: "username required" });
+
+    const quiz_name = String(req.query.quiz_name || "").trim();
+    const subject = String(req.query.subject || "").trim();
+
+    const q = { "user.user_name": username };
+    if (quiz_name) q.quiz_name = quiz_name;
+
+    // If subject but no quiz_name, filter in-memory
+    if (subject && !quiz_name) {
+      let results = await Result.find(q).sort({
+        date_submitted: -1,
+        createdAt: -1,
+      });
+      results = results.filter(
+        (r) => inferSubjectFromQuizName(r.quiz_name) === subject,
+      );
+      return res.json(results[0] || null);
+    }
+
+    const doc = await Result.findOne(q).sort({
+      date_submitted: -1,
+      createdAt: -1,
+    });
+    return res.json(doc || null);
+  } catch (err) {
+    console.error(err);
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch latest result by username" });
   }
 });
 
@@ -85,13 +152,18 @@ router.get("/latest/by-userid", async (req, res) => {
  */
 router.get("/latest/by-filters", async (req, res) => {
   try {
-    const email = String(req.query.email || "").trim().toLowerCase();
+    const email = String(req.query.email || "")
+      .trim()
+      .toLowerCase();
     const user_id = String(req.query.user_id || req.query.userid || "").trim();
     const year = String(req.query.year || "").trim();
     const subject = String(req.query.subject || "").trim();
-    const quiz_name = String(req.query.quiz_name || req.query.test_name || "").trim();
+    const quiz_name = String(
+      req.query.quiz_name || req.query.test_name || "",
+    ).trim();
 
-    if (!email && !user_id) return res.status(400).json({ error: "email or user_id required" });
+    if (!email && !user_id)
+      return res.status(400).json({ error: "email or user_id required" });
 
     const q = {};
     if (email) q["user.email_address"] = email;
@@ -107,7 +179,10 @@ router.get("/latest/by-filters", async (req, res) => {
       q.quiz_name = { $regex: pattern, $options: "i" };
     }
 
-    const doc = await Result.findOne(q).sort({ date_submitted: -1, createdAt: -1 });
+    const doc = await Result.findOne(q).sort({
+      date_submitted: -1,
+      createdAt: -1,
+    });
     return res.json(doc || null);
   } catch (err) {
     console.error(err);
@@ -120,10 +195,14 @@ router.get("/latest/by-filters", async (req, res) => {
  */
 router.get("/quizzes", async (req, res) => {
   try {
-    const email = String(req.query.email || "").trim().toLowerCase();
+    const email = String(req.query.email || "")
+      .trim()
+      .toLowerCase();
     if (!email) return res.status(400).json({ error: "email required" });
 
-    const quizNames = await Result.distinct("quiz_name", { "user.email_address": email });
+    const quizNames = await Result.distinct("quiz_name", {
+      "user.email_address": email,
+    });
 
     const cleaned = (quizNames || [])
       .filter((q) => q && String(q).trim())
@@ -137,13 +216,53 @@ router.get("/quizzes", async (req, res) => {
   }
 });
 
+/**
+ * ✅ NEW: Get ALL results by username (sibling-safe — doesn't mix children sharing same email)
+ * Query params:
+ *   username (required) — the child's unique FlexiQuiz user_name
+ *   quiz_name (optional) — filter to a specific quiz
+ *   subject (optional) — filter by inferred subject (e.g. "Reading", "Numeracy")
+ */
+router.get("/by-username", async (req, res) => {
+  try {
+    const username = String(req.query.username || "").trim();
+    if (!username) return res.status(400).json({ error: "username required" });
+
+    const quiz_name = String(req.query.quiz_name || "").trim();
+    const subject = String(req.query.subject || "").trim();
+
+    const q = { "user.user_name": username };
+    if (quiz_name) q.quiz_name = quiz_name;
+
+    let results = await Result.find(q).sort({
+      date_submitted: -1,
+      createdAt: -1,
+    });
+
+    // Filter by inferred subject in-memory
+    if (subject && results.length > 0) {
+      results = results.filter(
+        (r) => inferSubjectFromQuizName(r.quiz_name) === subject,
+      );
+    }
+
+    return res.json(results || []);
+  } catch (err) {
+    console.error(err);
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch results by username" });
+  }
+});
 
 /**
  * ✅ Get ALL results by email (for dashboard filtering)
  */
 router.get("/by-email", async (req, res) => {
   try {
-    const email = String(req.query.email || "").trim().toLowerCase();
+    const email = String(req.query.email || "")
+      .trim()
+      .toLowerCase();
     const quiz_name = String(req.query.quiz_name || "").trim();
 
     if (!email) return res.status(400).json({ error: "email required" });
@@ -165,8 +284,6 @@ router.get("/by-email", async (req, res) => {
     return res.status(500).json({ error: "Failed to fetch results by email" });
   }
 });
-
-
 
 /**
  * ✅ GET one result by response id
@@ -204,14 +321,23 @@ router.post("/webhook", async (req, res) => {
 
     // Normalize required identifiers (support both formats)
     const eventId = payload.eventId || payload.event_id || payload.eventID;
-    const responseId = payload.responseId || payload.response_id || payload.responseID;
+    const responseId =
+      payload.responseId || payload.response_id || payload.responseID;
     const quizId = payload.quizId || payload.quiz_id || payload.quizID;
     const quizName = payload.quizName || payload.quiz_name;
 
-    if (!eventId) return res.status(400).json({ error: "Missing field: eventId/event_id" });
-    if (!responseId) return res.status(400).json({ error: "Missing field: responseId/response_id" });
-    if (!quizId) return res.status(400).json({ error: "Missing field: quizId/quiz_id" });
-    if (!quizName) return res.status(400).json({ error: "Missing field: quizName/quiz_name" });
+    if (!eventId)
+      return res.status(400).json({ error: "Missing field: eventId/event_id" });
+    if (!responseId)
+      return res
+        .status(400)
+        .json({ error: "Missing field: responseId/response_id" });
+    if (!quizId)
+      return res.status(400).json({ error: "Missing field: quizId/quiz_id" });
+    if (!quizName)
+      return res
+        .status(400)
+        .json({ error: "Missing field: quizName/quiz_name" });
 
     // If topicBreakdown exists, validate it (your second code expects this)
     const topicBreakdown = payload.topicBreakdown;
@@ -222,15 +348,12 @@ router.post("/webhook", async (req, res) => {
           typeof scoreObj.scored !== "number" ||
           typeof scoreObj.total !== "number"
         ) {
-          return res.status(400).json({ error: `Invalid score for topic ${topic}` });
+          return res
+            .status(400)
+            .json({ error: `Invalid score for topic ${topic}` });
         }
       }
     }
-
-    // Optional: prevent duplicates by response_id/responseId
-    // (Uncomment if you want strict de-dupe)
-    // const existing = await Result.findOne({ $or: [{ response_id: responseId }, { responseId }] });
-    // if (existing) return res.json({ message: "Duplicate ignored", resultId: existing._id });
 
     const result = new Result(payload);
     await result.save();
