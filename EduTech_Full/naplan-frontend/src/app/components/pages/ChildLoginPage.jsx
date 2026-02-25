@@ -101,7 +101,7 @@ export default function ChildLoginPage() {
                 <Input
                   id="child-username"
                   type="text"
-                  placeholder="e.g. vishaka_y3"
+                  placeholder="e.g. Chris_1"
                   autoComplete="username"
                   autoFocus
                   value={username}

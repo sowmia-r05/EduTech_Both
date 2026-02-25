@@ -13,12 +13,120 @@ import { fetchChildren } from "@/app/utils/api-children";
 
 const YEAR_LABELS = { 3: "Year 3", 5: "Year 5", 7: "Year 7", 9: "Year 9" };
 
+export const MOCK_BUNDLES = [
+  {
+    bundle_id: "year3_full",
+    bundle_name: "Year 3 Full Pack",
+    description: "All subjects — Reading, Writing, Maths & Conventions",
+    year_level: 3,
+    subjects: ["Reading", "Writing", "Maths", "Conventions"],
+    included_tests: 12,
+    price_cents: 4900,
+    is_active: true,
+    is_mock: true,
+  },
+  {
+    bundle_id: "year3_maths",
+    bundle_name: "Year 3 Maths Only",
+    description: "Focused Maths practice — 6 full-length tests",
+    year_level: 3,
+    subjects: ["Maths"],
+    included_tests: 6,
+    price_cents: 1900,
+    is_active: true,
+    is_mock: true,
+  },
+  {
+    bundle_id: "year5_full",
+    bundle_name: "Year 5 Full Pack",
+    description: "All subjects — Reading, Writing, Maths & Conventions",
+    year_level: 5,
+    subjects: ["Reading", "Writing", "Maths", "Conventions"],
+    included_tests: 14,
+    price_cents: 5900,
+    is_active: true,
+    is_mock: true,
+  },
+  {
+    bundle_id: "year5_maths",
+    bundle_name: "Year 5 Maths Only",
+    description: "Focused Maths practice — 8 full-length tests",
+    year_level: 5,
+    subjects: ["Maths"],
+    included_tests: 8,
+    price_cents: 2400,
+    is_active: true,
+    is_mock: true,
+  },
+  {
+    bundle_id: "year7_full",
+    bundle_name: "Year 7 Full Pack",
+    description: "All subjects — Reading, Writing, Maths & Conventions",
+    year_level: 7,
+    subjects: ["Reading", "Writing", "Maths", "Conventions"],
+    included_tests: 16,
+    price_cents: 6900,
+    is_active: true,
+    is_mock: true,
+  },
+  {
+    bundle_id: "year9_full",
+    bundle_name: "Year 9 Full Pack",
+    description: "All subjects — Reading, Writing, Maths & Conventions",
+    year_level: 9,
+    subjects: ["Reading", "Writing", "Maths", "Conventions"],
+    included_tests: 16,
+    price_cents: 6900,
+    is_active: true,
+    is_mock: true,
+  },
+];
+
 const YEAR_COLORS = {
-  3: { bg: "bg-emerald-50", border: "border-emerald-200", accent: "text-emerald-700", btn: "bg-emerald-600 hover:bg-emerald-700" },
-  5: { bg: "bg-sky-50", border: "border-sky-200", accent: "text-sky-700", btn: "bg-sky-600 hover:bg-sky-700" },
-  7: { bg: "bg-amber-50", border: "border-amber-200", accent: "text-amber-700", btn: "bg-amber-600 hover:bg-amber-700" },
-  9: { bg: "bg-violet-50", border: "border-violet-200", accent: "text-violet-700", btn: "bg-violet-600 hover:bg-violet-700" },
+  3: {
+    bg: "bg-emerald-50",
+    border: "border-emerald-200",
+    accent: "text-emerald-700",
+    btn: "bg-emerald-600 hover:bg-emerald-700",
+  },
+  5: {
+    bg: "bg-sky-50",
+    border: "border-sky-200",
+    accent: "text-sky-700",
+    btn: "bg-sky-600 hover:bg-sky-700",
+  },
+  7: {
+    bg: "bg-amber-50",
+    border: "border-amber-200",
+    accent: "text-amber-700",
+    btn: "bg-amber-600 hover:bg-amber-700",
+  },
+  9: {
+    bg: "bg-violet-50",
+    border: "border-violet-200",
+    accent: "text-violet-700",
+    btn: "bg-violet-600 hover:bg-violet-700",
+  },
 };
+
+const formatAUD = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)} AUD`;
+
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className="w-4 h-4 inline-block"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        d="M16.704 5.29a1 1 0 010 1.414l-7.2 7.2a1 1 0 01-1.414 0l-3-3a1 1 0 111.414-1.414l2.293 2.293 6.493-6.493a1 1 0 011.414 0z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
 
 export default function BundleSelectionPage() {
   const navigate = useNavigate();
@@ -31,6 +139,7 @@ export default function BundleSelectionPage() {
   const [error, setError] = useState("");
   const [checkoutLoading, setCheckoutLoading] = useState(null); // bundle_id being checked out
   const [selectedYear, setSelectedYear] = useState(null);
+  const [usingMockBundles, setUsingMockBundles] = useState(false);
 
   // Pre-select year from query param (e.g. /bundles?year=3)
   useEffect(() => {
@@ -40,58 +149,108 @@ export default function BundleSelectionPage() {
 
   // Fetch bundles + children
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
       try {
         setLoading(true);
+        setError("");
+
         const [bundleData, childData] = await Promise.all([
           fetchBundles(),
           parentToken ? fetchChildren(parentToken) : Promise.resolve([]),
         ]);
-        setBundles(Array.isArray(bundleData) ? bundleData : []);
+
+        const apiBundles = Array.isArray(bundleData)
+          ? bundleData.filter((bundle) => bundle?.is_active !== false)
+          : [];
+
+        if (!mounted) return;
+
+        if (apiBundles.length > 0) {
+          setBundles(apiBundles);
+          setUsingMockBundles(false);
+        } else {
+          setBundles(MOCK_BUNDLES);
+          setUsingMockBundles(true);
+        }
+
         setChildren(Array.isArray(childData) ? childData : []);
       } catch (err) {
-        setError(err.message || "Failed to load bundles");
+        console.error("Failed to load bundles:", err);
+        if (!mounted) return;
+
+        // Fallback to mock bundles if API fails
+        setBundles(MOCK_BUNDLES);
+        setUsingMockBundles(true);
+        setChildren([]);
+        setError(err?.message || "Failed to load bundles");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, [parentToken]);
 
-  // Available years from bundles
+  // Child years from parent profile
+  const childYears = useMemo(() => {
+    return [...new Set((children || []).map((c) => Number(c.year_level)).filter(Boolean))].sort(
+      (a, b) => a - b
+    );
+  }, [children]);
+
+  // Available years from bundles (restricted to child years when logged-in parent has children)
   const availableYears = useMemo(() => {
-    const years = [...new Set(bundles.map((b) => b.year_level))].sort((a, b) => a - b);
-    return years;
-  }, [bundles]);
+    const bundleYears = [...new Set((bundles || []).map((b) => Number(b.year_level)).filter(Boolean))].sort(
+      (a, b) => a - b
+    );
+
+    if (!parentToken || childYears.length === 0) return bundleYears;
+    return bundleYears.filter((year) => childYears.includes(year));
+  }, [bundles, parentToken, childYears]);
 
   // Filtered bundles
   const filteredBundles = useMemo(() => {
-    if (!selectedYear) return bundles;
-    return bundles.filter((b) => b.year_level === selectedYear);
-  }, [bundles, selectedYear]);
+    if (selectedYear) {
+      return (bundles || []).filter((b) => Number(b.year_level) === Number(selectedYear));
+    }
+    if (!parentToken || childYears.length === 0) return bundles || [];
+    return (bundles || []).filter((b) => childYears.includes(Number(b.year_level)));
+  }, [bundles, selectedYear, parentToken, childYears]);
+
+  // Auto-select only year if exactly one child year and no query param selection
+  useEffect(() => {
+    if (selectedYear) return;
+    if (childYears.length === 1) setSelectedYear(childYears[0]);
+  }, [childYears, selectedYear]);
 
   // Children grouped by year level (for auto-selecting which children get a bundle)
   const childrenByYear = useMemo(() => {
     const map = {};
-    children.forEach((c) => {
-      const y = c.year_level;
+    (children || []).forEach((c) => {
+      const y = Number(c.year_level);
+      if (!y) return;
       if (!map[y]) map[y] = [];
       map[y].push(c);
     });
     return map;
   }, [children]);
 
-  // Handle checkout
   const handleBuy = async (bundle) => {
     if (!parentToken) {
       navigate("/parent-login");
       return;
     }
 
-    // Find children matching the bundle year level
-    const eligible = childrenByYear[bundle.year_level] || [];
+    const bundleYear = Number(bundle.year_level);
+    const eligible = childrenByYear[bundleYear] || [];
+
     if (eligible.length === 0) {
       setError(
-        `No children found for ${YEAR_LABELS[bundle.year_level]}. Please add a child with this year level first.`
+        `No children found for ${YEAR_LABELS[bundleYear] || `Year ${bundleYear}`}. Please add a child with this year level first.`
       );
       return;
     }
@@ -105,46 +264,71 @@ export default function BundleSelectionPage() {
         child_ids: eligible.map((c) => c._id),
       });
 
-      if (result?.checkout_url) {
-        window.location.href = result.checkout_url;
-      } else {
+      if (!result?.checkout_url) {
         throw new Error("No checkout URL returned");
       }
+
+      window.location.href = result.checkout_url;
     } catch (err) {
-      setError(err.message || "Failed to start checkout");
+      console.error("Checkout failed:", err);
+      setError(err?.message || "Failed to start checkout");
     } finally {
       setCheckoutLoading(null);
     }
   };
 
-  // Handle free trial
-  const handleFreeTrial = () => {
-    navigate("/free-trial");
+  const handleStartFreeTrial = () => {
+    if (!parentToken) {
+      navigate("/parent-login");
+      return;
+    }
+
+    if (!children.length) {
+      setError("Please add a child first before starting a free trial.");
+      navigate("/parent-dashboard");
+      return;
+    }
+
+    // If year is selected, prefer matching child
+    const preferredChild =
+      (selectedYear
+        ? children.find((c) => Number(c.year_level) === Number(selectedYear))
+        : null) || children[0];
+
+    if (!preferredChild?._id) {
+      setError("Could not find a valid child profile for free trial.");
+      return;
+    }
+
+    navigate(
+      `/free-trial?childId=${encodeURIComponent(preferredChild._id)}&childName=${encodeURIComponent(
+        preferredChild.name || preferredChild.display_name || ""
+      )}`
+    );
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-slate-500">Loading bundles...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+    <div className="min-h-screen bg-slate-50">
       {/* HEADER */}
-      <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-10">
-        <h1 className="text-lg font-semibold text-slate-900">KAI Solutions</h1>
-        <div className="flex gap-3">
-          <button
-            onClick={() => navigate("/parent-dashboard")}
-            className="px-4 py-2 rounded-lg text-sm border border-slate-300 hover:bg-slate-100"
-          >
-            Dashboard
-          </button>
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-semibold text-slate-900">
+              Bundles & Plans
+            </h1>
+            <p className="text-sm text-slate-500">
+              Choose a year-level bundle and complete checkout
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/parent-dashboard")}
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+            >
+              Parent Dashboard
+            </button>
+          </div>
         </div>
       </header>
 
@@ -167,12 +351,16 @@ export default function BundleSelectionPage() {
           </div>
         )}
 
-        {/* ══════════════════════════════════════ */}
-        {/*  FREE TRIAL CARD                       */}
-        {/* ══════════════════════════════════════ */}
+        {/* MOCK NOTICE */}
+        {usingMockBundles && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm px-4 py-3 rounded-xl text-center">
+            Showing sample bundle catalog. Prices and subjects are mock data for local preview.
+          </div>
+        )}
+
+        {/* FREE TRIAL CARD */}
         <section>
           <div className="relative overflow-hidden bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-2xl p-8 md:p-10 text-white shadow-xl">
-            {/* Decorative circles */}
             <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full" />
             <div className="absolute -bottom-6 -left-6 w-24 h-24 bg-white/10 rounded-full" />
 
@@ -186,6 +374,7 @@ export default function BundleSelectionPage() {
                   One full-length NAPLAN-style practice test with instant scoring and detailed
                   performance insights. No credit card required.
                 </p>
+
                 <div className="mt-4 flex flex-wrap gap-3 text-sm text-indigo-100">
                   <span className="flex items-center gap-1.5">
                     <CheckIcon /> 1 full practice test
@@ -196,189 +385,190 @@ export default function BundleSelectionPage() {
                   <span className="flex items-center gap-1.5">
                     <CheckIcon /> Performance breakdown
                   </span>
-                  <span className="flex items-center gap-1.5">
-                    <CheckIcon /> AI feedback (limited)
-                  </span>
                 </div>
               </div>
 
-              <button
-                onClick={handleFreeTrial}
-                className="flex-shrink-0 bg-white text-indigo-700 px-8 py-3.5 rounded-xl text-base font-semibold hover:bg-indigo-50 transition shadow-lg hover:shadow-xl hover:-translate-y-0.5"
-              >
-                Start Free Trial
-              </button>
+              <div className="w-full md:w-auto flex flex-col items-center md:items-end gap-3">
+                <div className="text-4xl font-extrabold">FREE</div>
+                <button
+                  onClick={handleStartFreeTrial}
+                  className="px-6 py-3 rounded-xl bg-white text-indigo-700 font-semibold hover:bg-indigo-50 transition shadow-md"
+                >
+                  Start Free Trial
+                </button>
+                {!parentToken && (
+                  <p className="text-xs text-indigo-200 text-center md:text-right">
+                    Login required to assign trial to a child
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </section>
 
-        {/* ══════════════════════════════════════ */}
-        {/*  YEAR LEVEL FILTER                     */}
-        {/* ══════════════════════════════════════ */}
-        {availableYears.length > 0 && (
-          <div className="flex items-center justify-center gap-2 flex-wrap">
+        {/* YEAR FILTERS */}
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setSelectedYear(null)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                !selectedYear
-                  ? "bg-indigo-600 text-white shadow"
-                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+              className={`px-4 py-2 rounded-full text-sm font-medium border transition ${
+                selectedYear == null
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
               }`}
             >
               All Years
             </button>
-            {availableYears.map((y) => (
+
+            {availableYears.map((year) => (
               <button
-                key={y}
-                onClick={() => setSelectedYear(y)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  selectedYear === y
-                    ? "bg-indigo-600 text-white shadow"
-                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                key={year}
+                onClick={() => setSelectedYear(year)}
+                className={`px-4 py-2 rounded-full text-sm font-medium border transition ${
+                  Number(selectedYear) === Number(year)
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
                 }`}
               >
-                {YEAR_LABELS[y]}
+                {YEAR_LABELS[year] || `Year ${year}`}
               </button>
             ))}
           </div>
-        )}
 
-        {/* ══════════════════════════════════════ */}
-        {/*  PAID BUNDLE CARDS                     */}
-        {/* ══════════════════════════════════════ */}
-        {filteredBundles.length > 0 ? (
-          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredBundles.map((bundle) => {
-              const colors = YEAR_COLORS[bundle.year_level] || YEAR_COLORS[3];
-              const eligible = childrenByYear[bundle.year_level] || [];
-              const isLoading = checkoutLoading === bundle.bundle_id;
+          {parentToken && childYears.length > 0 && (
+            <p className="text-center text-xs text-slate-500">
+              Showing bundles for your children’s year levels
+              {selectedYear ? ` • filtered to ${YEAR_LABELS[selectedYear]}` : ""}
+            </p>
+          )}
+        </section>
 
-              return (
-                <div
-                  key={bundle.bundle_id}
-                  className={`relative ${colors.bg} ${colors.border} border rounded-2xl p-6 shadow-sm hover:shadow-md transition flex flex-col`}
-                >
-                  {/* Year badge */}
-                  <span
-                    className={`inline-block self-start px-3 py-1 rounded-full text-xs font-semibold ${colors.accent} bg-white/80`}
-                  >
-                    {YEAR_LABELS[bundle.year_level]}
-                  </span>
+        {/* LOADING */}
+        {loading ? (
+          <div className="py-16 text-center text-slate-500">Loading bundles...</div>
+        ) : (
+          <>
+            {/* BUNDLE GRID */}
+            {filteredBundles.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
+                <p className="text-slate-700 font-medium">No bundles available</p>
+                <p className="text-slate-500 text-sm mt-2">
+                  Try another year level or check back later.
+                </p>
+              </div>
+            ) : (
+              <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {filteredBundles.map((bundle) => {
+                  const colors = YEAR_COLORS[bundle.year_level] || {
+                    bg: "bg-slate-50",
+                    border: "border-slate-200",
+                    accent: "text-slate-700",
+                    btn: "bg-slate-700 hover:bg-slate-800",
+                  };
+                  const isLoading = checkoutLoading === bundle.bundle_id;
+                  const bundleYear = Number(bundle.year_level);
+                  const eligibleCount = (childrenByYear[bundleYear] || []).length;
+                  const includedCount =
+                    Number(bundle.included_tests || 0) ||
+                    Number(bundle.flexiquiz_quiz_ids?.length || 0);
 
-                  {/* Bundle name + description */}
-                  <h3 className="mt-3 text-lg font-bold text-slate-900">
-                    {bundle.bundle_name}
-                  </h3>
-                  {bundle.description && (
-                    <p className="mt-1 text-sm text-slate-600">{bundle.description}</p>
-                  )}
+                  return (
+                    <div
+                      key={bundle.bundle_id}
+                      className={`rounded-2xl border ${colors.border} ${colors.bg} p-5 shadow-sm hover:shadow-md transition flex flex-col`}
+                    >
+                      {/* Top row */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className={`text-xs font-semibold uppercase tracking-wide ${colors.accent}`}>
+                            {YEAR_LABELS[bundleYear] || `Year ${bundleYear}`}
+                          </p>
+                          {bundle.is_mock && (
+                            <span className="inline-block mt-2 text-[11px] px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500">
+                              Preview data
+                            </span>
+                          )}
+                        </div>
 
-                  {/* Subjects */}
-                  {bundle.subjects?.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {bundle.subjects.map((s) => (
-                        <span
-                          key={s}
-                          className="text-xs px-2 py-0.5 rounded-full bg-white/70 text-slate-600 border border-slate-200"
-                        >
-                          {s}
+                        <span className="text-xs px-2.5 py-1 rounded-full bg-white/80 border border-slate-200 text-slate-600">
+                          Paid Bundle
                         </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Quiz count */}
-                  <p className="mt-3 text-xs text-slate-500">
-                    {bundle.flexiquiz_quiz_ids?.length || 0} practice tests included
-                  </p>
-
-                  {/* Spacer */}
-                  <div className="flex-1" />
-
-                  {/* Price + CTA */}
-                  <div className="mt-5 pt-4 border-t border-slate-200/50">
-                    <div className="flex items-end justify-between">
-                      <div>
-                        <span className="text-3xl font-bold text-slate-900">
-                          ${(bundle.price_cents / 100).toFixed(2)}
-                        </span>
-                        <span className="text-sm text-slate-500 ml-1">AUD</span>
                       </div>
 
-                      <button
-                        onClick={() => handleBuy(bundle)}
-                        disabled={isLoading}
-                        className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition disabled:opacity-50 ${colors.btn}`}
-                      >
-                        {isLoading ? (
-                          <span className="flex items-center gap-2">
-                            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            Processing...
-                          </span>
-                        ) : eligible.length > 0 ? (
-                          `Buy for ${eligible.length} child${eligible.length > 1 ? "ren" : ""}`
-                        ) : (
-                          "Buy Now"
+                      {/* Bundle name + description */}
+                      <h3 className="mt-3 text-lg font-bold text-slate-900">
+                        {bundle.bundle_name}
+                      </h3>
+                      {bundle.description && (
+                        <p className="mt-1 text-sm text-slate-600">{bundle.description}</p>
+                      )}
+
+                      {/* Subjects */}
+                      {bundle.subjects?.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {bundle.subjects.map((s) => (
+                            <span
+                              key={s}
+                              className="text-xs px-2 py-0.5 rounded-full bg-white/70 text-slate-600 border border-slate-200"
+                            >
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Quiz count + eligible children */}
+                      <div className="mt-3 space-y-1">
+                        <p className="text-xs text-slate-500">
+                          {includedCount} practice test{includedCount === 1 ? "" : "s"} included
+                        </p>
+                        {parentToken && (
+                          <p className="text-xs text-slate-500">
+                            Eligible children: {eligibleCount}
+                          </p>
                         )}
-                      </button>
+                      </div>
+
+                      <div className="flex-1" />
+
+                      {/* Price + CTA */}
+                      <div className="mt-5 pt-4 border-t border-slate-200/60">
+                        <div className="flex items-end justify-between gap-3">
+                          <div>
+                            <span className="text-3xl font-bold text-slate-900">
+                              ${(Number(bundle.price_cents || 0) / 100).toFixed(2)}
+                            </span>
+                            <span className="text-sm text-slate-500 ml-1">AUD</span>
+                          </div>
+
+                          <button
+                            onClick={() => handleBuy(bundle)}
+                            disabled={isLoading}
+                            className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition disabled:opacity-50 ${colors.btn}`}
+                          >
+                            {isLoading ? (
+                              <span className="flex items-center gap-2">
+                                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Processing...
+                              </span>
+                            ) : (
+                              "Buy Now"
+                            )}
+                          </button>
+                        </div>
+
+                        <p className="mt-2 text-[11px] text-slate-400">
+                          {formatAUD(bundle.price_cents)}
+                        </p>
+                      </div>
                     </div>
-
-                    {/* Eligible children hint */}
-                    {eligible.length > 0 && (
-                      <p className="mt-2 text-xs text-slate-500">
-                        For: {eligible.map((c) => c.display_name || c.username).join(", ")}
-                      </p>
-                    )}
-                    {eligible.length === 0 && parentToken && (
-                      <p className="mt-2 text-xs text-amber-600">
-                        No {YEAR_LABELS[bundle.year_level]} children added yet.{" "}
-                        <button
-                          onClick={() => navigate("/parent-dashboard")}
-                          className="underline"
-                        >
-                          Add one
-                        </button>
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </section>
-        ) : (
-          <div className="text-center py-12">
-            <p className="text-slate-500">No bundles available yet.</p>
-            <p className="text-slate-400 text-sm mt-1">
-              Check back soon — new practice packs are coming!
-            </p>
-          </div>
-        )}
-
-        {/* NOT LOGGED IN NUDGE */}
-        {!parentToken && (
-          <div className="text-center py-6">
-            <p className="text-slate-500">
-              Already have an account?{" "}
-              <button
-                onClick={() => navigate("/parent-login")}
-                className="text-indigo-600 font-medium hover:underline"
-              >
-                Log in
-              </button>{" "}
-              to purchase bundles for your children.
-            </p>
-          </div>
+                  );
+                })}
+              </section>
+            )}
+          </>
         )}
       </main>
     </div>
-  );
-}
-
-/* ── Tiny check icon ── */
-function CheckIcon() {
-  return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-    </svg>
   );
 }
