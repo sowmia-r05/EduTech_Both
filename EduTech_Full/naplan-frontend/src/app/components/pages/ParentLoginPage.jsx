@@ -42,7 +42,7 @@ async function requestLoginOtp(email) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: normalizeEmail(email) }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || "Failed to send login OTP");
   return data;
 }
@@ -53,7 +53,7 @@ async function verifyLoginOtp(email, otp) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: normalizeEmail(email), otp }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || "OTP verification failed");
   return data;
 }
