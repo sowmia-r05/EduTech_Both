@@ -1,291 +1,356 @@
-import React, { useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/app/context/AuthContext";
+
+import { Button } from "@/app/components/ui/button";
+import { Card, CardContent } from "@/app/components/ui/card";
+import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  BarChart,
-  Bar,
-} from "recharts";
+  Plus, LogOut, User, GraduationCap, Pencil, Trash2,
+  AlertCircle, Loader2, Mail, ShieldCheck, Clock,
+} from "lucide-react";
 
-/* ---------------- MOCK DATA ---------------- */
+import AddChildDialog from "@/app/components/dashboard/AddChildDialog";
+import EditChildDialog from "@/app/components/dashboard/EditChildDialog";
+import { fetchChildren, deleteChild } from "@/app/utils/childrenApi";
 
-const trendData = [
-  { month: "Jan", Language: 60, Numeracy: 70, Reading: 75, Writing: 60 },
-  { month: "Feb", Language: 65, Numeracy: 72, Reading: 78, Writing: 60 },
-  { month: "Mar", Language: 63, Numeracy: 74, Reading: 80, Writing: 60 },
-  { month: "Apr", Language: 68, Numeracy: 76, Reading: 82, Writing: 60 },
-  { month: "May", Language: 72, Numeracy: 79, Reading: 85, Writing: 60 },
-];
-
-const comparisonData = [
-  { subject: "Language", score: 72 },
-  { subject: "Numeracy", score: 79 },
-  { subject: "Reading", score: 85 },
-  { subject: "Writing", score: 70 },
-];
-
-const difficultyData = [
-  { level: "Easy", score: 92, color: "bg-emerald-500" },
-  { level: "Medium", score: 81, color: "bg-amber-500" },
-  { level: "Hard", score: 64, color: "bg-rose-500" },
-];
-
-const recentActivity = [
-  { subject: "Reading", testName: "Comprehension Test 3", date: "May 12", accuracy: 85, timeTaken: "18 min", difficulty: "Medium" },
-  { subject: "Language", testName: "Grammar Quiz 4", date: "May 08", accuracy: 72, timeTaken: "15 min", difficulty: "Hard" },
-  { subject: "Numeracy", testName: "Fractions Assessment", date: "May 02", accuracy: 79, timeTaken: "20 min", difficulty: "Medium" },
-  { subject: "Writing", testName: "Global Summit AI", date: "May 02", accuracy: 89, timeTaken: "20 min", difficulty: "Medium" },
-];
-
-/* ---------------- MAIN ---------------- */
-
-export default function ParentDashboard() {
-  const overallAverage = useMemo(
-    () => comparisonData.reduce((a, s) => a + s.score, 0) / comparisonData.length,
-    []
-  );
-
-  const strongest = useMemo(
-    () => comparisonData.reduce((p, c) => (c.score > p.score ? c : p)).subject,
-    []
-  );
-
-  const weakest = useMemo(
-    () => comparisonData.reduce((p, c) => (c.score < p.score ? c : p)).subject,
-    []
-  );
+// ─── Status badge ───
+function StatusBadge({ status }) {
+  const styles = {
+    trial: "bg-amber-100 text-amber-700",
+    active: "bg-green-100 text-green-700",
+    expired: "bg-gray-100 text-gray-500",
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
-      <div className="max-w-screen-2xl mx-auto px-8 py-8 space-y-8">
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${styles[status] || styles.trial}`}>
+      {status === "trial" ? "Free Trial" : status === "active" ? "Active" : "Expired"}
+    </span>
+  );
+}
 
-        {/* HEADER */}
-        <header className="flex flex-col lg:flex-row justify-between gap-6 pb-6 border-b border-slate-200">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              Vishaka Radha
-            </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Year 3 • Academic Performance Overview
-            </p>
+// ─── Year level badge ───
+function YearBadge({ year }) {
+  return (
+    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+      Year {year}
+    </span>
+  );
+}
+
+// ─── Child Card ───
+function ChildCard({ child, onEdit, onDelete }) {
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Remove ${child.display_name}'s profile? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await onDelete(child._id);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const avatarColors = [
+    "bg-indigo-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500",
+    "bg-cyan-500", "bg-purple-500", "bg-pink-500", "bg-teal-500",
+  ];
+  const colorIndex = (child.display_name || "").charCodeAt(0) % avatarColors.length;
+  const initial = (child.display_name || "?")[0].toUpperCase();
+
+  return (
+    <Card className="hover:shadow-lg transition-shadow duration-200">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between">
+          {/* Avatar + Info */}
+          <div className="flex items-start gap-3">
+            <div className={`w-12 h-12 rounded-full ${avatarColors[colorIndex]} flex items-center justify-center text-white font-bold text-lg shrink-0`}>
+              {initial}
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-gray-900 truncate">{child.display_name}</h3>
+              <p className="text-sm text-gray-500">@{child.username}</p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <YearBadge year={child.year_level} />
+                <StatusBadge status={child.status} />
+              </div>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-gray-400 hover:text-indigo-600"
+              onClick={() => onEdit(child)}
+              title="Edit"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-gray-400 hover:text-red-600"
+              onClick={handleDelete}
+              disabled={deleting}
+              title="Delete"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+
+        {/* Action buttons based on status */}
+        <div className="mt-4 pt-3 border-t border-gray-100">
+          {child.status === "trial" && (
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" className="flex-1 text-xs">
+                Try Sample Test
+              </Button>
+              <Button size="sm" className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700">
+                Purchase Bundle
+              </Button>
+            </div>
+          )}
+          {child.status === "active" && (
+            <Button size="sm" className="w-full text-xs bg-indigo-600 hover:bg-indigo-700">
+              View Results
+            </Button>
+          )}
+          {child.status === "expired" && (
+            <Button size="sm" className="w-full text-xs bg-indigo-600 hover:bg-indigo-700">
+              Renew Bundle
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Email verification banner ───
+function VerifyEmailBanner({ email }) {
+  const [resending, setResending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const handleResend = async () => {
+    setResending(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+      await fetch(`${API_BASE}/api/auth/resend-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      setSent(true);
+    } catch {}
+    setResending(false);
+  };
+
+  return (
+    <Alert className="border-amber-200 bg-amber-50">
+      <Mail className="h-4 w-4 text-amber-600" />
+      <AlertDescription className="flex items-center justify-between flex-wrap gap-2">
+        <span className="text-amber-800">
+          Please verify your email address. Check your inbox for a verification link.
+        </span>
+        {!sent ? (
+          <Button size="sm" variant="outline" onClick={handleResend} disabled={resending} className="text-xs">
+            {resending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+            Resend
+          </Button>
+        ) : (
+          <span className="text-xs text-green-600 font-medium">Sent!</span>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+// ─── Main Dashboard ───
+export default function ParentDashboard() {
+  const navigate = useNavigate();
+  const { parent, logout, loading: authLoading } = useAuth();
+
+  const [children, setChildren] = useState([]);
+  const [loadingChildren, setLoadingChildren] = useState(true);
+  const [error, setError] = useState("");
+
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [editChild, setEditChild] = useState(null);
+
+  const loadChildren = useCallback(async () => {
+    setLoadingChildren(true);
+    setError("");
+    try {
+      const data = await fetchChildren();
+      setChildren(data);
+    } catch (err) {
+      setError(err.message || "Failed to load children");
+    }
+    setLoadingChildren(false);
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading) loadChildren();
+  }, [authLoading, loadChildren]);
+
+  const handleChildCreated = (newChild) => {
+    setChildren((prev) => [...prev, newChild]);
+  };
+
+  const handleChildUpdated = (updatedChild) => {
+    setChildren((prev) =>
+      prev.map((c) => (c._id === updatedChild._id ? updatedChild : c))
+    );
+  };
+
+  const handleDeleteChild = async (childId) => {
+    try {
+      await deleteChild(childId);
+      setChildren((prev) => prev.filter((c) => c._id !== childId));
+    } catch (err) {
+      setError(err.message || "Failed to delete child");
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate("/");
+  };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center">
+              <GraduationCap className="h-5 w-5 text-white" />
+            </div>
+            <span className="font-bold text-lg text-gray-900">KAI Solutions</span>
           </div>
 
           <div className="flex items-center gap-3">
-            <select className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm shadow-sm focus:ring-2 focus:ring-indigo-400 outline-none">
-              <option>Last 30 Days</option>
-              <option>This Term</option>
-              <option>This Year</option>
-            </select>
-            <button className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium shadow hover:bg-indigo-700 transition">
-              Download Report
-            </button>
-            <button className="px-5 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium shadow hover:bg-rose-600 transition">
-              Logout
-            </button>
-          </div>
-        </header>
-
-        {/* KPI ROW */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-          <KPI title="Overall Average" value={`${overallAverage.toFixed(0)}%`} />
-          <KPI title="Strongest Subject" value={strongest} accent />
-          <KPI title="Needs Attention" value={weakest} warning />
-          <KPI title="Total Assessments" value="24" />
-        </section>
-
-        {/* ANALYTICS */}
-        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-
-          {/* LINE CHART */}
-          <Card className="xl:col-span-2">
-            <CardTitle>Performance Trend</CardTitle>
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={trendData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="month" stroke="#64748b" />
-                <YAxis domain={[0, 100]} stroke="#64748b" />
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: 12,
-                    border: "none",
-                    boxShadow: "0 15px 30px rgba(0,0,0,0.08)",
-                  }}
-                />
-                {["Language", "Numeracy", "Reading", "Writing"].map((key, i) => {
-                  const colors = ["#6366F1", "#10B981", "#F59E0B", "#EF4444"];
-                  return (
-                    <Line
-                      key={key}
-                      type="monotone"
-                      dataKey={key}
-                      stroke={colors[i]}
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                      activeDot={{ r: 6 }}
-                    />
-                  );
-                })}
-              </LineChart>
-            </ResponsiveContainer>
-          </Card>
-
-          {/* BAR CHART */}
-          <Card>
-            <CardTitle>Subject Comparison</CardTitle>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={comparisonData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="subject" stroke="#64748b" />
-                <YAxis domain={[0, 100]} stroke="#64748b" />
-                <Tooltip />
-                <defs>
-                  <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6366F1" />
-                    <stop offset="100%" stopColor="#8B5CF6" />
-                  </linearGradient>
-                </defs>
-                <Bar dataKey="score" fill="url(#barGradient)" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </Card>
-        </section>
-
-        {/* SECOND ROW */}
-        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-
-          <Card>
-            <CardTitle>Academic Summary</CardTitle>
-            <div className="space-y-4 text-sm">
-              <Summary label="Target Average" value="85%" />
-              <Summary label="Term Improvement" value="+10%" positive />
-              <Summary label="Completed Quizzes" value="24" />
-              <Summary label="Subjects Active" value="4" />
+            <div className="hidden sm:flex items-center gap-2 text-sm text-gray-600">
+              <User className="h-4 w-4" />
+              <span>{parent?.first_name} {parent?.last_name}</span>
             </div>
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="text-gray-500 hover:text-red-600">
+              <LogOut className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">Logout</span>
+            </Button>
+          </div>
+        </div>
+      </header>
 
-            <div className="mt-6">
-              <p className="text-xs text-slate-500 mb-2">Progress Toward Target</p>
-              <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-700"
-                  style={{ width: `${overallAverage}%` }}
-                />
+      {/* Main Content */}
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        {/* Email verification banner */}
+        {parent && !parent.email_verified && (
+          <div className="mb-6">
+            <VerifyEmailBanner email={parent.email} />
+          </div>
+        )}
+
+        {/* Welcome */}
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-gray-900">
+            Welcome, {parent?.first_name || "Parent"}
+          </h1>
+          <p className="text-gray-500 mt-1">
+            Manage your children's NAPLAN preparation and track their progress.
+          </p>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Children Section */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Children
+            {children.length > 0 && (
+              <span className="text-gray-400 font-normal ml-2 text-sm">({children.length})</span>
+            )}
+          </h2>
+          <Button
+            onClick={() => setAddDialogOpen(true)}
+            className="bg-indigo-600 hover:bg-indigo-700"
+            size="sm"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add Child
+          </Button>
+        </div>
+
+        {loadingChildren ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+          </div>
+        ) : children.length === 0 ? (
+          /* Empty state */
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
+                <User className="h-8 w-8 text-indigo-400" />
               </div>
-            </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">No children added yet</h3>
+              <p className="text-sm text-gray-500 mb-4 max-w-sm">
+                Add your first child to get started with NAPLAN practice tests and AI-powered feedback.
+              </p>
+              <Button
+                onClick={() => setAddDialogOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-700"
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Add Your First Child
+              </Button>
+            </CardContent>
           </Card>
-
-          <Card>
-            <CardTitle>Difficulty Breakdown</CardTitle>
-            <div className="space-y-5">
-              {difficultyData.map((item) => (
-                <div key={item.level}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-slate-600">{item.level}</span>
-                    <span className="font-medium text-slate-900">{item.score}%</span>
-                  </div>
-                  <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full ${item.color} transition-all duration-700`}
-                      style={{ width: `${item.score}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-indigo-600/95 to-purple-600/95 text-white shadow-xl">
-            <CardTitle light>Performance Insights</CardTitle>
-            <ul className="space-y-4 text-sm">
-              <li>✓ Reading performance steadily improving</li>
-              <li>⚠ Language below target benchmark</li>
-              <li>! Hard-level assessments need reinforcement</li>
-              <li>✓ Completion time improving consistently</li>
-            </ul>
-          </Card>
-        </section>
-
-        {/* TABLE */}
-        <Card>
-          <CardTitle>Recent Assessments</CardTitle>
-          <div className="overflow-hidden rounded-xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-500 uppercase text-xs">
-                <tr>
-                  {["Subject", "Test", "Date", "Accuracy", "Time", "Difficulty", "Action"].map((h) => (
-                    <th key={h} className="px-6 py-4 text-left">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {recentActivity.map((row, i) => (
-                  <tr key={i} className="hover:bg-indigo-50/40 transition">
-                    <td className="px-6 py-4 font-medium">{row.subject}</td>
-                    <td className="px-6">{row.testName}</td>
-                    <td className="px-6 text-slate-500">{row.date}</td>
-                    <td className="px-6 font-semibold">{row.accuracy}%</td>
-                    <td className="px-6 text-slate-500">{row.timeTaken}</td>
-                    <td className="px-6">{row.difficulty}</td>
-                    <td className="px-6">
-                      <button className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition">
-                        View Quiz
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        ) : (
+          /* Children grid */
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {children.map((child) => (
+              <ChildCard
+                key={child._id}
+                child={child}
+                onEdit={setEditChild}
+                onDelete={handleDeleteChild}
+              />
+            ))}
           </div>
-        </Card>
+        )}
+      </main>
 
-      </div>
-    </div>
-  );
-}
+      {/* Dialogs */}
+      <AddChildDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        onChildCreated={handleChildCreated}
+      />
 
-/* ---------------- UI COMPONENTS ---------------- */
-
-function Card({ children, className = "" }) {
-  return (
-    <div className={`bg-white rounded-2xl p-8 border border-slate-200 shadow-sm hover:shadow-lg transition-all duration-300 ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-function CardTitle({ children, light }) {
-  return (
-    <h2 className={`text-lg font-semibold mb-6 ${light ? "text-white" : "text-slate-800"}`}>
-      {children}
-    </h2>
-  );
-}
-
-function KPI({ title, value, accent, warning }) {
-  return (
-    <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-      <p className="text-xs uppercase tracking-wider text-slate-400">{title}</p>
-      <p
-        className={`text-3xl font-bold mt-3 ${
-          accent ? "text-indigo-600" : warning ? "text-rose-500" : "text-slate-900"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function Summary({ label, value, positive }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-slate-600">{label}</span>
-      <span className={`font-medium ${positive ? "text-emerald-600" : "text-slate-900"}`}>
-        {value}
-      </span>
+      <EditChildDialog
+        open={!!editChild}
+        onOpenChange={(open) => { if (!open) setEditChild(null); }}
+        child={editChild}
+        onChildUpdated={handleChildUpdated}
+      />
     </div>
   );
 }
