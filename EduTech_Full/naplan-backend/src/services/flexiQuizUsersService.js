@@ -245,11 +245,29 @@ async function registerRespondent({
   };
 }
 
+/**
+ * Delete a user from FlexiQuiz.
+ * DELETE /v1/users/{user_id}
+ *
+ * @param {string} userId - FlexiQuiz user_id
+ * @returns {Object} - { message: '200: OK' }
+ */
+async function fqDeleteUser(userId) {
+  assertApiKey();
+  const url = `${FQ_BASE}/users/${userId}`;
+  const res = await axios.delete(url, {
+    headers: { "X-API-KEY": API_KEY },
+    timeout: 20000,
+  });
+  return res.data;
+}
+
 module.exports = {
   registerRespondent,
   fqAssignQuiz,
   fqAssignGroup,
   fqGetUser,
+  fqDeleteUser,        // ← NEW
   fqFindUserIdByUsername,
   generatePassword,
 };

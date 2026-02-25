@@ -4,7 +4,7 @@ const Child = require("../models/child");
 const Result = require("../models/result");
 const Writing = require("../models/writing");
 const Parent = require("../models/parent");
-const { registerRespondent } = require("../services/flexiQuizUsersService");
+const { registerRespondent, fqDeleteUser } = require("../services/flexiQuizUsersService");
 const { encryptPassword } = require("../utils/flexiquizCrypto");
 
 const {
@@ -439,6 +439,10 @@ router.put("/:childId", verifyToken, requireParent, async (req, res) => {
 // ────────────────────────────────────────────
 // DELETE /api/children/:childId
 // ────────────────────────────────────────────
+// ────────────────────────────────────────────
+// DELETE /api/children/:childId
+// Also deletes the user from FlexiQuiz if they have an account
+// ────────────────────────────────────────────
 router.delete("/:childId", verifyToken, requireParent, async (req, res) => {
   try {
     const parentId = req.user.parentId || req.user.parent_id;
@@ -448,15 +452,41 @@ router.delete("/:childId", verifyToken, requireParent, async (req, res) => {
       return res.status(400).json({ error: "Invalid child ID" });
     }
 
-    const deleted = await Child.findOneAndDelete({
+    // 1. Find the child first (don't delete yet — we need flexiquiz_user_id)
+    const child = await Child.findOne({
       _id: childId,
       parent_id: parentId,
     });
-    if (!deleted) {
+    if (!child) {
       return res.status(404).json({ error: "Child not found" });
     }
 
-    return res.json({ ok: true, deleted: deleted._id });
+    // 2. If child has a FlexiQuiz account, delete from FlexiQuiz
+    let flexiquizDeleted = false;
+    if (child.flexiquiz_user_id) {
+      try {
+        await fqDeleteUser(child.flexiquiz_user_id);
+        flexiquizDeleted = true;
+        console.log(
+          `✅ Deleted FlexiQuiz user ${child.flexiquiz_user_id} for child ${childId}`
+        );
+      } catch (fqErr) {
+        // Log but don't block — still remove child from our DB
+        console.error(
+          `⚠️ Failed to delete FlexiQuiz user ${child.flexiquiz_user_id}:`,
+          fqErr.response?.data || fqErr.message
+        );
+      }
+    }
+
+    // 3. Delete from MongoDB
+    await Child.findByIdAndDelete(childId);
+
+    return res.json({
+      ok: true,
+      deleted: child._id,
+      flexiquizDeleted,
+    });
   } catch (err) {
     console.error("DELETE /children/:childId error:", err);
     return res.status(500).json({ error: "Failed to delete child" });
