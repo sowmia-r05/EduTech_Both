@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import {
   fetchChildrenSummaries,
@@ -13,6 +13,7 @@ import {
 ========================= */
 export default function ParentDashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { parentToken, parentProfile, logout } = useAuth();
 
   const [children, setChildren] = useState([]);
@@ -21,6 +22,7 @@ export default function ParentDashboard() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState(null);
 
   /* ─── Fetch children on mount ─── */
   const loadChildren = useCallback(async () => {
@@ -42,11 +44,32 @@ export default function ParentDashboard() {
     loadChildren();
   }, [loadChildren]);
 
+  /* ─── Payment status from URL ─── */
+  useEffect(() => {
+    const payment = searchParams.get("payment");
+    if (payment === "success") {
+      setPaymentMessage({
+        type: "success",
+        text: "Payment successful! Your child's quizzes are being activated. This may take a moment.",
+      });
+      searchParams.delete("payment");
+      searchParams.delete("session_id");
+      setSearchParams(searchParams, { replace: true });
+      setTimeout(() => loadChildren(), 3000);
+    } else if (payment === "cancelled") {
+      setPaymentMessage({
+        type: "info",
+        text: "Payment was cancelled. You can try again anytime.",
+      });
+      searchParams.delete("payment");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ─── Enhanced data (status derivation) ─── */
   const enhancedChildren = useMemo(() => {
     return children.map((child) => ({
       ...child,
-      // Use backend status directly
       name: child.display_name || child.username || "Child",
       yearLevel: `Year ${child.year_level}`,
     }));
@@ -67,7 +90,7 @@ export default function ParentDashboard() {
     try {
       setActionLoading(true);
       await createChild(parentToken, formData);
-      await loadChildren(); // Refresh with stats
+      await loadChildren();
     } catch (err) {
       alert(err.message || "Failed to add child");
     } finally {
@@ -91,7 +114,7 @@ export default function ParentDashboard() {
   };
 
   /* ─── Navigate to child's results ─── */
-const handleViewChild = (child) => {
+  const handleViewChild = (child) => {
     const params = new URLSearchParams({
       childId: child._id,
       childName: child.name || child.display_name || child.username || "",
@@ -164,13 +187,40 @@ const handleViewChild = (child) => {
               Real-time visibility into your children's learning progress.
             </p>
           </div>
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700"
-          >
-            + Add Child
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => navigate("/bundles")}
+              className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-emerald-700"
+            >
+              Buy Bundle
+            </button>
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700"
+            >
+              + Add Child
+            </button>
+          </div>
         </section>
+
+        {/* PAYMENT STATUS */}
+        {paymentMessage && (
+          <div
+            className={`px-4 py-3 rounded-xl text-sm flex items-center justify-between ${
+              paymentMessage.type === "success"
+                ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
+                : "bg-amber-50 border border-amber-200 text-amber-700"
+            }`}
+          >
+            <span>{paymentMessage.text}</span>
+            <button
+              onClick={() => setPaymentMessage(null)}
+              className="ml-3 text-xs underline opacity-70 hover:opacity-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* ERROR */}
         {error && (
@@ -215,6 +265,7 @@ const handleViewChild = (child) => {
               formatLastActivity={formatLastActivity}
               onDelete={() => setDeleteTarget(child)}
               onView={() => handleViewChild(child)}
+              onUpgrade={() => navigate(`/bundles?year=${child.year_level}`)}
             />
           ))}
         </section>
@@ -263,7 +314,7 @@ function KPI({ label, value, highlight }) {
 /* =========================
    CHILD CARD
 ========================= */
-function ChildCard({ child, onDelete, onView, formatLastActivity }) {
+function ChildCard({ child, onDelete, onView, onUpgrade, formatLastActivity }) {
   const score = child.averageScore || 0;
   const performanceColor =
     score >= 85 ? "bg-emerald-500" : score >= 70 ? "bg-amber-500" : "bg-rose-500";
@@ -303,8 +354,8 @@ function ChildCard({ child, onDelete, onView, formatLastActivity }) {
         </div>
       </div>
 
-      {/* Status Badge */}
-      <div className="mt-4">
+      {/* Status Badge + Upgrade Link */}
+      <div className="mt-4 flex items-center gap-2">
         <span
           className={`text-xs px-2.5 py-1 rounded-full font-medium ${
             statusStyles[child.status] || statusStyles.trial
@@ -312,6 +363,18 @@ function ChildCard({ child, onDelete, onView, formatLastActivity }) {
         >
           {child.status}
         </span>
+
+        {child.status === "trial" && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onUpgrade();
+            }}
+            className="text-xs text-indigo-600 hover:underline"
+          >
+            Upgrade to Full Access →
+          </button>
+        )}
       </div>
 
       {/* Performance */}
@@ -347,7 +410,7 @@ function AddChildModal({ onClose, onAdd, loading }) {
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
-  const [usernameStatus, setUsernameStatus] = useState(null); // null | "checking" | "available" | "taken"
+  const [usernameStatus, setUsernameStatus] = useState(null);
 
   // Live username uniqueness check (debounced)
   useEffect(() => {
