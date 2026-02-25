@@ -138,14 +138,19 @@ router.get("/", verifyToken, requireParent, async (req, res) => {
 // ────────────────────────────────────────────
 router.post("/", verifyToken, requireParent, async (req, res) => {
   try {
-    const parentId = req.user.parentId || req.user.parent_id;
+    // Log user info from JWT
+
+    const parentId = req.user?.parentId || req.user?.parent_id;
+    if (!parentId) {
+      return res.status(401).json({ error: "Invalid parent authentication" });
+    }
 
     const display_name = String(req.body.display_name || "").trim();
     const username = String(req.body.username || "").trim().toLowerCase();
     const year_level = Number(req.body.year_level);
     const pin = String(req.body.pin || "").trim();
 
-    // Validation
+
     if (!display_name) {
       return res.status(400).json({ error: "Display name is required" });
     }
@@ -167,13 +172,24 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       return res.status(409).json({ error: "Username is already taken" });
     }
 
-    const child = await Child.create({
+    // Create child instance
+    const child = new Child({
       parent_id: parentId,
       display_name,
       username,
       year_level,
-      pin_hash: pin, // pre-save hook will bcrypt this
+      pin_hash: pin, // pre-save hook will hash this
     });
+
+    try {
+      await child.save();
+    } catch (saveErr) {
+      if (saveErr?.code === 11000) {
+        return res.status(409).json({ error: "Username is already taken" });
+      }
+      return res.status(500).json({ error: "Failed to create child", detail: saveErr.message });
+    }
+
 
     return res.status(201).json({
       _id: child._id,
@@ -186,10 +202,7 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
     });
   } catch (err) {
     console.error("POST /children error:", err);
-    if (err?.code === 11000) {
-      return res.status(409).json({ error: "Username is already taken" });
-    }
-    return res.status(500).json({ error: "Failed to create child" });
+    return res.status(500).json({ error: "Failed to create child", detail: err.message });
   }
 });
 

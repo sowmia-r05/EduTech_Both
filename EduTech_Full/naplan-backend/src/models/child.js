@@ -59,15 +59,15 @@ const ChildSchema = new mongoose.Schema(
 
 // ---------- PIN hashing ----------
 // Accepts raw PIN via virtual setter, hashes before save
-ChildSchema.pre("save", async function (next) {
-  if (!this.isModified("pin_hash")) return next();
+ChildSchema.pre("save", async function () {
+  if (!this.isModified("pin_hash")) return;
   try {
     this.pin_hash = await bcrypt.hash(this.pin_hash, SALT_ROUNDS);
-    next();
   } catch (err) {
-    next(err);
+    throw err; // Mongoose will catch and reject save
   }
 });
+
 
 ChildSchema.methods.comparePin = async function (rawPin) {
   return bcrypt.compare(String(rawPin), this.pin_hash);
