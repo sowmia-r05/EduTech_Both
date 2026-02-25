@@ -21,13 +21,28 @@ const ParentSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+
+    // Password auth (null for OTP-only or SSO users)
+    password_hash: { type: String, default: null },
+
+    auth_provider: {
+      type: String,
+      enum: ["local", "otp", "auth0"],
+      default: "otp",
+    },
+    auth0_sub: { type: String, default: null },
+
+    email_verified: { type: Boolean, default: false },
+
+    stripe_customer_id: { type: String, default: null },
+
     status: {
       type: String,
-      enum: ["active"],
+      enum: ["active", "pending", "suspended", "deleted"],
       default: "active",
     },
   },
-  { timestamps: true }
+  { timestamps: true, versionKey: false }
 );
 
 module.exports = mongoose.model("Parent", ParentSchema);

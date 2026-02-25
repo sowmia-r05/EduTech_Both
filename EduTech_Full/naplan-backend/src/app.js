@@ -1,7 +1,5 @@
 // ✅ Force IPv4 first (fixes ENETUNREACH to Gmail IPv6 on Render)
-
 const dns = require("dns");
-
 dns.setDefaultResultOrder("ipv4first");
 
 require("dotenv").config();
@@ -9,6 +7,7 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const cors = require("cors");
 
+// ─── Existing routes ───
 const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const webhookRoutes = require("./routes/webhookRoutes");
@@ -17,11 +16,14 @@ const writingRoutes = require("./routes/writingRoutes");
 const catalogRoutes = require("./routes/catalogRoutes");
 const userRoutes = require("./routes/userRoutes");
 const flexiQuizRoutes = require("./routes/flexiQuizRoutes");
-
 const otpAuth = require("./routes/otpAuth");
 const flexiquizSso = require("./routes/flexiquizSso");
 const parentRoutes = require("./routes/parentRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
+
+// ─── NEW routes ───
+const childRoutes = require("./routes/childRoutes");
+const childAuthRoutes = require("./routes/childAuthRoutes");
 
 const app = express();
 
@@ -72,19 +74,31 @@ const apiLimiter = rateLimit({
 app.use("/api/webhooks", webhookLimiter);
 app.use("/api", apiLimiter);
 
-// ✅ Routes
+// ✅ Routes — webhooks (no auth)
 app.use("/api/webhooks", webhookRoutes);
 
+// ✅ Routes — FlexiQuiz
 app.use("/api/flexiquiz", flexiQuizRoutes);
 app.use("/api/flexiquiz", flexiquizSso);
 
+// ✅ Routes — Auth (no auth middleware — these ARE the login endpoints)
 app.use("/api/auth", otpAuth);
+app.use("/api/auth", childAuthRoutes); // POST /api/auth/child-login
 
+// ✅ Routes — Parent auth (OTP send/verify)
+app.use("/api/parents", parentRoutes);
+app.use("/api/parents/auth", parentAuthRoutes);
+
+// ✅ Routes — Children (auth applied inside the route file per-endpoint)
+app.use("/api/children", childRoutes);
+
+// ✅ Routes — Data (existing, currently no auth — add in Phase 6)
 app.use("/api/results", resultsRoutes);
 app.use("/api/writing", writingRoutes);
 app.use("/api/catalog", catalogRoutes);
 app.use("/api/users", userRoutes);
 
+// ✅ Routes — Legacy (exam/student stubs)
 app.use("/api/exams", examRoutes);
 app.use("/api/students", studentRoutes);
 
@@ -95,11 +109,7 @@ app.get("/", (req, res) => {
 
 // ✅ Test if FlexiQuiz key is set (safe: no secret printed)
 app.get("/api/test-flexiquiz-key", (req, res) => {
-  res.json({ hasKey: !!process.env.FLEXIQUIZ_API_KEY });
+  res.json({ hasKey: !(!process.env.FLEXIQUIZ_API_KEY) });
 });
-app.use("/api/parents", parentRoutes);
 
-// ✅ auth routes under separate prefix to avoid /create collision
-app.use("/api/parents/auth", parentAuthRoutes);
 module.exports = app;
-
