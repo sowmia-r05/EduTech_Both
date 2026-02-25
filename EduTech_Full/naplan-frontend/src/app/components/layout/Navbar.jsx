@@ -83,10 +83,10 @@ export default function Navbar() {
           </button>
 
           <button
-            onClick={() => navigate("/register")}
+            onClick={() => navigate("/parent/create")}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg transition-all duration-300 hover:-translate-y-1"
           >
-            Enroll now
+            Create Account
           </button>
         </div>
 

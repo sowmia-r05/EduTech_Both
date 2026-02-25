@@ -3,7 +3,6 @@ import { AuthProvider } from "@/app/context/AuthContext";
 import { RequireParent, RequireChild, RequireAuth } from "@/app/components/auth/RequireAuth";
 
 import WelcomePage from "@/app/components/WelcomePage";
-import RegistrationPage from "@/app/components/RegistrationPage";
 import ResultPage from "@/app/components/ResultPage";
 import Dashboard from "@/app/components/pages/Dashboard";
 import ParentDashboard from "@/app/components/pages/ParentDashboard";
@@ -14,7 +13,6 @@ import FreeTrialPage from "@/app/components/landing/FreeTrialPage";
 import StartTestPage from "@/app/components/StartTestPage";
 import TrailDashboard from "@/app/components/pages/TrailDashboard";
 import TrialTestPage from "@/app/components/pages/TrialTestPage";
-import RespondentPortal from "@/app/components/pages/RespondentPortal";
 import TermsAndConditions from "@/app/components/TermsAndConditions";
 import PrivacyPolicy from "@/app/components/PrivacyPolicy";
 import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
@@ -30,7 +28,6 @@ export default function AppRoutes() {
         <Route path="/start-test" element={<StartTestPage />} />
         <Route path="/dashboard-preview" element={<TrailDashboard />} />
         <Route path="/trial-test" element={<TrialTestPage />} />
-        <Route path="/register" element={<RegistrationPage />} />
         <Route path="/terms" element={<TermsAndConditions />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
 
@@ -41,9 +38,7 @@ export default function AppRoutes() {
         {/* ─── Child Auth (public) ─── */}
         <Route path="/child-login" element={<ChildLoginPage />} />
 
-        {/* ─── Legacy: FlexiQuiz Respondent Portal ─── */}
-        <Route path="/respondent" element={<RespondentPortal />} />
-
+    
         {/* ─── Parent-protected routes ─── */}
         <Route
           path="/parent-dashboard"
