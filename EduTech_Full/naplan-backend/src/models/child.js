@@ -39,9 +39,10 @@ const ChildSchema = new mongoose.Schema(
       required: true,
     },
 
-    // FlexiQuiz link (set after purchase + auto-provisioning)
+    // FlexiQuiz link (set during child creation)
     flexiquiz_user_id: { type: String, default: null, index: true },
     flexiquiz_password_enc: { type: String, default: null },
+    flexiquiz_provisioned_at: { type: Date, default: null },
 
     // Status
     status: {
@@ -58,14 +59,12 @@ const ChildSchema = new mongoose.Schema(
 );
 
 // ---------- PIN hashing ----------
-// Accepts raw PIN via virtual setter, hashes before save
-ChildSchema.pre("save", async function (next) {
-  if (!this.isModified("pin_hash")) return next();
+ChildSchema.pre("save", async function () {
+  if (!this.isModified("pin_hash")) return;
   try {
     this.pin_hash = await bcrypt.hash(this.pin_hash, SALT_ROUNDS);
-    next();
   } catch (err) {
-    next(err);
+    throw err;
   }
 });
 
@@ -73,7 +72,6 @@ ChildSchema.methods.comparePin = async function (rawPin) {
   return bcrypt.compare(String(rawPin), this.pin_hash);
 };
 
-// ---------- Static helper for PIN update (findOneAndUpdate won't trigger pre-save) ----------
 ChildSchema.statics.hashPin = async function (rawPin) {
   return bcrypt.hash(String(rawPin), SALT_ROUNDS);
 };

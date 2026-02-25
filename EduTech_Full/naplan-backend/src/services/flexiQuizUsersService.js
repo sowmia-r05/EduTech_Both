@@ -28,7 +28,7 @@ function buildBaseUsername(firstName, year) {
   const f = sanitizePart(firstName);
   const y = String(year || "").trim();
   if (!f || !y) return null;
-  return `${f}_${y}`; // name_year
+  return `${f}_${y}`;
 }
 
 function generatePassword(length = 16) {
@@ -72,6 +72,16 @@ async function fqPost(path, dataObj) {
   return res.data;
 }
 
+async function fqGet(path) {
+  assertApiKey();
+  const url = `${FQ_BASE}${path}`;
+  const res = await axios.get(url, {
+    headers: { "X-API-KEY": API_KEY },
+    timeout: 20000,
+  });
+  return res.data;
+}
+
 async function fqFindUserIdByUsername(user_name) {
   try {
     const data = await fqPost("/users/find", { user_name });
@@ -94,7 +104,6 @@ async function generateUniqueUsername(base) {
 
 /**
  * Creates user in FlexiQuiz using POST /v1/users
- * This supports extra options as well.
  */
 async function fqCreateUser({
   user_name,
@@ -122,57 +131,108 @@ async function fqCreateUser({
     manage_groups,
     edit_quizzes,
     send_welcome_email,
-
-    // passthrough for any other FlexiQuiz-supported fields
     ...(extraFields && typeof extraFields === "object" ? extraFields : {}),
   });
 }
 
 /**
- * Main function you call from routes/controllers
+ * Assign a quiz to a FlexiQuiz user.
+ * POST /v1/users/{user_id}/quizzes/{quiz_id}
+ */
+async function fqAssignQuiz(userId, quizId) {
+  return fqPost(`/users/${userId}/quizzes/${quizId}`, {});
+}
+
+/**
+ * Assign a user to a FlexiQuiz group (gives access to all group quizzes).
+ * POST /v1/users/{user_id}/groups/{group_id}
+ */
+async function fqAssignGroup(userId, groupId) {
+  return fqPost(`/users/${userId}/groups/${groupId}`, {});
+}
+
+/**
+ * Get full user details from FlexiQuiz (includes quizzes array).
+ * GET /v1/users/{user_id}
+ */
+async function fqGetUser(userId) {
+  return fqGet(`/users/${userId}`);
+}
+
+/**
+ * Main function: register a respondent on FlexiQuiz.
+ *
+ * @param {Object} opts
+ * @param {string} opts.firstName - Child display name
+ * @param {string} opts.lastName - Parent last name
+ * @param {number|string} opts.yearLevel - 3, 5, 7, or 9
+ * @param {string} opts.email - Parent email
+ * @param {string} [opts.username] - EXACT username to use on FlexiQuiz (same as our DB).
+ *                                   If provided, skips the auto-generated name logic.
+ * @param {string} [opts.userType='respondent']
+ * @param {boolean} [opts.sendWelcomeEmail=false]
+ * @param {boolean} [opts.suspended=false]
+ * @param {boolean} [opts.manageUsers=false]
+ * @param {boolean} [opts.manageGroups=false]
+ * @param {boolean} [opts.editQuizzes=false]
+ * @param {Object} [opts.extraFields=null]
  */
 async function registerRespondent({
   firstName,
   lastName,
   yearLevel,
   email,
-
-  // optional flags (defaults)
+  username = null, // ← NEW: pass the child's exact username
   userType = "respondent",
-  sendWelcomeEmail = true,
+  sendWelcomeEmail = false,
   suspended = false,
   manageUsers = false,
   manageGroups = false,
   editQuizzes = false,
-
-  // optional passthrough
   extraFields = null,
 }) {
-  const year = parseYear(yearLevel);
-  if (!firstName || !year) {
-    throw new Error("registerRespondent requires firstName and yearLevel");
+  let user_name;
+
+  if (username) {
+    // ── Use the exact username from our DB ──
+    // First check if this username already exists on FlexiQuiz
+    const existingId = await fqFindUserIdByUsername(username);
+    if (existingId) {
+      // User already exists on FlexiQuiz — return existing info
+      return {
+        mode: "existing",
+        user_id: existingId,
+        user_name: username,
+        password: null, // We don't know the existing password
+        fq: { user_id: existingId },
+      };
+    }
+    user_name = username;
+  } else {
+    // ── Legacy: auto-generate username from firstName + yearLevel ──
+    const year = parseYear(yearLevel);
+    if (!firstName || !year) {
+      throw new Error("registerRespondent requires firstName and yearLevel");
+    }
+    const base = buildBaseUsername(firstName, year);
+    if (!base) throw new Error("Could not generate base user_name");
+    user_name = await generateUniqueUsername(base);
   }
 
-  const base = buildBaseUsername(firstName, year);
-  if (!base) throw new Error("Could not generate base user_name");
-
-  const user_name = await generateUniqueUsername(base);
   const password = generatePassword(16);
 
   const created = await fqCreateUser({
     user_name,
     password,
     user_type: userType,
-    email_address: String(email || "").trim().toLowerCase(), // can be duplicate
+    email_address: String(email || "").trim().toLowerCase(),
     first_name: String(firstName || "").trim(),
     last_name: String(lastName || "").trim(),
-
     suspended: Boolean(suspended),
     manage_users: Boolean(manageUsers),
     manage_groups: Boolean(manageGroups),
     edit_quizzes: Boolean(editQuizzes),
     send_welcome_email: Boolean(sendWelcomeEmail),
-
     extraFields,
   });
 
@@ -187,4 +247,9 @@ async function registerRespondent({
 
 module.exports = {
   registerRespondent,
+  fqAssignQuiz,
+  fqAssignGroup,
+  fqGetUser,
+  fqFindUserIdByUsername,
+  generatePassword,
 };
