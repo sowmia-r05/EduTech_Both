@@ -1,0 +1,163 @@
+// src/app/utils/api-children.js
+// Child-related API functions — import alongside existing api.js
+//
+// Usage:
+//   import { fetchChildrenSummaries, createChild, ... } from "@/app/utils/api-children";
+
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL !== undefined
+    ? import.meta.env.VITE_API_BASE_URL
+    : import.meta.env.DEV
+      ? ""
+      : "http://localhost:3000";
+
+// ─── Helpers ───
+
+async function authGet(path, token) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    cache: "no-store",
+  });
+
+  if (res.status === 204) return null;
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
+  return body;
+}
+
+async function authPost(path, data, token) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+  });
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
+  return body;
+}
+
+async function authPut(path, data, token) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+  });
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
+  return body;
+}
+
+async function authDelete(path, token) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
+  return body;
+}
+
+// ─── Children CRUD ───
+
+/**
+ * Fetch all children for the parent with aggregated stats.
+ * Powers the ParentDashboard.
+ */
+export async function fetchChildrenSummaries(token) {
+  const data = await authGet("/api/children/summaries", token);
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Fetch children list (lightweight, no stats).
+ */
+export async function fetchChildren(token) {
+  const data = await authGet("/api/children", token);
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Create a new child profile.
+ * @param {string} token - Parent JWT
+ * @param {{ display_name, username, year_level, pin }} childData
+ */
+export async function createChild(token, childData) {
+  return authPost("/api/children", childData, token);
+}
+
+/**
+ * Update a child's profile.
+ * @param {string} token - Parent JWT
+ * @param {string} childId - MongoDB _id
+ * @param {{ display_name?, year_level?, pin? }} updates
+ */
+export async function updateChild(token, childId, updates) {
+  return authPut(`/api/children/${childId}`, updates, token);
+}
+
+/**
+ * Delete a child profile.
+ */
+export async function deleteChild(token, childId) {
+  return authDelete(`/api/children/${childId}`, token);
+}
+
+// ─── Username Check (public) ───
+
+/**
+ * Check if a username is available.
+ * Returns { available: boolean }
+ */
+export async function checkUsername(username) {
+  const u = String(username || "").trim().toLowerCase();
+  if (!u) return { available: false };
+  return authGet(`/api/children/check-username/${encodeURIComponent(u)}`);
+}
+
+// ─── Child Login ───
+
+/**
+ * Log in as a child with username + PIN.
+ * Returns { ok, token, child: { childId, username, displayName, yearLevel, status } }
+ */
+export async function childLogin({ username, pin }) {
+  return authPost("/api/auth/child-login", { username, pin });
+}
+
+// ─── Child Results ───
+
+/**
+ * Fetch all Result docs for a specific child.
+ */
+export async function fetchChildResults(token, childId) {
+  const data = await authGet(`/api/children/${childId}/results`, token);
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Fetch all Writing docs for a specific child.
+ */
+export async function fetchChildWriting(token, childId) {
+  const data = await authGet(`/api/children/${childId}/writing`, token);
+  return Array.isArray(data) ? data : [];
+}
