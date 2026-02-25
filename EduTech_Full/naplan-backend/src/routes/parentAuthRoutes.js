@@ -56,7 +56,7 @@ async function sendOtpEmail(toEmail, otp) {
         <p>Your OTP for parent account verification is:</p>
         <div style="font-size: 24px; font-weight: bold; letter-spacing: 2px;">${otp}</div>
         <p>This code expires in 5 minutes.</p>
-        <p>If you didn’t request this code, you can ignore this email.</p>
+        <p>If you didn't request this code, you can ignore this email.</p>
       </div>
     `,
   });
@@ -230,7 +230,7 @@ router.post("/verify-otp", async (req, res) => {
         email: parent.email,
         firstName: parent.firstName || "",
         lastName: parent.lastName || "",
-        name: `${parent.firstName || ""} ${parent.lastName || ""}`.trim(), // optional convenience
+        name: `${parent.firstName || ""} ${parent.lastName || ""}`.trim(),
       },
     });
   } catch (err) {
@@ -239,6 +239,181 @@ router.post("/verify-otp", async (req, res) => {
       return res.status(409).json({ ok: false, error: "Parent already exists" });
     }
     return res.status(500).json({ ok: false, error: "Failed to verify OTP", detail: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LOGIN FLOW (existing parents only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// In-memory store for login OTPs (separate from signup pendingParentSignups)
+const pendingParentLogins = new Map();
+
+// cleanup expired login entries every minute
+setInterval(() => {
+  const now = Date.now();
+  for (const [email, rec] of pendingParentLogins.entries()) {
+    if (!rec || now > rec.expiresAt) {
+      pendingParentLogins.delete(email);
+    }
+  }
+}, 60 * 1000).unref?.();
+
+/**
+ * POST /api/parents/auth/login-otp
+ * body: { email }
+ * - Sends OTP ONLY if parent already exists in DB
+ * - Does NOT create a new parent
+ */
+router.post("/login-otp", async (req, res) => {
+  try {
+    await connectDB();
+
+    const email = normalizeEmail(req.body?.email);
+
+    if (!email) {
+      return res.status(400).json({ ok: false, error: "Email is required" });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ ok: false, error: "Valid email is required" });
+    }
+
+    // ✅ Must be an existing parent — reject if not found
+    const parent = await Parent.findOne({ email });
+    if (!parent) {
+      return res.status(404).json({
+        ok: false,
+        error: "No account found with this email. Please create an account first.",
+      });
+    }
+
+    const now = Date.now();
+    const existing = pendingParentLogins.get(email);
+
+    // Resend cooldown
+    if (existing?.lastSentAt && now - existing.lastSentAt < RESEND_COOLDOWN_MS) {
+      return res.status(429).json({
+        ok: false,
+        error: "Please wait 30 seconds before requesting another code.",
+      });
+    }
+
+    const otp = generateOtp();
+    const otpHash = hashOtp(email, otp);
+
+    pendingParentLogins.set(email, {
+      email,
+      otpHash,
+      expiresAt: now + OTP_TTL_MS,
+      attempts: 0,
+      lastSentAt: now,
+    });
+
+    await sendOtpEmail(email, otp);
+
+    return res.json({
+      ok: true,
+      otp_sent_to: maskEmail(email),
+    });
+  } catch (err) {
+    console.error("Parent login-otp failed:", err);
+    return res.status(500).json({ ok: false, error: "Failed to send login code" });
+  }
+});
+
+/**
+ * POST /api/parents/auth/verify-login-otp
+ * body: { email, otp }
+ * - Verifies OTP for an existing parent
+ * - Returns JWT (does NOT create parent — they must already exist)
+ */
+router.post("/verify-login-otp", async (req, res) => {
+  try {
+    if (!PARENT_SECRET) {
+      return res.status(500).json({ ok: false, error: "PARENT_JWT_SECRET missing" });
+    }
+
+    await connectDB();
+
+    const email = normalizeEmail(req.body?.email);
+    const otp = String(req.body?.otp || "").trim();
+
+    if (!email) {
+      return res.status(400).json({ ok: false, error: "Email is required" });
+    }
+
+    if (!otp || !/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ ok: false, error: "OTP must be a 6-digit code" });
+    }
+
+    const record = pendingParentLogins.get(email);
+    if (!record) {
+      return res.status(401).json({
+        ok: false,
+        error: "No login code requested. Please request one first.",
+      });
+    }
+
+    if (Date.now() > record.expiresAt) {
+      pendingParentLogins.delete(email);
+      return res.status(401).json({
+        ok: false,
+        error: "Code expired. Please request a new one.",
+      });
+    }
+
+    record.attempts = (record.attempts || 0) + 1;
+    if (record.attempts > MAX_OTP_ATTEMPTS) {
+      pendingParentLogins.delete(email);
+      return res.status(429).json({
+        ok: false,
+        error: "Too many attempts. Request a new code.",
+      });
+    }
+
+    const expected = record.otpHash;
+    const got = hashOtp(email, otp);
+
+    if (got !== expected) {
+      pendingParentLogins.set(email, record);
+      return res.status(401).json({ ok: false, error: "Invalid code" });
+    }
+
+    // ✅ OTP valid — find existing parent (should exist since login-otp checks)
+    const parent = await Parent.findOne({ email });
+    if (!parent) {
+      pendingParentLogins.delete(email);
+      return res.status(404).json({ ok: false, error: "Account not found" });
+    }
+
+    // Cleanup
+    pendingParentLogins.delete(email);
+
+    const parent_token = jwt.sign(
+      {
+        typ: "parent",
+        parent_id: parent._id.toString(),
+        email: parent.email,
+      },
+      PARENT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    return res.json({
+      ok: true,
+      parent_token,
+      parent: {
+        parent_id: parent._id.toString(),
+        email: parent.email,
+        firstName: parent.firstName || "",
+        lastName: parent.lastName || "",
+        name: `${parent.firstName || ""} ${parent.lastName || ""}`.trim(),
+      },
+    });
+  } catch (err) {
+    console.error("Parent verify-login-otp failed:", err);
+    return res.status(500).json({ ok: false, error: "Verification failed" });
   }
 });
 

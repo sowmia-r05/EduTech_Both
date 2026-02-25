@@ -21,7 +21,6 @@ export default function ParentVerifyPage() {
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
 
-  // ✅ Read once (prevents localStorage cleanup causing redirect race)
   const [pendingEmail] = useState(
     () => localStorage.getItem("parent_pending_email") || ""
   );
@@ -29,7 +28,6 @@ export default function ParentVerifyPage() {
     () => localStorage.getItem("parent_pending_masked") || ""
   );
 
-  // ✅ Guard flag to avoid redirect effect after successful verification
   const [isVerifiedFlowComplete, setIsVerifiedFlowComplete] = useState(false);
 
   const pendingProfile = useMemo(() => {
@@ -46,9 +44,10 @@ export default function ParentVerifyPage() {
     [maskedEmail, pendingEmail]
   );
 
+  /* ── Validation flag (drives button color) ────── */
+  const isOtpValid = useMemo(() => /^\d{6}$/.test(otp), [otp]);
+
   useEffect(() => {
-    // ✅ only redirect if user truly landed here without pending email
-    // and NOT during/after successful verification flow
     if (!pendingEmail && !isVerifiedFlowComplete) {
       navigate("/parent/create", { replace: true });
     }
@@ -79,7 +78,6 @@ export default function ParentVerifyPage() {
         otp: cleanOtp,
       });
 
-      // ✅ Be defensive in case backend response keys vary
       const token = res?.parent_token || res?.token;
       const parent = res?.parent || res?.user || null;
 
@@ -87,18 +85,13 @@ export default function ParentVerifyPage() {
         throw new Error("Login token missing in OTP verification response");
       }
 
-      // ✅ Save auth in context + localStorage
       loginParent(token, parent);
-
-      // ✅ Mark flow complete BEFORE cleanup (prevents redirect race)
       setIsVerifiedFlowComplete(true);
 
-      // Clean up pending signup state
       localStorage.removeItem("parent_pending_email");
       localStorage.removeItem("parent_pending_masked");
       localStorage.removeItem("parent_pending_profile");
 
-      // ✅ Go to parent dashboard
       navigate("/parent-dashboard", { replace: true });
     } catch (err) {
       setError(err?.message || "OTP verification failed");
@@ -106,9 +99,6 @@ export default function ParentVerifyPage() {
       setLoading(false);
     }
   };
-
-  const handleBack = () => navigate("/parent/create");
-  const handleLogin = () => navigate("/parent/create");
 
   const handleResendOtp = async () => {
     setError("");
@@ -144,10 +134,10 @@ export default function ParentVerifyPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-md mx-auto">
-        {/* Top bar */}
+        {/* Top bar — same as CreatePage & LoginPage */}
         <div className="flex justify-between items-center mb-4">
           <Button
-            onClick={handleBack}
+            onClick={() => navigate("/parent/create")}
             variant="outline"
             className="bg-white"
             size="icon"
@@ -157,7 +147,7 @@ export default function ParentVerifyPage() {
           </Button>
 
           <Button
-            onClick={handleLogin}
+            onClick={() => navigate("/parent-login")}
             variant="outline"
             className="bg-white"
             type="button"
@@ -167,7 +157,7 @@ export default function ParentVerifyPage() {
           </Button>
         </div>
 
-        <Card className="bg-white shadow-lg border border-gray-200">
+        <Card className="bg-white shadow-lg">
           <CardHeader>
             <CardTitle className="text-2xl text-center">Verify OTP</CardTitle>
           </CardHeader>
@@ -219,8 +209,16 @@ export default function ParentVerifyPage() {
                 />
               </div>
 
-              {/* Verify */}
-              <Button type="submit" className="w-full" disabled={loading}>
+              {/* Verify — gray → indigo (same pattern as CreatePage) */}
+              <Button
+                type="submit"
+                disabled={!isOtpValid || loading}
+                className={`w-full ${
+                  isOtpValid && !loading
+                    ? "bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
+                    : "bg-gray-400 cursor-not-allowed"
+                }`}
+              >
                 {loading ? (
                   <Loader2 className="h-4 w-4 animate-spin mx-auto" />
                 ) : (
@@ -243,7 +241,7 @@ export default function ParentVerifyPage() {
               <div className="text-center">
                 <button
                   type="button"
-                  onClick={handleBack}
+                  onClick={() => navigate("/parent/create")}
                   className="text-sm text-indigo-600 hover:underline"
                 >
                   Use a different email
