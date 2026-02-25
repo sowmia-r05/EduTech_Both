@@ -1,6 +1,7 @@
 const router = require("express").Router();
 const Result = require("../models/result");
 const Writing = require("../models/writing");
+const QuizCatalog = require("../models/quizCatalog");
 
 // NOTE:
 // FlexiQuiz doesn't explicitly provide "year" or "subject" fields in the webhook.
@@ -233,6 +234,23 @@ router.get("/email-exists", async (req, res) => {
     res.status(500).json({ error: e && e.message ? e.message : "Failed to check email" });
   }
 });
+router.get("/bundles", async (req, res) => {
+  try {
+    const filter = { is_active: true };
+    const yearLevel = Number(req.query.year_level);
+    if ([3, 5, 7, 9].includes(yearLevel)) {
+      filter.year_level = yearLevel;
+    }
 
+    const bundles = await QuizCatalog.find(filter)
+      .sort({ year_level: 1, price_cents: 1 })
+      .lean();
+
+    return res.json(bundles);
+  } catch (err) {
+    console.error("GET /catalog/bundles error:", err);
+    return res.status(500).json({ error: "Failed to fetch bundles" });
+  }
+});
 
 module.exports = router;

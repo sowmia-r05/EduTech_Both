@@ -18,6 +18,7 @@ import PrivacyPolicy from "@/app/components/PrivacyPolicy";
 import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
 import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
+import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
 
 export default function AppRoutes() {
   return (
@@ -32,6 +33,9 @@ export default function AppRoutes() {
         <Route path="/terms" element={<TermsAndConditions />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
 
+        {/* ─── Bundle Selection (public, but checkout requires auth) ─── */}
+        <Route path="/bundles" element={<BundleSelectionPage />} />
+
         {/* ─── Parent Auth (public) ─── */}
         <Route path="/parent/create" element={<ParentCreatePage />} />
         <Route path="/parent/verify" element={<ParentVerifyPage />} />
@@ -41,7 +45,6 @@ export default function AppRoutes() {
 
         <Route path="/parent-login" element={<ParentLoginPage />} />
 
-    
         {/* ─── Parent-protected routes ─── */}
         <Route
           path="/parent-dashboard"
