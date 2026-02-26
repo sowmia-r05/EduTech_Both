@@ -573,7 +573,7 @@ function ChildCard({
           </button>
         )}
 
-        {statusKey !== "active" ? (
+       {statusKey !== "active" ? (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -584,20 +584,36 @@ function ChildCard({
             🛒 Buy Bundle
           </button>
         ) : (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onView();
-            }}
-            className="flex-1 px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
-          >
-            📊 View Results
-          </button>
+          <>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onView();
+              }}
+              className="flex-1 px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
+            >
+              📊 View Results
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onBuyBundle();
+              }}
+              className="flex-1 px-3 py-2 rounded-lg border border-emerald-300 text-emerald-700 text-xs font-semibold hover:bg-emerald-50"
+            >
+              🛒 Buy Bundle
+            </button>
+          </>
         )}
       </div>
     </div>
   );
 }
+
+// =====================================================
+// CHANGE 2: ParentDashboard.jsx — BundleSelectionModal
+// Replace the entire BundleSelectionModal function with this
+// =====================================================
 
 function BundleSelectionModal({
   child,
@@ -606,6 +622,9 @@ function BundleSelectionModal({
   onSelect,
   onClose,
 }) {
+  // ✅ Get the child's already-purchased bundle IDs
+  const purchasedBundleIds = child.entitled_bundle_ids || [];
+
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-3xl">
       <div className="flex items-start justify-between gap-4">
@@ -635,16 +654,43 @@ function BundleSelectionModal({
         <div className="mt-5 space-y-4">
           {bundles.map((bundle) => {
             const isLoading = loadingBundleId === bundle.bundle_id;
+            // ✅ Check if this bundle is already purchased by this child
+            const alreadyPurchased = purchasedBundleIds.includes(bundle.bundle_id);
 
             return (
               <div
                 key={bundle.bundle_id}
-                className="rounded-xl border border-slate-200 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+                className={`rounded-xl border p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${
+                  alreadyPurchased
+                    ? "border-emerald-200 bg-emerald-50/50"
+                    : "border-slate-200"
+                }`}
               >
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-semibold text-slate-900">
-                    {bundle.bundle_name}
-                  </h4>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-semibold text-slate-900">
+                      {bundle.bundle_name}
+                    </h4>
+                    {/* ✅ Show "Purchased" badge */}
+                    {alreadyPurchased && (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                        <svg
+                          className="w-3 h-3"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2.5}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        Purchased
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-slate-500 mt-1">
                     {bundle.description}
                   </p>
@@ -664,13 +710,21 @@ function BundleSelectionModal({
                   <span className="text-xl font-bold text-slate-900">
                     {formatAUD(bundle.price_cents)}
                   </span>
-                  <button
-                    onClick={() => onSelect(bundle)}
-                    disabled={isLoading}
-                    className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
-                  >
-                    {isLoading ? "Redirecting..." : "Select & Pay"}
-                  </button>
+
+                  {/* ✅ Show disabled button if already purchased */}
+                  {alreadyPurchased ? (
+                    <span className="px-4 py-2 rounded-lg bg-slate-100 text-slate-400 text-sm font-semibold cursor-not-allowed">
+                      Already in Bundle ✓
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => onSelect(bundle)}
+                      disabled={isLoading}
+                      className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      {isLoading ? "Redirecting..." : "Select & Pay"}
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -680,7 +734,6 @@ function BundleSelectionModal({
     </ModalWrapper>
   );
 }
-
 function AddChildModal({ onClose, onAdd, loading }) {
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
