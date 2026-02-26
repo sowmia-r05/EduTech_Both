@@ -315,7 +315,20 @@ export default function ChildDashboard() {
         </div>
 
         {/* Render the StudentDashboardAnalytics component inline */}
-        <StudentDashboardAnalytics />
+                <StudentDashboardAnalytics
+          tests={tests}
+          displayName={displayName}
+          yearLevel={yearLevel}
+          embedded={true}
+          onLogout={() => {
+            if (childToken) {
+              logoutChild();
+            } else {
+              logout();
+            }
+            navigate("/");
+          }}
+        />
       </div>
     );
   }
