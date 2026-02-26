@@ -1,12 +1,11 @@
 export default function AISuggestionPanel({
   suggestions,
   studyTips = [],
-  topicWiseTips = [], // ✅ 1) add this
+  topicWiseTips = [],
 }) {
   const hasSuggestions = Array.isArray(suggestions) && suggestions.length > 0;
   const hasStudyTips = Array.isArray(studyTips) && studyTips.length > 0;
-  const hasTopicWiseTips =
-    Array.isArray(topicWiseTips) && topicWiseTips.length > 0;
+  const hasTopicWiseTips = Array.isArray(topicWiseTips) && topicWiseTips.length > 0;
 
   if (!hasSuggestions && !hasStudyTips && !hasTopicWiseTips) return null;
 
@@ -18,7 +17,6 @@ export default function AISuggestionPanel({
     "Topic Wise Tips": "Topic Wise Tips",
   };
 
-  // Group suggestions
   const grouped = (suggestions || []).reduce((acc, item) => {
     if (!item?.title || !item?.description) return acc;
     if (!acc[item.title]) acc[item.title] = [];
@@ -26,12 +24,10 @@ export default function AISuggestionPanel({
     return acc;
   }, {});
 
-  // Inject Study Tips
   if (hasStudyTips) {
     grouped["Study Tips"] = studyTips.filter(Boolean);
   }
 
-  // ✅ 2) Inject REAL topic wise tips (remove mock data)
   if (hasTopicWiseTips) {
     grouped["Topic Wise Tips"] = topicWiseTips;
   }
@@ -43,7 +39,7 @@ export default function AISuggestionPanel({
       case "Encouragement":
         return { bg: "bg-purple-50", text: "text-purple-700" };
       case "Study Tips":
-        return { bg: "bg-blue-50", text: "text-blue-700" };
+        return { bg: "bg-sky-50", text: "text-sky-700" };
       case "Topic Wise Tips":
         return { bg: "bg-green-50", text: "text-green-700" };
       default:
@@ -55,7 +51,8 @@ export default function AISuggestionPanel({
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-3 text-blue-600">
+      {/* Header — amber instead of blue */}
+      <h3 className="text-lg font-semibold mb-3 text-amber-600">
         AI Study Recommendations
       </h3>
 
@@ -72,14 +69,10 @@ export default function AISuggestionPanel({
                   {displayTitleMap[title] || title}
                 </h4>
 
-                {/* Study Tips */}
                 {title === "Study Tips" && (
                   <div className="space-y-2">
                     {items.map((tip, i) => (
-                      <p
-                        key={i}
-                        className="text-sm text-gray-600 flex items-start gap-2"
-                      >
+                      <p key={i} className="text-sm text-gray-600 flex items-start gap-2">
                         <span className="text-gray-400">➜</span>
                         <span>{tip}</span>
                       </p>
@@ -87,7 +80,6 @@ export default function AISuggestionPanel({
                   </div>
                 )}
 
-                {/* ✅ 3) Topic Wise Tips (NEW RENDER LOGIC) */}
                 {title === "Topic Wise Tips" && (
                   <div className="space-y-4">
                     {items.map((block, idx) => (
@@ -95,13 +87,9 @@ export default function AISuggestionPanel({
                         <h5 className="text-sm font-semibold text-gray-700 mb-1">
                           {block?.topic}
                         </h5>
-
                         <div className="space-y-1 pl-3">
                           {(block?.tips || []).map((tip, i) => (
-                            <p
-                              key={i}
-                              className="text-sm text-gray-600 flex items-start gap-2"
-                            >
+                            <p key={i} className="text-sm text-gray-600 flex items-start gap-2">
                               <span className="text-gray-400">➜</span>
                               <span>{tip}</span>
                             </p>
@@ -112,7 +100,6 @@ export default function AISuggestionPanel({
                   </div>
                 )}
 
-                {/* Default Sections */}
                 {title !== "Study Tips" && title !== "Topic Wise Tips" && (
                   <p className="text-sm text-gray-600 text-justify">
                     {Array.isArray(items) ? items.join(" ") : String(items)}

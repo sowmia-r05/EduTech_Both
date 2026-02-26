@@ -664,18 +664,27 @@ module.exports = async function responseSubmitted(payload) {
 
   console.log(`📩 response.submitted (RESULT) response_id=${response_id}, event_id=${event_id}`);
 
-  // ✅ FAST save
-  const newResult = new Result(doc);
-  await newResult.save();
+  // ✅ FIX: Upsert instead of blind save — prevents webhook-retry duplicates.
+  // Key: response_id + attempt. If same combo exists, update it; else create new.
+  const attemptNum = data.attempt ?? 1;
+
+  const upsertResult = await Result.findOneAndUpdate(
+    { response_id, attempt: attemptNum },
+    { $set: doc, $setOnInsert: { createdAt: new Date() } },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  const isNew = !upsertResult.__v && upsertResult.__v !== 0; // rough check
+  console.log(`📩 Result ${isNew ? "CREATED" : "UPDATED (dedup)"} for response_id=${response_id}, attempt=${attemptNum}`);
 
   // ✅ background enrichment: questions → topicBreakdown → feedback
   setImmediate(() => {
     enrichResultInBackground({
-      resultId: newResult._id,
+      resultId: upsertResult._id,
       quiz_id,
       response_id,
     }).catch((err) => {
       console.error(`❌ RESULT enrichment fatal (response_id=${response_id}):`, err);
     });
   });
-};
+}
