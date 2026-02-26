@@ -19,6 +19,7 @@ import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
 import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
+import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 
 export default function AppRoutes() {
   return (
@@ -81,6 +82,14 @@ export default function AppRoutes() {
             <RequireAuth>
               <ResultPage />
             </RequireAuth>
+          }
+        />
+
+
+        <Route
+          path="/student-analytics"
+          element={
+              <StudentDashboardAnalytics/>
           }
         />
 
