@@ -89,10 +89,12 @@ export default function ChildDashboard() {
     // Source 1: URL query params (passed from ParentDashboard)
     const nameFromUrl = searchParams.get("childName");
     const yearFromUrl = searchParams.get("yearLevel");
+    const usernameFromUrl = searchParams.get("username");
     if (nameFromUrl) {
       setChildInfo({
         display_name: decodeURIComponent(nameFromUrl),
         year_level: yearFromUrl ? Number(yearFromUrl) : null,
+        username: usernameFromUrl || null,
       });
       return;
     }
@@ -102,6 +104,7 @@ export default function ChildDashboard() {
       setChildInfo({
         display_name: childProfile.displayName || childProfile.username || null,
         year_level: childProfile.yearLevel || null,
+        username: childProfile.username || null,
       });
       return;
     }
@@ -115,6 +118,7 @@ export default function ChildDashboard() {
           setChildInfo({
             display_name: match.display_name || match.username,
             year_level: match.year_level,
+            username: match.username || null,
           });
         }
       } catch (err) {
@@ -245,8 +249,22 @@ export default function ChildDashboard() {
   }, [subjectFilter, search]);
 
   const handleViewResult = (test) => {
-    if (test.response_id) {
-      navigate(`/NonWritingLookupQuizResults/results?r=${test.response_id}`);
+    if (!test.response_id) return;
+
+    const isWriting = test.subject === "Writing";
+    const params = new URLSearchParams({ r: test.response_id });
+
+    // Pass child's unique username for sibling-safe filtering
+    const username = childProfile?.username || childInfo?.username || null;
+    if (username) params.set("username", username);
+
+    // Pass subject so Dashboard loads all attempts for this subject
+    if (test.subject) params.set("subject", test.subject);
+
+    if (isWriting) {
+      navigate(`/writing-feedback/result?${params.toString()}`);
+    } else {
+      navigate(`/NonWritingLookupQuizResults/results?${params.toString()}`);
     }
   };
 
