@@ -19,6 +19,7 @@ import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
 import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
+import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
 
 export default function AppRoutes() {
   return (
@@ -32,6 +33,9 @@ export default function AppRoutes() {
         <Route path="/trial-test" element={<TrialTestPage />} />
         <Route path="/terms" element={<TermsAndConditions />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
+
+        {/* ─── Bundle Selection (public, but checkout requires auth) ─── */}
+        <Route path="/bundles" element={<BundleSelectionPage />} />
 
         {/* ─── Parent Auth (public) ─── */}
         <Route path="/parent/create" element={<ParentCreatePage />} />
