@@ -2,7 +2,9 @@ import React, { useMemo, useState, useEffect, useCallback, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import { fetchChildResults, fetchChildren } from "@/app/utils/api-children";
-import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics"; // 🆕
+import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
+import QuizPlayer from "@/app/components/pages/QuizPlayer";
+
 
 /* ─── Subject inference from quiz name ─── */
 function inferSubject(quizName) {
@@ -63,7 +65,7 @@ function getDailyParentMessage() {
 }
 
 /* ═══════════════════════════════════════════════════════
-   🆕 QUIZ CATALOG — All 9 Year 3 FlexiQuiz embeds
+   QUIZ CATALOG — All 9 Year 3 FlexiQuiz embeds
    Each maps to a real FlexiQuiz quiz via embed_id
    ═══════════════════════════════════════════════════════ */
 const QUIZ_CATALOG = [
@@ -86,65 +88,6 @@ const SUBJECT_STYLE = {
   Language: { icon: "📝", bg: "bg-emerald-50",  text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" },
   Other:    { icon: "📚", bg: "bg-slate-50",    text: "text-slate-700",   badge: "bg-slate-100 text-slate-700" },
 };
-
-/* ═══════════════════════════════════════════════════════
-   🆕 FlexiQuiz Embed Player — full-screen overlay
-   ═══════════════════════════════════════════════════════ */
-function QuizPlayer({ quiz, onClose }) {
-  const [loaded, setLoaded] = useState(false);
-  const embedUrl = `https://www.flexiquiz.com/SC/N/${quiz.embed_id}`;
-
-  return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col">
-      {/* Player Header */}
-      <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-700 text-white shadow-lg flex-shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-lg">{SUBJECT_STYLE[quiz.subject]?.icon || "📝"}</span>
-          </div>
-          <div className="min-w-0">
-            <h3 className="font-semibold text-sm truncate">{quiz.name}</h3>
-            <p className="text-xs text-indigo-200">{quiz.subject} • Take your time and read carefully!</p>
-          </div>
-        </div>
-        <button
-          onClick={() => {
-            if (window.confirm("Are you sure you want to exit? Your progress may not be saved.")) {
-              onClose({ completed: false });
-            }
-          }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-sm font-medium transition flex-shrink-0 ml-4"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-          Exit Quiz
-        </button>
-      </div>
-
-      {/* Loading */}
-      {!loaded && (
-        <div className="absolute inset-0 top-[56px] flex items-center justify-center bg-gradient-to-b from-indigo-50 to-white z-10">
-          <div className="text-center space-y-4">
-            <div className="w-14 h-14 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-indigo-600 font-semibold">Loading your quiz...</p>
-            <p className="text-sm text-slate-400">This may take a few seconds</p>
-          </div>
-        </div>
-      )}
-
-      {/* FlexiQuiz iframe */}
-      <iframe
-        src={embedUrl}
-        title={quiz.name}
-        className="flex-1 w-full border-0"
-        onLoad={() => setLoaded(true)}
-        allow="fullscreen"
-        style={{ minHeight: "calc(100vh - 56px)" }}
-      />
-    </div>
-  );
-}
 
 /* ─── Difficulty Badge ─── */
 function DifficultyBadge({ difficulty }) {
@@ -170,7 +113,6 @@ export default function ChildDashboard() {
 
   /* ─── STATE ─── */
   const [tests, setTests] = useState([]);
-
   const [childStatus, setChildStatus] = useState("trial");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -180,8 +122,8 @@ export default function ChildDashboard() {
   const [sortConfig, setSortConfig] = useState({ key: "subject", direction: "asc" });
   const [childInfo, setChildInfo] = useState(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
-  const [activeQuiz, setActiveQuiz] = useState(null); // 🆕
-  const [viewMode, setViewMode] = useState("all"); // 🆕
+  const [activeQuiz, setActiveQuiz] = useState(null);
+  const [viewMode, setViewMode] = useState("all");
 
   const testsPerPage = 8;
   const hasTests = tests.length > 0;
@@ -253,7 +195,7 @@ export default function ChildDashboard() {
     });
   }, [tests]);
 
-  /* ─── 🆕 Merge QUIZ_CATALOG with completed results ─── */
+  /* ─── Merge QUIZ_CATALOG with completed results ─── */
   const mergedQuizzes = useMemo(() => {
     return QUIZ_CATALOG.map((quiz) => {
       const matched = tests.find((t) => {
@@ -275,7 +217,7 @@ export default function ChildDashboard() {
   const completedCount = mergedQuizzes.filter((q) => q.status === "completed").length;
   const availableCount = mergedQuizzes.filter((q) => q.status === "not_started").length;
 
-  /* ─── 🆕 Filtered & sorted quiz list ─── */
+  /* ─── Filtered & sorted quiz list ─── */
   const filteredQuizzes = useMemo(() => {
     let list = [...mergedQuizzes];
     if (viewMode === "available") list = list.filter((q) => q.status === "not_started");
@@ -320,8 +262,13 @@ export default function ChildDashboard() {
     navigate(isWriting ? `/writing-feedback/result?${params}` : `/NonWritingLookupQuizResults/results?${params}`);
   };
 
-  const handleQuizClose = () => {
+  const handleQuizClose = (result) => {
     setActiveQuiz(null);
+    // If quiz was completed with a responseId, optionally navigate to results
+    if (result?.completed && result?.responseId) {
+      // Optional: navigate(`/NonWritingLookupQuizResults/results?r=${result.responseId}`);
+    }
+    // Refresh results list
     if (activeToken && childId) {
       fetchChildResults(activeToken, childId).then((results) => {
         setTests(results.map((r) => ({
@@ -495,10 +442,7 @@ export default function ChildDashboard() {
           </div>
         </section>
 
-        {/* ═══════════════════════════════════════════════════════════════
-            🆕 MY QUIZZES — replaces "All Results"
-            Shows all 9 quizzes with status + Start Quiz / View Details
-           ═══════════════════════════════════════════════════════════════ */}
+        {/* MY QUIZZES */}
         <section>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-4">

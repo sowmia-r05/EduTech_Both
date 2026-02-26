@@ -301,4 +301,141 @@ router.get("/verify/:sessionId", verifyToken, requireParent, async (req, res) =>
   }
 });
 
+router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) => {
+  try {
+    const parentId = req.user?.parentId || req.user?.parent_id;
+    const { purchaseId } = req.params;
+
+    // 1. Find the purchase — must belong to this parent and be pending/failed
+    const purchase = await Purchase.findOne({
+      _id: purchaseId,
+      parent_id: parentId,
+      status: { $in: ["pending", "failed"] },
+    }).lean();
+
+    if (!purchase) {
+      return res.status(404).json({
+        error: "Purchase not found or not eligible for retry",
+      });
+    }
+
+    // 2. Verify bundle still exists and is active
+    const bundle = await QuizCatalog.findOne({
+      bundle_id: purchase.bundle_id,
+      is_active: true,
+    });
+
+    if (!bundle) {
+      return res.status(404).json({
+        error: "This bundle is no longer available",
+      });
+    }
+
+    // 3. Verify children still belong to this parent
+    const children = await Child.find({
+      _id: { $in: purchase.child_ids },
+      parent_id: parentId,
+    }).lean();
+
+    if (children.length !== purchase.child_ids.length) {
+      return res.status(403).json({
+        error: "One or more children in this purchase no longer belong to you",
+      });
+    }
+
+    // 4. Check none of the children already have a paid purchase for this bundle
+    for (const childId of purchase.child_ids) {
+      const alreadyPaid = await Purchase.findOne({
+        _id: { $ne: purchase._id },
+        parent_id: parentId,
+        bundle_id: purchase.bundle_id,
+        child_ids: childId,
+        status: "paid",
+      }).lean();
+
+      if (alreadyPaid) {
+        const child = children.find(
+          (c) => c._id.toString() === childId.toString()
+        );
+        const childName = child?.display_name || child?.username || childId;
+        return res.status(409).json({
+          error: `${childName} already has the "${bundle.bundle_name}" bundle.`,
+          code: "ALREADY_PURCHASED",
+          child_name: childName,
+          bundle_name: bundle.bundle_name,
+        });
+      }
+    }
+
+    // 5. Get or create Stripe customer
+    const parent = await Parent.findById(parentId);
+    let customerId = parent?.stripe_customer_id;
+
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: parent.email,
+        name: `${parent.firstName} ${parent.lastName}`.trim(),
+        metadata: { parentId: parentId.toString() },
+      });
+      customerId = customer.id;
+      await Parent.findByIdAndUpdate(parentId, {
+        $set: { stripe_customer_id: customerId },
+      });
+    }
+
+    // 6. Create new Stripe Checkout session
+    const FRONTEND_URL = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
+
+    const lineItems = [
+      {
+        price_data: {
+          currency: "aud",
+          product_data: {
+            name: bundle.bundle_name,
+            description:
+              bundle.description ||
+              `${bundle.bundle_name} for ${children.length} child(ren)`,
+          },
+          unit_amount: bundle.price_cents,
+        },
+        quantity: children.length,
+      },
+    ];
+
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      payment_method_types: ["card"],
+      line_items: lineItems,
+      mode: "payment",
+      success_url: `${FRONTEND_URL}#/parent-dashboard?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${FRONTEND_URL}#/parent-dashboard?payment=cancelled`,
+      metadata: {
+        parentId: parentId.toString(),
+        childIds: purchase.child_ids.map((id) => id.toString()).join(","),
+        bundleId: purchase.bundle_id,
+      },
+    });
+
+    // 7. Update existing purchase with new session (reuse record, don't create duplicate)
+    await Purchase.findByIdAndUpdate(purchase._id, {
+      $set: {
+        stripe_session_id: session.id,
+        status: "pending",
+        amount_cents: bundle.price_cents * children.length,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      checkout_url: session.url,
+      session_id: session.id,
+    });
+  } catch (err) {
+    console.error("Retry payment error:", err);
+    return res
+      .status(500)
+      .json({ error: "Failed to create retry checkout session" });
+  }
+});
+
 module.exports = router;
