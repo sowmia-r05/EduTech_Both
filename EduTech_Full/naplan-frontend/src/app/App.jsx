@@ -20,6 +20,7 @@ import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
+import QuizCompletePage from "./components/pages/QuizCompletePage";
 
 export default function AppRoutes() {
   return (
@@ -94,6 +95,8 @@ export default function AppRoutes() {
               <StudentDashboardAnalytics/>
           }
         />
+        <Route path="/quiz-complete" element={<QuizCompletePage />} />
+
 
         {/* ─── Fallback ─── */}
         <Route path="*" element={<NotFound />} />
