@@ -141,12 +141,6 @@ const handleViewChild = (child) => {
         <h1 className="text-lg font-semibold text-slate-900">KAI Solutions</h1>
         <div className="flex gap-3">
           <button
-            onClick={() => navigate("/")}
-            className="px-4 py-2 rounded-lg text-sm border border-slate-300 hover:bg-slate-100"
-          >
-            Back to Menu
-          </button>
-          <button
             onClick={handleLogout}
             className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700"
           >
