@@ -13,7 +13,11 @@ import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
 
 // ✅ CHANGED: added fetchResultsByUsername import
-import { fetchResultsByEmail, fetchResultsByUsername, fetchResultByResponseId } from "@/app/utils/api";
+import {
+  fetchResultsByEmail,
+  fetchResultsByUsername,
+  fetchResultByResponseId,
+} from "@/app/utils/api";
 
 /* -------------------- Loader -------------------- */
 const DotLoader = ({ label = "Loading" }) => (
@@ -190,7 +194,7 @@ const buildSuggestionsFromFeedback = (feedback) => {
   return list;
 };
 
-/* -------------------- Dashboard -------------------- */
+/* ==================== Dashboard ==================== */
 export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -206,6 +210,9 @@ export default function Dashboard() {
 
   const [isTourActive, setIsTourActive] = useState(false);
   const [showTourModal, setShowTourModal] = useState(false);
+
+  // ✅ NEW: Track which specific attempt the user picked from the calendar modal
+  const [selectedAttemptOverride, setSelectedAttemptOverride] = useState(null);
 
   /* -------------------- Redirect if no responseId -------------------- */
   useEffect(() => {
@@ -230,7 +237,8 @@ export default function Dashboard() {
 
           // ✅ Prefer username-based lookup (sibling-safe)
           // Username comes from: URL param (passed by ChildDashboard) or result doc
-          const username = searchParams.get("username") || doc.user?.user_name || "";
+          const username =
+            searchParams.get("username") || doc.user?.user_name || "";
           const subject = searchParams.get("subject") || "";
 
           let all;
@@ -308,6 +316,9 @@ export default function Dashboard() {
 
   /* -------------------- Pick selected result (latest in filter) -------------------- */
   const selectedResult = useMemo(() => {
+    // ✅ NEW: If user explicitly picked an attempt from the calendar modal, use it
+    if (selectedAttemptOverride) return selectedAttemptOverride;
+
     if (!filteredResults.length) return latestResult;
 
     return [...filteredResults].sort(
@@ -315,7 +326,7 @@ export default function Dashboard() {
         new Date(unwrapDate(b.createdAt || b.date_submitted)) -
         new Date(unwrapDate(a.createdAt || a.date_submitted))
     )[0];
-  }, [filteredResults, latestResult]);
+  }, [filteredResults, latestResult, selectedAttemptOverride]);
 
   /* -------------------- BUG FIX 3: Consistent date parsing for testTakenDates -------------------- */
   const testTakenDates = useMemo(() => {
@@ -366,7 +377,10 @@ export default function Dashboard() {
   return (
     <div className="relative min-h-screen bg-gray-100">
       {/* Dashboard Tour */}
-      <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
+      <DashboardTour
+        isTourActive={isTourActive}
+        setIsTourActive={setIsTourActive}
+      />
 
       <DashboardTourModal
         isOpen={showTourModal}
@@ -387,6 +401,7 @@ export default function Dashboard() {
         onClose={() => setShowNoDataModal(false)}
         onClearFilter={() => {
           setSelectedDate(null);
+          setSelectedAttemptOverride(null); // ✅ NEW: reset override on clear
           setShowNoDataModal(false);
         }}
       />
@@ -401,11 +416,18 @@ export default function Dashboard() {
         </h1>
 
         <div className="flex items-center gap-4">
-          {/* BUG FIX 1 + 3: testTakenDates now uses quiz-scoped + unwrapDate-consistent dates */}
+          {/* ✅ ENHANCED: DateRangeFilter now receives quizAttempts + onAttemptSelect */}
           <DateRangeFilter
             selectedDate={selectedDate}
-            onChange={setSelectedDate}
+            onChange={(date) => {
+              setSelectedDate(date);
+              setSelectedAttemptOverride(null); // reset override when date changes normally
+            }}
             testTakenDates={testTakenDates}
+            quizAttempts={quizAttempts}
+            onAttemptSelect={(attempt) => {
+              setSelectedAttemptOverride(attempt);
+            }}
           />
           <AvatarMenu />
         </div>
@@ -467,7 +489,9 @@ export default function Dashboard() {
             <AISuggestionPanel
               suggestions={suggestions}
               studyTips={selectedResult?.ai_feedback?.study_tips || []}
-              topicWiseTips={selectedResult?.ai_feedback?.topic_wise_tips || []}
+              topicWiseTips={
+                selectedResult?.ai_feedback?.topic_wise_tips || []
+              }
             />
           </div>
         </div>
