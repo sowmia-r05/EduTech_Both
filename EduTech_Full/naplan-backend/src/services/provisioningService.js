@@ -1,19 +1,24 @@
 /**
  * src/services/provisioningService.js
  *
+ * UPDATED: Now supports tiered bundles (A/B/C).
+ *
  * Triggered after a successful Stripe payment.
  * For each child in the purchase:
- *   1. Ensure child has a FlexiQuiz user (should already exist from child creation)
- *   2. Assign purchased quizzes (or group) to the FlexiQuiz user
- *   3. Update child status from 'trial' → 'active'  ← ALWAYS RUNS
- *   4. Mark purchase as provisioned
+ *   1. Ensure child has a FlexiQuiz user
+ *   2. Determine which quizzes to assign based on:
+ *      - The purchased bundle's tier
+ *      - What the child already has (entitled_bundle_ids)
+ *      - If child has lower tiers → assign only THIS tier's quizzes
+ *      - If child DOESN'T have lower tiers → assign all quizzes including lower tiers
+ *   3. Assign quizzes on FlexiQuiz
+ *   4. Update child status → 'active'
+ *   5. Mark purchase as provisioned
  *
- * FIXED: Child status update is now OUTSIDE the FlexiQuiz try/catch
- * so it always runs even if FlexiQuiz API calls fail.
- *
- * Idempotent: running twice for the same purchase produces the same result.
+ * Idempotent: running twice produces the same result.
  */
 
+const mongoose = require("mongoose");
 const Child = require("../models/child");
 const Purchase = require("../models/purchase");
 const QuizCatalog = require("../models/quizCatalog");
@@ -25,6 +30,62 @@ const {
 } = require("./flexiQuizUsersService");
 const { encryptPassword } = require("../utils/flexiquizCrypto");
 const Parent = require("../models/parent");
+
+// Tier hierarchy: A < B < C
+const TIER_HIERARCHY = { A: 1, B: 2, C: 3 };
+
+/**
+ * Given a child's existing entitled_bundle_ids and the purchased bundle,
+ * determine exactly which quiz IDs to assign on FlexiQuiz.
+ *
+ * Logic:
+ *   - If child has NO prior bundles for this year → assign flexiquiz_quiz_ids_with_lower (all tiers)
+ *   - If child has lower tiers already → assign only flexiquiz_quiz_ids (this tier only)
+ *   - Always deduplicate against child.entitled_quiz_ids to avoid re-assigning
+ */
+async function resolveQuizIdsToAssign(child, bundle) {
+  const existingBundleIds = child.entitled_bundle_ids || [];
+  const existingQuizIds = new Set(child.entitled_quiz_ids || []);
+  const yearLevel = bundle.year_level;
+
+  // Find what tiers the child already has for THIS year level
+  const existingBundlesForYear = await QuizCatalog.find({
+    bundle_id: { $in: existingBundleIds },
+    year_level: yearLevel,
+  }).lean();
+
+  const existingTiers = existingBundlesForYear.map((b) => b.tier).filter(Boolean);
+  const hasLowerTiers = existingTiers.length > 0;
+
+  let quizIdsToAssign;
+
+  if (hasLowerTiers) {
+    // Child already has some bundles for this year — only assign THIS tier's quizzes
+    quizIdsToAssign = bundle.flexiquiz_quiz_ids || [];
+    console.log(
+      `  ℹ️ Child already has tiers [${existingTiers.join(", ")}] for Year ${yearLevel}. ` +
+      `Assigning only Tier ${bundle.tier} quizzes (${quizIdsToAssign.length})`
+    );
+  } else {
+    // Child has nothing for this year — assign all including lower tiers
+    quizIdsToAssign = bundle.flexiquiz_quiz_ids_with_lower || bundle.flexiquiz_quiz_ids || [];
+    console.log(
+      `  ℹ️ Child has no prior bundles for Year ${yearLevel}. ` +
+      `Assigning all quizzes including lower tiers (${quizIdsToAssign.length})`
+    );
+  }
+
+  // Deduplicate: remove any quiz IDs the child already has
+  const newQuizIds = quizIdsToAssign.filter((qid) => !existingQuizIds.has(qid));
+
+  if (newQuizIds.length < quizIdsToAssign.length) {
+    console.log(
+      `  ℹ️ Skipping ${quizIdsToAssign.length - newQuizIds.length} already-assigned quizzes`
+    );
+  }
+
+  return { quizIdsToAssign: newQuizIds, allQuizIds: quizIdsToAssign };
+}
 
 /**
  * Provision a single purchase.
@@ -65,11 +126,12 @@ async function provisionPurchase(purchaseId) {
     };
   }
 
-  const quizIds = bundle.flexiquiz_quiz_ids || [];
   const groupId = bundle.flexiquiz_group_id || null;
 
   // Fetch parent for email context
   const parent = await Parent.findById(purchase.parent_id).lean();
+  const parentEmail = parent?.email || "";
+  const parentLastName = parent?.last_name || "";
 
   const errors = [];
 
@@ -80,87 +142,74 @@ async function provisionPurchase(purchaseId) {
       continue;
     }
 
+    console.log(`\n── Provisioning ${child.username} (Tier ${bundle.tier}, Year ${bundle.year_level}) ──`);
+
+    // ── Resolve which quiz IDs to actually assign ──
+    const { quizIdsToAssign, allQuizIds } = await resolveQuizIdsToAssign(child, bundle);
+
     // ────────────────────────────────────────
     // FlexiQuiz provisioning (best-effort)
-    // If this fails, child STILL gets activated
     // ────────────────────────────────────────
     let flexiquizSuccess = true;
 
     try {
       // ── Step 1: Ensure child has FlexiQuiz account ──
       if (!child.flexiquiz_user_id) {
-        console.log(
-          `⚠️ Child ${child.username} missing FlexiQuiz user, creating now...`
-        );
+        console.log(`  ⚠️ Child ${child.username} missing FlexiQuiz user, creating now...`);
         const fqResult = await registerRespondent({
           firstName: child.display_name || child.username,
-          lastName: "",
-          email: parent?.email || "",
-          userName: child.username,
+          lastName: parentLastName,
+          email: parentEmail,
+          username: child.username,
         });
 
-        if (fqResult?.userId) {
+        if (fqResult?.user_id) {
           await Child.findByIdAndUpdate(childId, {
             $set: {
-              flexiquiz_user_id: fqResult.userId,
+              flexiquiz_user_id: fqResult.user_id,
               flexiquiz_password_enc: fqResult.password
                 ? encryptPassword(fqResult.password)
                 : null,
               flexiquiz_provisioned_at: new Date(),
             },
           });
-          child.flexiquiz_user_id = fqResult.userId;
-          console.log(
-            `✅ Created FlexiQuiz user for ${child.username}: ${fqResult.userId}`
-          );
+          child.flexiquiz_user_id = fqResult.user_id;
+          console.log(`  ✅ Created FlexiQuiz user: ${fqResult.user_id}`);
         } else {
-          throw new Error("registerRespondent returned no userId");
+          throw new Error("registerRespondent returned no user_id");
         }
       }
 
       const fqUserId = child.flexiquiz_user_id;
 
       // ── Step 2: Assign quizzes ──
-      if (groupId) {
+      if (quizIdsToAssign.length === 0) {
+        console.log(`  ℹ️ No new quizzes to assign (all already assigned)`);
+      } else if (groupId) {
         // Assign via group
         try {
           await fqAssignGroup(fqUserId, groupId);
-          console.log(
-            `✅ Assigned group ${groupId} to ${child.username}`
-          );
+          console.log(`  ✅ Assigned group ${groupId} to ${child.username}`);
         } catch (groupErr) {
-          console.warn(
-            `⚠️ Group assignment failed for ${child.username}:`,
-            groupErr.message
-          );
+          console.warn(`  ⚠️ Group assignment failed, falling back to individual: ${groupErr.message}`);
           // Fall back to individual quiz assignment
-          for (const quizId of quizIds) {
+          for (const quizId of quizIdsToAssign) {
             try {
               await fqAssignQuiz(fqUserId, quizId);
-              console.log(
-                `✅ Assigned quiz ${quizId} to ${child.username}`
-              );
+              console.log(`  ✅ Assigned quiz ${quizId}`);
             } catch (quizErr) {
-              console.warn(
-                `⚠️ Quiz ${quizId} assignment failed for ${child.username}:`,
-                quizErr.message
-              );
+              console.warn(`  ⚠️ Quiz ${quizId} assignment failed: ${quizErr.message}`);
             }
           }
         }
-      } else if (quizIds.length > 0) {
+      } else {
         // Assign individual quizzes
-        for (const quizId of quizIds) {
+        for (const quizId of quizIdsToAssign) {
           try {
             await fqAssignQuiz(fqUserId, quizId);
-            console.log(
-              `✅ Assigned quiz ${quizId} to ${child.username}`
-            );
+            console.log(`  ✅ Assigned quiz ${quizId}`);
           } catch (quizErr) {
-            console.warn(
-              `⚠️ Quiz ${quizId} assignment failed for ${child.username}:`,
-              quizErr.message
-            );
+            console.warn(`  ⚠️ Quiz ${quizId} assignment failed: ${quizErr.message}`);
           }
         }
       }
@@ -171,60 +220,47 @@ async function provisionPurchase(purchaseId) {
         const assignedQuizIds = (fqUser?.quizzes || []).map(
           (q) => q.quiz_id || q.quizId
         );
-        const missing = quizIds.filter(
+        const missing = allQuizIds.filter(
           (qid) => !assignedQuizIds.includes(qid)
         );
         if (missing.length > 0) {
-          console.warn(
-            `⚠️ ${child.username} missing quizzes after assignment:`,
-            missing
-          );
+          console.warn(`  ⚠️ ${child.username} missing quizzes after assignment:`, missing);
+        } else {
+          console.log(`  ✅ Verified: all ${allQuizIds.length} quizzes assigned on FlexiQuiz`);
         }
       } catch (verifyErr) {
-        console.warn(
-          `⚠️ Could not verify assignment for ${child.username}:`,
-          verifyErr.message
-        );
+        console.warn(`  ⚠️ Could not verify: ${verifyErr.message}`);
       }
     } catch (fqErr) {
-      // FlexiQuiz failed — log it but DON'T skip child activation
       flexiquizSuccess = false;
-      console.error(
-        `⚠️ FlexiQuiz provisioning failed for ${child.username}:`,
-        fqErr.message
-      );
-      errors.push(
-        `Child ${childId} (${child.username}): FlexiQuiz error - ${fqErr.message}`
-      );
+      console.error(`  ❌ FlexiQuiz provisioning failed: ${fqErr.message}`);
+      errors.push(`Child ${childId} (${child.username}): FlexiQuiz error - ${fqErr.message}`);
     }
 
     // ────────────────────────────────────────
-    // ✅ Step 4: ALWAYS update child status to 'active'
-    // This runs regardless of FlexiQuiz success/failure
+    // ✅ Step 4: ALWAYS update child status + entitlements
+    // Runs regardless of FlexiQuiz success/failure
     // ────────────────────────────────────────
     try {
       await Child.findByIdAndUpdate(childId, {
         $set: { status: "active" },
         $addToSet: {
-          entitled_quiz_ids: { $each: quizIds },
+          entitled_quiz_ids: { $each: allQuizIds },
           entitled_bundle_ids: purchase.bundle_id,
         },
       });
       console.log(
-        `✅ Child ${child.username} status → active` +
-          (flexiquizSuccess ? "" : " (FlexiQuiz pending)")
+        `  ✅ Child ${child.username} status → active, ` +
+        `+${allQuizIds.length} quiz entitlements, bundle: ${purchase.bundle_id}` +
+        (flexiquizSuccess ? "" : " (FlexiQuiz pending)")
       );
     } catch (updateErr) {
-      console.error(
-        `❌ Failed to update child ${child.username} status:`,
-        updateErr.message
-      );
+      console.error(`  ❌ DB update failed: ${updateErr.message}`);
       errors.push(`Child ${childId}: DB update failed - ${updateErr.message}`);
     }
   }
 
   // ── Step 5: Mark purchase as provisioned ──
-  // Mark provisioned even if FlexiQuiz had issues (child is active, quizzes can be retried)
   const hasOnlyFlexiQuizErrors =
     errors.length > 0 && errors.every((e) => e.includes("FlexiQuiz"));
 
@@ -233,25 +269,19 @@ async function provisionPurchase(purchaseId) {
       $set: {
         provisioned: true,
         provisioned_at: new Date(),
-        provision_error:
-          errors.length > 0 ? errors.join("; ") : null,
+        provision_error: errors.length > 0 ? errors.join("; ") : null,
       },
     });
     console.log(
-      `✅ Purchase ${purchaseId} provisioned` +
-        (hasOnlyFlexiQuizErrors
-          ? " (with FlexiQuiz warnings)"
-          : " successfully")
+      `\n✅ Purchase ${purchaseId} provisioned` +
+      (hasOnlyFlexiQuizErrors ? " (with FlexiQuiz warnings)" : " successfully")
     );
     return { success: true };
   } else {
     await Purchase.findByIdAndUpdate(purchaseId, {
       $set: { provision_error: errors.join("; ") },
     });
-    console.error(
-      `⚠️ Purchase ${purchaseId} partially provisioned. Errors:`,
-      errors
-    );
+    console.error(`⚠️ Purchase ${purchaseId} partially provisioned. Errors:`, errors);
     return { success: false, error: errors.join("; ") };
   }
 }
