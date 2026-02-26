@@ -162,3 +162,15 @@ export async function fetchChildWriting(token, childId) {
   const data = await authGet(`/api/children/${childId}/writing`, token);
   return Array.isArray(data) ? data : [];
 }
+export async function fetchChildQuizzes(token, childId) {
+  const data = await authGet(`/api/children/${childId}/quizzes`, token);
+  return data || { quizzes: [], bundles: [], child_status: "trial" };
+}
+
+
+
+
+
+
+
+
