@@ -65,21 +65,83 @@ function getDailyParentMessage() {
 }
 
 /* ═══════════════════════════════════════════════════════
+   AUTO QUIZ TIMING
+   
+   Determines estimated minutes based on quiz type + difficulty.
+   
+   Rules:
+   ┌──────────────────────────┬────────────┬───────────┐
+   │ Quiz Type                │ Difficulty │ Est. Time │
+   ├──────────────────────────┼────────────┼───────────┤
+   │ Full test (detected by   │ Any        │ 45 min    │
+   │ name pattern — see below)│            │           │
+   ├──────────────────────────┼────────────┼───────────┤
+   │ Sub-subject test         │ Standard   │ 20 min    │
+   │                          │ Medium     │ 20 min    │
+   ├──────────────────────────┼────────────┼───────────┤
+   │ Sub-subject test         │ Hard       │ 30 min    │
+   └──────────────────────────┴────────────┴───────────┘
+   
+   Full test detection (any of these in the name):
+   - "Year X Reading" (not "Year X Reading Comprehension Subset")
+   - "Year X Numeracy" (not "Year X Number and Algebra")
+   - "Year X Writing"
+   - "Year X Language Full"
+   - Contains "Full" in the name
+   
+   Everything else = sub-subject test.
+   ═══════════════════════════════════════════════════════ */
+function getEstMinutes(quiz) {
+  // If manually overridden, respect it
+  if (quiz.est_minutes) return quiz.est_minutes;
+
+  const name = (quiz.name || "").toLowerCase().trim();
+  const difficulty = (quiz.difficulty || "Standard").toLowerCase();
+
+  // Detect full tests by name patterns
+  // Full tests: "Year 3 Reading", "Year 3 Reading Set 2", "Year 3 Numeracy", 
+  //             "Year 3 Writing", "Year 3 Language Full Set 2"
+  // NOT full:   "Year 3 Grammar & Punctuation", "Year 3 Number and Algebra",
+  //             "Year 3 Spelling", "Year 3 Reading Comprehension Subset"
+  
+  const isFullTest = (
+    name.includes("full") ||                                          // explicit "full" in name
+    /year\s*\d+\s+writing\b/.test(name) ||                           // "Year 3 Writing"
+    /year\s*\d+\s+reading(\s+set\s*\d+)?$/.test(name) ||             // "Year 3 Reading" or "Year 3 Reading Set 2"
+    /year\s*\d+\s+numeracy(\s+set\s*\d+)?$/.test(name) ||            // "Year 3 Numeracy" or "Year 3 Numeracy Set 2"
+    /year\s*\d+\s+language\s+full/.test(name)                         // "Year 3 Language Full Set 2"
+  );
+
+  if (isFullTest) return 45;
+
+  // Sub-subject test timing based on difficulty
+  if (difficulty === "hard") return 24;
+  if (difficulty === "medium") return 18;
+
+  // Standard or Medium sub-subject
+  return 15;
+}
+
+/* ═══════════════════════════════════════════════════════
    QUIZ CATALOG — All 9 Year 3 FlexiQuiz embeds
    Each maps to a real FlexiQuiz quiz via embed_id
    ═══════════════════════════════════════════════════════ */
 const QUIZ_CATALOG = [
-  { id: "y3_writing_1",        name: "Year 3 Writing",                              subject: "Writing",  year_level: 3, embed_id: "87c82fac-2a4e-486d-b566-8200514fa7fc", difficulty: "Standard" },
-  { id: "y3_reading_set2",     name: "Year 3 Reading Set 2",                        subject: "Reading",  year_level: 3, embed_id: "2782fc4e-548e-4782-81dc-321c81101742", difficulty: "Standard" },
-  { id: "y3_reading_1",        name: "Year 3 Reading",                              subject: "Reading",  year_level: 3, embed_id: "6db1c3ab-db7c-402d-b08d-45f5fc8a48b3", difficulty: "Standard" },
-  { id: "y3_numeracy_set2",    name: "Year 3 Numeracy Set 2",                       subject: "Numeracy", year_level: 3, embed_id: "7474b871-b2f4-44c3-ac4a-788aca433ae8", difficulty: "Standard" },
-  { id: "y3_numeracy_1",       name: "Year 3 Numeracy",                             subject: "Numeracy", year_level: 3, embed_id: "7a5a06c3-7bdb-47ba-bcf4-182d105710cf", difficulty: "Standard" },
-  { id: "y3_number_algebra",   name: "Year 3 Number and Algebra",                   subject: "Numeracy", year_level: 3, embed_id: "ca3c6d7f-5370-41a4-87f7-8e098d762461", difficulty: "Medium" },
-  { id: "y3_grammar_set2",     name: "Year 3 Grammar & Punctuation Set 2",          subject: "Language", year_level: 3, embed_id: "6cb798a7-a5cb-44c2-a587-1c92b899b3d5", difficulty: "Medium" },
-  { id: "y3_language_set2",    name: "Year 3 Language Full Set 2",                   subject: "Language", year_level: 3, embed_id: "f1a0e888-e486-4049-826c-ce39f631ec5d", difficulty: "Standard" },
+  { id: "y3_writing_1",         name: "Year 3 Writing",                              subject: "Writing",  year_level: 3, embed_id: "87c82fac-2a4e-486d-b566-8200514fa7fc", difficulty: "Standard" },
+  { id: "y3_reading_set2",      name: "Year 3 Reading Set 2",                        subject: "Reading",  year_level: 3, embed_id: "2782fc4e-548e-4782-81dc-321c81101742", difficulty: "Standard" },
+  { id: "y3_reading_1",         name: "Year 3 Reading",                              subject: "Reading",  year_level: 3, embed_id: "6db1c3ab-db7c-402d-b08d-45f5fc8a48b3", difficulty: "Standard" },
+  { id: "y3_numeracy_set2",     name: "Year 3 Numeracy Set 2",                       subject: "Numeracy", year_level: 3, embed_id: "7474b871-b2f4-44c3-ac4a-788aca433ae8", difficulty: "Standard" },
+  { id: "y3_numeracy_1",        name: "Year 3 Numeracy",                             subject: "Numeracy", year_level: 3, embed_id: "7a5a06c3-7bdb-47ba-bcf4-182d105710cf", difficulty: "Standard" },
+  { id: "y3_number_algebra",    name: "Year 3 Number and Algebra",                   subject: "Numeracy", year_level: 3, embed_id: "ca3c6d7f-5370-41a4-87f7-8e098d762461", difficulty: "Medium" },
+  { id: "y3_grammar_set2",      name: "Year 3 Grammar & Punctuation Set 2",          subject: "Language", year_level: 3, embed_id: "6cb798a7-a5cb-44c2-a587-1c92b899b3d5", difficulty: "Medium" },
+  { id: "y3_language_set2",     name: "Year 3 Language Full Set 2",                  subject: "Language", year_level: 3, embed_id: "f1a0e888-e486-4049-826c-ce39f631ec5d", difficulty: "Standard" },
   { id: "y3_grammar_hard_set2", name: "Year 3 Grammar & Punctuation (Hard) Set 2",  subject: "Language", year_level: 3, embed_id: "79b9e678-59b0-4db3-a59f-99398c036015", difficulty: "Hard" },
+  
+  // ── Future quizzes — just add them, timing is automatic! ──
+  // { id: "y3_spelling_1",      name: "Year 3 Spelling",          subject: "Language", year_level: 3, embed_id: "xxx", difficulty: "Medium" },   → auto 20 min
+  // { id: "y5_reading_1",       name: "Year 5 Reading",           subject: "Reading",  year_level: 5, embed_id: "xxx", difficulty: "Standard" }, → auto 45 min
+  // { id: "y5_vocab_hard",      name: "Year 5 Vocabulary (Hard)", subject: "Language", year_level: 5, embed_id: "xxx", difficulty: "Hard" },     → auto 30 min
 ];
-
 /* ─── Subject styling ─── */
 const SUBJECT_STYLE = {
   Reading:  { icon: "📖", bg: "bg-blue-50",    text: "text-blue-700",    badge: "bg-blue-100 text-blue-700" },
