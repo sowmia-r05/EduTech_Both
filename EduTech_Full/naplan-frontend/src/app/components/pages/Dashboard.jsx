@@ -6,7 +6,7 @@ import AICoachPanel from "@/app/components/dashboardComponents/AICoachPanel";
 import DonutScoreChart from "@/app/components/dashboardComponents/DonutScoreChart";
 import WeakTopicsBarChart from "@/app/components/dashboardComponents/WeakTopicsBarChart";
 import AISuggestionPanel from "@/app/components/dashboardComponents/AISuggestionPanel";
-import AvatarMenu from "@/app/components/dashboardComponents/AvatarMenu";
+import DashboardAvatarMenu from "@/app/components/dashboardComponents/DashboardAvatarMenu";
 import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopicsFunnelChart";
 import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
 import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
@@ -339,7 +339,7 @@ export default function Dashboard() {
               quizAttempts={quizAttempts}
               onAttemptSelect={(attempt) => { setSelectedAttemptOverride(attempt); }}
             />
-            <AvatarMenu />
+            <DashboardAvatarMenu />
           </div>
         </div>
       </header>
