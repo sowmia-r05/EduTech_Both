@@ -20,7 +20,6 @@ import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
-import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 
 export default function AppRoutes() {
   return (
