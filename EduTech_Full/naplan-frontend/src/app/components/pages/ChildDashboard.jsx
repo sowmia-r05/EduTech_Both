@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import { fetchChildResults, fetchChildren } from "@/app/utils/api-children";
+import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics"; // 🆕
 
 /* ─── Subject inference from quiz name ─── */
 function inferSubject(quizName) {
@@ -80,6 +81,7 @@ export default function ChildDashboard() {
   const [search, setSearch] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: "date", direction: "desc" });
   const [childInfo, setChildInfo] = useState(null);
+  const [showAnalytics, setShowAnalytics] = useState(false); // 🆕
 
   const testsPerPage = 8;
   const hasTests = tests.length > 0;
@@ -286,6 +288,41 @@ export default function ChildDashboard() {
     );
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     🆕 ANALYTICS VIEW — toggled via showAnalytics state
+     ═══════════════════════════════════════════════════════════ */
+  if (showAnalytics) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
+        {/* Sticky navigation bar */}
+        <div className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3">
+          <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
+            <button
+              onClick={() => setShowAnalytics(false)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+                         text-slate-700 bg-white border border-slate-200 shadow-sm
+                         hover:bg-slate-50 hover:border-slate-300 transition-all"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              Back to Dashboard
+            </button>
+            <span className="text-sm text-slate-500 hidden sm:inline">
+              {displayName}'s Analytics
+            </span>
+          </div>
+        </div>
+
+        {/* Render the StudentDashboardAnalytics component inline */}
+        <StudentDashboardAnalytics />
+      </div>
+    );
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     MAIN DASHBOARD RETURN
+     ═══════════════════════════════════════════════════════════ */
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white px-4 py-8 md:px-8">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -311,7 +348,35 @@ export default function ChildDashboard() {
                 : motivation.text}
             </p>
           </div>
+
+          {/* ─── ACTION BUTTONS ─── */}
           <div className="flex gap-2 flex-shrink-0">
+
+            {/* 🆕 VIEW ANALYTICS BUTTON — always visible for both parent & child */}
+            <button
+              onClick={() => setShowAnalytics(true)}
+              className="group inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold
+                         bg-gradient-to-r from-indigo-600 to-violet-600 text-white
+                         shadow-md shadow-indigo-200
+                         hover:from-indigo-700 hover:to-violet-700 hover:shadow-lg hover:shadow-indigo-300
+                         transition-all duration-200"
+            >
+              <svg
+                className="w-4 h-4 transition-transform group-hover:scale-110"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+                />
+              </svg>
+              View Analytics
+            </button>
+
             {isParentViewing && (
               <>
                 <button
