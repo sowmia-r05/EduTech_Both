@@ -23,26 +23,110 @@ import {
 
 import waitingGif from "@/app/components/Public/dragon_play.gif";
 import AvatarMenu from "@/app/components/ResultComponents/AvatarMenu";
+import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
 
+// ✅ CHANGED: import fetchWritingsByUsername (array) instead of fetchLatestWritingByUsername (single)
 import {
   fetchLatestWritingByEmailAndQuiz,
   fetchWritingByResponseId,
+  fetchWritingsByUsername,
   normalizeEmail,
 } from "@/app/utils/api";
+
+/* -------------------- Helpers -------------------- */
+const unwrapDate = (d) =>
+  d && typeof d === "object" && "$date" in d ? d.$date : d;
 
 const isAiPending = (d) => {
   const s = String(d?.ai?.status || "").toLowerCase();
   if (["done", "completed", "success"].includes(s)) return false;
   if (["error", "failed"].includes(s)) return false;
-  return true; // pending/processing/queued/empty
+  return true;
 };
 
+/* -------------------- No Data Modal -------------------- */
+const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    document.body.style.overflow = "hidden";
+    const handleEsc = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleEsc);
+
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleEsc);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-scaleIn"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <div className="text-2xl">📅</div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">
+              No Results Found
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              There are no writing attempts recorded for the selected date.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-100 transition"
+          >
+            Close
+          </button>
+
+          <button
+            onClick={onClearFilter}
+            className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+          >
+            Clear Filter
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes scaleIn {
+          from { transform: scale(0.95); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        .animate-fadeIn { animation: fadeIn 0.2s ease-out forwards; }
+        .animate-scaleIn { animation: scaleIn 0.2s ease-out forwards; }
+      `}</style>
+    </div>
+  );
+};
+
+/* ==================== ResultPage ==================== */
 export default function ResultPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // ✅ NEW: dynamic ResponseId param (your URL uses r=...)
+  // ✅ Dynamic ResponseId param (URL uses r=...)
   const responseId = String(searchParams.get("r") || "").trim();
+
+  // ✅ NEW: username param passed from ChildDashboard for sibling-safe filtering
+  const usernameParam = String(searchParams.get("username") || "").trim();
 
   // Old fallback params (still supported)
   const email = normalizeEmail(searchParams.get("email"));
@@ -53,14 +137,16 @@ export default function ResultPage() {
   const userName = useMemo(() => (email ? email.split("@")[0] : "User"), [email]);
 
   const [doc, setDoc] = useState(null);
+  const [writingsList, setWritingsList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // ✅ Date picker state
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [showNoDataModal, setShowNoDataModal] = useState(false);
+
   // ----------------------------
-  // Fetch evaluation
-  // Priority:
-  // 1) r=responseId
-  // 2) email+quiz fallback
+  // Fetch evaluation + all writings for this child (sibling-safe)
   // ----------------------------
   useEffect(() => {
     if (!responseId && !hasFallback) {
@@ -75,12 +161,41 @@ export default function ResultPage() {
         setLoading(true);
         setError(null);
 
+        // 1) Load the specific writing doc
         const data = responseId
           ? await fetchWritingByResponseId(responseId)
           : await fetchLatestWritingByEmailAndQuiz(email, quizName);
 
         if (cancelled) return;
         setDoc(data);
+
+        // 2) Fetch ALL writing attempts for THIS CHILD only (sibling-safe)
+        //    Priority: usernameParam from URL → doc.user.user_name → email fallback
+        const childUsername = usernameParam || data?.user?.user_name || "";
+
+        if (childUsername) {
+          // ✅ SIBLING-SAFE: fetch by unique username
+          try {
+            const all = await fetchWritingsByUsername(childUsername);
+            if (!cancelled) setWritingsList(Array.isArray(all) ? all : [data]);
+          } catch {
+            if (!cancelled) setWritingsList([data]);
+          }
+        } else if (data?.user?.email_address && data?.quiz_name) {
+          // ⚠️ LEGACY FALLBACK: no username available (old bookmarks etc.)
+          // This path may mix siblings — kept for backward compatibility only
+          try {
+            const res = await fetch(
+              `/api/writing/latest?email=${encodeURIComponent(data.user.email_address)}&quiz=${encodeURIComponent(data.quiz_name)}`
+            );
+            const single = await res.json();
+            if (!cancelled) setWritingsList(single ? [single] : [data]);
+          } catch {
+            if (!cancelled) setWritingsList([data]);
+          }
+        } else {
+          if (!cancelled) setWritingsList([data]);
+        }
       } catch (e) {
         if (cancelled) return;
         setError(e?.message || "Failed to load evaluation data.");
@@ -93,7 +208,7 @@ export default function ResultPage() {
     return () => {
       cancelled = true;
     };
-  }, [responseId, hasFallback, email, quizName, navigate]);
+  }, [responseId, hasFallback, email, quizName, usernameParam, navigate]);
 
   // ----------------------------
   // Poll until AI done (max 3 mins)
@@ -101,12 +216,12 @@ export default function ResultPage() {
   useEffect(() => {
     if (!responseId && !hasFallback) return;
     if (!doc) return;
-    if (!isAiPending(doc)) return; // already ready or failed
+    if (!isAiPending(doc)) return;
 
     let cancelled = false;
     let timer = null;
     const start = Date.now();
-    const MAX_MS = 180000; // 3 minutes
+    const MAX_MS = 180000;
 
     const poll = async () => {
       if (cancelled) return;
@@ -149,14 +264,88 @@ export default function ResultPage() {
   }, [loading, doc, navigate]);
 
   // ----------------------------
-  // AI state (robust)
+  // ✅ UPDATED: Quiz-scoped attempts — sibling-safe
+  // When username was used, writingsList is already child-scoped.
+  // If subject param is "Writing", show all writing attempts for this child.
+  // Otherwise filter by exact quiz_name.
   // ----------------------------
-  const feedback = doc?.ai?.feedback;
-  const aiStatus = doc?.ai?.status;
-  const aiMessage = doc?.ai?.message;
+  const quizAttempts = useMemo(() => {
+    if (!doc) return [];
+
+    const subjectParam = searchParams.get("subject") || "";
+
+    if (subjectParam === "Writing" && usernameParam) {
+      // Show ALL writing attempts for this child (across quiz names)
+      // Already filtered by username on the backend
+      return writingsList;
+    }
+
+    // Default: filter by exact quiz_name
+    return writingsList.filter(
+      (w) => w.quiz_name === doc.quiz_name
+    );
+  }, [writingsList, doc, searchParams, usernameParam]);
+
+  // ✅ Filtered results by selected date
+  const filteredResults = useMemo(() => {
+    if (!selectedDate) return quizAttempts;
+
+    const start = new Date(selectedDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(selectedDate);
+    end.setHours(23, 59, 59, 999);
+
+    return quizAttempts.filter((w) => {
+      const raw = unwrapDate(w?.submitted_at || w?.date_submitted || w?.date_created || w?.createdAt);
+      if (!raw) return false;
+      const dt = new Date(raw);
+      return dt >= start && dt <= end;
+    });
+  }, [quizAttempts, selectedDate]);
+
+  // ✅ NoDataModal trigger
+  useEffect(() => {
+    if (selectedDate) {
+      setShowNoDataModal(filteredResults.length === 0);
+    }
+  }, [selectedDate, filteredResults]);
+
+  // ✅ Pick selected doc (latest in filtered range, or original doc)
+  const selectedDoc = useMemo(() => {
+    if (!filteredResults.length) return doc;
+
+    return [...filteredResults].sort(
+      (a, b) =>
+        new Date(unwrapDate(b.submitted_at || b.date_submitted || b.createdAt)) -
+        new Date(unwrapDate(a.submitted_at || a.date_submitted || a.createdAt))
+    )[0];
+  }, [filteredResults, doc]);
+
+  // ✅ Consistent date parsing for testTakenDates (dots in calendar)
+  const testTakenDates = useMemo(() => {
+    return quizAttempts
+      .map((w) => {
+        const raw = unwrapDate(w?.submitted_at || w?.date_submitted || w?.date_created || w?.createdAt);
+        if (!raw) return null;
+        const date = new Date(raw);
+        if (isNaN(date.getTime())) return null;
+        date.setHours(0, 0, 0, 0);
+        return date;
+      })
+      .filter(Boolean);
+  }, [quizAttempts]);
+
+  // ----------------------------
+  // AI state (robust) — uses selectedDoc instead of doc
+  // ----------------------------
+  const activeDoc = selectedDoc || doc;
+  const feedback = activeDoc?.ai?.feedback;
+  const aiStatus = activeDoc?.ai?.status;
+  const aiMessage = activeDoc?.ai?.message;
 
   const isAiError = aiStatus === "error";
-  const isProcessing = loading || (doc && isAiPending(doc));
+  const isProcessing = loading || (activeDoc && isAiPending(activeDoc));
   const hasAiFailed = isAiError;
 
   // ----------------------------
@@ -174,10 +363,10 @@ export default function ResultPage() {
             />
             <div className="text-center space-y-2">
               <p className="text-xl sm:text-2xl font-semibold text-gray-900">
-                Almost there, {userName}! Getting your feedback ready…
+                Almost there, {userName}!
               </p>
-              <p className="text-sm sm:text-base text-gray-600">
-                Please wait a moment while we prepare your evaluation.
+              <p className="text-sm text-gray-500">
+                {aiMessage || "We're analysing your writing — hang tight!"}
               </p>
             </div>
           </CardContent>
@@ -187,20 +376,20 @@ export default function ResultPage() {
   }
 
   // ----------------------------
-  // Error / No doc
+  // Error UI
   // ----------------------------
-  if (error || !doc) {
+  if (error || hasAiFailed) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="w-full max-w-2xl">
-          <CardContent className="py-12 text-center">
-            <p className="text-xl font-medium text-red-600 mb-4">
-              {error || "No data found"}
+        <Card className="w-full max-w-lg">
+          <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+            <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Evaluation Error</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              {error || aiMessage || "Something went wrong during evaluation."}
             </p>
-            <Button onClick={() => navigate("/WritingLookupQuizResults")}
-              >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Input
+            <Button variant="outline" onClick={() => navigate(-1)}>
+              <ArrowLeft className="w-4 h-4 mr-2" /> Go Back
             </Button>
           </CardContent>
         </Card>
@@ -208,59 +397,14 @@ export default function ResultPage() {
     );
   }
 
-  // ----------------------------
-  // AI failed UI
-  // ----------------------------
-  if (hasAiFailed) {
-    let errorTitle = "AI Evaluation Failed";
-    let errorMessage = "The AI was unable to evaluate your writing.";
-    let errorSuggestion =
-      "Please ensure you have written a substantial response and try again.";
-
-    if (aiMessage) {
-      errorMessage = "The AI encountered an error while processing your evaluation.";
-      errorSuggestion = "Please try again later or contact support if the issue persists.";
-    }
-
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="w-full max-w-2xl">
-          <CardContent className="py-12 text-center">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-red-600 mb-4">{errorTitle}</h2>
-            <p className="text-gray-700 mb-2">{errorMessage}</p>
-
-            {aiMessage && (
-              <p className="text-sm text-gray-600 mb-6 italic">Error details: {aiMessage}</p>
-            )}
-
-            <p className="text-gray-600 mb-6">{errorSuggestion}</p>
-            <Button onClick={() => navigate("/WritingLookupQuizResults")}
-              >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Input
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  if (!activeDoc) return null;
 
   // ----------------------------
-  // Helpers
+  // Derived KPI values (from selectedDoc)
   // ----------------------------
-  const getDateValue = (dateObj) => {
-    if (!dateObj) return null;
-    if (typeof dateObj === "string") return dateObj;
-    if (typeof dateObj === "object" && "$date" in dateObj) return dateObj.$date;
-    return dateObj;
-  };
-
-  const evaluatedAtRaw =
-    getDateValue(doc?.ai?.evaluated_at) || getDateValue(doc?.submitted_at);
-
+  const evaluatedAtRaw = unwrapDate(feedback?.meta?.evaluated_at || activeDoc?.ai?.evaluated_at);
   const evaluatedAtLabel =
-    evaluatedAtRaw && !Number.isNaN(new Date(evaluatedAtRaw).getTime())
+    evaluatedAtRaw && !isNaN(new Date(evaluatedAtRaw).getTime())
       ? new Date(evaluatedAtRaw).toLocaleDateString()
       : null;
 
@@ -283,11 +427,30 @@ export default function ResultPage() {
   const feedbackStatus = feedback?.status;
   const feedbackMessage = feedback?.message;
 
+  // ✅ Attempts count (scoped to date or quiz)
+  const attemptsUsed = selectedDate
+    ? filteredResults.length || "—"
+    : quizAttempts.length || "—";
+
+  // Derive email/quizName from activeDoc for display
+  const displayEmail = activeDoc?.user?.email_address || email || "";
+  const displayQuizName = activeDoc?.quiz_name || quizName || "";
+
   // ----------------------------
   // Main UI
   // ----------------------------
   return (
     <div className="min-h-screen bg-gray-50 p-4 py-8">
+      {/* No Data Modal */}
+      <NoDataModal
+        isOpen={showNoDataModal}
+        onClose={() => setShowNoDataModal(false)}
+        onClearFilter={() => {
+          setSelectedDate(null);
+          setShowNoDataModal(false);
+        }}
+      />
+
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-6">
@@ -297,14 +460,54 @@ export default function ResultPage() {
             </h1>
 
             <p className="text-sm text-gray-500 mt-1 truncate">
-              {email} • {quizName}
+              {displayEmail} • {displayQuizName}
             </p>
           </div>
 
-
-          <div className="shrink-0 self-start">
+          {/* ✅ Date picker + Avatar */}
+          <div className="shrink-0 self-start flex items-center gap-3">
+            <DateRangeFilter
+              selectedDate={selectedDate}
+              onChange={setSelectedDate}
+              testTakenDates={testTakenDates}
+            />
             <AvatarMenu />
           </div>
+        </div>
+
+        {/* ✅ KPI Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="pt-4 pb-4 text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Score</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {totalScore} / {maxScore}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4 text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Percentage</p>
+              <p className="text-2xl font-bold text-gray-900">{percentage}%</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4 text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Band</p>
+              <p className={`text-lg font-bold ${
+                band?.includes("Above") ? "text-green-600" :
+                band?.includes("Below") ? "text-red-600" : "text-yellow-600"
+              }`}>
+                {band || "—"}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4 text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Attempts</p>
+              <p className="text-2xl font-bold text-gray-900">{attemptsUsed}</p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Warning for local eval */}
@@ -349,12 +552,12 @@ export default function ResultPage() {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Overall Performance</span>
-              {doc?.attempt && (
+              {activeDoc?.attempt && (
                 <Badge
                   variant="secondary"
                   className="text-base px-4 py-1.5 bg-gray-200 text-gray-700 font-semibold"
                 >
-                  Attempt {doc.attempt}
+                  Attempt {activeDoc.attempt}
                 </Badge>
               )}
             </CardTitle>
@@ -392,7 +595,7 @@ export default function ResultPage() {
                     variant={
                       percentage >= 70 ? "default" : percentage >= 50 ? "secondary" : "destructive"
                     }
-                    className="text-2xl px-6 py-3"
+                    className="text-3xl px-6 py-3"
                   >
                     {percentage}%
                   </Badge>
@@ -401,123 +604,99 @@ export default function ResultPage() {
             )}
 
             {oneLineSummary && (
-              <div className={!isLocalEval ? "pt-4 border-t" : ""}>
-                <div className="flex items-start gap-2">
-                  <BookOpen className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                  <p className="text-gray-900 font-semibold text-lg">{oneLineSummary}</p>
-                </div>
-              </div>
+              <p className="text-gray-700 mt-2 italic">{oneLineSummary}</p>
             )}
 
-            {feedback?.overall?.summary && (
-              <div className="pt-4 border-t">
-                <p className="text-gray-700">{feedback.overall.summary}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
+              <div>
+                <p className="text-sm text-gray-500">Year Level</p>
+                <p className="font-medium">
+                  {feedback?.meta?.year_level || feedback?.year_level
+                    ? `Year ${feedback?.meta?.year_level || feedback?.year_level}`
+                    : "-"}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Text Type</p>
+                <p className="font-medium">{feedback?.meta?.text_type || "-"}</p>
+              </div>
+
+              {!isLocalEval && (
+                <div>
+                  <p className="text-sm text-gray-500">Valid Response</p>
+                  <p className="font-medium">{feedback?.meta?.valid_response ? "✓ Yes" : "✗ No"}</p>
+                </div>
+              )}
+
+              {wordCount !== undefined && wordCount !== null && (
+                <div>
+                  <p className="text-sm text-gray-500">Word Count</p>
+                  <p className="font-medium">{wordCount}</p>
+                </div>
+              )}
+            </div>
+
+            {!isLocalEval && (
+              <div className="grid md:grid-cols-2 gap-4 mt-4">
+                {feedback?.meta?.prompt_relevance && (
+                  <div
+                    className={`p-3 border-l-4 rounded ${
+                      feedback.meta.prompt_relevance.verdict === "on_topic"
+                        ? "bg-green-50 border-green-500"
+                        : "bg-red-50 border-red-500"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-semibold">
+                        Prompt Relevance:{" "}
+                        {feedback.meta.prompt_relevance.verdict === "on_topic" ? "On Topic ✓" : "Off Topic ✗"}
+                      </p>
+                      <Badge
+                        variant={
+                          feedback.meta.prompt_relevance.verdict === "on_topic" ? "default" : "destructive"
+                        }
+                      >
+                        {feedback.meta.prompt_relevance.score}%
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-gray-700 mb-2">{feedback.meta.prompt_relevance.note}</p>
+                    {feedback.meta.prompt_relevance.evidence && (
+                      <p className="text-sm text-gray-600 italic">
+                        Evidence: "{feedback.meta.prompt_relevance.evidence}"
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {wordCountReview && (
+                  <div
+                    className={`p-3 border-l-4 rounded ${
+                      wordCountReview.status === "below_recommended"
+                        ? "bg-yellow-50 border-yellow-500"
+                        : wordCountReview.status === "within_range"
+                          ? "bg-green-50 border-green-500"
+                          : "bg-red-50 border-red-500"
+                    }`}
+                  >
+                    <p className="text-sm font-semibold mb-1">Word Count Review</p>
+                    <p className="text-sm text-gray-700">{wordCountReview.message}</p>
+                    {wordCountReview.suggestion && (
+                      <p className="text-sm text-gray-600 mt-1 italic">{wordCountReview.suggestion}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Assignment Details */}
-        {(!isLocalEval || feedback?.meta || feedback?.year_level) && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Assignment Details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-500">Year Level</p>
-                  <p className="font-medium">
-                    {(feedback?.meta?.year_level || feedback?.year_level)
-                      ? `Year ${feedback?.meta?.year_level || feedback?.year_level}`
-                      : "-"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Text Type</p>
-                  <p className="font-medium">{feedback?.meta?.text_type || "-"}</p>
-                </div>
-
-                {!isLocalEval && (
-                  <div>
-                    <p className="text-sm text-gray-500">Valid Response</p>
-                    <p className="font-medium">{feedback?.meta?.valid_response ? "✓ Yes" : "✗ No"}</p>
-                  </div>
-                )}
-
-                {wordCount !== undefined && wordCount !== null && (
-                  <div>
-                    <p className="text-sm text-gray-500">Word Count</p>
-                    <p className="font-medium">{wordCount}</p>
-                  </div>
-                )}
-              </div>
-
-              {!isLocalEval && (
-                <div className="grid md:grid-cols-2 gap-4 mt-4">
-                  {feedback?.meta?.prompt_relevance && (
-                    <div
-                      className={`p-3 border-l-4 rounded ${
-                        feedback.meta.prompt_relevance.verdict === "on_topic"
-                          ? "bg-green-50 border-green-500"
-                          : "bg-red-50 border-red-500"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-sm font-semibold">
-                          Prompt Relevance: {" "}
-                          {feedback.meta.prompt_relevance.verdict === "on_topic" ? "On Topic ✓" : "Off Topic ✗"}
-                        </p>
-                        <Badge
-                          variant={
-                            feedback.meta.prompt_relevance.verdict === "on_topic" ? "default" : "destructive"
-                          }
-                        >
-                          {feedback.meta.prompt_relevance.score}%
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-gray-700 mb-2">{feedback.meta.prompt_relevance.note}</p>
-                      {feedback.meta.prompt_relevance.evidence && (
-                        <p className="text-sm text-gray-600 italic">
-                          Evidence: "{feedback.meta.prompt_relevance.evidence}"
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {wordCountReview && (
-                    <div
-                      className={`p-3 border-l-4 rounded ${
-                        wordCountReview.status === "below_recommended"
-                          ? "bg-yellow-50 border-yellow-500"
-                          : wordCountReview.status === "within_range"
-                            ? "bg-green-50 border-green-500"
-                            : "bg-blue-50 border-blue-500"
-                      }`}
-                    >
-                      <div className="flex items-start gap-2 mb-2">
-                        <FileText className="w-4 h-4 text-gray-600 mt-0.5 flex-shrink-0" />
-                        <p className="text-sm font-semibold">Word Count Review</p>
-                      </div>
-                      <p className="text-sm text-gray-700 mb-2">{wordCountReview.message}</p>
-                      {wordCountReview.suggestion && (
-                        <p className="text-sm text-gray-600 italic">{wordCountReview.suggestion}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Strengths / Weaknesses */}
+        {/* Strengths & Weaknesses */}
         {!isLocalEval && (strengths.length > 0 || weaknesses.length > 0) && (
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card>
+          <div className="grid md:grid-cols-2 gap-4">
+            <Card className="border-green-200">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+                <CardTitle className="flex items-center gap-2 text-green-700">
+                  <CheckCircle2 className="w-5 h-5" />
                   Strengths
                 </CardTitle>
               </CardHeader>
@@ -537,10 +716,10 @@ export default function ResultPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border-orange-200">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5 text-orange-600" />
+                <CardTitle className="flex items-center gap-2 text-orange-700">
+                  <AlertTriangle className="w-5 h-5" />
                   Areas for Improvement
                 </CardTitle>
               </CardHeader>
@@ -672,7 +851,7 @@ export default function ResultPage() {
         )}
 
         {/* Student Writing */}
-        {doc?.qna?.[0]?.answer_text && (
+        {activeDoc?.qna?.[0]?.answer_text && (
           <Card>
             <CardHeader>
               <CardTitle>Your Writing</CardTitle>
@@ -680,7 +859,7 @@ export default function ResultPage() {
             </CardHeader>
             <CardContent>
               <div className="prose max-w-none bg-white p-6 rounded-lg border">
-                <p className="whitespace-pre-wrap text-gray-700 leading-relaxed">{doc.qna[0].answer_text}</p>
+                <p className="whitespace-pre-wrap text-gray-700 leading-relaxed">{activeDoc.qna[0].answer_text}</p>
               </div>
             </CardContent>
           </Card>

@@ -149,6 +149,7 @@ export default function ParentDashboard() {
       childId: child._id,
       childName: child.name || child.display_name || child.username || "",
       yearLevel: String(child.year_level || child.yearLevel || ""),
+      username: child.username || "",
     });
     navigate(`/child-dashboard?${params.toString()}`);
   };

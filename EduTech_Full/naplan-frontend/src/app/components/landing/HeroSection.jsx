@@ -45,6 +45,11 @@ export default function HeroSection() {
           No credit card required • Instant access • One full test free
         </p>
 
+        <p className="mt-5 text-sm text-gray-500 max-w-md mx-auto">
+          This product is an independent practice resource aligned to the Australian Curriculum. 
+          It is not affiliated with, endorsed by, or associated with ACARA or NAPLAN.
+        </p>
+
       </div>
     </motion.section>
   )
