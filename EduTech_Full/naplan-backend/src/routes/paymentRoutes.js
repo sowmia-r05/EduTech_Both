@@ -68,21 +68,17 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
 
         if (existingPurchase.status === "paid") {
           return res.status(409).json({
-            error: `${childName} already has the "${bundle.bundle_name}" bundle. No need to purchase again.`,
-            code: "DUPLICATE_PURCHASE",
+            error: `${childName} already has the "${bundle.bundle_name}" bundle.`,
+            code: "ALREADY_PURCHASED",
             child_name: childName,
             bundle_name: bundle.bundle_name,
           });
-        }
-
-        if (existingPurchase.status === "pending") {
-          const sessionAge =
-            Date.now() - new Date(existingPurchase.createdAt).getTime();
-          const ONE_HOUR = 60 * 60 * 1000;
-
-          if (sessionAge < ONE_HOUR) {
+        } else if (existingPurchase.status === "pending") {
+          // Check if the pending session is recent (< 30 min)
+          const age = Date.now() - new Date(existingPurchase.createdAt).getTime();
+          if (age < 30 * 60 * 1000) {
             return res.status(409).json({
-              error: `A checkout session for ${childName} + "${bundle.bundle_name}" is already in progress. Please complete or cancel it first.`,
+              error: `A checkout is already in progress for ${childName} — "${bundle.bundle_name}". Please complete or cancel it first.`,
               code: "CHECKOUT_IN_PROGRESS",
               child_name: childName,
               bundle_name: bundle.bundle_name,
@@ -251,6 +247,7 @@ router.post("/webhook", async (req, res) => {
 // ────────────────────────────────────────────
 // GET /api/payments/history
 // Returns all purchases for the authenticated parent
+// ✅ UPDATED: Now populates child details (display_name, username, year_level, status)
 // ────────────────────────────────────────────
 router.get("/history", verifyToken, requireParent, async (req, res) => {
   try {
@@ -258,6 +255,7 @@ router.get("/history", verifyToken, requireParent, async (req, res) => {
 
     const purchases = await Purchase.find({ parent_id: parentId })
       .sort({ createdAt: -1 })
+      .populate("child_ids", "display_name username year_level status")
       .lean();
 
     return res.json(purchases);
@@ -272,79 +270,35 @@ router.get("/history", verifyToken, requireParent, async (req, res) => {
 // Returns purchase details after Stripe redirect (for the success modal).
 // Populates child names + bundle info so the frontend can show a proper receipt.
 // ────────────────────────────────────────────
-router.get(
-  "/verify/:sessionId",
-  verifyToken,
-  requireParent,
-  async (req, res) => {
-    try {
-      const parentId = req.user?.parentId || req.user?.parent_id;
-      const { sessionId } = req.params;
+router.get("/verify/:sessionId", verifyToken, requireParent, async (req, res) => {
+  try {
+    const parentId = req.user?.parentId || req.user?.parent_id;
+    const { sessionId } = req.params;
 
-      if (!sessionId) {
-        return res.status(400).json({ error: "sessionId is required" });
-      }
+    const purchase = await Purchase.findOne({
+      stripe_session_id: sessionId,
+      parent_id: parentId,
+    })
+      .populate("child_ids", "display_name username year_level status")
+      .lean();
 
-      const purchase = await Purchase.findOne({
-        stripe_session_id: sessionId,
-        parent_id: parentId,
-      }).lean();
-
-      if (!purchase) {
-        return res.status(404).json({ error: "Purchase not found" });
-      }
-
-      // Fetch child details
-      const childDocs = await Child.find({
-        _id: { $in: purchase.child_ids },
-      })
-        .select("display_name username year_level status")
-        .lean();
-
-      // Fetch bundle details
-      const bundle = await QuizCatalog.findOne({
-        bundle_id: purchase.bundle_id,
-      })
-        .select("bundle_name description year_level subjects price_cents")
-        .lean();
-
-      return res.json({
-        ok: true,
-        purchase: {
-          _id: purchase._id,
-          bundle_id: purchase.bundle_id,
-          bundle_name: purchase.bundle_name,
-          amount_cents: purchase.amount_cents,
-          currency: purchase.currency,
-          status: purchase.status,
-          provisioned: purchase.provisioned,
-          provisioned_at: purchase.provisioned_at,
-          createdAt: purchase.createdAt,
-        },
-        children: childDocs.map((c) => ({
-          _id: c._id,
-          name: c.display_name,
-          username: c.username,
-          year_level: c.year_level,
-          status: c.status,
-        })),
-        bundle: bundle
-          ? {
-              bundle_name: bundle.bundle_name,
-              description: bundle.description,
-              year_level: bundle.year_level,
-              subjects: bundle.subjects,
-              price_cents: bundle.price_cents,
-            }
-          : null,
-      });
-    } catch (err) {
-      console.error("Payment verify error:", err);
-      return res
-        .status(500)
-        .json({ error: "Failed to verify payment session" });
+    if (!purchase) {
+      return res.status(404).json({ error: "Purchase not found" });
     }
+
+    // Fetch bundle info
+    const bundle = await QuizCatalog.findOne({ bundle_id: purchase.bundle_id }).lean();
+
+    return res.json({
+      ok: true,
+      purchase,
+      children: purchase.child_ids,
+      bundle: bundle || null,
+    });
+  } catch (err) {
+    console.error("Payment verify error:", err);
+    return res.status(500).json({ error: "Failed to verify payment" });
   }
-);
+});
 
 module.exports = router;

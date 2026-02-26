@@ -2,6 +2,7 @@
 //
 // Collapsible purchase history section for the Parent Dashboard.
 // Fetches from GET /api/payments/history and displays in a clean table/list.
+// ✅ UPDATED: Now shows child display_name, @username, and year level per purchase.
 
 import { useState, useEffect } from "react";
 import { fetchPurchaseHistory } from "@/app/utils/api-payments";
@@ -190,7 +191,7 @@ export default function PurchaseHistory({ parentToken }) {
               {purchases.map((purchase) => (
                 <div
                   key={purchase._id}
-                  className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+                  className="py-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2"
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-900">
@@ -198,14 +199,49 @@ export default function PurchaseHistory({ parentToken }) {
                     </p>
                     <p className="text-xs text-slate-500 mt-0.5">
                       {formatDate(purchase.createdAt)}
-                      {purchase.child_ids?.length > 0 &&
-                        ` · ${purchase.child_ids.length} child${
-                          purchase.child_ids.length > 1 ? "ren" : ""
-                        }`}
                     </p>
+
+                    {/* ✅ Child details — display_name, @username, year level */}
+                    {purchase.child_ids?.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {purchase.child_ids.map((child) => {
+                          // If populated, child is an object; if not, it's just an ObjectId string
+                          if (typeof child === "string" || !child?.username) {
+                            return (
+                              <span
+                                key={child?._id || child}
+                                className="inline-flex items-center text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full"
+                              >
+                                1 child
+                              </span>
+                            );
+                          }
+
+                          const name = child.display_name || child.username;
+                          return (
+                            <span
+                              key={child._id}
+                              className="inline-flex items-center gap-1 text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full"
+                            >
+                              <span className="font-medium text-slate-800">
+                                {name}
+                              </span>
+                              <span className="text-slate-400">
+                                @{child.username}
+                              </span>
+                              {child.year_level && (
+                                <span className="text-indigo-500 font-medium">
+                                  · Yr {child.year_level}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 sm:mt-0.5">
                     {purchase.status === "paid" && (
                       <ProvisionBadge provisioned={purchase.provisioned} />
                     )}
