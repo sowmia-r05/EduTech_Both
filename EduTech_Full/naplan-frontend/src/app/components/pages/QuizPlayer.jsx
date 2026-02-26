@@ -1,24 +1,29 @@
 // src/app/components/pages/QuizPlayer.jsx
 //
 // Full-screen quiz player with exam mode (fullscreen + tab-switch detection).
-// ✅ UPDATED: Est. Time now auto-calculated via getEstMinutes() — no more hardcoded "~45 min".
+// ✅ FIXED: Detects quiz completion by POLLING the backend for webhook-delivered results.
+//          FlexiQuiz webhook (response.submitted) saves result to DB → frontend polls → detects it → exits fullscreen.
+//          Also still listens for postMessage from /quiz-complete as a bonus signal (if redirect is configured).
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getEstMinutes } from "@/app/utils/quiz-helpers";
+import { useAuth } from "@/app/context/AuthContext";
+
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 /* ─── Subject styling ─── */
 const SUBJECT_STYLE = {
-  Reading:  { icon: "📖", gradient: "from-sky-500 to-blue-600" },
-  Writing:  { icon: "✍️", gradient: "from-violet-500 to-purple-600" },
+  Reading: { icon: "📖", gradient: "from-sky-500 to-blue-600" },
+  Writing: { icon: "✍️", gradient: "from-violet-500 to-purple-600" },
   Numeracy: { icon: "🔢", gradient: "from-amber-500 to-orange-600" },
   Language: { icon: "📝", gradient: "from-emerald-500 to-teal-600" },
-  Other:    { icon: "📚", gradient: "from-slate-500 to-slate-600" },
+  Other: { icon: "📚", gradient: "from-slate-500 to-slate-600" },
 };
 
 const DIFFICULTY_CONFIG = {
   Standard: { label: "Standard", icon: "📗" },
-  Medium:   { label: "Medium",   icon: "📙" },
-  Hard:     { label: "Hard",     icon: "📕" },
+  Medium: { label: "Medium", icon: "📙" },
+  Hard: { label: "Hard", icon: "📕" },
 };
 
 /* ─── Fullscreen Helpers ─── */
@@ -38,12 +43,15 @@ function exitFullscreen() {
 }
 
 function isFullscreen() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+  return !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.msFullscreenElement
+  );
 }
 
 /* ═══════════════════════════════════════════════════════
    PRE-QUIZ LAUNCH SCREEN
-   ✅ UPDATED: Uses getEstMinutes(quiz) for dynamic timing
    ═══════════════════════════════════════════════════════ */
 function QuizLaunchScreen({ quiz, onStart, onCancel }) {
   const style = SUBJECT_STYLE[quiz.subject] || SUBJECT_STYLE.Other;
@@ -51,16 +59,17 @@ function QuizLaunchScreen({ quiz, onStart, onCancel }) {
   const estMinutes = getEstMinutes(quiz);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: "rgba(15,23,42,0.7)", backdropFilter: "blur(10px)" }}>
-      <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden"
-        style={{ animation: "quizFadeIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards" }}>
-
-        {/* Header */}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(15,23,42,0.7)", backdropFilter: "blur(10px)" }}
+    >
+      <div
+        className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden"
+        style={{ animation: "quizFadeIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards" }}
+      >
         <div className={`bg-gradient-to-r ${style.gradient} px-8 py-6 text-white`}>
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"
-              style={{ backdropFilter: "blur(8px)" }}>
+            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center" style={{ backdropFilter: "blur(8px)" }}>
               <span className="text-2xl">{style.icon}</span>
             </div>
             <div className="min-w-0 flex-1">
@@ -70,13 +79,12 @@ function QuizLaunchScreen({ quiz, onStart, onCancel }) {
           </div>
         </div>
 
-        {/* Body */}
         <div className="px-8 py-6 space-y-5">
           <div className="grid grid-cols-3 gap-3">
             {[
               { label: "Difficulty", value: `${diff.icon} ${diff.label}` },
               { label: "Year Level", value: `📚 Year ${quiz.year_level}` },
-              { label: "Est. Time",  value: `⏱ ~${estMinutes} min` },
+              { label: "Est. Time", value: `⏱ ~${estMinutes} min` },
             ].map(({ label, value }) => (
               <div key={label} className="bg-slate-50 rounded-xl p-3 text-center">
                 <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">{label}</p>
@@ -96,38 +104,23 @@ function QuizLaunchScreen({ quiz, onStart, onCancel }) {
           <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
             <p className="text-sm font-semibold text-amber-800 mb-2">💡 Before you begin:</p>
             <ul className="text-xs text-amber-700 space-y-1.5">
-              {[
-                "Read each question carefully before answering",
-                "You can scroll down if the question is long",
-                "Take your time — there's no rush!",
-                "Do NOT press Escape or switch tabs during the quiz",
-              ].map((t) => (
+              {["Read each question carefully before answering", "You can scroll down if the question is long", "Take your time — there's no rush!", "Do NOT press Escape or switch tabs during the quiz"].map((t) => (
                 <li key={t} className="flex items-start gap-2">
-                  <span className="mt-0.5 text-amber-500">✓</span><span>{t}</span>
+                  <span className="mt-0.5 text-amber-500">✓</span>
+                  <span>{t}</span>
                 </li>
               ))}
             </ul>
           </div>
 
           <div className="flex gap-3 pt-1">
-            <button onClick={onCancel}
-              className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors">
-              Go Back
-            </button>
-            <button onClick={onStart}
-              className={`flex-1 px-4 py-3 rounded-xl bg-gradient-to-r ${style.gradient} text-white text-sm font-bold shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]`}>
-              🔒 Enter Exam Mode →
-            </button>
+            <button onClick={onCancel} className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors">Go Back</button>
+            <button onClick={onStart} className={`flex-1 px-4 py-3 rounded-xl bg-gradient-to-r ${style.gradient} text-white text-sm font-bold shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]`}>🔒 Enter Exam Mode →</button>
           </div>
         </div>
       </div>
 
-      <style>{`
-        @keyframes quizFadeIn {
-          from { opacity: 0; transform: scale(0.95); }
-          to { opacity: 1; transform: scale(1); }
-        }
-      `}</style>
+      <style>{`@keyframes quizFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
     </div>
   );
 }
@@ -137,7 +130,6 @@ function QuizLaunchScreen({ quiz, onStart, onCancel }) {
    ═══════════════════════════════════════════════════════ */
 function CountdownScreen({ onDone }) {
   const [count, setCount] = useState(3);
-
   useEffect(() => {
     if (count <= 0) { onDone(); return; }
     const t = setTimeout(() => setCount((c) => c - 1), 800);
@@ -157,14 +149,7 @@ function CountdownScreen({ onDone }) {
           </div>
         )}
       </div>
-      <style>{`
-        @keyframes pingOnce {
-          0% { transform: scale(0.5); opacity: 0; }
-          50% { transform: scale(1.1); opacity: 1; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        .animate-ping-once { animation: pingOnce 0.6s ease-out; }
-      `}</style>
+      <style>{`@keyframes pingOnce { 0% { transform: scale(0.5); opacity: 0; } 50% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 1; } } .animate-ping-once { animation: pingOnce 0.6s ease-out; }`}</style>
     </div>
   );
 }
@@ -183,14 +168,9 @@ function FullscreenWarning({ onReEnter }) {
         </div>
         <div>
           <h3 className="text-lg font-bold text-slate-900">⚠️ Fullscreen Required</h3>
-          <p className="text-sm text-slate-600 mt-1">
-            The quiz requires fullscreen to continue.
-          </p>
+          <p className="text-sm text-slate-600 mt-1">The quiz requires fullscreen to continue.</p>
           <p className="text-xs text-slate-400">This activity has been recorded. Please return to fullscreen to continue your quiz.</p>
-          <button onClick={onReEnter}
-            className="w-full mt-3 px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold rounded-xl hover:from-indigo-700 hover:to-violet-700 transition-all">
-            🔒 Re-enter Fullscreen
-          </button>
+          <button onClick={onReEnter} className="w-full mt-3 px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold rounded-xl hover:from-indigo-700 hover:to-violet-700 transition-all">🔒 Re-enter Fullscreen</button>
         </div>
       </div>
     </div>
@@ -228,19 +208,73 @@ function QuizCompleteScreen() {
 
 /* ═══════════════════════════════════════════════════════
    MAIN QUIZ PLAYER
+
+   COMPLETION DETECTION STRATEGY:
+   ─────────────────────────────────────────────────────
+   Problem: FlexiQuiz shows its own results page after submit.
+   No redirect fires. postMessage never arrives. iframe onLoad
+   fires on Start/Next/Prev too, so can't use load count.
+
+   Solution: POLL THE BACKEND.
+   ─────────────────────────────────────────────────────
+   1. When quiz starts, record the timestamp.
+   2. Every 3 seconds, call GET /api/results/check-submission/:username?since=<timestamp>
+   3. Backend checks if a new Result/Writing doc was created since that timestamp
+      (created by the FlexiQuiz response.submitted webhook)
+   4. If found → exit fullscreen → show completion screen
+   5. postMessage from /quiz-complete also works as a bonus (if redirect is configured)
    ═══════════════════════════════════════════════════════ */
 export default function QuizPlayer({ quiz, onClose }) {
   const [phase, setPhase] = useState("launch");
   const [loaded, setLoaded] = useState(false);
   const [tabViolations, setTabViolations] = useState(0);
   const [showFsWarning, setShowFsWarning] = useState(false);
+
+  const { childProfile, childToken, parentToken } = useAuth();
+
   const iframeRef = useRef(null);
   const violationsRef = useRef(0);
+  const phaseRef = useRef(phase);
+  const completionTriggeredRef = useRef(false);
+  const quizStartTimeRef = useRef(null);
+  const pollIntervalRef = useRef(null);
 
-  const embedUrl = quiz.embed_id
-    ? `https://www.flexiquiz.com/SC/N/${quiz.embed_id}`
-    : null;
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
+  const embedUrl = quiz.embed_id ? `https://www.flexiquiz.com/SC/N/${quiz.embed_id}` : null;
+
+  // Get the child's username for polling
+  const username = childProfile?.username || quiz?.username || "";
+  const activeToken = childToken || parentToken;
+
+  /* ─── Shared completion handler (safe to call multiple times) ─── */
+  const triggerCompletion = useCallback(
+    (overrideData = {}) => {
+      if (completionTriggeredRef.current) return;
+      completionTriggeredRef.current = true;
+
+      // Stop polling
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+
+      exitFullscreen().catch(() => {});
+      setShowFsWarning(false);
+      setPhase("complete");
+
+      setTimeout(() => {
+        onClose?.({
+          completed: true,
+          tabViolations: violationsRef.current,
+          ...overrideData,
+        });
+      }, 3000);
+    },
+    [onClose]
+  );
+
+  /* ─── Tab switch detection ─── */
   useEffect(() => {
     if (phase !== "quiz") return;
     const handleVisibility = () => {
@@ -253,9 +287,11 @@ export default function QuizPlayer({ quiz, onClose }) {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [phase]);
 
+  /* ─── Fullscreen exit detection (skip after completion) ─── */
   useEffect(() => {
     if (phase !== "quiz") return;
     const handleFsChange = () => {
+      if (completionTriggeredRef.current) return;
       if (!isFullscreen()) {
         setShowFsWarning(true);
         violationsRef.current += 1;
@@ -272,32 +308,97 @@ export default function QuizPlayer({ quiz, onClose }) {
     };
   }, [phase]);
 
+  /* ─── postMessage listener (bonus — works if /quiz-complete redirect is configured) ─── */
   useEffect(() => {
     const handleMessage = (event) => {
       if (event.data?.type === "quiz-complete") {
-        exitFullscreen().catch(() => {});
-        setPhase("complete");
-        setTimeout(() => {
-          onClose?.({
-            completed: true,
-            responseId: event.data.responseId,
-            score: event.data.score,
-            grade: event.data.grade,
-          });
-        }, 3000);
+        triggerCompletion({
+          responseId: event.data.responseId,
+          score: event.data.score,
+          grade: event.data.grade,
+          childId: event.data.childId,
+        });
       }
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [onClose]);
+  }, [triggerCompletion]);
 
+  /* ═══════════════════════════════════════════════════════
+     PRIMARY DETECTION: Poll backend for webhook-delivered results
+     ═══════════════════════════════════════════════════════ */
+  useEffect(() => {
+    if (phase !== "quiz") return;
+    if (!username) return;
+
+    // Start polling 15 seconds after quiz starts
+    // (gives child time to actually start answering, avoids picking up old results)
+    const startDelay = setTimeout(() => {
+      if (phaseRef.current !== "quiz") return;
+
+      const sinceISO = quizStartTimeRef.current || new Date().toISOString();
+
+      pollIntervalRef.current = setInterval(async () => {
+        if (completionTriggeredRef.current) return;
+
+        try {
+          const headers = {};
+          if (activeToken) headers["Authorization"] = `Bearer ${activeToken}`;
+
+          const res = await fetch(
+            `${API_BASE}/api/results/check-submission/${encodeURIComponent(username)}?since=${encodeURIComponent(sinceISO)}`,
+            { headers }
+          );
+
+          if (!res.ok) return;
+
+          const data = await res.json();
+
+          if (data.submitted) {
+            console.log("✅ Webhook result detected via polling! Exiting fullscreen...");
+            triggerCompletion({
+              responseId: data.result?.response_id,
+              score: data.result?.score?.percentage,
+              grade: data.result?.grade,
+            });
+          }
+        } catch (err) {
+          // Network error — ignore, will retry on next interval
+          console.warn("Poll check-submission error:", err.message);
+        }
+      }, 3000); // Poll every 3 seconds
+    }, 15000); // Wait 15s before starting to poll
+
+    return () => {
+      clearTimeout(startDelay);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [phase, username, activeToken, triggerCompletion]);
+
+  /* ─── iframe onLoad: just hide spinner ─── */
+  const handleIframeLoad = useCallback(() => {
+    if (!loaded) setLoaded(true);
+  }, [loaded]);
+
+  /* ─── Launch ─── */
   const handleLaunchStart = useCallback(() => {
+    setLoaded(false);
+    violationsRef.current = 0;
+    setTabViolations(0);
+    completionTriggeredRef.current = false;
+    quizStartTimeRef.current = new Date().toISOString();
+
     enterFullscreen()
       .then(() => setPhase("countdown"))
       .catch(() => setPhase("countdown"));
   }, []);
 
-  const handleCountdownDone = useCallback(() => { setPhase("quiz"); }, []);
+  const handleCountdownDone = useCallback(() => {
+    setPhase("quiz");
+  }, []);
 
   const handleReEnterFullscreen = useCallback(() => {
     enterFullscreen().then(() => setShowFsWarning(false)).catch(() => {});
@@ -305,10 +406,24 @@ export default function QuizPlayer({ quiz, onClose }) {
 
   const handleExit = useCallback(() => {
     if (window.confirm("Are you sure you want to exit the quiz? Your progress may be lost.")) {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
       exitFullscreen().catch(() => {});
       onClose?.({ completed: false });
     }
   }, [onClose]);
+
+  /* ─── Cleanup ─── */
+  useEffect(() => {
+    return () => {
+      if (isFullscreen()) exitFullscreen().catch(() => {});
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
+
+  /* ═══ RENDER ═══ */
 
   if (phase === "launch") {
     return <QuizLaunchScreen quiz={quiz} onStart={handleLaunchStart} onCancel={() => onClose?.({ completed: false })} />;
@@ -327,20 +442,15 @@ export default function QuizPlayer({ quiz, onClose }) {
       <div className="absolute top-1 left-1/2 -translate-x-1/2 z-30">
         <div className="flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-slate-200 rounded-full px-3 py-1.5 shadow-sm text-[11px]">
           {tabViolations > 0 && (
-            <>
-              <div className="flex items-center gap-1 text-rose-600">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="font-semibold">
-                  {tabViolations} violation{tabViolations !== 1 ? "s" : ""}
-                </span>
-              </div>
-            </>
+            <div className="flex items-center gap-1 text-rose-600">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="font-semibold">{tabViolations} violation{tabViolations !== 1 ? "s" : ""}</span>
+            </div>
           )}
           <div className="w-px h-4 bg-slate-200" />
-          <button onClick={handleExit}
-            className="flex items-center gap-1.5 pl-2 pr-3 py-1 rounded-full text-[11px] font-medium text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-all">
+          <button onClick={handleExit} className="flex items-center gap-1.5 pl-2 pr-3 py-1 rounded-full text-[11px] font-medium text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-all">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
@@ -366,17 +476,12 @@ export default function QuizPlayer({ quiz, onClose }) {
         src={embedUrl}
         title={quiz.name}
         className="w-full h-full border-0 flex-1"
-        onLoad={() => setLoaded(true)}
+        onLoad={handleIframeLoad}
         allow="fullscreen"
         style={{ width: "100%", height: "100vh", border: "none", overflow: "hidden" }}
       />
 
-      <style>{`
-        @keyframes quizFadeIn {
-          from { opacity: 0; transform: scale(0.95); }
-          to { opacity: 1; transform: scale(1); }
-        }
-      `}</style>
+      <style>{`@keyframes quizFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
     </div>
   );
 }
