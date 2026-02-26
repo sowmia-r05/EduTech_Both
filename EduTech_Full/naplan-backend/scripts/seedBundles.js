@@ -1,135 +1,136 @@
 /**
  * scripts/seedBundles.js
  *
- * Run: node scripts/seedBundles.js
+ * ═══════════════════════════════════════════════════════════════
+ * Seeds the quiz_catalog collection from the hardcoded quizMap.
+ * ═══════════════════════════════════════════════════════════════
  *
- * Seeds the quiz_catalog collection with bundle definitions.
- * Update the flexiquiz_quiz_ids with your actual FlexiQuiz quiz IDs.
+ * This replaces the old syncFlexiQuizzes.js. Instead of fetching
+ * from FlexiQuiz API and parsing quiz names, we use a hardcoded
+ * map of quiz IDs organized by year + tier.
  *
- * Safe to run multiple times — uses upsert on bundle_id.
+ * Run:  node scripts/seedBundles.js
+ * When: After adding new quizzes to src/data/quizMap.js
  *
- * ★ THIS MUST MATCH: naplan-frontend/src/app/data/bundleCatalog.js ★
- *   Keep bundle_id, bundle_name, subjects, price_cents, descriptions in sync.
+ * What it does:
+ *   1. Reads QUIZ_MAP from src/data/quizMap.js
+ *   2. For each year + tier combo, creates/updates a bundle in quiz_catalog
+ *   3. Each bundle stores ONLY its own tier's quiz IDs (standalone, no stacking)
+ *
+ * ENV required: MONGODB_URI
  */
 
 require("dotenv").config();
 const mongoose = require("mongoose");
-const QuizCatalog = require("../src/models/quizCatalog");
+const path = require("path");
 
-const BUNDLES = [
-  // ─── Year 3 ───
-  {
-    bundle_id: "year3_full",
-    bundle_name: "Year 3 Full Pack",
-    description: "All subjects — Reading, Writing, Maths & Conventions",
-    year_level: 3,
-    subjects: ["Reading", "Writing", "Maths", "Conventions"],
-    flexiquiz_quiz_ids: [], // ← ADD YOUR FLEXIQUIZ QUIZ IDs HERE
-    price_cents: 4900, // $49.00 AUD
-    is_active: true,
-    trial_quiz_ids: [],
-  },
-  {
-    bundle_id: "year3_maths",
-    bundle_name: "Year 3 Maths Only",
-    description: "Focused Maths practice — 6 full-length tests",
-    year_level: 3,
-    subjects: ["Maths"],
-    flexiquiz_quiz_ids: [], // ← ADD YOUR FLEXIQUIZ QUIZ IDs HERE
-    price_cents: 1900, // $19.00 AUD
-    is_active: true,
-    trial_quiz_ids: [],
-  },
-  {
-    bundle_id: "year3_english",
-    bundle_name: "Year 3 English Pack",
-    description: "Reading, Writing & Conventions combined",
-    year_level: 3,
-    subjects: ["Reading", "Writing", "Conventions"],
-    flexiquiz_quiz_ids: [], // ← ADD YOUR FLEXIQUIZ QUIZ IDs HERE
-    price_cents: 3500, // $35.00 AUD
-    is_active: true,
-    trial_quiz_ids: [],
-  },
+// Import the hardcoded quiz map
+const { QUIZ_MAP } = require(path.join(__dirname, "..", "src", "data", "quizMap"));
 
-  // ─── Year 5 ───
-  {
-    bundle_id: "year5_full",
-    bundle_name: "Year 5 Full Pack",
-    description: "All subjects — Reading, Writing, Maths & Conventions",
-    year_level: 5,
-    subjects: ["Reading", "Writing", "Maths", "Conventions"],
-    flexiquiz_quiz_ids: [], // ← ADD YOUR FLEXIQUIZ QUIZ IDs HERE
-    price_cents: 5900, // $59.00 AUD
-    is_active: true,
-    trial_quiz_ids: [],
-  },
-  {
-    bundle_id: "year5_maths",
-    bundle_name: "Year 5 Maths Only",
-    description: "Focused Maths practice — 8 full-length tests",
-    year_level: 5,
-    subjects: ["Maths"],
-    flexiquiz_quiz_ids: [], // ← ADD YOUR FLEXIQUIZ QUIZ IDs HERE
-    price_cents: 2400, // $24.00 AUD
-    is_active: true,
-    trial_quiz_ids: [],
-  },
+// Import the model
+const QuizCatalog = require(path.join(__dirname, "..", "src", "models", "quizCatalog"));
 
-  // ─── Year 7 ───
-  {
-    bundle_id: "year7_full",
-    bundle_name: "Year 7 Full Pack",
-    description: "All subjects — Reading, Writing, Maths & Conventions",
-    year_level: 7,
-    subjects: ["Reading", "Writing", "Maths", "Conventions"],
-    flexiquiz_quiz_ids: [], // ← ADD YOUR FLEXIQUIZ QUIZ IDs HERE
-    price_cents: 6900, // $69.00 AUD
-    is_active: true,
-    trial_quiz_ids: [],
-  },
+// ═══════════════════════════════════════════════════════════════
+// Pricing (AUD cents) — per year, per tier
+// ═══════════════════════════════════════════════════════════════
 
-  // ─── Year 9 ───
-  {
-    bundle_id: "year9_full",
-    bundle_name: "Year 9 Full Pack",
-    description: "All subjects — Reading, Writing, Maths & Conventions",
-    year_level: 9,
-    subjects: ["Reading", "Writing", "Maths", "Conventions"],
-    flexiquiz_quiz_ids: [], // ← ADD YOUR FLEXIQUIZ QUIZ IDs HERE
-    price_cents: 6900, // $69.00 AUD
-    is_active: true,
-    trial_quiz_ids: [],
-  },
-];
+const PRICING = {
+  3: { A: 1900, B: 2500, C: 2500 },
+  5: { A: 2400, B: 3000, C: 3000 },
+  7: { A: 2900, B: 3500, C: 3500 },
+  9: { A: 2900, B: 3500, C: 3500 },
+};
 
-async function seed() {
+const TIER_NAMES = {
+  A: "Full Tests",
+  B: "Topic Quizzes — Standard",
+  C: "Topic Quizzes — Hard",
+};
+
+const TIER_DESCRIPTIONS = {
+  A: "Full-length NAPLAN practice tests across all subjects",
+  B: "Standard and medium difficulty topic-wise quizzes for targeted practice",
+  C: "Hard topic quizzes for advanced preparation and challenge",
+};
+
+// ═══════════════════════════════════════════════════════════════
+// Seed Logic
+// ═══════════════════════════════════════════════════════════════
+
+async function seedBundles() {
   const uri = process.env.MONGODB_URI;
   if (!uri) {
-    console.error("MONGODB_URI not set in .env");
+    console.error("❌ MONGODB_URI not set in .env");
     process.exit(1);
   }
 
   await mongoose.connect(uri);
-  console.log("Connected to MongoDB");
+  console.log("✅ Connected to MongoDB\n");
 
-  for (const bundle of BUNDLES) {
-    const result = await QuizCatalog.updateOne(
-      { bundle_id: bundle.bundle_id },
-      { $set: bundle },
-      { upsert: true }
-    );
-    const action = result.upsertedCount ? "Created" : "Updated";
-    console.log(
-      `  ${action}: ${bundle.bundle_name} ($${(bundle.price_cents / 100).toFixed(2)}) [${bundle.bundle_id}]`
-    );
+  const yearLevels = Object.keys(QUIZ_MAP).map(Number).sort((a, b) => a - b);
+  const tiers = ["A", "B", "C"];
+  let bundleCount = 0;
+  let totalQuizzes = 0;
+
+  for (const year of yearLevels) {
+    const yearData = QUIZ_MAP[year];
+    if (!yearData) continue;
+
+    for (const tier of tiers) {
+      const quizzes = yearData[tier] || [];
+
+      // Skip empty tiers (e.g. Year 5/7/9 not yet populated)
+      if (quizzes.length === 0) {
+        console.log(`  ⏭️  year${year}_${tier.toLowerCase()}: No quizzes — skipping`);
+        continue;
+      }
+
+      const quizIds = quizzes.map((q) => q.quiz_id);
+      const subjects = [...new Set(quizzes.map((q) => q.subject).filter(Boolean))].sort();
+      const bundleId = `year${year}_${tier.toLowerCase()}`;
+      const pricing = PRICING[year] || PRICING[3];
+
+      await QuizCatalog.updateOne(
+        { bundle_id: bundleId },
+        {
+          $set: {
+            bundle_id: bundleId,
+            bundle_name: `Year ${year} ${TIER_NAMES[tier]}`,
+            description: TIER_DESCRIPTIONS[tier],
+            year_level: year,
+            subjects,
+            tier,
+            flexiquiz_quiz_ids: quizIds,
+            price_cents: pricing[tier],
+            is_active: true,
+            quiz_count: quizIds.length,
+          },
+        },
+        { upsert: true }
+      );
+
+      console.log(
+        `  ✅ ${bundleId}: ${TIER_NAMES[tier]} — ${quizIds.length} quizzes, ` +
+        `$${(pricing[tier] / 100).toFixed(2)} [${subjects.join(", ")}]`
+      );
+      bundleCount++;
+      totalQuizzes += quizIds.length;
+    }
+
+    console.log(""); // blank line between years
   }
 
-  console.log(`\n✅ Done! Seeded ${BUNDLES.length} bundles.`);
+  // Summary
+  console.log("═══════════════════════════════════════");
+  console.log(`✅ Seed complete!`);
+  console.log(`   Bundles created/updated: ${bundleCount}`);
+  console.log(`   Total quizzes mapped:    ${totalQuizzes}`);
+  console.log("═══════════════════════════════════════\n");
+
   await mongoose.disconnect();
 }
 
-seed().catch((err) => {
-  console.error("Seed failed:", err);
+seedBundles().catch((err) => {
+  console.error("❌ Seed failed:", err);
   process.exit(1);
 });
