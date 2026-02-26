@@ -18,6 +18,7 @@ import PrivacyPolicy from "@/app/components/PrivacyPolicy";
 import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
 import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
+import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 
@@ -46,6 +47,8 @@ export default function AppRoutes() {
 
         <Route path="/parent-login" element={<ParentLoginPage />} />
 
+        <Route path="/StudentDashboardAnalytics" element={<StudentDashboardAnalytics />} />
+    
         {/* ─── Parent-protected routes ─── */}
         <Route
           path="/parent-dashboard"
