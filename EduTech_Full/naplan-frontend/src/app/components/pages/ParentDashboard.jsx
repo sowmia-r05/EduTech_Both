@@ -4,6 +4,7 @@ import { useAuth } from "@/app/context/AuthContext";
 import {
   fetchChildrenSummaries,
   createChild,
+  updateChild,
   deleteChild,
   checkUsername,
 } from "@/app/utils/api-children";
@@ -25,6 +26,7 @@ export default function ParentDashboard() {
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   const [paymentMessage, setPaymentMessage] = useState(null);
@@ -92,6 +94,19 @@ export default function ParentDashboard() {
       await loadChildren();
     } catch (err) {
       alert(err?.message || "Failed to add child");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleEditChild = async (childId, updates) => {
+    try {
+      setActionLoading(true);
+      await updateChild(parentToken, childId, updates);
+      setEditTarget(null);
+      await loadChildren();
+    } catch (err) {
+      alert(err?.message || "Failed to update child");
     } finally {
       setActionLoading(false);
     }
@@ -256,12 +271,6 @@ export default function ParentDashboard() {
         <h1 className="text-lg font-semibold text-slate-900">KAI Solutions</h1>
         <div className="flex gap-3">
           <button
-            onClick={() => navigate("/")}
-            className="px-4 py-2 rounded-lg text-sm border border-slate-300 hover:bg-slate-100"
-          >
-            Back to Menu
-          </button>
-          <button
             onClick={handleLogout}
             className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700"
           >
@@ -322,8 +331,6 @@ export default function ParentDashboard() {
             </div>
           )}
 
-  
-
           {loading ? (
             <div className="py-20 text-center text-slate-500">
               Loading children...
@@ -361,6 +368,7 @@ export default function ParentDashboard() {
                     child={child}
                     formatLastActivity={formatLastActivity}
                     onDelete={() => setDeleteTarget(child)}
+                    onEdit={() => setEditTarget(child)}
                     onView={() => handleViewChild(child)}
                     onUpgrade={() =>
                       navigate(
@@ -381,10 +389,9 @@ export default function ParentDashboard() {
             </>
           )}
         </div>
-            {/* PURCHASE HISTORY */}
-          <PurchaseHistory parentToken={parentToken} />
+        {/* PURCHASE HISTORY */}
+        <PurchaseHistory parentToken={parentToken} />
       </main>
-
 
       {/* ═══════════════════════════════════════
           MODALS — all at the top level of the component
@@ -394,6 +401,15 @@ export default function ParentDashboard() {
         <AddChildModal
           onClose={() => setIsAddModalOpen(false)}
           onAdd={handleAddChild}
+          loading={actionLoading}
+        />
+      )}
+
+      {editTarget && (
+        <EditChildModal
+          child={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSave={handleEditChild}
           loading={actionLoading}
         />
       )}
@@ -423,7 +439,7 @@ export default function ParentDashboard() {
         />
       )}
 
-      {/* ← PAYMENT SUCCESS MODAL — at the top level, NOT inside ModalWrapper */}
+      {/* PAYMENT SUCCESS MODAL */}
       {successSessionId && (
         <PaymentSuccessModal
           sessionId={successSessionId}
@@ -460,6 +476,7 @@ function KPI({ label, value, highlight }) {
 function ChildCard({
   child,
   onDelete,
+  onEdit,
   onView,
   onUpgrade,
   onFreeTrial,
@@ -493,15 +510,29 @@ function ChildCard({
       className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md relative cursor-pointer transition"
       onClick={onView}
     >
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        className="absolute top-4 right-4 text-xs text-rose-600 hover:underline"
-      >
-        Delete
-      </button>
+      {/* Top-right action buttons: Edit + Delete */}
+      <div className="absolute top-4 right-4 flex items-center gap-2">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
+          title="Edit child details"
+        >
+          Edit
+        </button>
+        <span className="text-slate-300">|</span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="text-xs text-rose-600 hover:underline"
+        >
+          Delete
+        </button>
+      </div>
 
       <div className="flex items-center gap-4">
         <div className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center font-semibold text-lg">
@@ -573,7 +604,7 @@ function ChildCard({
           </button>
         )}
 
-       {statusKey !== "active" ? (
+        {statusKey !== "active" ? (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -610,10 +641,9 @@ function ChildCard({
   );
 }
 
-// =====================================================
-// CHANGE 2: ParentDashboard.jsx — BundleSelectionModal
-// Replace the entire BundleSelectionModal function with this
-// =====================================================
+/* ═══════════════════════════════════════
+   BUNDLE SELECTION MODAL
+   ═══════════════════════════════════════ */
 
 function BundleSelectionModal({
   child,
@@ -622,7 +652,6 @@ function BundleSelectionModal({
   onSelect,
   onClose,
 }) {
-  // ✅ Get the child's already-purchased bundle IDs
   const purchasedBundleIds = child.entitled_bundle_ids || [];
 
   return (
@@ -654,7 +683,6 @@ function BundleSelectionModal({
         <div className="mt-5 space-y-4">
           {bundles.map((bundle) => {
             const isLoading = loadingBundleId === bundle.bundle_id;
-            // ✅ Check if this bundle is already purchased by this child
             const alreadyPurchased = purchasedBundleIds.includes(bundle.bundle_id);
 
             return (
@@ -671,7 +699,6 @@ function BundleSelectionModal({
                     <h4 className="font-semibold text-slate-900">
                       {bundle.bundle_name}
                     </h4>
-                    {/* ✅ Show "Purchased" badge */}
                     {alreadyPurchased && (
                       <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
                         <svg
@@ -711,7 +738,6 @@ function BundleSelectionModal({
                     {formatAUD(bundle.price_cents)}
                   </span>
 
-                  {/* ✅ Show disabled button if already purchased */}
                   {alreadyPurchased ? (
                     <span className="px-4 py-2 rounded-lg bg-slate-100 text-slate-400 text-sm font-semibold cursor-not-allowed">
                       Already in Bundle ✓
@@ -734,6 +760,11 @@ function BundleSelectionModal({
     </ModalWrapper>
   );
 }
+
+/* ═══════════════════════════════════════
+   ADD CHILD MODAL
+   ═══════════════════════════════════════ */
+
 function AddChildModal({ onClose, onAdd, loading }) {
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
@@ -931,6 +962,196 @@ function AddChildModal({ onClose, onAdd, loading }) {
   );
 }
 
+/* ═══════════════════════════════════════
+   EDIT CHILD MODAL
+   ═══════════════════════════════════════ */
+
+function EditChildModal({ child, onClose, onSave, loading }) {
+  const [displayName, setDisplayName] = useState(child.name || child.display_name || "");
+  const [yearLevel, setYearLevel] = useState(
+    String(child.year_level || child.yearLevel || "")
+  );
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [changePin, setChangePin] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    const cleanDisplayName = displayName.trim();
+    if (!cleanDisplayName) return setError("Display name cannot be empty");
+    if (!yearLevel) return setError("Please select a year level");
+
+    const updates = {};
+
+    if (cleanDisplayName !== (child.name || child.display_name || "")) {
+      updates.display_name = cleanDisplayName;
+    }
+
+    const newYL = Number(yearLevel);
+    const oldYL = Number(child.year_level || child.yearLevel || 0);
+    if (newYL !== oldYL) {
+      updates.year_level = newYL;
+    }
+
+    if (changePin) {
+      if (!pin || !/^\d{4}$/.test(pin)) return setError("PIN must be exactly 4 digits");
+      if (pin !== confirmPin) return setError("PINs do not match");
+      updates.pin = pin;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return setError("No changes to save");
+    }
+
+    await onSave(child._id, updates);
+  };
+
+  return (
+    <ModalWrapper onClose={onClose}>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold text-slate-900">Edit Child</h3>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-700"
+        >
+          ✕
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+        {/* Display Name */}
+        <div>
+          <label className="block text-sm text-slate-700 mb-1">
+            Display Name
+          </label>
+          <input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="e.g., Aarav"
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+          />
+        </div>
+
+        {/* Username — read-only */}
+        <div>
+          <label className="block text-sm text-slate-700 mb-1">
+            Username
+            <span className="text-slate-400 font-normal ml-1">(cannot be changed)</span>
+          </label>
+          <div className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500 cursor-not-allowed">
+            @{child.username || "—"}
+          </div>
+        </div>
+
+        {/* Year Level */}
+        <div>
+          <label className="block text-sm text-slate-700 mb-1">
+            Year Level
+          </label>
+          <select
+            value={yearLevel}
+            onChange={(e) => setYearLevel(e.target.value)}
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+          >
+            <option value="">Select year level</option>
+            <option value="3">Year 3</option>
+            <option value="5">Year 5</option>
+            <option value="7">Year 7</option>
+            <option value="9">Year 9</option>
+          </select>
+        </div>
+
+        {/* PIN — toggle to change */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-sm text-slate-700">PIN</label>
+            <button
+              type="button"
+              onClick={() => {
+                setChangePin(!changePin);
+                setPin("");
+                setConfirmPin("");
+              }}
+              className="text-xs text-indigo-600 hover:underline"
+            >
+              {changePin ? "Keep current PIN" : "Change PIN"}
+            </button>
+          </div>
+
+          {changePin ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">New PIN</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={pin}
+                  onChange={(e) =>
+                    setPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                  }
+                  placeholder="1234"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Confirm PIN</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={confirmPin}
+                  onChange={(e) =>
+                    setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                  }
+                  placeholder="1234"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-400">
+              ••••
+            </div>
+          )}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {error}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {loading ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </form>
+    </ModalWrapper>
+  );
+}
+
+/* ═══════════════════════════════════════
+   DELETE CONFIRM MODAL
+   ═══════════════════════════════════════ */
+
 function DeleteConfirmModal({ child, onCancel, onConfirm, loading }) {
   return (
     <ModalWrapper onClose={onCancel}>
@@ -959,7 +1180,10 @@ function DeleteConfirmModal({ child, onCancel, onConfirm, loading }) {
   );
 }
 
-/* ModalWrapper — clean utility, no business logic */
+/* ═══════════════════════════════════════
+   MODAL WRAPPER
+   ═══════════════════════════════════════ */
+
 function ModalWrapper({ children, onClose, maxWidth = "max-w-md" }) {
   return (
     <div

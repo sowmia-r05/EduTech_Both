@@ -2,7 +2,7 @@
 // Payment-related API functions
 //
 // Usage:
-//   import { fetchBundles, createCheckout, fetchPurchaseHistory, verifyPayment } from "@/app/utils/api-payments";
+//   import { fetchBundles, createCheckout, fetchPurchaseHistory, verifyPayment, retryPayment } from "@/app/utils/api-payments";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL !== undefined
@@ -90,4 +90,17 @@ export async function verifyPayment(token, sessionId) {
  */
 export async function fetchPurchaseHistory(token) {
   return authGet("/api/payments/history", token);
+}
+
+// ─── Retry Payment (Parent JWT required) ───
+
+/**
+ * Retry payment for a pending or failed purchase.
+ * Creates a new Stripe Checkout session for the same bundle + children.
+ * @param {string} token - Parent JWT
+ * @param {string} purchaseId - The _id of the purchase to retry
+ * @returns {{ ok, checkout_url, session_id }}
+ */
+export async function retryPayment(token, purchaseId) {
+  return authPost(`/api/payments/retry/${encodeURIComponent(purchaseId)}`, {}, token);
 }
