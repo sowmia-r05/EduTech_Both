@@ -68,7 +68,7 @@ function TopicBar({ name, scored, total }) {
 /* ═══════════════════════════════════════
    MAIN: QuizResult
    ═══════════════════════════════════════ */
-export default function QuizResult({ result, quizName, onClose }) {
+export default function QuizResult({ result, quizName, violations = 0, onClose }) {
   const score = result?.score || {};
   const topics = result?.topic_breakdown || {};
   const isWriting = result?.is_writing;
@@ -155,6 +155,37 @@ export default function QuizResult({ result, quizName, onClose }) {
         {result?.duration_sec && (
           <div className="text-center text-xs text-slate-400">
             Completed in {Math.floor(result.duration_sec / 60)}m {result.duration_sec % 60}s
+          </div>
+        )}
+
+        {/* Proctoring Summary */}
+        {violations > 0 ? (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center gap-3">
+            <div className="w-10 h-10 flex-shrink-0 bg-rose-100 rounded-full flex items-center justify-center">
+              <svg className="w-5 h-5 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-rose-800">
+                {violations} exam violation{violations !== 1 ? "s" : ""} recorded
+              </p>
+              <p className="text-xs text-rose-600 mt-0.5">
+                Tab switches or fullscreen exits were detected during the quiz. Your parent/teacher can see this.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3">
+            <div className="w-10 h-10 flex-shrink-0 bg-emerald-100 rounded-full flex items-center justify-center">
+              <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-emerald-800">Clean exam session</p>
+              <p className="text-xs text-emerald-600 mt-0.5">No tab switches or fullscreen exits detected. Great focus!</p>
+            </div>
           </div>
         )}
 
