@@ -10,12 +10,3 @@
     }
   ]
 }
-```
-
-Order matters here — Vercel processes rewrites top-down. API requests will match the first rule and pass through to your serverless functions, while everything else falls through to the SPA catch-all.
-
-Also make sure your backend entry point exists at `api/index.js` (or wherever Vercel expects it) and properly exports your Express app. If your project name "edu-tech-both" means you're deploying frontend + backend together, your folder structure should have something like:
-```
-/api/index.js        ← serverless entry that exports Express app
-/public/index.html   ← or dist/ with your built frontend
-vercel.json
