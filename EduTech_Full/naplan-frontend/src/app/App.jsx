@@ -4,7 +4,7 @@ import { Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/app/context/AuthContext";
 import { RequireParent, RequireChild, RequireAuth } from "@/app/components/auth/RequireAuth";
 import FooterMinimal from "@/app/components/landing/FooterMinimal";
-
+import QuizCompleteBridge from "./components/pages/QuizCompleteBridge";
 import WelcomePage from "@/app/components/WelcomePage";
 import ResultPage from "@/app/components/ResultPage";
 import Dashboard from "@/app/components/pages/Dashboard";
@@ -122,7 +122,7 @@ export default function AppRoutes() {
         />
         <Route path="/quiz-complete" element={<WithFooter><QuizCompletePage /></WithFooter>} />
 
-        <Route path="/quiz-complete" element={<QuizCompleteBridge/>} />
+        <Route path="/quiz-complete-bridge" element={<QuizCompleteBridge />} />
 
         {/* ─── Fallback ─── */}
         <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
