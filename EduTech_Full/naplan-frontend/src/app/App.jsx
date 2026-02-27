@@ -27,6 +27,7 @@ import QuizCompletePage from "./components/pages/QuizCompletePage";
 import AdminLogin from "@/app/components/admin/AdminLogin";
 import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin from "@/app/components/admin/RequireAdmin";
+import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
 
 /* ── Layout wrapper — adds minimal disclaimer footer below any page ── */
 function WithFooter({ children }) {
@@ -122,7 +123,12 @@ export default function AppRoutes() {
         <Route path="/quiz-complete" element={<WithFooter><QuizCompletePage /></WithFooter>} />
 
         {/* ─── Fallback ─── */}
+<<<<<<< HEAD
         <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
+=======
+        <Route path="*" element={<NotFound />} />
+        <Route path="/admin/quiz/:quizId" element={<RequireAdmin><QuizDetailPage /></RequireAdmin>} />
+>>>>>>> 7aac690 (admin)
       </Routes>
     </AuthProvider>
   );
