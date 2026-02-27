@@ -27,7 +27,7 @@ import QuizCompletePage from "./components/pages/QuizCompletePage";
 import AdminLogin from "@/app/components/admin/AdminLogin";
 import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin from "@/app/components/admin/RequireAdmin";
-import QuizCompleteBridge from "@/app/components/pages/QuizCompleteBridge";
+import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
 
 /* ── Layout wrapper — adds minimal disclaimer footer below any page ── */
 function WithFooter({ children }) {
