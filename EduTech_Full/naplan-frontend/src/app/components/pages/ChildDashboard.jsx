@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
-import { fetchChildResults, fetchChildren } from "@/app/utils/api-children";
+import { fetchChildResults, fetchChildrenSummaries } from "@/app/utils/api-children";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import QuizPlayer from "@/app/components/pages/QuizPlayer";
 
@@ -66,64 +66,26 @@ function getDailyParentMessage() {
 
 /* ═══════════════════════════════════════════════════════
    AUTO QUIZ TIMING
-   
-   Determines estimated minutes based on quiz type + difficulty.
-   
-   Rules:
-   ┌──────────────────────────┬────────────┬───────────┐
-   │ Quiz Type                │ Difficulty │ Est. Time │
-   ├──────────────────────────┼────────────┼───────────┤
-   │ Full test (detected by   │ Any        │ 45 min    │
-   │ name pattern — see below)│            │           │
-   ├──────────────────────────┼────────────┼───────────┤
-   │ Sub-subject test         │ Standard   │ 20 min    │
-   │                          │ Medium     │ 20 min    │
-   ├──────────────────────────┼────────────┼───────────┤
-   │ Sub-subject test         │ Hard       │ 30 min    │
-   └──────────────────────────┴────────────┴───────────┘
-   
-   Full test detection (any of these in the name):
-   - "Year X Reading" (not "Year X Reading Comprehension Subset")
-   - "Year X Numeracy" (not "Year X Number and Algebra")
-   - "Year X Writing"
-   - "Year X Language Full"
-   - Contains "Full" in the name
-   
-   Everything else = sub-subject test.
    ═══════════════════════════════════════════════════════ */
 function getEstMinutes(quiz) {
-  // If manually overridden, respect it
   if (quiz.est_minutes) return quiz.est_minutes;
-
   const name = (quiz.name || "").toLowerCase().trim();
   const difficulty = (quiz.difficulty || "Standard").toLowerCase();
-
-  // Detect full tests by name patterns
-  // Full tests: "Year 3 Reading", "Year 3 Reading Set 2", "Year 3 Numeracy", 
-  //             "Year 3 Writing", "Year 3 Language Full Set 2"
-  // NOT full:   "Year 3 Grammar & Punctuation", "Year 3 Number and Algebra",
-  //             "Year 3 Spelling", "Year 3 Reading Comprehension Subset"
-  
   const isFullTest = (
-    name.includes("full") ||                                          // explicit "full" in name
-    /year\s*\d+\s+writing\b/.test(name) ||                           // "Year 3 Writing"
-    /year\s*\d+\s+reading(\s+set\s*\d+)?$/.test(name) ||             // "Year 3 Reading" or "Year 3 Reading Set 2"
-    /year\s*\d+\s+numeracy(\s+set\s*\d+)?$/.test(name) ||            // "Year 3 Numeracy" or "Year 3 Numeracy Set 2"
-    /year\s*\d+\s+language\s+full/.test(name)                         // "Year 3 Language Full Set 2"
+    name.includes("full") ||
+    /year\s*\d+\s+writing\b/.test(name) ||
+    /year\s*\d+\s+reading(\s+set\s*\d+)?$/.test(name) ||
+    /year\s*\d+\s+numeracy(\s+set\s*\d+)?$/.test(name) ||
+    /year\s*\d+\s+language\s+full/.test(name)
   );
-
   if (isFullTest) return 45;
-
-  // Sub-subject test timing based on difficulty
   if (difficulty === "hard") return 24;
   if (difficulty === "medium") return 18;
-
-  // Standard or Medium sub-subject
   return 15;
 }
 
 /* ═══════════════════════════════════════════════════════
-   QUIZ CATALOG — All 9 Year 3 FlexiQuiz embeds
+   QUIZ CATALOG — All Year 3 FlexiQuiz embeds
    Each maps to a real FlexiQuiz quiz via embed_id
    ═══════════════════════════════════════════════════════ */
 const QUIZ_CATALOG = [
@@ -136,12 +98,8 @@ const QUIZ_CATALOG = [
   { id: "y3_grammar_set2",      name: "Year 3 Grammar & Punctuation Set 2",          subject: "Language", year_level: 3, embed_id: "6cb798a7-a5cb-44c2-a587-1c92b899b3d5", difficulty: "Medium" },
   { id: "y3_language_set2",     name: "Year 3 Language Full Set 2",                  subject: "Language", year_level: 3, embed_id: "f1a0e888-e486-4049-826c-ce39f631ec5d", difficulty: "Standard" },
   { id: "y3_grammar_hard_set2", name: "Year 3 Grammar & Punctuation (Hard) Set 2",  subject: "Language", year_level: 3, embed_id: "79b9e678-59b0-4db3-a59f-99398c036015", difficulty: "Hard" },
-  
-  // ── Future quizzes — just add them, timing is automatic! ──
-  // { id: "y3_spelling_1",      name: "Year 3 Spelling",          subject: "Language", year_level: 3, embed_id: "xxx", difficulty: "Medium" },   → auto 20 min
-  // { id: "y5_reading_1",       name: "Year 5 Reading",           subject: "Reading",  year_level: 5, embed_id: "xxx", difficulty: "Standard" }, → auto 45 min
-  // { id: "y5_vocab_hard",      name: "Year 5 Vocabulary (Hard)", subject: "Language", year_level: 5, embed_id: "xxx", difficulty: "Hard" },     → auto 30 min
 ];
+
 /* ─── Subject styling ─── */
 const SUBJECT_STYLE = {
   Reading:  { icon: "📖", bg: "bg-blue-50",    text: "text-blue-700",    badge: "bg-blue-100 text-blue-700" },
@@ -187,28 +145,58 @@ export default function ChildDashboard() {
   const [activeQuiz, setActiveQuiz] = useState(null);
   const [viewMode, setViewMode] = useState("all");
 
+  // ✅ NEW: Track child's entitled quiz IDs (null = not yet loaded)
+  const [childEntitledQuizIds, setChildEntitledQuizIds] = useState(null);
+
   const testsPerPage = 8;
   const hasTests = tests.length > 0;
 
-  /* ─── Resolve child info ─── */
+  /* ─── Resolve child info + entitled quiz IDs ─── */
   const resolveChildInfo = useCallback(async () => {
     const nameFromUrl = searchParams.get("childName");
     const yearFromUrl = searchParams.get("yearLevel");
     const usernameFromUrl = searchParams.get("username");
+
+    // Set display info from URL params
     if (nameFromUrl) {
-      setChildInfo({ display_name: decodeURIComponent(nameFromUrl), year_level: yearFromUrl ? Number(yearFromUrl) : null, username: usernameFromUrl || null });
-      return;
+      setChildInfo({
+        display_name: decodeURIComponent(nameFromUrl),
+        year_level: yearFromUrl ? Number(yearFromUrl) : null,
+        username: usernameFromUrl || null,
+      });
+    } else if (childProfile) {
+      setChildInfo({
+        display_name: childProfile.displayName || childProfile.username || null,
+        year_level: childProfile.yearLevel || null,
+        username: childProfile.username || null,
+      });
     }
-    if (childProfile) {
-      setChildInfo({ display_name: childProfile.displayName || childProfile.username || null, year_level: childProfile.yearLevel || null, username: childProfile.username || null });
-      return;
-    }
+
+    // ✅ CRITICAL: Fetch entitled_quiz_ids via summaries API
     if (parentToken && childId) {
       try {
-        const children = await fetchChildren(parentToken);
+        const children = await fetchChildrenSummaries(parentToken);
         const match = children.find((c) => String(c._id) === String(childId));
-        if (match) setChildInfo({ display_name: match.display_name || match.username, year_level: match.year_level, username: match.username || null });
-      } catch (err) { console.error("Failed to fetch child info:", err); }
+        if (match) {
+          if (!nameFromUrl) {
+            setChildInfo({
+              display_name: match.display_name || match.username,
+              year_level: match.year_level,
+              username: match.username || null,
+            });
+          }
+          console.log("✅ entitled_quiz_ids from API:", match.entitled_quiz_ids);
+          setChildEntitledQuizIds(match.entitled_quiz_ids || []);
+        } else {
+          console.warn("⚠️ Child not found in summaries");
+          setChildEntitledQuizIds([]);
+        }
+      } catch (err) {
+        console.error("Failed to fetch child summaries:", err);
+        setChildEntitledQuizIds([]);
+      }
+    } else if (childProfile) {
+      setChildEntitledQuizIds(childProfile.entitled_quiz_ids || []);
     }
   }, [searchParams, childProfile, parentToken, childId]);
 
@@ -247,19 +235,35 @@ export default function ChildDashboard() {
     return count;
   }, [tests]);
 
-  /* ─── Subject breakdown (now with total quiz count) ─── */
+  /* ═══════════════════════════════════════════════════════
+     ✅ FILTERED QUIZ CATALOG — only entitled quizzes
+     Matches QUIZ_CATALOG.embed_id against child's entitled_quiz_ids
+     ═══════════════════════════════════════════════════════ */
+  const entitledCatalog = useMemo(() => {
+    if (childEntitledQuizIds !== null && childEntitledQuizIds.length > 0) {
+      const filtered = QUIZ_CATALOG.filter((quiz) =>
+        childEntitledQuizIds.includes(quiz.embed_id)
+      );
+      console.log(`✅ Filtered: ${filtered.length} of ${QUIZ_CATALOG.length} quizzes`);
+      return filtered;
+    }
+    // Fallback: show all (for trial users or while loading)
+    return QUIZ_CATALOG;
+  }, [childEntitledQuizIds]);
+
+  /* ─── Subject breakdown ─── */
   const subjectBreakdown = useMemo(() => {
     return SUBJECTS.map((subj) => {
       const subjectTests = tests.filter((t) => t.subject === subj);
-      const subjectQuizTotal = QUIZ_CATALOG.filter((q) => q.subject === subj).length;
+      const subjectQuizTotal = entitledCatalog.filter((q) => q.subject === subj).length;
       const avg = subjectTests.length ? Math.round(subjectTests.reduce((s, t) => s + t.score, 0) / subjectTests.length) : 0;
       return { subject: subj, average: avg, count: subjectTests.length, total: subjectQuizTotal };
     });
-  }, [tests]);
+  }, [tests, entitledCatalog]);
 
-  /* ─── Merge QUIZ_CATALOG with completed results ─── */
+  /* ─── Merge entitled catalog with completed results ─── */
   const mergedQuizzes = useMemo(() => {
-    return QUIZ_CATALOG.map((quiz) => {
+    return entitledCatalog.map((quiz) => {
       const matched = tests.find((t) => {
         const tName = (t.name || "").toLowerCase().trim();
         const qName = quiz.name.toLowerCase().trim();
@@ -274,7 +278,7 @@ export default function ChildDashboard() {
         response_id: matched ? matched.response_id : null,
       };
     });
-  }, [tests]);
+  }, [tests, entitledCatalog]);
 
   const completedCount = mergedQuizzes.filter((q) => q.status === "completed").length;
   const availableCount = mergedQuizzes.filter((q) => q.status === "not_started").length;
@@ -327,21 +331,6 @@ export default function ChildDashboard() {
 const handleQuizClose = (result) => {
     const closedQuiz = activeQuiz;
     setActiveQuiz(null);
-
-    if (result?.completed && result?.responseId) {
-      const isWriting = closedQuiz?.subject === "Writing" || inferSubject(closedQuiz?.name) === "Writing";
-      const params = new URLSearchParams({ r: result.responseId });
-      const username = childProfile?.username || childInfo?.username || null;
-      if (username) params.set("username", username);
-      if (closedQuiz?.subject) params.set("subject", closedQuiz.subject);
-      if (isWriting) {
-        navigate(`/writing-feedback/result?${params}`);
-      } else {
-        navigate(`/NonWritingLookupQuizResults/results?${params}`);
-      }
-      return;
-    }
-    // Refresh results list
     if (activeToken && childId) {
       fetchChildResults(activeToken, childId).then((results) => {
         setTests(results.map((r) => ({
@@ -358,10 +347,8 @@ const handleQuizClose = (result) => {
   const motivation = getDailyMotivation();
   const timeGreeting = getTimeGreeting();
 
-  // ── Quiz Player overlay ──
   if (activeQuiz) return <QuizPlayer quiz={activeQuiz} onClose={handleQuizClose} />;
 
-  // ── Loading ──
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white flex items-center justify-center">
@@ -373,7 +360,6 @@ const handleQuizClose = (result) => {
     );
   }
 
-  // ── Analytics view ──
   if (showAnalytics) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
@@ -391,14 +377,10 @@ const handleQuizClose = (result) => {
     );
   }
 
-  /* ═══════════════════════════════════════════════════
-     MAIN DASHBOARD
-     ═══════════════════════════════════════════════════ */
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white px-4 py-8 md:px-8">
       <div className="max-w-6xl mx-auto space-y-8">
 
-        {/* HEADER */}
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <h1 className="text-3xl font-bold text-indigo-600">
@@ -426,7 +408,6 @@ const handleQuizClose = (result) => {
 
         {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-xl">{error}</div>}
 
-        {/* EMPTY STATE BANNER */}
         {!hasTests && !error && (
           <div className="relative overflow-hidden bg-gradient-to-br from-indigo-600 to-violet-700 rounded-2xl p-8 text-white shadow-lg">
             <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full" />
@@ -445,7 +426,6 @@ const handleQuizClose = (result) => {
           </div>
         )}
 
-        {/* GAMIFICATION STATS */}
         <section className="grid md:grid-cols-4 gap-6 bg-white rounded-2xl p-6 border shadow">
           <div>
             <p className="text-xs text-slate-500 uppercase tracking-wide">Level</p>
@@ -466,7 +446,6 @@ const handleQuizClose = (result) => {
           <AnimatedProgressRing percent={overallAverage} />
         </section>
 
-        {/* RECENT ACTIVITY */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Recent Activity</h2>
           {hasTests ? (
@@ -495,7 +474,6 @@ const handleQuizClose = (result) => {
           )}
         </section>
 
-        {/* SUBJECT BREAKDOWN */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Subject Breakdown</h2>
           <div className="grid md:grid-cols-4 gap-4">
@@ -515,14 +493,13 @@ const handleQuizClose = (result) => {
           </div>
         </section>
 
-        {/* MY QUIZZES */}
         <section>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-4">
               <h2 className="text-xl font-semibold">My Quizzes</h2>
               <div className="flex bg-slate-100 rounded-lg p-0.5">
                 {[
-                  { key: "all", label: "All", count: QUIZ_CATALOG.length },
+                  { key: "all", label: "All", count: entitledCatalog.length },
                   { key: "available", label: "Available", count: availableCount },
                   { key: "completed", label: "Completed", count: completedCount },
                 ].map((tab) => (
@@ -642,7 +619,6 @@ const handleQuizClose = (result) => {
           </div>
         </section>
 
-        {/* GETTING STARTED STEPS */}
         {!hasTests && !error && (
           <section className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-800 mb-6">{isParentViewing ? `How to Get ${displayName} Started` : "What's Next?"}</h2>
@@ -667,10 +643,6 @@ const handleQuizClose = (result) => {
     </div>
   );
 }
-
-/* ═══════════════════════════════════════════
-   HELPER COMPONENTS
-═══════════════════════════════════════════ */
 
 function SubjectIcon({ subject, size = "md" }) {
   const icons = { Reading: "📖", Writing: "✍️", Numeracy: "🔢", Language: "📝", Other: "📚" };
