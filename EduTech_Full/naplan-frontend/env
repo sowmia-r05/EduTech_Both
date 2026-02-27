@@ -1,8 +1,0 @@
-# If you use Vite proxy, you can leave this empty and proxy /api to backend.
-# Otherwise set to your backend URL.
-VITE_API_BASE_URL=http://localhost:3000
-VITE_AUTH0_DOMAIN=dev-mafxp22k1bq7xylc.us.auth0.com
-VITE_AUTH0_CLIENT_ID=9cmtQpljikxnApBDBfDel1bfov4DDJGt
-VITE_AUTH0_AUDIENCE=https://naplan-api
-VITE_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-VITE_STRIPE_PUBLISHABLE_KEY=pk_test_51T4a8f2VLVo6biMCy2DAJXCKTkNHXy5f1N1zCabzeWynLtZEzh0JyFyYjrusZk28oAr0wEc6xKbKKgsU6s6xSdq100OuVJAtOl
