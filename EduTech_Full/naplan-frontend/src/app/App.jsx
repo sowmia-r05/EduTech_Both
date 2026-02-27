@@ -1,6 +1,9 @@
+// src/app/App.jsx
+
 import { Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/app/context/AuthContext";
 import { RequireParent, RequireChild, RequireAuth } from "@/app/components/auth/RequireAuth";
+import FooterMinimal from "@/app/components/landing/FooterMinimal";
 
 import WelcomePage from "@/app/components/WelcomePage";
 import ResultPage from "@/app/components/ResultPage";
@@ -13,8 +16,8 @@ import FreeTrialPage from "@/app/components/landing/FreeTrialPage";
 import StartTestPage from "@/app/components/StartTestPage";
 import TrailDashboard from "@/app/components/pages/TrailDashboard";
 import TrialTestPage from "@/app/components/pages/TrialTestPage";
-import TermsAndConditions from "@/app/components/TermsAndConditions";
-import PrivacyPolicy from "@/app/components/PrivacyPolicy";
+import TermsPage from "@/app/components/pages/TermsPage";
+import PrivacyPage from "@/app/components/pages/PrivacyPage";
 import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
 import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
@@ -22,21 +25,31 @@ import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAn
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
 import QuizCompletePage from "./components/pages/QuizCompletePage";
 
+/* ── Layout wrapper — adds minimal disclaimer footer below any page ── */
+function WithFooter({ children }) {
+  return (
+    <div className="flex flex-col min-h-screen">
+      <div className="flex-1">{children}</div>
+      <FooterMinimal />
+    </div>
+  );
+}
+
 export default function AppRoutes() {
   return (
     <AuthProvider>
       <Routes>
-        {/* ─── Public ─── */}
+        {/* ─── Public (WelcomePage has its own full Footer) ─── */}
         <Route path="/" element={<WelcomePage />} />
         <Route path="/free-trial" element={<FreeTrialPage />} />
         <Route path="/start-test" element={<StartTestPage />} />
         <Route path="/dashboard-preview" element={<TrailDashboard />} />
         <Route path="/trial-test" element={<TrialTestPage />} />
-        <Route path="/terms" element={<TermsAndConditions />} />
-        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
 
-        {/* ─── Bundle Selection (public, but checkout requires auth) ─── */}
-        <Route path="/bundles" element={<BundleSelectionPage />} />
+        {/* ─── Bundle Selection ─── */}
+        <Route path="/bundles" element={<WithFooter><BundleSelectionPage /></WithFooter>} />
 
         {/* ─── Parent Auth (public) ─── */}
         <Route path="/parent/create" element={<ParentCreatePage />} />
@@ -44,17 +57,18 @@ export default function AppRoutes() {
 
         {/* ─── Child Auth (public) ─── */}
         <Route path="/child-login" element={<ChildLoginPage />} />
-
         <Route path="/parent-login" element={<ParentLoginPage />} />
 
-        <Route path="/StudentDashboardAnalytics" element={<StudentDashboardAnalytics />} />
-    
+        <Route path="/StudentDashboardAnalytics" element={<WithFooter><StudentDashboardAnalytics /></WithFooter>} />
+
         {/* ─── Parent-protected routes ─── */}
         <Route
           path="/parent-dashboard"
           element={
             <RequireParent>
-              <ParentDashboard />
+              <WithFooter>
+                <ParentDashboard />
+              </WithFooter>
             </RequireParent>
           }
         />
@@ -64,7 +78,9 @@ export default function AppRoutes() {
           path="/child-dashboard"
           element={
             <RequireAuth>
-              <ChildDashboard />
+              <WithFooter>
+                <ChildDashboard />
+              </WithFooter>
             </RequireAuth>
           }
         />
@@ -74,7 +90,9 @@ export default function AppRoutes() {
           path="/NonWritingLookupQuizResults/results"
           element={
             <RequireAuth>
-              <Dashboard />
+              <WithFooter>
+                <Dashboard />
+              </WithFooter>
             </RequireAuth>
           }
         />
@@ -83,20 +101,18 @@ export default function AppRoutes() {
           path="/writing-feedback/result"
           element={
             <RequireAuth>
-              <ResultPage />
+              <WithFooter>
+                <ResultPage />
+              </WithFooter>
             </RequireAuth>
           }
         />
 
-
         <Route
           path="/student-analytics"
-          element={
-              <StudentDashboardAnalytics/>
-          }
+          element={<WithFooter><StudentDashboardAnalytics /></WithFooter>}
         />
         <Route path="/quiz-complete" element={<QuizCompletePage />} />
-
 
         {/* ─── Fallback ─── */}
         <Route path="*" element={<NotFound />} />

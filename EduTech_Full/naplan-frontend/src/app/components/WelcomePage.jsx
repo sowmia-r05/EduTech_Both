@@ -7,6 +7,7 @@ import TestimonialsSection from '@/app/components/landing/TestimonialsSection'
 import PricingSection from '@/app/components/landing/PricingSection'
 import FAQSection from '@/app/components/landing/FAQSection'
 import CTASection from '@/app/components/landing/CTASection'
+import Footer from '@/app/components/landing/Footer'
 
 export default function WelcomePage() {
   return (
@@ -20,6 +21,7 @@ export default function WelcomePage() {
       <PricingSection />
       <FAQSection />
       <CTASection />
+      <Footer />
     </div>
   )
 }

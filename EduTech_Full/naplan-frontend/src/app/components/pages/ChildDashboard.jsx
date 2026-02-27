@@ -328,7 +328,8 @@ export default function ChildDashboard() {
     navigate(isWriting ? `/writing-feedback/result?${params}` : `/NonWritingLookupQuizResults/results?${params}`);
   };
 
-  const handleQuizClose = (result) => {
+const handleQuizClose = (result) => {
+    const closedQuiz = activeQuiz;
     setActiveQuiz(null);
     if (activeToken && childId) {
       fetchChildResults(activeToken, childId).then((results) => {
