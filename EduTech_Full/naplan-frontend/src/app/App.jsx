@@ -24,6 +24,9 @@ import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
 import QuizCompletePage from "./components/pages/QuizCompletePage";
+import AdminLogin from "@/app/components/admin/AdminLogin";
+import AdminDashboard from "@/app/components/admin/AdminDashboard";
+import RequireAdmin from "@/app/components/admin/RequireAdmin";
 
 /* ── Layout wrapper — adds minimal disclaimer footer below any page ── */
 function WithFooter({ children }) {
@@ -107,6 +110,10 @@ export default function AppRoutes() {
             </RequireAuth>
           }
         />
+
+        {/* ─── Admin routes (hidden from parents/children) ─── */}
+        <Route path="/admin" element={<AdminLogin />} />
+        <Route path="/admin/dashboard" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
 
         <Route
           path="/student-analytics"

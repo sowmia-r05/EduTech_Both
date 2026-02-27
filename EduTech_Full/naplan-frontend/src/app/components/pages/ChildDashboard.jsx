@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import { fetchChildResults, fetchChildrenSummaries } from "@/app/utils/api-children";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
-import QuizPlayer from "@/app/components/pages/QuizPlayer";
+import NativeQuizPlayer from "@/app/components/quiz/NativeQuizPlayer";
+
 
 
 /* ─── Subject inference from quiz name ─── */
@@ -329,6 +330,7 @@ export default function ChildDashboard() {
   };
 
   const handleQuizClose = (result) => {
+    const closedQuiz = activeQuiz;
     setActiveQuiz(null);
     if (activeToken && childId) {
       fetchChildResults(activeToken, childId).then((results) => {
@@ -346,7 +348,7 @@ export default function ChildDashboard() {
   const motivation = getDailyMotivation();
   const timeGreeting = getTimeGreeting();
 
-  if (activeQuiz) return <QuizPlayer quiz={activeQuiz} onClose={handleQuizClose} />;
+  if (activeQuiz) return <NativeQuizPlayer quiz={activeQuiz} onClose={handleQuizClose} />;
 
   if (loading) {
     return (
