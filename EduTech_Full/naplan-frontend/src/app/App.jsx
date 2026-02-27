@@ -41,23 +41,23 @@ export default function AppRoutes() {
       <Routes>
         {/* ─── Public (WelcomePage has its own full Footer) ─── */}
         <Route path="/" element={<WelcomePage />} />
-        <Route path="/free-trial" element={<FreeTrialPage />} />
-        <Route path="/start-test" element={<StartTestPage />} />
-        <Route path="/dashboard-preview" element={<TrailDashboard />} />
-        <Route path="/trial-test" element={<TrialTestPage />} />
-        <Route path="/terms" element={<TermsPage />} />
-        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/free-trial" element={<WithFooter><FreeTrialPage /></WithFooter>} />
+        <Route path="/start-test" element={<WithFooter><StartTestPage /></WithFooter>} />
+        <Route path="/dashboard-preview" element={<WithFooter><TrailDashboard /></WithFooter>} />
+        <Route path="/trial-test" element={<WithFooter><TrialTestPage /></WithFooter>} />
+        <Route path="/terms" element={<WithFooter><TermsPage /></WithFooter>} />
+        <Route path="/privacy" element={<WithFooter><PrivacyPage /></WithFooter>} />
 
         {/* ─── Bundle Selection ─── */}
         <Route path="/bundles" element={<WithFooter><BundleSelectionPage /></WithFooter>} />
 
         {/* ─── Parent Auth (public) ─── */}
-        <Route path="/parent/create" element={<ParentCreatePage />} />
-        <Route path="/parent/verify" element={<ParentVerifyPage />} />
+        <Route path="/parent/create" element={<WithFooter><ParentCreatePage /></WithFooter>} />
+        <Route path="/parent/verify" element={<WithFooter><ParentVerifyPage /></WithFooter>} />
 
         {/* ─── Child Auth (public) ─── */}
-        <Route path="/child-login" element={<ChildLoginPage />} />
-        <Route path="/parent-login" element={<ParentLoginPage />} />
+        <Route path="/child-login" element={<WithFooter><ChildLoginPage /></WithFooter>} />
+        <Route path="/parent-login" element={<WithFooter><ParentLoginPage /></WithFooter>} />
 
         <Route path="/StudentDashboardAnalytics" element={<WithFooter><StudentDashboardAnalytics /></WithFooter>} />
 
@@ -112,10 +112,10 @@ export default function AppRoutes() {
           path="/student-analytics"
           element={<WithFooter><StudentDashboardAnalytics /></WithFooter>}
         />
-        <Route path="/quiz-complete" element={<QuizCompletePage />} />
+        <Route path="/quiz-complete" element={<WithFooter><QuizCompletePage /></WithFooter>} />
 
         {/* ─── Fallback ─── */}
-        <Route path="*" element={<NotFound />} />
+        <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
       </Routes>
     </AuthProvider>
   );
