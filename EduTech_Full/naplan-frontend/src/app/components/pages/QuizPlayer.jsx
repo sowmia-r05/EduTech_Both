@@ -4,6 +4,8 @@
 // ✅ FIXED: Detects quiz completion by POLLING the backend for webhook-delivered results.
 //          FlexiQuiz webhook (response.submitted) saves result to DB → frontend polls → detects it → exits fullscreen.
 //          Also still listens for postMessage from /quiz-complete as a bonus signal (if redirect is configured).
+// ✅ FIXED: On completion, exits fullscreen and shows FlexiQuiz results in normal view
+//          with an "AI Feedback" button that navigates to the dashboard/results page.
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getEstMinutes } from "@/app/utils/quiz-helpers";
@@ -178,7 +180,7 @@ function FullscreenWarning({ onReEnter }) {
 }
 
 /* ═══════════════════════════════════════════════════════
-   QUIZ COMPLETION SCREEN
+   QUIZ COMPLETION SCREEN (fallback — kept for safety)
    ═══════════════════════════════════════════════════════ */
 function QuizCompleteScreen() {
   return (
@@ -221,11 +223,11 @@ function QuizCompleteScreen() {
    2. Every 3 seconds, call GET /api/results/check-submission/:username?since=<timestamp>
    3. Backend checks if a new Result/Writing doc was created since that timestamp
       (created by the FlexiQuiz response.submitted webhook)
-   4. If found → exit fullscreen → show completion screen
+   4. If found → exit fullscreen → show results phase with AI Feedback button
    5. postMessage from /quiz-complete also works as a bonus (if redirect is configured)
    ═══════════════════════════════════════════════════════ */
 export default function QuizPlayer({ quiz, onClose }) {
-  const [phase, setPhase] = useState("launch");
+  const [phase, setPhase] = useState("launch"); // launch | countdown | quiz | results | complete
   const [loaded, setLoaded] = useState(false);
   const [tabViolations, setTabViolations] = useState(0);
   const [showFsWarning, setShowFsWarning] = useState(false);
@@ -238,6 +240,7 @@ export default function QuizPlayer({ quiz, onClose }) {
   const completionTriggeredRef = useRef(false);
   const quizStartTimeRef = useRef(null);
   const pollIntervalRef = useRef(null);
+  const completionDataRef = useRef(null); // ✅ NEW: stores completion data for AI Feedback button
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
@@ -248,6 +251,9 @@ export default function QuizPlayer({ quiz, onClose }) {
   const activeToken = childToken || parentToken;
 
   /* ─── Shared completion handler (safe to call multiple times) ─── */
+  // ✅ FIXED: Now transitions to "results" phase instead of "complete"
+  //    This exits fullscreen but keeps the iframe visible so the child
+  //    can see FlexiQuiz results + an "AI Feedback" button overlay.
   const triggerCompletion = useCallback(
     (overrideData = {}) => {
       if (completionTriggeredRef.current) return;
@@ -259,20 +265,30 @@ export default function QuizPlayer({ quiz, onClose }) {
         pollIntervalRef.current = null;
       }
 
+      // Store completion data for the AI Feedback button
+      completionDataRef.current = {
+        completed: true,
+        tabViolations: violationsRef.current,
+        ...overrideData,
+      };
+
+      // Exit fullscreen and transition to results phase
+      // (keeps iframe visible so child can see FlexiQuiz results)
       exitFullscreen().catch(() => {});
       setShowFsWarning(false);
-      setPhase("complete");
-
-      setTimeout(() => {
-        onClose?.({
-          completed: true,
-          tabViolations: violationsRef.current,
-          ...overrideData,
-        });
-      }, 3000);
+      setPhase("results");
     },
-    [onClose]
+    []
   );
+
+  /* ─── AI Feedback button handler ─── */
+  // ✅ NEW: Called when child clicks "AI Feedback" button in the results phase
+  const handleViewAIFeedback = useCallback(() => {
+    onClose?.(completionDataRef.current || {
+      completed: true,
+      tabViolations: violationsRef.current,
+    });
+  }, [onClose]);
 
   /* ─── Tab switch detection ─── */
   useEffect(() => {
@@ -389,6 +405,7 @@ export default function QuizPlayer({ quiz, onClose }) {
     violationsRef.current = 0;
     setTabViolations(0);
     completionTriggeredRef.current = false;
+    completionDataRef.current = null;
     quizStartTimeRef.current = new Date().toISOString();
 
     enterFullscreen()
@@ -435,6 +452,67 @@ export default function QuizPlayer({ quiz, onClose }) {
     return <QuizCompleteScreen />;
   }
 
+  /* ═══════════════════════════════════════════════════════
+     ✅ NEW: RESULTS PHASE
+     Shows FlexiQuiz results in iframe (non-fullscreen) with
+     a sticky header containing the "AI Feedback" button.
+     Proctoring is disabled (phase !== "quiz").
+     ═══════════════════════════════════════════════════════ */
+  if (phase === "results") {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white flex flex-col">
+        {/* Top bar with quiz info and AI Feedback button */}
+        <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-4 py-3 shadow-sm">
+          <div className="max-w-screen-xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Quiz Complete!</p>
+                <p className="text-xs text-slate-500">Review your results below</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleViewAIFeedback}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold rounded-xl hover:from-indigo-700 hover:to-violet-700 shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+                </svg>
+                🤖 AI Feedback
+              </button>
+              <button
+                onClick={() => onClose?.({ completed: true, tabViolations: violationsRef.current })}
+                className="px-4 py-2.5 border border-slate-300 text-slate-600 text-sm font-medium rounded-xl hover:bg-slate-50 transition"
+              >
+                Back to Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* FlexiQuiz results iframe — still visible, no longer fullscreen */}
+        <div className="flex-1 w-full">
+          <iframe
+            ref={iframeRef}
+            src={embedUrl}
+            title={quiz.name}
+            className="w-full border-0"
+            allow="fullscreen"
+            style={{ width: "100%", height: "calc(100vh - 64px)", border: "none", overflow: "hidden" }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     QUIZ PHASE — fullscreen proctored mode (unchanged)
+     ═══════════════════════════════════════════════════════ */
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
       {showFsWarning && <FullscreenWarning onReEnter={handleReEnterFullscreen} />}
