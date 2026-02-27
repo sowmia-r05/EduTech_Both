@@ -140,15 +140,11 @@ async function fqCreateUser({
  * POST /v1/users/{user_id}/quizzes/{quiz_id}
  */
 async function fqAssignQuiz(userId, quizId) {
-  return fqPost(`/users/${userId}/quizzes/${quizId}`, {});
+  return fqPost(`/users/${userId}/quizzes`, { quiz_id: quizId });
 }
 
-/**
- * Assign a user to a FlexiQuiz group (gives access to all group quizzes).
- * POST /v1/users/{user_id}/groups/{group_id}
- */
 async function fqAssignGroup(userId, groupId) {
-  return fqPost(`/users/${userId}/groups/${groupId}`, {});
+  return fqPost(`/users/${userId}/groups`, { group_id: groupId });
 }
 
 /**
