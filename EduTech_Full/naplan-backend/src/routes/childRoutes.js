@@ -117,7 +117,8 @@ router.get("/summaries", verifyToken, requireParent, async (req, res) => {
           quizCount: stats.quizCount,
           averageScore: stats.averageScore,
           lastActivity: stats.lastActivity,
-          entitled_bundle_ids: child.entitled_bundle_ids || [],  // ✅ ADD THIS
+          entitled_bundle_ids: child.entitled_bundle_ids || [],
+          entitled_quiz_ids: child.entitled_quiz_ids || [],    // ← ADD THIS LINE
         };
       }),
     );
