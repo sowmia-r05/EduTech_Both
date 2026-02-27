@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+// src/app/components/pages/ParentVerifyPage.jsx
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
@@ -6,10 +7,15 @@ import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
-import { AlertCircle, Loader2, ArrowLeft, LogIn, Mail } from "lucide-react";
+import { AlertCircle, Loader2, ArrowLeft, LogIn, Mail, Clock } from "lucide-react";
 
 import { verifyParentOtp, createParentAccount } from "@/app/utils/api";
 import { useAuth } from "@/app/context/AuthContext";
+import useOtpCountdown from "@/app/hooks/useOtpCountdown";
+import OtpExpiredModal from "@/app/components/auth/OtpExpiredModal";
+
+/* ── OTP expiry duration (must match backend OTP_TTL_MS) ── */
+const OTP_DURATION_SECONDS = 5 * 60; // 5 minutes
 
 export default function ParentVerifyPage() {
   const navigate = useNavigate();
@@ -30,6 +36,9 @@ export default function ParentVerifyPage() {
 
   const [isVerifiedFlowComplete, setIsVerifiedFlowComplete] = useState(false);
 
+  // ─── OTP expired modal ───
+  const [showExpiredModal, setShowExpiredModal] = useState(false);
+
   const pendingProfile = useMemo(() => {
     try {
       const raw = localStorage.getItem("parent_pending_profile");
@@ -44,8 +53,20 @@ export default function ParentVerifyPage() {
     [maskedEmail, pendingEmail]
   );
 
-  /* ── Validation flag (drives button color) ────── */
+  /* ── Validation flag ────── */
   const isOtpValid = useMemo(() => /^\d{6}$/.test(otp), [otp]);
+
+  /* ── OTP Countdown ── */
+  const handleOtpExpire = useCallback(() => {
+    setShowExpiredModal(true);
+  }, []);
+
+  const { display: otpTimerDisplay, isExpired: isOtpExpired, restart: restartOtpTimer } =
+    useOtpCountdown({
+      durationSeconds: OTP_DURATION_SECONDS,
+      onExpire: handleOtpExpire,
+      enabled: !!pendingEmail && !showExpiredModal,
+    });
 
   useEffect(() => {
     if (!pendingEmail && !isVerifiedFlowComplete) {
@@ -58,17 +79,11 @@ export default function ParentVerifyPage() {
     setError("");
     setInfo("");
 
+    if (isOtpExpired) { setShowExpiredModal(true); return; }
+
     const cleanOtp = String(otp || "").trim();
-
-    if (!cleanOtp) {
-      setError("OTP required");
-      return;
-    }
-
-    if (!/^\d{6}$/.test(cleanOtp)) {
-      setError("Please enter a valid 6-digit OTP.");
-      return;
-    }
+    if (!cleanOtp) { setError("OTP required"); return; }
+    if (!/^\d{6}$/.test(cleanOtp)) { setError("Please enter a valid 6-digit OTP."); return; }
 
     try {
       setLoading(true);
@@ -80,10 +95,7 @@ export default function ParentVerifyPage() {
 
       const token = res?.parent_token || res?.token;
       const parent = res?.parent || res?.user || null;
-
-      if (!token) {
-        throw new Error("Login token missing in OTP verification response");
-      }
+      if (!token) throw new Error("Login token missing in OTP verification response");
 
       loginParent(token, parent);
       setIsVerifiedFlowComplete(true);
@@ -103,6 +115,7 @@ export default function ParentVerifyPage() {
   const handleResendOtp = async () => {
     setError("");
     setInfo("");
+    setShowExpiredModal(false);
 
     if (!pendingProfile?.firstName || !pendingProfile?.lastName || !pendingProfile?.email) {
       setError("Missing signup details. Please go back and enter your details again.");
@@ -124,6 +137,7 @@ export default function ParentVerifyPage() {
 
       setInfo(`A new OTP has been sent to ${masked}`);
       setOtp("");
+      restartOtpTimer();
     } catch (err) {
       setError(err?.message || "Failed to resend OTP");
     } finally {
@@ -131,10 +145,19 @@ export default function ParentVerifyPage() {
     }
   };
 
+  /* ── Expired modal: Go Back ── */
+  const handleExpiredGoBack = () => {
+    setShowExpiredModal(false);
+    localStorage.removeItem("parent_pending_email");
+    localStorage.removeItem("parent_pending_masked");
+    localStorage.removeItem("parent_pending_profile");
+    navigate("/parent/create", { replace: true });
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-md mx-auto">
-        {/* Top bar — same as CreatePage & LoginPage */}
+        {/* Top bar */}
         <div className="flex justify-between items-center mb-4">
           <Button
             onClick={() => navigate("/parent/create")}
@@ -153,13 +176,13 @@ export default function ParentVerifyPage() {
             type="button"
           >
             <LogIn className="h-4 w-4 mr-2" />
-            Login
+            Login Instead
           </Button>
         </div>
 
         <Card className="bg-white shadow-lg">
           <CardHeader>
-            <CardTitle className="text-2xl text-center">Verify OTP</CardTitle>
+            <CardTitle className="text-2xl text-center">Verify Email</CardTitle>
           </CardHeader>
 
           <CardContent>
@@ -171,7 +194,6 @@ export default function ParentVerifyPage() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
-
               {/* Info */}
               {info && (
                 <Alert className="border-indigo-200 bg-indigo-50 text-indigo-900">
@@ -188,33 +210,54 @@ export default function ParentVerifyPage() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-600">Enter OTP sent to</p>
-                    <p className="text-sm font-medium text-gray-900 break-all">{displayEmail}</p>
+                    <p className="text-sm font-medium text-gray-900 break-all">
+                      {displayEmail}
+                    </p>
                   </div>
                 </div>
               </div>
 
+              {/* ─── OTP Countdown Timer ─── */}
+              <div className={`flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-sm font-medium ${
+                isOtpExpired
+                  ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                  : parseInt(otpTimerDisplay) <= 1
+                    ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+              }`}>
+                <Clock className={`h-4 w-4 ${isOtpExpired ? "text-red-500" : ""}`} />
+                {isOtpExpired ? (
+                  <span>OTP expired — please request a new code</span>
+                ) : (
+                  <span>Code expires in <strong className="tabular-nums">{otpTimerDisplay}</strong></span>
+                )}
+              </div>
+
               {/* OTP Input */}
               <div className="space-y-2">
-                <Label htmlFor="otp">6-Digit OTP</Label>
+                <Label htmlFor="verify-otp">6-Digit OTP</Label>
                 <Input
-                  id="otp"
+                  id="verify-otp"
                   type="text"
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   placeholder="Enter 6-digit OTP"
                   maxLength={6}
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onChange={(e) =>
+                    setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  disabled={loading || isOtpExpired}
                   className="text-center tracking-[0.3em] text-lg"
                 />
               </div>
 
-              {/* Verify — gray → indigo (same pattern as CreatePage) */}
+              {/* Verify button */}
               <Button
                 type="submit"
-                disabled={!isOtpValid || loading}
+                disabled={!isOtpValid || loading || isOtpExpired}
                 className={`w-full ${
-                  isOtpValid && !loading
+                  isOtpValid && !loading && !isOtpExpired
                     ? "bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
                     : "bg-gray-400 cursor-not-allowed"
                 }`}
@@ -251,6 +294,15 @@ export default function ParentVerifyPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ─── OTP Expired Confirmation Modal ─── */}
+      {showExpiredModal && (
+        <OtpExpiredModal
+          onRequestNewOtp={handleResendOtp}
+          onGoBack={handleExpiredGoBack}
+          loading={resending}
+        />
+      )}
     </div>
   );
 }
