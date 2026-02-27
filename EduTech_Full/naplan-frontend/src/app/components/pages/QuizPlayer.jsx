@@ -1,5 +1,6 @@
 // src/app/components/pages/QuizPlayer.jsx
 //
+
 // ✅ v7 FINAL — Correct flow:
 //   1. User takes quiz in fullscreen
 //   2. User clicks submit → FlexiQuiz shows its results page (still in fullscreen)
@@ -9,14 +10,22 @@
 //   6. User reviews FlexiQuiz scores, clicks Back when ready
 //   7. Returns to Child Dashboard → can click "View Details" for AI feedback
 
+// Full-screen quiz player with exam mode (fullscreen + tab-switch detection).
+// ✅ FIXED: Detects quiz completion by POLLING the backend for webhook-delivered results.
+//          FlexiQuiz webhook (response.submitted) saves result to DB → frontend polls → detects it → exits fullscreen.
+//          Also still listens for postMessage from /quiz-complete as a bonus signal (if redirect is configured).
+
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getEstMinutes } from "@/app/utils/quiz-helpers";
 import { useAuth } from "@/app/context/AuthContext";
+
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || "";
 
 const POLL_START_DELAY = 2000;
 const POLL_INTERVAL = 2000;
+
 
 /* ─── Subject styling ─── */
 const SUBJECT_STYLE = {
@@ -53,7 +62,11 @@ async function exitFullscreenSafe() {
 }
 
 function isFullscreen() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+  return !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.msFullscreenElement
+  );
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -65,8 +78,19 @@ function QuizLaunchScreen({ quiz, onStart, onCancel }) {
   const estMinutes = getEstMinutes(quiz);
 
   return (
+
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(15,23,42,0.7)", backdropFilter: "blur(10px)" }}>
       <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden" style={{ animation: "quizFadeIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards" }}>
+
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(15,23,42,0.7)", backdropFilter: "blur(10px)" }}
+    >
+      <div
+        className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden"
+        style={{ animation: "quizFadeIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards" }}
+      >
+
         <div className={`bg-gradient-to-r ${style.gradient} px-8 py-6 text-white`}>
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center" style={{ backdropFilter: "blur(8px)" }}>
@@ -78,6 +102,7 @@ function QuizLaunchScreen({ quiz, onStart, onCancel }) {
             </div>
           </div>
         </div>
+
         <div className="px-8 py-6 space-y-5">
           <div className="grid grid-cols-3 gap-3">
             {[
@@ -101,8 +126,12 @@ function QuizLaunchScreen({ quiz, onStart, onCancel }) {
           <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
             <p className="text-sm font-semibold text-amber-800 mb-2">💡 Before you begin:</p>
             <ul className="text-xs text-amber-700 space-y-1.5">
-              {["Read each question carefully", "You can scroll if the question is long", "Take your time — no rush!", "Do NOT press Escape or switch tabs"].map((t) => (
-                <li key={t} className="flex items-start gap-2"><span className="mt-0.5 text-amber-500">✓</span><span>{t}</span></li>
+
+              {["Read each question carefully before answering", "You can scroll down if the question is long", "Take your time — there's no rush!", "Do NOT press Escape or switch tabs during the quiz"].map((t) => (
+                <li key={t} className="flex items-start gap-2">
+                  <span className="mt-0.5 text-amber-500">✓</span>
+                  <span>{t}</span>
+                </li>
               ))}
             </ul>
           </div>
@@ -112,6 +141,7 @@ function QuizLaunchScreen({ quiz, onStart, onCancel }) {
           </div>
         </div>
       </div>
+
       <style>{`@keyframes quizFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
     </div>
   );
@@ -149,6 +179,7 @@ function FullscreenWarning({ onReEnter, onFinish, checking }) {
   return (
     <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-3">
+
         {checking ? (
           <>
             <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto" />
@@ -168,6 +199,47 @@ function FullscreenWarning({ onReEnter, onFinish, checking }) {
             </div>
           </>
         )}
+=======
+        <div className="w-14 h-14 mx-auto bg-rose-100 rounded-full flex items-center justify-center">
+          <svg className="w-7 h-7 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div>
+          <h3 className="text-lg font-bold text-slate-900">⚠️ Fullscreen Required</h3>
+          <p className="text-sm text-slate-600 mt-1">The quiz requires fullscreen to continue.</p>
+          <p className="text-xs text-slate-400">This activity has been recorded. Please return to fullscreen to continue your quiz.</p>
+          <button onClick={onReEnter} className="w-full mt-3 px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold rounded-xl hover:from-indigo-700 hover:to-violet-700 transition-all">🔒 Re-enter Fullscreen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+   QUIZ COMPLETION SCREEN
+   ═══════════════════════════════════════════════════════ */
+function QuizCompleteScreen() {
+  return (
+    <div className="fixed inset-0 z-50 bg-gradient-to-b from-indigo-50 via-white to-violet-50 flex items-center justify-center">
+      <div className="text-center space-y-6">
+        <div className="relative mx-auto w-20 h-20">
+          <div className="absolute inset-0 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 animate-ping opacity-25" />
+          <div className="relative w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg">
+            <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Quiz Complete! 🎉</h2>
+          <p className="text-slate-500 mt-2">Generating your personalised feedback...</p>
+        </div>
+        <div className="flex items-center justify-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+          <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: "150ms" }} />
+          <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: "300ms" }} />
+        </div>
       </div>
     </div>
   );
@@ -175,13 +247,30 @@ function FullscreenWarning({ onReEnter, onFinish, checking }) {
 
 /* ═══════════════════════════════════════════════════════
    MAIN QUIZ PLAYER
+
+   COMPLETION DETECTION STRATEGY:
+   ─────────────────────────────────────────────────────
+   Problem: FlexiQuiz shows its own results page after submit.
+   No redirect fires. postMessage never arrives. iframe onLoad
+   fires on Start/Next/Prev too, so can't use load count.
+
+   Solution: POLL THE BACKEND.
+   ─────────────────────────────────────────────────────
+   1. When quiz starts, record the timestamp.
+   2. Every 3 seconds, call GET /api/results/check-submission/:username?since=<timestamp>
+   3. Backend checks if a new Result/Writing doc was created since that timestamp
+      (created by the FlexiQuiz response.submitted webhook)
+   4. If found → exit fullscreen → show completion screen
+   5. postMessage from /quiz-complete also works as a bonus (if redirect is configured)
    ═══════════════════════════════════════════════════════ */
 export default function QuizPlayer({ quiz, onClose }) {
   const [phase, setPhase] = useState("launch");
   const [loaded, setLoaded] = useState(false);
   const [tabViolations, setTabViolations] = useState(0);
   const [showFsWarning, setShowFsWarning] = useState(false);
+
   const [checkingCompletion, setCheckingCompletion] = useState(false);
+
 
   const { childProfile, childToken, parentToken } = useAuth();
 
@@ -192,47 +281,42 @@ export default function QuizPlayer({ quiz, onClose }) {
   const quizStartTimeRef = useRef(null);
   const pollIntervalRef = useRef(null);
 
+
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   const embedUrl = quiz.embed_id ? `https://www.flexiquiz.com/SC/N/${quiz.embed_id}` : null;
+
+  // Get the child's username for polling
   const username = childProfile?.username || quiz?.username || "";
   const activeToken = childToken || parentToken;
 
-  // ✅ The quiz name — used for precise matching in check-submission
-  const quizName = quiz?.name || "";
+  /* ─── Shared completion handler (safe to call multiple times) ─── */
+  const triggerCompletion = useCallback(
+    (overrideData = {}) => {
+      if (completionTriggeredRef.current) return;
+      completionTriggeredRef.current = true;
 
-  /* ─── Build the polling URL with quiz_name param ─── */
-  const buildCheckUrl = useCallback((sinceISO) => {
-    const params = new URLSearchParams();
-    params.set("since", sinceISO);
-    if (quizName) params.set("quiz_name", quizName);
-    return `${API_BASE}/api/results/check-submission/${encodeURIComponent(username)}?${params.toString()}`;
-  }, [username, quizName]);
+      // Stop polling
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
 
-  /* ─── One-shot backend check ─── */
-  const checkForSubmission = useCallback(async () => {
-    if (!username) return null;
-    try {
-      const headers = {};
-      if (activeToken) headers["Authorization"] = `Bearer ${activeToken}`;
-      const sinceISO = quizStartTimeRef.current || new Date(Date.now() - 10 * 60 * 1000).toISOString();
-      const res = await fetch(buildCheckUrl(sinceISO), { headers });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.submitted ? data.result : null;
-    } catch { return null; }
-  }, [username, activeToken, buildCheckUrl]);
+      exitFullscreen().catch(() => {});
+      setShowFsWarning(false);
+      setPhase("complete");
 
-  /* ─── Completion: exit fullscreen + show results phase ─── */
-  const triggerCompletion = useCallback(async () => {
-    if (completionTriggeredRef.current) return;
-    completionTriggeredRef.current = true;
-    if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-    setShowFsWarning(false);
-    setCheckingCompletion(false);
-    await exitFullscreenSafe();
-    setPhase("results");
-  }, []);
+      setTimeout(() => {
+        onClose?.({
+          completed: true,
+          tabViolations: violationsRef.current,
+          ...overrideData,
+        });
+      }, 3000);
+    },
+    [onClose]
+  );
+
 
   /* ─── Tab switch detection ─── */
   useEffect(() => {
@@ -242,11 +326,12 @@ export default function QuizPlayer({ quiz, onClose }) {
     return () => document.removeEventListener("visibilitychange", h);
   }, [phase]);
 
-  /* ─── Fullscreen exit detection ─── */
+
+  /* ─── Fullscreen exit detection (skip after completion) ─── */
   useEffect(() => {
     if (phase !== "quiz") return;
-    const handleFsChange = async () => {
-      if (completionTriggeredRef.current || phaseRef.current !== "quiz") return;
+    const handleFsChange = () => {
+      if (completionTriggeredRef.current) return;
       if (!isFullscreen()) {
         violationsRef.current += 1;
         setTabViolations(violationsRef.current);
@@ -344,19 +429,21 @@ export default function QuizPlayer({ quiz, onClose }) {
   const handleReEnterFullscreen = useCallback(() => { enterFullscreen().then(() => setShowFsWarning(false)).catch(() => {}); }, []);
 
   const handleExit = useCallback(() => {
-    if (window.confirm("Are you sure you want to exit? Your progress may be lost.")) {
-      if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-      exitFullscreenSafe().then(() => onClose?.({ completed: false }));
+
+    if (window.confirm("Are you sure you want to exit the quiz? Your progress may be lost.")) {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      exitFullscreen().catch(() => {});
+      onClose?.({ completed: false });
     }
   }, [onClose]);
 
-  const handleBackToDashboard = useCallback(() => {
-    onClose?.({ completed: true, tabViolations: violationsRef.current });
-  }, [onClose]);
-
+  /* ─── Cleanup ─── */
   useEffect(() => {
     return () => {
-      if (isFullscreen()) exitFullscreenSafe();
+      if (isFullscreen()) exitFullscreen().catch(() => {});
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
@@ -404,13 +491,21 @@ export default function QuizPlayer({ quiz, onClose }) {
         <div className="flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-slate-200 rounded-full px-3 py-1.5 shadow-sm text-[11px]">
           {tabViolations > 0 && (
             <div className="flex items-center gap-1 text-rose-600">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+
               <span className="font-semibold">{tabViolations} violation{tabViolations !== 1 ? "s" : ""}</span>
             </div>
           )}
           <div className="w-px h-4 bg-slate-200" />
           <button onClick={handleExit} className="flex items-center gap-1.5 pl-2 pr-3 py-1 rounded-full text-[11px] font-medium text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-all">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+
             Exit
           </button>
         </div>
@@ -424,7 +519,20 @@ export default function QuizPlayer({ quiz, onClose }) {
           </div>
         </div>
       )}
-      <iframe ref={iframeRef} src={embedUrl} title={quiz.name} className="w-full h-full border-0 flex-1" onLoad={handleIframeLoad} allow="fullscreen" style={{ width: "100%", height: "100vh", border: "none", overflow: "hidden" }} />
+
+
+      <iframe
+        ref={iframeRef}
+        src={embedUrl}
+        title={quiz.name}
+        className="w-full h-full border-0 flex-1"
+        onLoad={handleIframeLoad}
+        allow="fullscreen"
+        style={{ width: "100%", height: "100vh", border: "none", overflow: "hidden" }}
+      />
+
+      <style>{`@keyframes quizFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
+
     </div>
   );
 }

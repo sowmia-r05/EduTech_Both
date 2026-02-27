@@ -24,7 +24,8 @@ const parentAuthRoutes = require("./routes/parentAuthRoutes");
 // ─── NEW routes ───
 const childRoutes = require("./routes/childRoutes");
 const childAuthRoutes = require("./routes/childAuthRoutes");
-const paymentRoutes = require("./routes/paymentRoutes");  // ← ADD THIS
+const paymentRoutes = require("./routes/paymentRoutes");  
+
 
 
 const app = express();
@@ -108,6 +109,7 @@ app.use("/api/students", studentRoutes);
 app.get("/", (req, res) => {
   res.json({ status: "NAPLAN backend alive" });
 });
+
 
 // ✅ Test if FlexiQuiz key is set (safe: no secret printed)
 app.get("/api/test-flexiquiz-key", (req, res) => {

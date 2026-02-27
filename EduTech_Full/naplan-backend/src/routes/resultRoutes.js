@@ -333,5 +333,65 @@ router.post("/webhook", async (req, res) => {
     return res.status(500).json({ error: "Webhook processing failed" });
   }
 });
+router.get("/check-submission/:username", async (req, res) => {
+  try {
+    const username = String(req.params.username || "").trim();
+    if (!username) return res.status(400).json({ error: "username required" });
+
+    // "since" = ISO timestamp of when the quiz started (so we only find NEW submissions)
+    const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 10 * 60 * 1000); // default: last 10 min
+
+    const result = await Result.findOne({
+      "user.user_name": username,
+      $or: [
+        { date_submitted: { $gte: since } },
+        { createdAt: { $gte: since } },
+      ],
+    })
+      .sort({ date_submitted: -1, createdAt: -1 })
+      .lean();
+
+    if (result) {
+      return res.json({
+        submitted: true,
+        result: {
+          response_id: result.response_id,
+          quiz_name: result.quiz_name,
+          score: result.score,
+          grade: result.score?.grade || "",
+        },
+      });
+    }
+
+    // Also check Writing collection
+    const writing = await Writing.findOne({
+      "user.user_name": username,
+      $or: [
+        { submitted_at: { $gte: since } },
+        { createdAt: { $gte: since } },
+      ],
+    })
+      .sort({ submitted_at: -1, createdAt: -1 })
+      .lean();
+
+    if (writing) {
+      return res.json({
+        submitted: true,
+        result: {
+          response_id: writing.response_id,
+          quiz_name: writing.quiz_name,
+          score: null,
+          grade: "",
+          isWriting: true,
+        },
+      });
+    }
+
+    return res.json({ submitted: false });
+  } catch (err) {
+    console.error("check-submission error:", err);
+    return res.status(500).json({ error: "Failed to check submission" });
+  }
+});
 
 module.exports = router;
