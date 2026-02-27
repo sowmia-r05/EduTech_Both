@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 
-export default function AvatarMenu({ className = "" }) {
+export default function AvatarMenu() {
   const navigate = useNavigate();
   const { childToken, logoutChild, logout } = useAuth();
 
@@ -19,7 +19,7 @@ export default function AvatarMenu({ className = "" }) {
   };
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <div className="flex items-center gap-2">
       {/* Back to Dashboard */}
       <button
         onClick={handleBackToDashboard}

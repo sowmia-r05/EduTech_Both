@@ -4,7 +4,6 @@ import AICoachPanel from "@/app/components/dashboardComponents/AICoachPanel";
 import DonutScoreChart from "@/app/components/dashboardComponents/DonutScoreChart";
 import WeakTopicsBarChart from "@/app/components/dashboardComponents/WeakTopicsBarChart";
 import AISuggestionPanel from "@/app/components/dashboardComponents/AISuggestionPanel";
-import AvatarMenu from "@/app/components/dashboardComponents/AvatarMenu";
 import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopicsFunnelChart";
 
 /* -------------------- MOCK DATA -------------------- */
