@@ -14,7 +14,7 @@ export function RequireParent({ children }) {
     typeof window !== "undefined" && !!localStorage.getItem("parent_token");
 
   if (!isParent && !hasParentToken) {
-    return <Navigate to="/parent/create" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return children;

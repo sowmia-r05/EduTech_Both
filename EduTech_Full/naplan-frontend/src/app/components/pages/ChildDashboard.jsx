@@ -324,11 +324,22 @@ export default function ChildDashboard() {
     navigate(isWriting ? `/writing-feedback/result?${params}` : `/NonWritingLookupQuizResults/results?${params}`);
   };
 
-  const handleQuizClose = (result) => {
+const handleQuizClose = (result) => {
+    const closedQuiz = activeQuiz;
     setActiveQuiz(null);
-    // If quiz was completed with a responseId, optionally navigate to results
+
     if (result?.completed && result?.responseId) {
-      // Optional: navigate(`/NonWritingLookupQuizResults/results?r=${result.responseId}`);
+      const isWriting = closedQuiz?.subject === "Writing" || inferSubject(closedQuiz?.name) === "Writing";
+      const params = new URLSearchParams({ r: result.responseId });
+      const username = childProfile?.username || childInfo?.username || null;
+      if (username) params.set("username", username);
+      if (closedQuiz?.subject) params.set("subject", closedQuiz.subject);
+      if (isWriting) {
+        navigate(`/writing-feedback/result?${params}`);
+      } else {
+        navigate(`/NonWritingLookupQuizResults/results?${params}`);
+      }
+      return;
     }
     // Refresh results list
     if (activeToken && childId) {
