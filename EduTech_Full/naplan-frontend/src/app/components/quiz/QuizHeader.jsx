@@ -1,12 +1,12 @@
 /**
  * QuizHeader.jsx
- * 
+ *
  * Sticky header during quiz-taking. Shows:
  *   - Quiz name
  *   - Progress bar + question count
  *   - Countdown timer (if timed)
  *   - Cancel button
- * 
+ *
  * Place in: src/app/components/quiz/QuizHeader.jsx
  */
 
@@ -20,7 +20,7 @@ function formatTime(seconds) {
 }
 
 export default function QuizHeader({ quizName, currentIdx, totalQuestions, answeredCount, timeLeft, onCancel }) {
-  const progress = totalQuestions > 0 ? ((answeredCount / totalQuestions) * 100) : 0;
+  const progress = totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0;
   const timeStr = formatTime(timeLeft);
 
   const timerColor = useMemo(() => {
