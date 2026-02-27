@@ -5,6 +5,11 @@ import { motion } from 'framer-motion'
 export default function HeroSection() {
   const navigate = useNavigate()
 
+  const scrollToHowItWorks = () => {
+    const el = document.getElementById('how')
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
     <motion.section
       id="home"
@@ -34,10 +39,10 @@ export default function HeroSection() {
           </button>
 
           <button
-            onClick={() => navigate('/samples')}
+            onClick={scrollToHowItWorks}
             className="border border-indigo-600 text-indigo-600 px-10 py-4 rounded-xl text-lg font-semibold hover:bg-indigo-50 transition"
           >
-            View Sample Questions
+            See How It Works
           </button>
         </div>
 
