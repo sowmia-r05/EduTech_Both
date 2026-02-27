@@ -1,18 +1,20 @@
 /**
  * QuestionRenderer.jsx
- * 
+ *
  * Renders a single question based on its type:
  *   - radio_button: Single-choice MCQ with text options
  *   - picture_choice: Single-choice MCQ with image options
  *   - free_text: Textarea for writing/essay questions
  *   - checkbox: Multi-select MCQ
- * 
+ *
  * Place in: src/app/components/quiz/QuestionRenderer.jsx
  */
 
 import { useState } from "react";
 
-// ─── Image Zoom Modal ───
+/* ═══════════════════════════════════════
+   Image Zoom Modal
+   ═══════════════════════════════════════ */
 function ImageModal({ src, alt, onClose }) {
   return (
     <div
@@ -34,7 +36,9 @@ function ImageModal({ src, alt, onClose }) {
   );
 }
 
-// ─── Radio Button Question ───
+/* ═══════════════════════════════════════
+   Radio Button Question (single-choice MCQ)
+   ═══════════════════════════════════════ */
 function RadioQuestion({ question, answer, onAnswer }) {
   const selectedId = answer.selected?.[0] || null;
 
@@ -53,9 +57,11 @@ function RadioQuestion({ question, answer, onAnswer }) {
             }`}
           >
             <div className="flex items-center gap-4">
-              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                isSelected ? "border-indigo-500" : "border-slate-300"
-              }`}>
+              <div
+                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                  isSelected ? "border-indigo-500" : "border-slate-300"
+                }`}
+              >
                 {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />}
               </div>
               <span className={`text-sm font-medium ${isSelected ? "text-indigo-700" : "text-slate-700"}`}>
@@ -69,7 +75,9 @@ function RadioQuestion({ question, answer, onAnswer }) {
   );
 }
 
-// ─── Picture Choice Question ───
+/* ═══════════════════════════════════════
+   Picture Choice Question (single-choice with images)
+   ═══════════════════════════════════════ */
 function PictureChoiceQuestion({ question, answer, onAnswer }) {
   const selectedId = answer.selected?.[0] || null;
   const [zoomImg, setZoomImg] = useState(null);
@@ -95,13 +103,20 @@ function PictureChoiceQuestion({ question, answer, onAnswer }) {
                     src={opt.image_url}
                     alt={opt.text || "Option"}
                     className="w-full h-full object-contain cursor-zoom-in"
-                    onClick={(e) => { e.stopPropagation(); setZoomImg(opt.image_url); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setZoomImg(opt.image_url);
+                    }}
                   />
                 </div>
               )}
-              <div className={`px-3 py-2.5 text-center border-t ${isSelected ? "bg-indigo-50 border-indigo-200" : "bg-white border-slate-100"}`}>
+              <div
+                className={`px-3 py-2.5 text-center border-t ${
+                  isSelected ? "bg-indigo-50 border-indigo-200" : "bg-white border-slate-100"
+                }`}
+              >
                 <span className={`text-sm font-medium ${isSelected ? "text-indigo-700" : "text-slate-600"}`}>
-                  {opt.text || `Option`}
+                  {opt.text || "Option"}
                 </span>
               </div>
               {isSelected && (
@@ -120,7 +135,9 @@ function PictureChoiceQuestion({ question, answer, onAnswer }) {
   );
 }
 
-// ─── Checkbox Question (multi-select) ───
+/* ═══════════════════════════════════════
+   Checkbox Question (multi-select MCQ)
+   ═══════════════════════════════════════ */
 function CheckboxQuestion({ question, answer, onAnswer }) {
   const selectedIds = new Set(answer.selected || []);
 
@@ -147,9 +164,11 @@ function CheckboxQuestion({ question, answer, onAnswer }) {
             }`}
           >
             <div className="flex items-center gap-4">
-              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                isSelected ? "border-indigo-500 bg-indigo-500" : "border-slate-300"
-              }`}>
+              <div
+                className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                  isSelected ? "border-indigo-500 bg-indigo-500" : "border-slate-300"
+                }`}
+              >
                 {isSelected && (
                   <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
@@ -167,7 +186,9 @@ function CheckboxQuestion({ question, answer, onAnswer }) {
   );
 }
 
-// ─── Free Text / Writing Question ───
+/* ═══════════════════════════════════════
+   Free Text / Writing Question
+   ═══════════════════════════════════════ */
 function FreeTextQuestion({ question, answer, onAnswer }) {
   const text = answer.text || "";
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
@@ -179,12 +200,14 @@ function FreeTextQuestion({ question, answer, onAnswer }) {
         onChange={(e) => onAnswer({ text: e.target.value })}
         placeholder="Write your answer here..."
         rows={12}
-        className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm text-slate-800 
+        className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm text-slate-800
                    placeholder-slate-400 resize-y min-h-[200px]
                    focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
       />
       <div className="flex items-center justify-between text-xs text-slate-400">
-        <span>{wordCount} word{wordCount !== 1 ? "s" : ""}</span>
+        <span>
+          {wordCount} word{wordCount !== 1 ? "s" : ""}
+        </span>
         <span className="flex items-center gap-1">
           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -196,9 +219,9 @@ function FreeTextQuestion({ question, answer, onAnswer }) {
   );
 }
 
-// ═══════════════════════════════════════
-// MAIN: QuestionRenderer
-// ═══════════════════════════════════════
+/* ═══════════════════════════════════════
+   MAIN: QuestionRenderer
+   ═══════════════════════════════════════ */
 export default function QuestionRenderer({ question, questionNumber, answer, isFlagged, onAnswer, onToggleFlag }) {
   const [zoomImg, setZoomImg] = useState(null);
 
@@ -217,8 +240,18 @@ export default function QuestionRenderer({ question, questionNumber, answer, isF
               : "bg-slate-100 text-slate-500 hover:bg-slate-200"
           }`}
         >
-          <svg className="w-3.5 h-3.5" fill={isFlagged ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
+          <svg
+            className="w-3.5 h-3.5"
+            fill={isFlagged ? "currentColor" : "none"}
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5"
+            />
           </svg>
           {isFlagged ? "Flagged" : "Flag"}
         </button>
@@ -228,7 +261,10 @@ export default function QuestionRenderer({ question, questionNumber, answer, isF
       <div className="text-base text-slate-800 leading-relaxed font-medium">
         {/* Render HTML content (for questions with inline images) */}
         {question.text.includes("<") ? (
-          <div dangerouslySetInnerHTML={{ __html: question.text }} className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in" />
+          <div
+            dangerouslySetInnerHTML={{ __html: question.text }}
+            className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
+          />
         ) : (
           <p>{question.text}</p>
         )}
@@ -257,19 +293,11 @@ export default function QuestionRenderer({ question, questionNumber, answer, isF
         </div>
       )}
 
-      {/* Answer area */}
-      {question.type === "radio_button" && (
-        <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} />
-      )}
-      {question.type === "picture_choice" && (
-        <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} />
-      )}
-      {question.type === "checkbox" && (
-        <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} />
-      )}
-      {question.type === "free_text" && (
-        <FreeTextQuestion question={question} answer={answer} onAnswer={onAnswer} />
-      )}
+      {/* Answer area — renders based on question type */}
+      {question.type === "radio_button" && <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} />}
+      {question.type === "picture_choice" && <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} />}
+      {question.type === "checkbox" && <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} />}
+      {question.type === "free_text" && <FreeTextQuestion question={question} answer={answer} onAnswer={onAnswer} />}
 
       {zoomImg && <ImageModal src={zoomImg} alt="Question image" onClose={() => setZoomImg(null)} />}
     </div>

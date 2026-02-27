@@ -1,11 +1,11 @@
 /**
  * NativeQuizPlayer.jsx
- * 
+ *
  * Complete native quiz-taking component that replaces the FlexiQuiz iframe.
  * Handles: question rendering, timer, navigation, auto-save, submission.
- * 
+ *
  * Place in: src/app/components/quiz/NativeQuizPlayer.jsx
- * 
+ *
  * Props:
  *   quiz     — { quiz_id, quiz_name, ... } from child dashboard
  *   onClose  — (result) => void, called after submission or cancel
@@ -42,7 +42,11 @@ export default function NativeQuizPlayer({ quiz, onClose }) {
     (url, opts = {}) =>
       fetch(`${API}${url}`, {
         ...opts,
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${activeToken}`, ...opts.headers },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${activeToken}`,
+          ...opts.headers,
+        },
       }),
     [activeToken]
   );
@@ -86,7 +90,9 @@ export default function NativeQuizPlayer({ quiz, onClose }) {
     }
 
     init();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [quiz, apiFetch]);
 
   // ─── Timer countdown ───
@@ -152,9 +158,12 @@ export default function NativeQuizPlayer({ quiz, onClose }) {
   }, []);
 
   // ─── Navigation ───
-  const goTo = useCallback((idx) => {
-    setCurrentIdx(Math.max(0, Math.min(idx, questions.length - 1)));
-  }, [questions.length]);
+  const goTo = useCallback(
+    (idx) => {
+      setCurrentIdx(Math.max(0, Math.min(idx, questions.length - 1)));
+    },
+    [questions.length]
+  );
 
   const goNext = useCallback(() => goTo(currentIdx + 1), [currentIdx, goTo]);
   const goPrev = useCallback(() => goTo(currentIdx - 1), [currentIdx, goTo]);
@@ -208,7 +217,11 @@ export default function NativeQuizPlayer({ quiz, onClose }) {
         <div className="text-center max-w-md">
           <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+              />
             </svg>
           </div>
           <h2 className="text-xl font-bold text-slate-800">Something went wrong</h2>
@@ -225,7 +238,7 @@ export default function NativeQuizPlayer({ quiz, onClose }) {
   }
 
   // ═══════════════════════════════════════
-  // RENDER: LOADING
+  // RENDER: LOADING / SUBMITTING
   // ═══════════════════════════════════════
   if (phase === "loading" || phase === "submitting") {
     return (
@@ -256,7 +269,10 @@ export default function NativeQuizPlayer({ quiz, onClose }) {
         questions={questions}
         answers={answers}
         flagged={flagged}
-        onGoToQuestion={(idx) => { setCurrentIdx(idx); setPhase("taking"); }}
+        onGoToQuestion={(idx) => {
+          setCurrentIdx(idx);
+          setPhase("taking");
+        }}
         onSubmit={handleSubmit}
         onBack={() => setPhase("taking")}
       />
