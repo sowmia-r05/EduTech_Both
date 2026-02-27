@@ -122,13 +122,10 @@ export default function AppRoutes() {
         />
         <Route path="/quiz-complete" element={<WithFooter><QuizCompletePage /></WithFooter>} />
 
+        <Route path="/quiz-complete" element={<QuizCompleteBridge/>} />
+
         {/* ─── Fallback ─── */}
-<<<<<<< HEAD
         <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
-=======
-        <Route path="*" element={<NotFound />} />
-        <Route path="/admin/quiz/:quizId" element={<RequireAdmin><QuizDetailPage /></RequireAdmin>} />
->>>>>>> 7aac690 (admin)
       </Routes>
     </AuthProvider>
   );
