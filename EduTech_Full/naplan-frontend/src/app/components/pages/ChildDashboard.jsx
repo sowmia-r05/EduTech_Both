@@ -326,21 +326,25 @@ export default function ChildDashboard() {
 
   const handleQuizClose = (result) => {
     setActiveQuiz(null);
-    // If quiz was completed with a responseId, optionally navigate to results
-    if (result?.completed && result?.responseId) {
-      // Optional: navigate(`/NonWritingLookupQuizResults/results?r=${result.responseId}`);
-    }
-    // Refresh results list
+
+    // Refresh results list so the new result appears
     if (activeToken && childId) {
       fetchChildResults(activeToken, childId).then((results) => {
         setTests(results.map((r) => ({
-          id: r._id, response_id: r.response_id, subject: inferSubject(r.quiz_name),
-          name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
-          date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name, grade: r.score?.grade || "", duration: r.duration || 0,
+          id: r._id,
+          response_id: r.response_id,
+          subject: inferSubject(r.quiz_name),
+          name: r.quiz_name || "Untitled Quiz",
+          score: Math.round(r.score?.percentage || 0),
+          date: r.date_submitted || r.createdAt,
+          quiz_name: r.quiz_name,
+          grade: r.score?.grade || "",
+          duration: r.duration || 0,
         })));
       }).catch(() => {});
     }
   };
+
 
   const displayName = childInfo?.display_name || childProfile?.displayName || "Student";
   const yearLevel = childInfo?.year_level || childProfile?.yearLevel || null;
