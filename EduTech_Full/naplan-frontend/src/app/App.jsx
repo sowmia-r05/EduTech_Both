@@ -28,6 +28,7 @@ import AdminLogin from "@/app/components/admin/AdminLogin";
 import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin from "@/app/components/admin/RequireAdmin";
 import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
+import AdminRegister from "@/app/components/admin/AdminRegister";
 
 /* ── Layout wrapper — adds minimal disclaimer footer below any page ── */
 function WithFooter({ children }) {
@@ -45,23 +46,23 @@ export default function AppRoutes() {
       <Routes>
         {/* ─── Public (WelcomePage has its own full Footer) ─── */}
         <Route path="/" element={<WelcomePage />} />
-        <Route path="/free-trial" element={<WithFooter><FreeTrialPage /></WithFooter>} />
-        <Route path="/start-test" element={<WithFooter><StartTestPage /></WithFooter>} />
-        <Route path="/dashboard-preview" element={<WithFooter><TrailDashboard /></WithFooter>} />
-        <Route path="/trial-test" element={<WithFooter><TrialTestPage /></WithFooter>} />
-        <Route path="/terms" element={<WithFooter><TermsPage /></WithFooter>} />
-        <Route path="/privacy" element={<WithFooter><PrivacyPage /></WithFooter>} />
+        <Route path="/free-trial" element={<FreeTrialPage />} />
+        <Route path="/start-test" element={<StartTestPage />} />
+        <Route path="/dashboard-preview" element={<TrailDashboard />} />
+        <Route path="/trial-test" element={<TrialTestPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
 
         {/* ─── Bundle Selection ─── */}
         <Route path="/bundles" element={<WithFooter><BundleSelectionPage /></WithFooter>} />
 
         {/* ─── Parent Auth (public) ─── */}
-        <Route path="/parent/create" element={<WithFooter><ParentCreatePage /></WithFooter>} />
-        <Route path="/parent/verify" element={<WithFooter><ParentVerifyPage /></WithFooter>} />
+        <Route path="/parent/create" element={<ParentCreatePage />} />
+        <Route path="/parent/verify" element={<ParentVerifyPage />} />
 
         {/* ─── Child Auth (public) ─── */}
-        <Route path="/child-login" element={<WithFooter><ChildLoginPage /></WithFooter>} />
-        <Route path="/parent-login" element={<WithFooter><ParentLoginPage /></WithFooter>} />
+        <Route path="/child-login" element={<ChildLoginPage />} />
+        <Route path="/parent-login" element={<ParentLoginPage />} />
 
         <Route path="/StudentDashboardAnalytics" element={<WithFooter><StudentDashboardAnalytics /></WithFooter>} />
 
@@ -114,7 +115,9 @@ export default function AppRoutes() {
 
         {/* ─── Admin routes (hidden from parents/children) ─── */}
         <Route path="/admin" element={<AdminLogin />} />
+        <Route path="/admin/register" element={<AdminRegister />} />
         <Route path="/admin/dashboard" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+        <Route path="/admin/quiz/:quizId" element={<RequireAdmin><QuizDetailPage /></RequireAdmin>} />
 
         <Route
           path="/student-analytics"
@@ -126,6 +129,7 @@ export default function AppRoutes() {
 
         {/* ─── Fallback ─── */}
         <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
+
       </Routes>
     </AuthProvider>
   );

@@ -1,42 +1,58 @@
 /**
- * AdminLogin.jsx
+ * AdminRegister.jsx
  *
- * Admin login with email + password.
+ * Admin registration with just name, email, and password.
+ * No registration code needed.
  *
- * Replace: src/app/components/admin/AdminLogin.jsx
+ * Place in: src/app/components/admin/AdminRegister.jsx
  */
 
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
-export default function AdminLogin() {
+export default function AdminRegister() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const update = (field) => (e) =>
+    setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail) { setError("Enter your email"); return; }
-    if (!password) { setError("Enter your password"); return; }
+    const name = form.name.trim();
+    const email = form.email.trim().toLowerCase();
+    const password = form.password;
+    const confirmPassword = form.confirmPassword;
+
+    if (!name) { setError("Name is required"); return; }
+    if (!email) { setError("Email is required"); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Enter a valid email"); return; }
+    if (!password || password.length < 6) { setError("Password must be at least 6 characters"); return; }
+    if (password !== confirmPassword) { setError("Passwords do not match"); return; }
 
     try {
       setLoading(true);
-      const res = await fetch(`${API}/api/admin/login`, {
+      const res = await fetch(`${API}/api/admin/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmedEmail, password }),
+        body: JSON.stringify({ name, email, password }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Login failed");
+      if (!res.ok) throw new Error(data.error || "Registration failed");
 
+      // Auto-login: store token and redirect
       localStorage.setItem("admin_token", data.token);
       if (data.admin) {
         localStorage.setItem("admin_info", JSON.stringify(data.admin));
@@ -50,7 +66,7 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -59,7 +75,7 @@ export default function AdminLogin() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
             </svg>
           </div>
-          <h1 className="text-xl font-semibold text-white">Admin Access</h1>
+          <h1 className="text-xl font-semibold text-white">Create Admin Account</h1>
           <p className="text-sm text-slate-400 mt-1">EduTech Quiz Management</p>
         </div>
 
@@ -70,17 +86,28 @@ export default function AdminLogin() {
             </div>
           )}
 
+          {/* Name */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1.5">Full Name</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={update("name")}
+              placeholder="John Doe"
+              autoFocus
+              autoComplete="name"
+              className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+
           {/* Email */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
             <input
               type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={form.email}
+              onChange={update("email")}
               placeholder="admin@example.com"
-              autoFocus
               autoComplete="email"
               className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
@@ -88,16 +115,14 @@ export default function AdminLogin() {
 
           {/* Password */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-slate-300 mb-1.5">Password</label>
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="current-password"
+                value={form.password}
+                onChange={update("password")}
+                placeholder="Min. 6 characters"
+                autoComplete="new-password"
                 className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-2.5 pr-10 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
               <button
@@ -119,6 +144,19 @@ export default function AdminLogin() {
             </div>
           </div>
 
+          {/* Confirm Password */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1.5">Confirm Password</label>
+            <input
+              type={showPassword ? "text" : "password"}
+              value={form.confirmPassword}
+              onChange={update("confirmPassword")}
+              placeholder="Re-enter password"
+              autoComplete="new-password"
+              className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+
           <button
             type="submit"
             disabled={loading}
@@ -130,15 +168,18 @@ export default function AdminLogin() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                Signing in...
+                Creating account...
               </span>
             ) : (
-              "Sign In"
+              "Create Account"
             )}
           </button>
 
-          <p className="text-xs text-slate-500 text-center">
-            This panel is for internal use only.
+          <p className="text-sm text-slate-400 text-center">
+            Already have an account?{" "}
+            <Link to="/admin" className="text-indigo-400 hover:text-indigo-300 transition-colors">
+              Sign in
+            </Link>
           </p>
         </form>
       </div>
