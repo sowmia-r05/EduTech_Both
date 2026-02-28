@@ -1,8 +1,13 @@
 // src/app/utils/api-children.js
 // Child-related API functions — import alongside existing api.js
 //
+// ═══════════════════════════════════════════════════════════════
+// UPDATED: Added fetchAvailableQuizzes() and fetchFlashcards()
+// to support the native quiz system (replacing FlexiQuiz catalog)
+// ═══════════════════════════════════════════════════════════════
+//
 // Usage:
-//   import { fetchChildrenSummaries, createChild, ... } from "@/app/utils/api-children";
+//   import { fetchChildrenSummaries, createChild, fetchAvailableQuizzes, ... } from "@/app/utils/api-children";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL !== undefined
@@ -149,6 +154,8 @@ export async function childLogin({ username, pin }) {
 
 /**
  * Fetch all Result docs for a specific child.
+ * ✅ UPDATED: Now returns MERGED results from both FlexiQuiz (legacy)
+ * and native QuizAttempt documents in a unified format.
  */
 export async function fetchChildResults(token, childId) {
   const data = await authGet(`/api/children/${childId}/results`, token);
@@ -162,15 +169,61 @@ export async function fetchChildWriting(token, childId) {
   const data = await authGet(`/api/children/${childId}/writing`, token);
   return Array.isArray(data) ? data : [];
 }
+
+/**
+ * Fetch quizzes assigned to a child (legacy FlexiQuiz catalog).
+ * @deprecated Use fetchAvailableQuizzes() instead for native quizzes.
+ */
 export async function fetchChildQuizzes(token, childId) {
   const data = await authGet(`/api/children/${childId}/quizzes`, token);
   return data || { quizzes: [], bundles: [], child_status: "trial" };
 }
 
 
+// ═══════════════════════════════════════════════════════
+// ✅ NEW: Native Quiz Functions (replaces FlexiQuiz catalog)
+// ═══════════════════════════════════════════════════════
 
+/**
+ * Fetch all available quizzes for a child from admin-uploaded quiz database.
+ * Returns quizzes that match the child's year level, with entitlement info.
+ *
+ * This replaces the hardcoded QUIZ_CATALOG in ChildDashboard.jsx.
+ *
+ * @param {string} token - Parent or Child JWT
+ * @param {string} childId - MongoDB _id of the child
+ * @returns {Promise<Array>} Array of quiz objects with is_entitled flag
+ */
+export async function fetchAvailableQuizzes(token, childId) {
+  const data = await authGet(`/api/children/${childId}/available-quizzes`, token);
+  return data?.quizzes || [];
+}
 
+/**
+ * Fetch flashcards for a specific completed quiz attempt.
+ * Returns all questions with correct answers and the child's responses.
+ *
+ * @param {string} token - Parent or Child JWT
+ * @param {string} attemptId - The attempt_id (not MongoDB _id)
+ * @returns {Promise<Object>} { flashcards, wrong_only, total_correct, total_wrong, ... }
+ */
+export async function fetchAttemptFlashcards(token, attemptId) {
+  return authGet(`/api/attempts/${attemptId}/flashcards`, token);
+}
 
-
-
-
+/**
+ * Fetch wrong-answer flashcards across all recent attempts for a child.
+ * Great for a "Review Mistakes" study mode.
+ *
+ * @param {string} token - Parent or Child JWT
+ * @param {string} childId - MongoDB _id of the child
+ * @param {Object} [options] - { subject?: string, limit?: number }
+ * @returns {Promise<Object>} { flashcards: [], total: number }
+ */
+export async function fetchChildFlashcards(token, childId, options = {}) {
+  const params = new URLSearchParams();
+  if (options.subject) params.set("subject", options.subject);
+  if (options.limit) params.set("limit", String(options.limit));
+  const qs = params.toString();
+  return authGet(`/api/children/${childId}/flashcards${qs ? `?${qs}` : ""}`, token);
+}

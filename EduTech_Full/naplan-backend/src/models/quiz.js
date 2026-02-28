@@ -1,8 +1,10 @@
 /**
- * models/quiz.js
- * 
- * Native quiz metadata. Replaces the flexiquiz_quizzes collection.
- * Created by admin upload. Referenced by quiz_catalog for bundle mapping.
+ * models/quiz.js  (v2 — GAPS FILLED)
+ *
+ * Native quiz metadata. Created by admin upload.
+ *
+ * CHANGES FROM v1:
+ *   ✅ Gap 5: Added max_attempts field (configurable per quiz)
  */
 
 const mongoose = require("mongoose");
@@ -29,6 +31,9 @@ const QuizSchema = new mongoose.Schema(
     set_number: { type: Number, default: 1 },
     is_trial: { type: Boolean, default: false },
     is_active: { type: Boolean, default: true },
+
+    // ✅ Gap 5: Configurable max attempts per quiz (null = use global default of 5)
+    max_attempts: { type: Number, default: null },
   },
   { timestamps: true, versionKey: false }
 );

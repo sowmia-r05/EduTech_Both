@@ -1,11 +1,9 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
-import { fetchChildResults, fetchChildrenSummaries } from "@/app/utils/api-children";
+import { fetchChildResults, fetchChildrenSummaries, fetchAvailableQuizzes } from "@/app/utils/api-children"; // ✅ UPDATED
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import NativeQuizPlayer from "@/app/components/quiz/NativeQuizPlayer";
-
-
 
 /* ─── Subject inference from quiz name ─── */
 function inferSubject(quizName) {
@@ -70,7 +68,8 @@ function getDailyParentMessage() {
    ═══════════════════════════════════════════════════════ */
 function getEstMinutes(quiz) {
   if (quiz.est_minutes) return quiz.est_minutes;
-  const name = (quiz.name || "").toLowerCase().trim();
+  if (quiz.time_limit_minutes) return quiz.time_limit_minutes;
+  const name = (quiz.name || quiz.quiz_name || "").toLowerCase().trim();
   const difficulty = (quiz.difficulty || "Standard").toLowerCase();
   const isFullTest = (
     name.includes("full") ||
@@ -86,20 +85,10 @@ function getEstMinutes(quiz) {
 }
 
 /* ═══════════════════════════════════════════════════════
-   QUIZ CATALOG — All Year 3 FlexiQuiz embeds
-   Each maps to a real FlexiQuiz quiz via embed_id
+   ✅ REMOVED: Hardcoded QUIZ_CATALOG array
+   Quizzes are now fetched dynamically from the backend via
+   GET /api/children/:childId/available-quizzes
    ═══════════════════════════════════════════════════════ */
-const QUIZ_CATALOG = [
-  { id: "y3_writing_1",         name: "Year 3 Writing",                              subject: "Writing",  year_level: 3, embed_id: "87c82fac-2a4e-486d-b566-8200514fa7fc", difficulty: "Standard" },
-  { id: "y3_reading_set2",      name: "Year 3 Reading Set 2",                        subject: "Reading",  year_level: 3, embed_id: "2782fc4e-548e-4782-81dc-321c81101742", difficulty: "Standard" },
-  { id: "y3_reading_1",         name: "Year 3 Reading",                              subject: "Reading",  year_level: 3, embed_id: "6db1c3ab-db7c-402d-b08d-45f5fc8a48b3", difficulty: "Standard" },
-  { id: "y3_numeracy_set2",     name: "Year 3 Numeracy Set 2",                       subject: "Numeracy", year_level: 3, embed_id: "7474b871-b2f4-44c3-ac4a-788aca433ae8", difficulty: "Standard" },
-  { id: "y3_numeracy_1",        name: "Year 3 Numeracy",                             subject: "Numeracy", year_level: 3, embed_id: "7a5a06c3-7bdb-47ba-bcf4-182d105710cf", difficulty: "Standard" },
-  { id: "y3_number_algebra",    name: "Year 3 Number and Algebra",                   subject: "Numeracy", year_level: 3, embed_id: "ca3c6d7f-5370-41a4-87f7-8e098d762461", difficulty: "Medium" },
-  { id: "y3_grammar_set2",      name: "Year 3 Grammar & Punctuation Set 2",          subject: "Language", year_level: 3, embed_id: "6cb798a7-a5cb-44c2-a587-1c92b899b3d5", difficulty: "Medium" },
-  { id: "y3_language_set2",     name: "Year 3 Language Full Set 2",                  subject: "Language", year_level: 3, embed_id: "f1a0e888-e486-4049-826c-ce39f631ec5d", difficulty: "Standard" },
-  { id: "y3_grammar_hard_set2", name: "Year 3 Grammar & Punctuation (Hard) Set 2",  subject: "Language", year_level: 3, embed_id: "79b9e678-59b0-4db3-a59f-99398c036015", difficulty: "Hard" },
-];
 
 /* ─── Subject styling ─── */
 const SUBJECT_STYLE = {
@@ -115,7 +104,7 @@ function DifficultyBadge({ difficulty }) {
   const styles = { Standard: "bg-slate-100 text-slate-600", Medium: "bg-amber-100 text-amber-700", Hard: "bg-rose-100 text-rose-700" };
   return (
     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${styles[difficulty] || styles.Standard}`}>
-      {difficulty}
+      {difficulty || "Standard"}
     </span>
   );
 }
@@ -146,8 +135,12 @@ export default function ChildDashboard() {
   const [activeQuiz, setActiveQuiz] = useState(null);
   const [viewMode, setViewMode] = useState("all");
 
-  // ✅ NEW: Track child's entitled quiz IDs (null = not yet loaded)
+  // Track child's entitled quiz IDs (null = not yet loaded)
   const [childEntitledQuizIds, setChildEntitledQuizIds] = useState(null);
+
+  // ✅ NEW: Dynamic quiz catalog from backend (replaces hardcoded QUIZ_CATALOG)
+  const [availableQuizzes, setAvailableQuizzes] = useState([]);
+  const [quizzesLoading, setQuizzesLoading] = useState(true);
 
   const testsPerPage = 8;
   const hasTests = tests.length > 0;
@@ -158,7 +151,6 @@ export default function ChildDashboard() {
     const yearFromUrl = searchParams.get("yearLevel");
     const usernameFromUrl = searchParams.get("username");
 
-    // Set display info from URL params
     if (nameFromUrl) {
       setChildInfo({
         display_name: decodeURIComponent(nameFromUrl),
@@ -173,7 +165,6 @@ export default function ChildDashboard() {
       });
     }
 
-    // ✅ CRITICAL: Fetch entitled_quiz_ids via summaries API
     if (parentToken && childId) {
       try {
         const children = await fetchChildrenSummaries(parentToken);
@@ -186,10 +177,8 @@ export default function ChildDashboard() {
               username: match.username || null,
             });
           }
-          console.log("✅ entitled_quiz_ids from API:", match.entitled_quiz_ids);
           setChildEntitledQuizIds(match.entitled_quiz_ids || []);
         } else {
-          console.warn("⚠️ Child not found in summaries");
           setChildEntitledQuizIds([]);
         }
       } catch (err) {
@@ -203,16 +192,39 @@ export default function ChildDashboard() {
 
   useEffect(() => { resolveChildInfo(); }, [resolveChildInfo]);
 
-  /* ─── FETCH REAL DATA ─── */
+  /* ─── FETCH AVAILABLE QUIZZES FROM BACKEND (replaces hardcoded QUIZ_CATALOG) ─── */ // ✅ NEW
+  useEffect(() => {
+    if (!activeToken || !childId) { setQuizzesLoading(false); return; }
+    setQuizzesLoading(true);
+    fetchAvailableQuizzes(activeToken, childId)
+      .then((quizzes) => {
+        console.log(`✅ Fetched ${quizzes.length} available quizzes from backend`);
+        setAvailableQuizzes(quizzes);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch available quizzes:", err);
+        setAvailableQuizzes([]);
+      })
+      .finally(() => setQuizzesLoading(false));
+  }, [activeToken, childId]);
+
+  /* ─── FETCH CHILD RESULTS (now includes both FlexiQuiz + native attempts) ─── */
   useEffect(() => {
     if (!activeToken || !childId) { setLoading(false); return; }
     setLoading(true);
     fetchChildResults(activeToken, childId)
       .then((results) => {
         setTests(results.map((r) => ({
-          id: r._id, response_id: r.response_id, subject: inferSubject(r.quiz_name),
-          name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
-          date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name, grade: r.score?.grade || "", duration: r.duration || 0,
+          id: r._id,
+          response_id: r.response_id,
+          subject: r.subject || inferSubject(r.quiz_name), // ✅ use backend subject first
+          name: r.quiz_name || "Untitled Quiz",
+          score: Math.round(r.score?.percentage || 0),
+          date: r.date_submitted || r.createdAt,
+          quiz_name: r.quiz_name,
+          grade: r.score?.grade || "",
+          duration: r.duration || 0,
+          source: r.source || "flexiquiz", // ✅ track data source
         })));
         setError(null);
       })
@@ -237,41 +249,46 @@ export default function ChildDashboard() {
   }, [tests]);
 
   /* ═══════════════════════════════════════════════════════
-     ✅ FILTERED QUIZ CATALOG — only entitled quizzes
-     Matches QUIZ_CATALOG.embed_id against child's entitled_quiz_ids
+     ✅ QUIZ CATALOG — now fetched dynamically from backend
+     No more hardcoded QUIZ_CATALOG or FlexiQuiz embed_ids
      ═══════════════════════════════════════════════════════ */
   const entitledCatalog = useMemo(() => {
-    if (childEntitledQuizIds !== null && childEntitledQuizIds.length > 0) {
-      const filtered = QUIZ_CATALOG.filter((quiz) =>
-        childEntitledQuizIds.includes(quiz.embed_id)
-      );
-      console.log(`✅ Filtered: ${filtered.length} of ${QUIZ_CATALOG.length} quizzes`);
-      return filtered;
-    }
-    // Fallback: show all (for trial users or while loading)
-    return QUIZ_CATALOG;
-  }, [childEntitledQuizIds]);
+    return availableQuizzes;
+  }, [availableQuizzes]);
 
   /* ─── Subject breakdown ─── */
   const subjectBreakdown = useMemo(() => {
     return SUBJECTS.map((subj) => {
       const subjectTests = tests.filter((t) => t.subject === subj);
       const subjectQuizTotal = entitledCatalog.filter((q) => q.subject === subj).length;
-      const avg = subjectTests.length ? Math.round(subjectTests.reduce((s, t) => s + t.score, 0) / subjectTests.length) : 0;
+      const avg = subjectTests.length
+        ? Math.round(subjectTests.reduce((s, t) => s + t.score, 0) / subjectTests.length)
+        : 0;
       return { subject: subj, average: avg, count: subjectTests.length, total: subjectQuizTotal };
     });
   }, [tests, entitledCatalog]);
 
-  /* ─── Merge entitled catalog with completed results ─── */
+  /* ─── Merge available quizzes with completed results ─── */
   const mergedQuizzes = useMemo(() => {
     return entitledCatalog.map((quiz) => {
       const matched = tests.find((t) => {
         const tName = (t.name || "").toLowerCase().trim();
-        const qName = quiz.name.toLowerCase().trim();
+        const qName = (quiz.quiz_name || "").toLowerCase().trim(); // ✅ quiz_name from backend
         return tName === qName || tName.includes(qName) || qName.includes(tName);
       });
       return {
-        ...quiz,
+        // Map backend fields to the shape the UI expects
+        id: quiz.quiz_id,
+        quiz_id: quiz.quiz_id,
+        name: quiz.quiz_name,
+        subject: quiz.subject,
+        year_level: quiz.year_level,
+        difficulty: quiz.difficulty || "Standard",
+        time_limit_minutes: quiz.time_limit_minutes,
+        question_count: quiz.question_count,
+        is_trial: quiz.is_trial,
+        is_entitled: quiz.is_entitled,
+        // Merge with result data
         status: matched ? "completed" : "not_started",
         score: matched ? matched.score : null,
         grade: matched ? matched.grade : null,
@@ -329,17 +346,31 @@ export default function ChildDashboard() {
     navigate(isWriting ? `/writing-feedback/result?${params}` : `/NonWritingLookupQuizResults/results?${params}`);
   };
 
+  // ✅ UPDATED: Also refreshes available quizzes after quiz completion
   const handleQuizClose = (result) => {
-    const closedQuiz = activeQuiz;
     setActiveQuiz(null);
     if (activeToken && childId) {
-      fetchChildResults(activeToken, childId).then((results) => {
-        setTests(results.map((r) => ({
-          id: r._id, response_id: r.response_id, subject: inferSubject(r.quiz_name),
-          name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
-          date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name, grade: r.score?.grade || "", duration: r.duration || 0,
-        })));
-      }).catch(() => {});
+      fetchChildResults(activeToken, childId)
+        .then((results) => {
+          setTests(results.map((r) => ({
+            id: r._id,
+            response_id: r.response_id,
+            subject: r.subject || inferSubject(r.quiz_name),
+            name: r.quiz_name || "Untitled Quiz",
+            score: Math.round(r.score?.percentage || 0),
+            date: r.date_submitted || r.createdAt,
+            quiz_name: r.quiz_name,
+            grade: r.score?.grade || "",
+            duration: r.duration || 0,
+            source: r.source || "flexiquiz",
+          })));
+        })
+        .catch(() => {});
+
+      // Also refresh available quizzes (attempt count may have changed)
+      fetchAvailableQuizzes(activeToken, childId)
+        .then((quizzes) => setAvailableQuizzes(quizzes))
+        .catch(() => {});
     }
   };
 
