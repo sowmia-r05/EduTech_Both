@@ -1,8 +1,15 @@
 /**
- * models/quizAttempt.js
- * 
- * Tracks each child's attempt at a quiz. Replaces FlexiQuiz response data.
- * child_id is ALWAYS present (from JWT auth) — no orphaned responses possible.
+ * models/quizAttempt.js  (v2 — GAPS FILLED)
+ *
+ * Tracks each child's attempt at a quiz.
+ *
+ * CHANGES FROM v1:
+ *   ✅ Gap 5: No schema change needed (max_attempts lives on Quiz model)
+ *   ✅ Gap 6: Added expires_at for server-side timer enforcement
+ *   ✅ Gap 6: Added timer_expired flag
+ *   ✅ Gap 6: Added "expired" to status enum
+ *   ✅ Added proctoring sub-document
+ *   ✅ Added performance_analysis field (from AI)
  */
 
 const mongoose = require("mongoose");
@@ -27,6 +34,14 @@ const TopicScoreSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const ProctoringSchema = new mongoose.Schema(
+  {
+    violations: { type: Number, default: 0 },
+    fullscreen_enforced: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const QuizAttemptSchema = new mongoose.Schema(
   {
     attempt_id: {
@@ -47,10 +62,14 @@ const QuizAttemptSchema = new mongoose.Schema(
     subject: { type: String, default: "" },
     year_level: { type: Number },
 
-    // ─── Status lifecycle: in_progress → submitted → scored → ai_done ───
+    // ─── Status lifecycle ───
+    // in_progress → submitted (writing) → scored → ai_done
+    // in_progress → scored (MCQ) → ai_done
+    // in_progress → expired (timer ran out without submit)
+    // Any → error
     status: {
       type: String,
-      enum: ["in_progress", "submitted", "scored", "ai_done", "error"],
+      enum: ["in_progress", "submitted", "scored", "ai_done", "expired", "error"], // ✅ Added "expired"
       default: "in_progress",
       index: true,
     },
@@ -59,6 +78,10 @@ const QuizAttemptSchema = new mongoose.Schema(
     started_at: { type: Date, default: Date.now },
     submitted_at: { type: Date, default: null },
     duration_sec: { type: Number, default: null },
+
+    // ✅ Gap 6: Server-side timer expiry
+    expires_at: { type: Date, default: null, index: true },
+    timer_expired: { type: Boolean, default: false },
 
     // ─── Attempt number (auto-incremented per child+quiz) ───
     attempt_number: { type: Number, default: 1 },
@@ -75,14 +98,23 @@ const QuizAttemptSchema = new mongoose.Schema(
       pass: { type: Boolean, default: false },
     },
 
-    // ─── Topic breakdown (same structure as existing Result model) ───
+    // ─── Topic breakdown ───
     topic_breakdown: {
       type: Map,
       of: TopicScoreSchema,
       default: {},
     },
 
-    // ─── AI Feedback (same schema as Result.ai_feedback) ───
+    // ─── Proctoring data ───
+    proctoring: { type: ProctoringSchema, default: null },
+
+    // ─── AI Performance Analysis (from Gemini) ───
+    performance_analysis: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
+    // ─── AI Feedback ───
     ai_feedback: {
       overall_feedback: { type: String, default: "" },
       strengths: [{ type: String }],
@@ -95,6 +127,16 @@ const QuizAttemptSchema = new mongoose.Schema(
       ],
       study_tips: [{ type: String }],
       encouragement: { type: String, default: "" },
+      // Extended fields from gemini_subject_feedback.py
+      coach: [
+        {
+          insight: { type: String, default: "" },
+          reason: { type: String, default: "" },
+          action: { type: String, default: "" },
+        },
+      ],
+      growth_areas: [{ type: String }],
+      cta: { type: String, default: "" },
       topic_wise_tips: [
         {
           topic: { type: String, default: "" },
@@ -106,7 +148,11 @@ const QuizAttemptSchema = new mongoose.Schema(
       model: { type: String, default: "" },
       generated_at: { type: Date, default: null },
       subject: { type: String, default: "" },
-      status: { type: String, default: "pending" },
+      status: {
+        type: String,
+        enum: ["pending", "queued", "generating", "done", "error"],
+        default: "pending",
+      },
       status_message: { type: String, default: "" },
     },
   },
@@ -117,5 +163,6 @@ const QuizAttemptSchema = new mongoose.Schema(
 QuizAttemptSchema.index({ child_id: 1, quiz_id: 1 });
 QuizAttemptSchema.index({ child_id: 1, status: 1 });
 QuizAttemptSchema.index({ parent_id: 1, child_id: 1 });
+QuizAttemptSchema.index({ expires_at: 1, status: 1 }); // ✅ For expired attempt cleanup
 
 module.exports = mongoose.model("QuizAttempt", QuizAttemptSchema);

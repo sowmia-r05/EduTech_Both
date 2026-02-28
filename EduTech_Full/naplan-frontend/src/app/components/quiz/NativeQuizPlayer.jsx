@@ -1,16 +1,14 @@
 /**
- * NativeQuizPlayer.jsx  (v2 — with Exam Proctoring)
+ * NativeQuizPlayer.jsx  (v3 — RESUME + TIMER + ERROR STATES)
  *
- * Complete native quiz-taking component with EXAM PROCTORING.
- * Handles: proctoring (fullscreen, tab detection, violation tracking),
- * question rendering, timer, navigation, auto-save, submission.
+ * Complete native quiz-taking component with:
+ *   ✅ Exam proctoring (fullscreen, tab detection, violations)
+ *   ✅ Resume in-progress attempts with saved answers
+ *   ✅ Server-side timer sync (uses server's time_remaining_seconds)
+ *   ✅ Autosave detects server-side expiry (410 status)
+ *   ✅ Specific error states for expired, max attempts, not entitled
  *
- * Place in: src/app/components/quiz/NativeQuizPlayer.jsx
- *
- * Props:
- *   quiz       — { quiz_id, quiz_name, subject, year_level, time_limit_minutes, question_count, ... }
- *   onClose    — (result) => void
- *   proctored  — boolean (default true) — enable/disable exam mode
+ * REPLACES: naplan-frontend/src/app/components/quiz/NativeQuizPlayer.jsx
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -27,15 +25,13 @@ const API = import.meta.env.VITE_API_URL || "";
 export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
   const { activeToken } = useAuth();
 
-  // ─── Core state ───
   const [phase, setPhase] = useState("proctoring");
-  // phases: proctoring → loading → taking → review → submitting → result | error
   const [attemptId, setAttemptId] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [answers, setAnswers] = useState({});       // { [question_id]: { selected: [...], text: "" } }
+  const [answers, setAnswers] = useState({});
   const [flagged, setFlagged] = useState(new Set());
-  const [timeLeft, setTimeLeft] = useState(null);    // seconds; null = no limit
+  const [timeLeft, setTimeLeft] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [quizMeta, setQuizMeta] = useState(null);
@@ -45,14 +41,10 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
   const violationsRef = useRef(0);
   const submitCalledRef = useRef(false);
 
-  // ─── Skip proctoring if disabled ───
   useEffect(() => {
-    if (!proctored && phase === "proctoring") {
-      setPhase("loading");
-    }
+    if (!proctored && phase === "proctoring") setPhase("loading");
   }, [proctored, phase]);
 
-  // ─── API helper ───
   const apiFetch = useCallback(
     (url, opts = {}) =>
       fetch(`${API}${url}`, {
@@ -66,31 +58,20 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
     [activeToken]
   );
 
-  // ═══════════════════════════════════════
-  // PROCTORING CALLBACKS
-  // ═══════════════════════════════════════
-
-  /** Called when countdown finishes — transition to loading */
-  const handleProctoringStart = useCallback(() => {
-    setPhase("loading");
-  }, []);
-
-  /** Called on every tab-switch or fullscreen-exit */
+  // ═══ PROCTORING CALLBACKS ═══
+  const handleProctoringStart = useCallback(() => setPhase("loading"), []);
   const handleViolation = useCallback(({ type, count }) => {
     violationsRef.current = count;
     setViolations(count);
   }, []);
 
-  // ═══════════════════════════════════════
-  // QUIZ INIT: start attempt + fetch questions
-  // ═══════════════════════════════════════
+  // ═══ QUIZ INIT: start/resume attempt + fetch questions ═══
   useEffect(() => {
     if (phase !== "loading") return;
     let cancelled = false;
 
     (async () => {
       try {
-        // 1. Start attempt
         const startRes = await apiFetch(`/api/quizzes/${quiz.quiz_id}/start`, { method: "POST" });
         if (!startRes.ok) {
           const d = await startRes.json();
@@ -101,71 +82,92 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
         setAttemptId(startData.attempt_id);
         setQuizMeta(startData.quiz);
 
-        // 2. Fetch questions (correct answers stripped server-side)
         const qRes = await apiFetch(`/api/quizzes/${quiz.quiz_id}/questions`);
         if (!qRes.ok) throw new Error("Failed to load questions");
         const qData = await qRes.json();
         if (cancelled) return;
-
         setQuestions(qData.questions || []);
 
-        // 3. Timer
-        const limit = startData.quiz?.time_limit_minutes || quiz.time_limit_minutes;
-        if (limit) setTimeLeft(limit * 60);
+        // ✅ RESUME: restore saved answers if this is a resumed attempt
+        if (startData.resumed) {
+          console.log("🔄 Resuming in-progress quiz attempt...");
+          try {
+            const resumeRes = await apiFetch(`/api/quizzes/${quiz.quiz_id}/resume`);
+            if (resumeRes.ok) {
+              const resumeData = await resumeRes.json();
+              if (resumeData.saved_answers?.length > 0) {
+                const restoredAnswers = {};
+                for (const ans of resumeData.saved_answers) {
+                  restoredAnswers[ans.question_id] = {
+                    selected: ans.selected_option_ids || [],
+                    text: ans.text_answer || "",
+                  };
+                }
+                setAnswers(restoredAnswers);
+                console.log(`✅ Restored ${resumeData.saved_answers.length} saved answers`);
+              }
+              // ✅ Use server's remaining time (more accurate than client)
+              if (resumeData.time_remaining_seconds !== null && resumeData.time_remaining_seconds !== undefined) {
+                setTimeLeft(resumeData.time_remaining_seconds);
+              }
+            }
+          } catch (resumeErr) {
+            console.warn("⚠️ Could not restore saved answers:", resumeErr.message);
+          }
+        } else {
+          const limit = startData.quiz?.time_limit_minutes || quiz.time_limit_minutes;
+          if (limit) setTimeLeft(limit * 60);
+        }
 
         setPhase("taking");
       } catch (err) {
-        if (!cancelled) {
-          setError(err.message);
-          setPhase("error");
-        }
+        if (!cancelled) { setError(err.message); setPhase("error"); }
       }
     })();
 
     return () => { cancelled = true; };
   }, [phase, quiz, apiFetch]);
 
-  // ═══════════════════════════════════════
-  // COUNTDOWN TIMER
-  // ═══════════════════════════════════════
+  // ═══ COUNTDOWN TIMER ═══
   useEffect(() => {
     if (phase !== "taking" || timeLeft === null) return;
-
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          // Auto-submit when time's up
           if (!submitCalledRef.current) handleSubmit();
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-
     return () => clearInterval(interval);
   }, [phase, timeLeft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ═══════════════════════════════════════
-  // AUTO-SAVE EVERY 30s
-  // ═══════════════════════════════════════
+  // ═══ AUTO-SAVE EVERY 30s (with 410 expiry detection) ═══
   useEffect(() => {
     if (phase !== "taking" || !attemptId) return;
-
-    autoSaveTimer.current = setInterval(() => {
+    autoSaveTimer.current = setInterval(async () => {
       const payload = buildAnswersPayload();
-      apiFetch(`/api/attempts/${attemptId}/autosave`, {
-        method: "PATCH",
-        body: JSON.stringify({ answers: payload }),
-      }).catch(() => {}); // Silent fail
+      try {
+        const res = await apiFetch(`/api/attempts/${attemptId}/autosave`, {
+          method: "PATCH",
+          body: JSON.stringify({ answers: payload }),
+        });
+        // ✅ Handle server-side expiry (410 Gone)
+        if (res.status === 410) {
+          clearInterval(autoSaveTimer.current);
+          if (!submitCalledRef.current) {
+            console.log("⏰ Server says time expired — auto-submitting...");
+            handleSubmit();
+          }
+        }
+      } catch { /* Silent fail for autosave */ }
     }, 30000);
-
     return () => clearInterval(autoSaveTimer.current);
   }, [phase, attemptId, answers]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ═══════════════════════════════════════
-  // BUILD ANSWERS PAYLOAD
-  // ═══════════════════════════════════════
+  // ═══ BUILD ANSWERS PAYLOAD ═══
   const buildAnswersPayload = useCallback(() => {
     return questions.map((q) => {
       const a = answers[q.question_id] || {};
@@ -177,14 +179,9 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
     });
   }, [questions, answers]);
 
-  // ═══════════════════════════════════════
-  // ANSWER + FLAG HANDLERS
-  // ═══════════════════════════════════════
+  // ═══ ANSWER + FLAG HANDLERS ═══
   const setAnswer = useCallback((questionId, data) => {
-    setAnswers((prev) => ({
-      ...prev,
-      [questionId]: { ...(prev[questionId] || {}), ...data },
-    }));
+    setAnswers((prev) => ({ ...prev, [questionId]: { ...(prev[questionId] || {}), ...data } }));
   }, []);
 
   const toggleFlag = useCallback((questionId) => {
@@ -195,23 +192,17 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
     });
   }, []);
 
-  // ═══════════════════════════════════════
-  // NAVIGATION
-  // ═══════════════════════════════════════
+  // ═══ NAVIGATION ═══
   const goTo = useCallback((idx) => setCurrentIdx(Math.max(0, Math.min(idx, questions.length - 1))), [questions.length]);
   const goNext = useCallback(() => goTo(currentIdx + 1), [currentIdx, goTo]);
   const goPrev = useCallback(() => goTo(currentIdx - 1), [currentIdx, goTo]);
 
-  // ═══════════════════════════════════════
-  // SUBMIT
-  // ═══════════════════════════════════════
+  // ═══ SUBMIT ═══
   const handleSubmit = useCallback(async () => {
     if (submitCalledRef.current) return;
     submitCalledRef.current = true;
     setPhase("submitting");
     clearInterval(autoSaveTimer.current);
-
-    // Exit fullscreen before showing results
     exitFullscreen().catch(() => {});
 
     try {
@@ -220,28 +211,17 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
         method: "POST",
         body: JSON.stringify({
           answers: payload,
-          proctoring: {
-            violations: violationsRef.current,
-            fullscreen_enforced: proctored,
-          },
+          proctoring: { violations: violationsRef.current, fullscreen_enforced: proctored },
         }),
       });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Submission failed");
-      }
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Submission failed"); }
       const data = await res.json();
       setResult(data);
       setPhase("result");
-    } catch (err) {
-      setError(err.message);
-      setPhase("error");
-    }
+    } catch (err) { setError(err.message); setPhase("error"); }
   }, [attemptId, buildAnswersPayload, apiFetch, proctored]);
 
-  // ═══════════════════════════════════════
-  // CANCEL
-  // ═══════════════════════════════════════
+  // ═══ CANCEL ═══
   const handleCancel = () => {
     if (phase === "taking" || phase === "review") {
       if (!confirm("Are you sure you want to leave? Your progress will be lost.")) return;
@@ -257,20 +237,45 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
   }).length;
   const unansweredCount = questions.length - answeredCount;
 
-  // ═══════════════════════════════════════
-  // RENDER: ERROR (outside proctor)
-  // ═══════════════════════════════════════
+  // ═══ RENDER: ERROR (outside proctor) ═══
   if (phase === "error") {
+    const isExpired = error?.includes("expired") || error?.includes("ATTEMPT_EXPIRED");
+    const isMaxAttempts = error?.includes("Maximum attempts") || error?.includes("MAX_ATTEMPTS_REACHED");
+    const isNotEntitled = error?.includes("don't have access") || error?.includes("NOT_ENTITLED");
+
     return (
       <div className="min-h-screen bg-white flex items-center justify-center px-4">
         <div className="text-center max-w-md">
-          <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-            </svg>
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
+            isExpired ? "bg-amber-50" : isMaxAttempts ? "bg-blue-50" : isNotEntitled ? "bg-purple-50" : "bg-red-50"
+          }`}>
+            {isExpired ? (
+              <svg className="w-8 h-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            ) : isMaxAttempts ? (
+              <svg className="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            ) : isNotEntitled ? (
+              <svg className="w-8 h-8 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+              </svg>
+            ) : (
+              <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+            )}
           </div>
-          <h2 className="text-xl font-bold text-slate-800">Something went wrong</h2>
-          <p className="text-slate-500 mt-2 text-sm">{error}</p>
+          <h2 className="text-xl font-bold text-slate-800">
+            {isExpired ? "Time's Up!" : isMaxAttempts ? "All Attempts Used" : isNotEntitled ? "Quiz Locked" : "Something went wrong"}
+          </h2>
+          <p className="text-slate-500 mt-2 text-sm">
+            {isExpired ? "Your time ran out for this quiz. Don't worry — your saved answers were submitted automatically."
+              : isMaxAttempts ? "You've completed all available attempts for this quiz. Check your results to see how you did!"
+              : isNotEntitled ? "Ask your parent to purchase a bundle to unlock this quiz."
+              : error}
+          </p>
           <button
             onClick={() => { exitFullscreen().catch(() => {}); onClose?.(null); }}
             className="mt-6 px-6 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
@@ -282,9 +287,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
     );
   }
 
-  // ═══════════════════════════════════════
-  // RENDER: RESULT (outside proctor)
-  // ═══════════════════════════════════════
+  // ═══ RENDER: RESULT ═══
   if (phase === "result") {
     return (
       <QuizResult
@@ -296,11 +299,8 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
     );
   }
 
-  // ═══════════════════════════════════════
-  // RENDER: QUIZ CONTENT (inside proctor)
-  // ═══════════════════════════════════════
+  // ═══ RENDER: QUIZ CONTENT (inside proctor) ═══
   const quizContent = (() => {
-    // Spinner for loading/submitting
     if (phase === "loading" || phase === "submitting") {
       return (
         <div className="flex-1 flex items-center justify-center">
@@ -314,72 +314,51 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
       );
     }
 
-    // Review screen
     if (phase === "review") {
       return (
         <QuizReview
-          questions={questions}
-          answers={answers}
-          flagged={flagged}
+          questions={questions} answers={answers} flagged={flagged}
           onGoToQuestion={(idx) => { setCurrentIdx(idx); setPhase("taking"); }}
-          onSubmit={handleSubmit}
-          onBack={() => setPhase("taking")}
+          onSubmit={handleSubmit} onBack={() => setPhase("taking")}
         />
       );
     }
 
-    // Active quiz-taking
     if (phase === "taking" && questions[currentIdx]) {
       const currentQuestion = questions[currentIdx];
       return (
         <div className="flex flex-col min-h-full">
           <QuizHeader
             quizName={quizMeta?.quiz_name || quiz.quiz_name}
-            currentIdx={currentIdx}
-            totalQuestions={questions.length}
-            answeredCount={answeredCount}
-            timeLeft={timeLeft}
-            onCancel={handleCancel}
+            currentIdx={currentIdx} totalQuestions={questions.length}
+            answeredCount={answeredCount} timeLeft={timeLeft} onCancel={handleCancel}
           />
-
           <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-8 md:px-8">
             <QuestionRenderer
-              question={currentQuestion}
-              questionNumber={currentIdx + 1}
+              question={currentQuestion} questionNumber={currentIdx + 1}
               answer={answers[currentQuestion.question_id] || {}}
               isFlagged={flagged.has(currentQuestion.question_id)}
               onAnswer={(data) => setAnswer(currentQuestion.question_id, data)}
               onToggleFlag={() => toggleFlag(currentQuestion.question_id)}
             />
           </main>
-
           <QuizNavigation
-            currentIdx={currentIdx}
-            totalQuestions={questions.length}
-            questions={questions}
-            answers={answers}
-            flagged={flagged}
-            onPrev={goPrev}
-            onNext={goNext}
-            onGoTo={goTo}
-            onReview={() => setPhase("review")}
-            unansweredCount={unansweredCount}
+            currentIdx={currentIdx} totalQuestions={questions.length}
+            questions={questions} answers={answers} flagged={flagged}
+            onPrev={goPrev} onNext={goNext} onGoTo={goTo}
+            onReview={() => setPhase("review")} unansweredCount={unansweredCount}
           />
         </div>
       );
     }
-
     return null;
   })();
 
-  // ─── Wrap in ExamProctor ───
   return (
     <ExamProctor
-      quiz={quiz}
-      enabled={proctored}
+      quiz={quiz} enabled={proctored}
       onCancel={() => onClose?.({ completed: false })}
-      onStart={handleProctoringStart}
-      onViolation={handleViolation}
+      onStart={handleProctoringStart} onViolation={handleViolation}
     >
       {quizContent}
     </ExamProctor>
