@@ -37,6 +37,7 @@ function TierBadge({ tier }) {
     A: { label: "A — Full Tests", cls: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" },
     B: { label: "B — Topic Std", cls: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
     C: { label: "C — Topic Hard", cls: "bg-rose-500/10 text-rose-400 border-rose-500/20" },
+    Trial: { label: "Trial — Free", cls: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
   };
   const { label, cls } = map[tier] || { label: tier, cls: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>{label}</span>;
@@ -161,6 +162,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
                 <option value="A">A — Full Tests</option>
                 <option value="B">B — Topic Standard</option>
                 <option value="C">C — Topic Hard</option>
+                <option value="Trial">Trial — Free Sample</option>
               </select>
             </div>
             <div>
@@ -295,6 +297,49 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
           </button>
         </div>
         <div className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
+          {/* Trial / Free Access Toggle */}
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-cyan-400 font-semibold mb-2">
+              Trial / Free Access
+            </p>
+            <div className={`flex items-center justify-between p-3 rounded-lg border transition ${
+              quiz.is_trial ? "bg-cyan-500/5 border-cyan-500/20" : "bg-slate-800/50 border-slate-700/50"
+            }`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-white">Free Trial</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">Trial — Free</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Available to all users without purchase — great for samples
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  setSaving("trial");
+                  try {
+                    const res = await adminFetch(`/api/admin/quizzes/${quiz.quiz_id}`, {
+                      method: "PATCH",
+                      body: JSON.stringify({ is_trial: !quiz.is_trial }),
+                    });
+                    if (!res.ok) throw new Error("Failed");
+                    quiz.is_trial = !quiz.is_trial;
+                    onRefresh();
+                  } catch (err) { alert(err.message); }
+                  setSaving(null);
+                }}
+                disabled={saving === "trial"}
+                className={`ml-3 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+                  quiz.is_trial
+                    ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
+                    : "bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/20"
+                } disabled:opacity-40`}>
+                {saving === "trial" ? "..." : quiz.is_trial ? "Remove Trial" : "Make Trial"}
+              </button>
+            </div>
+          </div>
+
+          {/* Paid Bundles */}
           {matchingBundles.length > 0 && (
             <div>
               <p className="text-[11px] uppercase tracking-wide text-emerald-400 font-semibold mb-2">
@@ -428,16 +473,6 @@ export default function AdminDashboard() {
     try { return JSON.parse(localStorage.getItem("admin_info") || "{}"); } catch { return {}; }
   })();
 
-  // Admin info from localStorage
-  const adminInfo = (() => {
-    try {
-      return JSON.parse(localStorage.getItem("admin_info") || "{}");
-    } catch {
-      return {};
-    }
-  })();
-
-  /* ── Fetch quizzes ── */
   const fetchQuizzes = useCallback(async () => {
     try {
       setLoading(true); setError("");
@@ -505,12 +540,6 @@ export default function AdminDashboard() {
   const activeBundles = bundles.filter((b) => b.is_active).length;
 
   const getBundlesForQuiz = (quizId) => bundles.filter((b) => (b.quiz_ids || []).includes(quizId));
-
-  /* ── Stats ── */
-  const totalQuizzes = quizzes.length;
-  const activeQuizzes = quizzes.filter((q) => q.is_active !== false).length;
-  const totalQuestions = quizzes.reduce((sum, q) => sum + (q.question_count || 0), 0);
-  const trialQuizzes = quizzes.filter((q) => q.is_trial).length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
