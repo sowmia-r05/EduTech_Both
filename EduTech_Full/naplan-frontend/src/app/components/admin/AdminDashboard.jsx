@@ -428,6 +428,16 @@ export default function AdminDashboard() {
     try { return JSON.parse(localStorage.getItem("admin_info") || "{}"); } catch { return {}; }
   })();
 
+  // Admin info from localStorage
+  const adminInfo = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("admin_info") || "{}");
+    } catch {
+      return {};
+    }
+  })();
+
+  /* ── Fetch quizzes ── */
   const fetchQuizzes = useCallback(async () => {
     try {
       setLoading(true); setError("");
@@ -495,6 +505,12 @@ export default function AdminDashboard() {
   const activeBundles = bundles.filter((b) => b.is_active).length;
 
   const getBundlesForQuiz = (quizId) => bundles.filter((b) => (b.quiz_ids || []).includes(quizId));
+
+  /* ── Stats ── */
+  const totalQuizzes = quizzes.length;
+  const activeQuizzes = quizzes.filter((q) => q.is_active !== false).length;
+  const totalQuestions = quizzes.reduce((sum, q) => sum + (q.question_count || 0), 0);
+  const trialQuizzes = quizzes.filter((q) => q.is_trial).length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
