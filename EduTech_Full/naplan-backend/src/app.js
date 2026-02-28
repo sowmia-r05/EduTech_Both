@@ -27,6 +27,8 @@ const childAuthRoutes = require("./routes/childAuthRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const quizRoutes = require("./routes/quizRoutes");
+const availableQuizzesRoute = require("./routes/availableQuizzesRoute"); // ✅ ADDED
+const flashcardsRoute = require("./routes/flashcardsRoute");             // ✅ ADDED
 
 // ✅ Issue #6: Legacy route auth middleware
 const { secureLegacyResults, secureLegacyWriting } = require("./middleware/legacyRouteAuth");
@@ -118,12 +120,14 @@ app.get("/", (req, res) => {
 
 // ✅ Test if FlexiQuiz key is set (safe: no secret printed)
 app.get("/api/test-flexiquiz-key", (req, res) => {
-  res.json({ hasKey: !(!process.env.FLEXIQUIZ_API_KEY) });
+  res.json({ hasKey: !!process.env.FLEXIQUIZ_API_KEY });
 });
 
 // ✅ Routes — Admin, Quiz, Payments
 app.use("/api/admin", adminRoutes);
 app.use("/api", quizRoutes);
+app.use("/api", availableQuizzesRoute);  // ✅ ADDED — powers child dashboard quiz list
+app.use("/api", flashcardsRoute);        // ✅ ADDED — powers flashcard review
 app.use("/api/payments", paymentRoutes);
 
 // ═══════════════════════════════════════

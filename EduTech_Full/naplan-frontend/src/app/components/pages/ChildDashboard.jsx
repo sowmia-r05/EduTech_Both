@@ -16,6 +16,18 @@ function inferSubject(quizName) {
   return "Other";
 }
 
+function normalizeSubject(subject) {
+  if (!subject) return "Other";
+  const s = subject.toLowerCase().trim();
+  if (s === "maths" || s === "math" || s === "mathematics" || s.includes("numeracy") || s.includes("number")) return "Numeracy";
+  if (s === "conventions" || s.includes("convention") || s.includes("grammar") || s.includes("punctuation") || s.includes("spelling") || s === "language_convention") return "Language";
+  if (s === "language") return "Language";
+  if (s.includes("reading")) return "Reading";
+  if (s.includes("writing")) return "Writing";
+  if (["Reading", "Writing", "Numeracy", "Language"].includes(subject)) return subject;
+  return "Other";
+}
+
 /* ─── NAPLAN Subjects ─── */
 const SUBJECTS = ["Reading", "Writing", "Numeracy", "Language"];
 
@@ -196,11 +208,11 @@ export default function ChildDashboard() {
   useEffect(() => {
     if (!activeToken || !childId) { setQuizzesLoading(false); return; }
     setQuizzesLoading(true);
-    fetchAvailableQuizzes(activeToken, childId)
-      .then((quizzes) => {
-        console.log(`✅ Fetched ${quizzes.length} available quizzes from backend`);
-        setAvailableQuizzes(quizzes);
-      })
+   fetchAvailableQuizzes(activeToken, childId)
+     .then((quizzes) => {
+       console.log(`✅ Fetched ${quizzes.length} available quizzes from backend`);
+       setAvailableQuizzes(quizzes.map((q) => ({ ...q, subject: normalizeSubject(q.subject) })));
+     })
       .catch((err) => {
         console.error("Failed to fetch available quizzes:", err);
         setAvailableQuizzes([]);
@@ -217,7 +229,7 @@ export default function ChildDashboard() {
         setTests(results.map((r) => ({
           id: r._id,
           response_id: r.response_id,
-          subject: r.subject || inferSubject(r.quiz_name), // ✅ use backend subject first
+          subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)), // ✅ use backend subject first
           name: r.quiz_name || "Untitled Quiz",
           score: Math.round(r.score?.percentage || 0),
           date: r.date_submitted || r.createdAt,
@@ -355,7 +367,7 @@ export default function ChildDashboard() {
           setTests(results.map((r) => ({
             id: r._id,
             response_id: r.response_id,
-            subject: r.subject || inferSubject(r.quiz_name),
+            subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
             name: r.quiz_name || "Untitled Quiz",
             score: Math.round(r.score?.percentage || 0),
             date: r.date_submitted || r.createdAt,
@@ -369,7 +381,7 @@ export default function ChildDashboard() {
 
       // Also refresh available quizzes (attempt count may have changed)
       fetchAvailableQuizzes(activeToken, childId)
-        .then((quizzes) => setAvailableQuizzes(quizzes))
+        .then((quizzes) => setAvailableQuizzes(quizzes.map((q) => ({ ...q, subject: normalizeSubject(q.subject) }))))
         .catch(() => {});
     }
   };
