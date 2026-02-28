@@ -476,7 +476,136 @@ router.delete("/questions/:questionId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+router.get("/bundles", async (req, res) => {
+  try {
+    const bundles = await QuizCatalog.find()
+      .sort({ year_level: 1, tier: 1 })
+      .lean();
 
+    // Normalize: ensure quiz_ids field exists (merge with flexiquiz_quiz_ids)
+    const enriched = bundles.map((b) => ({
+      ...b,
+      quiz_ids: b.quiz_ids || b.flexiquiz_quiz_ids || [],
+    }));
 
+    res.json(enriched);
+  } catch (err) {
+    console.error("List bundles error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
+// ─── Get single bundle ───
+router.get("/bundles/:bundleId", async (req, res) => {
+  try {
+    const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId }).lean();
+    if (!bundle) return res.status(404).json({ error: "Bundle not found" });
+    res.json({
+      ...bundle,
+      quiz_ids: bundle.quiz_ids || bundle.flexiquiz_quiz_ids || [],
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Add a quiz to a bundle ───
+// POST /api/admin/bundles/:bundleId/quizzes  { quiz_id: "..." }
+router.post("/bundles/:bundleId/quizzes", async (req, res) => {
+  try {
+    const { quiz_id } = req.body;
+    if (!quiz_id) return res.status(400).json({ error: "quiz_id is required" });
+
+    const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId });
+    if (!bundle) return res.status(404).json({ error: "Bundle not found" });
+
+    // Verify quiz exists
+    const quiz = await Quiz.findOne({ quiz_id });
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    // Initialize quiz_ids array if it doesn't exist
+    if (!bundle.quiz_ids) {
+      bundle.quiz_ids = [...(bundle.flexiquiz_quiz_ids || [])];
+    }
+
+    // Add quiz_id if not already present
+    if (!bundle.quiz_ids.includes(quiz_id)) {
+      bundle.quiz_ids.push(quiz_id);
+    }
+
+    // Also keep flexiquiz_quiz_ids in sync for backward compatibility
+    if (!bundle.flexiquiz_quiz_ids) bundle.flexiquiz_quiz_ids = [];
+    if (!bundle.flexiquiz_quiz_ids.includes(quiz_id)) {
+      bundle.flexiquiz_quiz_ids.push(quiz_id);
+    }
+
+    // Update quiz count
+    bundle.quiz_count = bundle.quiz_ids.length;
+    await bundle.save();
+
+    res.json({
+      ok: true,
+      bundle_id: bundle.bundle_id,
+      quiz_ids: bundle.quiz_ids,
+      quiz_count: bundle.quiz_count,
+    });
+  } catch (err) {
+    console.error("Add quiz to bundle error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Remove a quiz from a bundle ───
+// DELETE /api/admin/bundles/:bundleId/quizzes  { quiz_id: "..." }
+router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
+  try {
+    const { quiz_id } = req.body;
+    if (!quiz_id) return res.status(400).json({ error: "quiz_id is required" });
+
+    const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId });
+    if (!bundle) return res.status(404).json({ error: "Bundle not found" });
+
+    // Remove from both arrays
+    if (bundle.quiz_ids) {
+      bundle.quiz_ids = bundle.quiz_ids.filter((id) => id !== quiz_id);
+    }
+    if (bundle.flexiquiz_quiz_ids) {
+      bundle.flexiquiz_quiz_ids = bundle.flexiquiz_quiz_ids.filter((id) => id !== quiz_id);
+    }
+
+    bundle.quiz_count = (bundle.quiz_ids || []).length;
+    await bundle.save();
+
+    res.json({
+      ok: true,
+      bundle_id: bundle.bundle_id,
+      quiz_ids: bundle.quiz_ids || [],
+      quiz_count: bundle.quiz_count,
+    });
+  } catch (err) {
+    console.error("Remove quiz from bundle error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Update bundle settings (price, name, active, etc.) ───
+// PATCH /api/admin/bundles/:bundleId
+router.patch("/bundles/:bundleId", async (req, res) => {
+  try {
+    const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId });
+    if (!bundle) return res.status(404).json({ error: "Bundle not found" });
+
+    const allowed = ["bundle_name", "description", "price_cents", "is_active", "trial_quiz_ids"];
+    for (const field of allowed) {
+      if (req.body[field] !== undefined) {
+        bundle[field] = req.body[field];
+      }
+    }
+
+    await bundle.save();
+    res.json({ ok: true, bundle });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 module.exports = router;
