@@ -4,6 +4,9 @@
  * ═══════════════════════════════════════════════════════════════
  * NEW ENDPOINT: Returns admin-uploaded quizzes for the child dashboard.
  * Replaces the hardcoded QUIZ_CATALOG in ChildDashboard.jsx.
+ *
+ * ✅ PATCHED: Added normalizeSubject() to map admin subjects
+ *    ("Maths", "Conventions") to dashboard subjects ("Numeracy", "Language")
  * ═══════════════════════════════════════════════════════════════
  *
  * Mount in app.js:
@@ -18,6 +21,56 @@ const Quiz = require("../models/quiz");
 const Child = require("../models/child");
 
 const router = express.Router();
+
+// ═══════════════════════════════════════
+// ✅ Subject normalization — maps admin/legacy subject names
+// to the standard 4 NAPLAN subjects used by the child dashboard:
+//   "Reading", "Writing", "Numeracy", "Language"
+// ═══════════════════════════════════════
+function normalizeSubject(subject) {
+  if (!subject) return "Other";
+  const s = subject.toLowerCase().trim();
+
+  // Numeracy variants
+  if (
+    s === "maths" ||
+    s === "math" ||
+    s === "mathematics" ||
+    s === "numeracy" ||
+    s.includes("numeracy") ||
+    s.includes("number and algebra") ||
+    s.includes("statistics") ||
+    s.includes("measurement") ||
+    s.includes("probability") ||
+    s.includes("geometry")
+  ) {
+    return "Numeracy";
+  }
+
+  // Language variants
+  if (
+    s === "conventions" ||
+    s === "language conventions" ||
+    s === "language_convention" ||
+    s.includes("convention") ||
+    s.includes("grammar") ||
+    s.includes("punctuation") ||
+    s.includes("spelling")
+  ) {
+    return "Language";
+  }
+
+  // Language (exact match — must come AFTER conventions check)
+  if (s === "language") return "Language";
+
+  // Reading
+  if (s === "reading" || s.includes("reading")) return "Reading";
+
+  // Writing
+  if (s === "writing" || s.includes("writing")) return "Writing";
+
+  return "Other";
+}
 
 // ═══════════════════════════════════════
 // GET /api/children/:childId/available-quizzes
@@ -75,7 +128,7 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
       return {
         quiz_id: q.quiz_id,
         quiz_name: q.quiz_name,
-        subject: q.subject,
+        subject: normalizeSubject(q.subject), // ✅ PATCHED: normalize subject
         year_level: q.year_level,
         tier: q.tier || "A",
         difficulty: q.difficulty || "Standard",

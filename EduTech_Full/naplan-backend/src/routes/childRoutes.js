@@ -530,26 +530,45 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
       .lean();
 
     // ── 3. Normalize native attempts to match legacy result format ──
-    const normalizedNative = nativeAttempts.map((a) => ({
-      _id: a._id,
-      response_id: a.attempt_id,
-      quiz_name: a.quiz_name,
-      score: {
-        percentage: a.score?.percentage || 0,
-        grade: a.score?.grade || "",
-        correct: a.score?.correct || 0,
-        total: a.score?.total || 0,
-      },
-      date_submitted: a.submitted_at || a.createdAt,
-      createdAt: a.createdAt,
-      duration: a.duration_sec || 0,
-      subject: a.subject,
-      year_level: a.year_level,
-      source: "native",
-      topicBreakdown: a.topic_breakdown || {},
-      answers: a.answers || [],
-      ai_feedback: a.ai_feedback_meta || null,
-    }));
+    const normalizedNative = nativeAttempts.map((a) => {
+      // Convert topic_breakdown (may be Map) to plain object
+      const tb = {};
+      if (a.topic_breakdown) {
+        const entries =
+          a.topic_breakdown instanceof Map
+            ? a.topic_breakdown.entries()
+            : Object.entries(a.topic_breakdown);
+        for (const [k, v] of entries) {
+          tb[k] = { scored: v.scored || 0, total: v.total || 0 };
+        }
+      }
+
+      return {
+        _id: a._id,
+        response_id: a.attempt_id,
+        quiz_name: a.quiz_name,
+        score: {
+          points: a.score?.points || 0,
+          available: a.score?.available || 0,
+          percentage: a.score?.percentage || 0,
+          grade: a.score?.grade || "",
+          correct: a.score?.points || 0, // alias
+          total: a.score?.available || 0, // alias
+          pass: (a.score?.percentage || 0) >= 50,
+        },
+        date_submitted: a.submitted_at || a.createdAt,
+        createdAt: a.createdAt,
+        duration: a.duration_sec || 0,
+        subject: a.subject,
+        year_level: a.year_level,
+        source: "native",
+        topicBreakdown: tb,
+        answers: a.answers || [],
+        ai_feedback: a.ai_feedback || null, // ✅ FIXED: actual feedback (strengths, weaknesses, study_tips, etc.)
+        ai_feedback_meta: a.ai_feedback_meta || null, // ✅ ADDED: status metadata separately
+        performance_analysis: a.performance_analysis || null,
+      };
+    });
 
     // ── 4. Tag legacy results ──
     const normalizedLegacy = legacyResults.map((r) => ({
