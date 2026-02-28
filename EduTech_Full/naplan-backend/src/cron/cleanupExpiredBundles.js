@@ -25,7 +25,11 @@ async function cleanupExpiredBundles() {
     for (const purchase of expiredPurchases) {
       try {
         const bundle = await QuizCatalog.findOne({ bundle_id: purchase.bundle_id }).lean();
-        const quizIdsToRevoke = bundle?.flexiquiz_quiz_ids || [];
+
+        const quizIdsToRevoke =
+          bundle?.quiz_ids && bundle.quiz_ids.length > 0
+            ? bundle.quiz_ids
+            : bundle?.flexiquiz_quiz_ids || [];
 
         for (const childId of purchase.child_ids || []) {
           const child = await Child.findById(childId);

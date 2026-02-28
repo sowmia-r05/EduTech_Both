@@ -5,275 +5,30 @@
  * Triggered after successful Stripe payment.
  * ═══════════════════════════════════════════════════════════════
  *
- * IMPORTANT: FlexiQuiz has TWO different IDs per quiz:
- *   - embed_id  → for iframe display (stored in quizMap.js / quiz_catalog)
- *   - quiz_id   → for API calls like assign/unassign
+ * REWRITTEN: Removed all FlexiQuiz API dependencies.
+ * Now works entirely with native quizzes (admin-uploaded via Quiz model).
  *
- * This service AUTO-RESOLVES API quiz IDs by:
- *   1. Fetching all quizzes from FlexiQuiz API (GET /v1/quizzes)
- *   2. Matching them to our quiz names from quizMap.js
- *   3. Assigning using the correct API quiz IDs
- *   4. Storing embed IDs on child record (for frontend display)
- *
- * ✅ SWAP/CASCADE LOGIC:
- *   If bundle.distribution_mode === "swap", fills quiz slots from
- *   unpurchased swap-source bundles first, then own pool for remainder.
+ * Flow:
+ *   1. Find the purchase + bundle
+ *   2. Get quiz IDs from bundle (native quiz_ids)
+ *   3. For each child: update status → "active", add entitled quiz IDs
+ *   4. Mark purchase as provisioned
  *
  * Idempotent: running twice produces the same result.
  */
 
-const mongoose = require("mongoose");
 const Child = require("../models/child");
 const Purchase = require("../models/purchase");
 const QuizCatalog = require("../models/quizCatalog");
-const {
-  fqAssignQuiz,
-  fqGetUser,
-  registerRespondent,
-} = require("./flexiQuizUsersService");
-const { encryptPassword } = require("../utils/flexiquizCrypto");
-const Parent = require("../models/parent");
-
-// ── Import quizMap for name-based matching ──
-const { QUIZ_MAP } = require("../data/quizMap");
-
-// ── FlexiQuiz API direct access for quiz listing ──
-const axios = require("axios");
-const FQ_BASE = "https://www.flexiquiz.com/api/v1";
-const API_KEY = process.env.FLEXIQUIZ_API_KEY;
-
-// ═══════════════════════════════════════════════════════════════
-// In-memory cache for FlexiQuiz quiz list (refreshes every 10 min)
-// ═══════════════════════════════════════════════════════════════
-
-let _fqQuizCache = null;
-let _fqQuizCacheTime = 0;
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-
-/**
- * Fetch all quizzes from FlexiQuiz API (cached).
- * Returns array of { quiz_id, name, status, ... }
- */
-async function fetchFlexiQuizList() {
-  const now = Date.now();
-  if (_fqQuizCache && (now - _fqQuizCacheTime) < CACHE_TTL_MS) {
-    return _fqQuizCache;
-  }
-
-  console.log("  📡 Fetching quiz list from FlexiQuiz API...");
-  const res = await axios.get(`${FQ_BASE}/quizzes`, {
-    headers: { "X-API-KEY": API_KEY },
-    timeout: 20000,
-  });
-
-  _fqQuizCache = Array.isArray(res.data) ? res.data : [];
-  _fqQuizCacheTime = now;
-  console.log(`  📡 Found ${_fqQuizCache.length} quizzes on FlexiQuiz`);
-  return _fqQuizCache;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Name matching: embed_id → API quiz_id
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Normalize quiz name for fuzzy matching.
- */
-function normalizeName(name) {
-  return (name || "")
-    .toLowerCase()
-    .replace(/year\s*3/g, "year3")
-    .replace(/year\s*5/g, "year5")
-    .replace(/year\s*7/g, "year7")
-    .replace(/year\s*9/g, "year9")
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]/g, "");
-}
-
-/**
- * Calculate match score between two quiz names.
- */
-function nameMatchScore(name1, name2) {
-  const n1 = normalizeName(name1);
-  const n2 = normalizeName(name2);
-
-  if (n1 === n2) return 100;
-  if (n1.includes(n2) || n2.includes(n1)) return 80;
-
-  const words1 = name1.toLowerCase().replace(/&/g, "and").split(/\s+/);
-  const words2 = name2.toLowerCase().replace(/&/g, "and").split(/\s+/);
-  let shared = 0;
-  for (const w of words1) {
-    if (w.length > 2 && words2.some((w2) => w2.includes(w) || w.includes(w2))) {
-      shared++;
-    }
-  }
-  return Math.round((shared / Math.max(words1.length, words2.length)) * 60);
-}
-
-/**
- * Given an array of embed_ids, resolve them to FlexiQuiz API quiz_ids
- * by looking up the quiz name in quizMap.js and matching against
- * the FlexiQuiz API quiz list.
- *
- * Returns: Map<embed_id, api_quiz_id>
- */
-async function resolveApiQuizIds(embedIds) {
-  // Build embed_id → quiz_name lookup from quizMap
-  const embedToName = {};
-  for (const [year, tiers] of Object.entries(QUIZ_MAP)) {
-    for (const [tier, quizzes] of Object.entries(tiers)) {
-      for (const q of quizzes) {
-        // quizMap stores embed_id as "quiz_id"
-        embedToName[q.quiz_id] = q.quiz_name;
-      }
-    }
-  }
-
-  // Fetch all quizzes from FlexiQuiz API
-  const fqQuizzes = await fetchFlexiQuizList();
-
-  // Match each embed_id to an API quiz_id by name
-  const result = new Map();
-
-  for (const embedId of embedIds) {
-    const ourName = embedToName[embedId];
-    if (!ourName) {
-      console.warn(`  ⚠️ No quiz name found in quizMap for embed_id: ${embedId}`);
-      continue;
-    }
-
-    let bestMatch = null;
-    let bestScore = 0;
-
-    for (const fq of fqQuizzes) {
-      const score = nameMatchScore(ourName, fq.name);
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = fq;
-      }
-    }
-
-    if (bestScore >= 40 && bestMatch) {
-      result.set(embedId, bestMatch.quiz_id);
-      console.log(`  🔗 "${ourName}" → API: ${bestMatch.quiz_id} (${bestMatch.name}) [score: ${bestScore}]`);
-    } else {
-      console.warn(`  ❌ No match for "${ourName}" (best score: ${bestScore})`);
-    }
-  }
-
-  return result;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Quiz dedup helpers
-// ═══════════════════════════════════════════════════════════════
-
-function getNewEmbedIds(child, bundle) {
-  const existing = new Set(child.entitled_quiz_ids || []);
-  const bundleIds = bundle.flexiquiz_quiz_ids || [];
-  return bundleIds.filter((id) => !existing.has(id));
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ✅ NEW — SWAP / CASCADE LOGIC
-//
-// Standard mode → returns the bundle's own embed IDs (no change)
-// Swap mode     → fills from unpurchased swap-source bundles first,
-//                  then remainder from this bundle's own pool
-//
-// Example: Bundle C (15 quizzes, swap from [A, B])
-//   User owns nothing  → 5 from A + 10 from B + 0 from C = 15
-//   User owns A        → skip A, 10 from B + 5 from C    = 15
-//   User owns A and B  → skip both, 15 from C            = 15
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Resolve the actual quiz embed IDs to provision based on distribution mode.
- *
- * @param {Object} bundle   - The QuizCatalog document for the purchased bundle
- * @param {Object} purchase - The Purchase document
- * @returns {Promise<string[]>} Array of embed IDs to assign
- */
-async function resolveQuizIdsWithSwap(bundle, purchase) {
-  const bundleEmbedIds = bundle.flexiquiz_quiz_ids || [];
-
-  // ── Standard mode: return bundle's own IDs (original behavior) ──
-  if (bundle.distribution_mode !== "swap" || !bundle.swap_eligible_from?.length) {
-    console.log(`  📦 Standard mode — using ${bundleEmbedIds.length} quiz IDs from bundle`);
-    return bundleEmbedIds;
-  }
-
-  // ── Swap mode ──
-  console.log(
-    `  ⇄ Swap mode — checking ${bundle.swap_eligible_from.length} source bundle(s): [${bundle.swap_eligible_from.join(", ")}]`
-  );
-
-  // Find which bundles this parent has already purchased (paid + provisioned)
-  const parentPurchases = await Purchase.find({
-    parent_id: purchase.parent_id,
-    status: "paid",
-    provisioned: true,
-    bundle_id: { $ne: purchase.bundle_id }, // exclude current purchase
-  }).lean();
-
-  const ownedBundleIds = new Set(parentPurchases.map((p) => p.bundle_id));
-  console.log(
-    `  📋 Parent already owns bundles: [${[...ownedBundleIds].join(", ") || "none"}]`
-  );
-
-  // Determine max quizzes this bundle should provide
-  const maxQuizzes = bundle.max_quiz_count || bundleEmbedIds.length;
-  let quizPool = [];
-
-  // Fill from unpurchased swap sources (in the order admin configured)
-  for (const sourceId of bundle.swap_eligible_from) {
-    if (quizPool.length >= maxQuizzes) break;
-
-    if (ownedBundleIds.has(sourceId)) {
-      console.log(`  ⏭️ Skipping "${sourceId}" — already owned by parent`);
-      continue;
-    }
-
-    const sourceBundle = await QuizCatalog.findOne({ bundle_id: sourceId }).lean();
-    if (!sourceBundle) {
-      console.warn(`  ⚠️ Swap source "${sourceId}" not found in quiz_catalog, skipping`);
-      continue;
-    }
-
-    const sourceIds = sourceBundle.flexiquiz_quiz_ids || [];
-    const slotsLeft = maxQuizzes - quizPool.length;
-    const toTake = sourceIds.slice(0, slotsLeft);
-    quizPool.push(...toTake);
-    console.log(
-      `  ✅ Took ${toTake.length} quiz(es) from "${sourceBundle.bundle_name}" (${sourceId})`
-    );
-  }
-
-  // Fill remainder from this bundle's own pool (avoid duplicates)
-  const remainingSlots = maxQuizzes - quizPool.length;
-  if (remainingSlots > 0) {
-    const poolSet = new Set(quizPool);
-    const ownNew = bundleEmbedIds.filter((id) => !poolSet.has(id)).slice(0, remainingSlots);
-    quizPool.push(...ownNew);
-    console.log(`  ✅ Filled ${ownNew.length} remaining slot(s) from own bundle pool`);
-  }
-
-  // Trim to max (safety)
-  quizPool = quizPool.slice(0, maxQuizzes);
-
-  console.log(
-    `  📊 Swap result: ${quizPool.length} total quiz IDs to provision (max: ${maxQuizzes})`
-  );
-
-  return quizPool;
-}
+const connectDB = require("../config/db");
 
 // ═══════════════════════════════════════════════════════════════
 // Main provisioning function
 // ═══════════════════════════════════════════════════════════════
 
 async function provisionPurchase(purchaseId) {
+  await connectDB();
+
   const purchase = await Purchase.findById(purchaseId);
   if (!purchase) {
     return { success: false, error: "Purchase not found" };
@@ -294,61 +49,28 @@ async function provisionPurchase(purchaseId) {
   const bundle = await QuizCatalog.findOne({ bundle_id: purchase.bundle_id });
   if (!bundle) {
     await Purchase.findByIdAndUpdate(purchaseId, {
-      $set: { provision_error: `Bundle '${purchase.bundle_id}' not found in quiz_catalog` },
+      $set: { provisioned: false, provision_error: `Bundle '${purchase.bundle_id}' not found in quiz_catalog` },
     });
     return { success: false, error: `Bundle '${purchase.bundle_id}' not found` };
   }
 
-  // ✅ SWAP LOGIC: Resolve quiz IDs based on distribution mode
-  //    Standard → bundle's own IDs (same as before)
-  //    Swap     → cascade from unpurchased source bundles first
-  const allEmbedIds = await resolveQuizIdsWithSwap(bundle, purchase);
+  // ── Get quiz IDs: prefer native quiz_ids, fall back to flexiquiz_quiz_ids for backward compat ──
+  const quizIds = (bundle.quiz_ids && bundle.quiz_ids.length > 0)
+    ? bundle.quiz_ids
+    : bundle.flexiquiz_quiz_ids || [];
 
-  if (allEmbedIds.length === 0) {
-    console.error(`❌ Bundle '${bundle.bundle_id}' resolved to 0 embed IDs. Run seedBundles.js first.`);
+  if (quizIds.length === 0) {
+    console.error(`❌ Bundle '${bundle.bundle_id}' has 0 quiz IDs. Run seedBundles.js or map quizzes in Admin.`);
     await Purchase.findByIdAndUpdate(purchaseId, {
       $set: { provisioned: false, provision_error: `Bundle has 0 quiz IDs` },
     });
     return { success: false, error: "Bundle has no quiz IDs" };
   }
 
-  // ── AUTO-RESOLVE: Fetch API quiz IDs from FlexiQuiz by matching names ──
-  console.log(`\n🔄 Auto-resolving API quiz IDs for bundle: ${bundle.bundle_id}`);
-  let embedToApiMap;
-  try {
-    embedToApiMap = await resolveApiQuizIds(allEmbedIds);
-  } catch (err) {
-    console.error(`❌ Failed to fetch FlexiQuiz quiz list: ${err.message}`);
-    await Purchase.findByIdAndUpdate(purchaseId, {
-      $set: { provisioned: false, provision_error: `FlexiQuiz API unreachable: ${err.message}` },
-    });
-    return { success: false, error: `FlexiQuiz API unreachable: ${err.message}` };
-  }
-
-  if (embedToApiMap.size === 0) {
-    console.error(`❌ Could not resolve any API quiz IDs for bundle '${bundle.bundle_id}'`);
-    await Purchase.findByIdAndUpdate(purchaseId, {
-      $set: { provisioned: false, provision_error: "No quiz name matches found on FlexiQuiz" },
-    });
-    return { success: false, error: "No quiz name matches found on FlexiQuiz" };
-  }
-
-  const allApiQuizIds = [...embedToApiMap.values()];
-  console.log(`  ✅ Resolved ${embedToApiMap.size} of ${allEmbedIds.length} quizzes to API IDs`);
-
-  // ── Also cache the API IDs back to quiz_catalog for future reference ──
-  try {
-    await QuizCatalog.updateOne(
-      { _id: bundle._id },
-      { $set: { flexiquiz_api_quiz_ids: allApiQuizIds } }
-    );
-  } catch (cacheErr) {
-    console.warn(`  ⚠️ Could not cache API IDs to quiz_catalog: ${cacheErr.message}`);
-  }
-
-  const parent = await Parent.findById(purchase.parent_id).lean();
-  const parentEmail = parent?.email || "";
-  const parentLastName = parent?.last_name || "";
+  console.log(`\n🔧 Provisioning purchase ${purchaseId}`);
+  console.log(`   Bundle: ${bundle.bundle_name} (${bundle.bundle_id})`);
+  console.log(`   Quiz IDs: ${quizIds.length} quizzes`);
+  console.log(`   Children: ${purchase.child_ids.length}`);
 
   const errors = [];
 
@@ -359,101 +81,29 @@ async function provisionPurchase(purchaseId) {
       continue;
     }
 
-    console.log(
-      `\n── Provisioning ${child.username} (Tier ${bundle.tier}, Year ${bundle.year_level}) ──`
-    );
+    console.log(`\n── Provisioning ${child.username} (Year ${bundle.year_level}) ──`);
 
     try {
-      // ── Step 1: Ensure child has FlexiQuiz account ──
-      if (!child.flexiquiz_user_id) {
-        console.log(`  ⚠️ Child ${child.username} has no FlexiQuiz account, creating...`);
-        const fqResult = await registerRespondent({
-          firstName: child.display_name || child.username,
-          lastName: parentLastName,
-          email: parentEmail,
-          username: child.username,
-        });
+      // ── Determine which quiz IDs are new for this child ──
+      const existingQuizIds = new Set(child.entitled_quiz_ids || []);
+      const newQuizIds = quizIds.filter((id) => !existingQuizIds.has(id));
 
-        if (fqResult?.user_id) {
-          await Child.findByIdAndUpdate(childId, {
-            $set: {
-              flexiquiz_user_id: fqResult.user_id,
-              flexiquiz_password_enc: fqResult.password
-                ? encryptPassword(fqResult.password)
-                : null,
-              flexiquiz_provisioned_at: new Date(),
-            },
-          });
-          child.flexiquiz_user_id = fqResult.user_id;
-          console.log(`  ✅ Created FlexiQuiz user: ${fqResult.user_id}`);
-        } else {
-          throw new Error("registerRespondent returned no user_id");
-        }
-      }
-
-      const fqUserId = child.flexiquiz_user_id;
-
-      // ── Step 2: Assign quizzes using API quiz IDs ──
-      // Figure out which API quiz IDs are new for this child
-      const childExistingApiIds = new Set(child.entitled_api_quiz_ids || []);
-      const newApiIds = allApiQuizIds.filter((id) => !childExistingApiIds.has(id));
-
-      if (newApiIds.length === 0) {
-        console.log(`  ℹ️ No new quizzes to assign (all already assigned)`);
+      if (newQuizIds.length === 0) {
+        console.log(`  ℹ️ No new quizzes to add (all already entitled)`);
       } else {
-        let assignSuccess = 0;
-        let assignFail = 0;
-
-        for (const apiQuizId of newApiIds) {
-          try {
-            await fqAssignQuiz(fqUserId, apiQuizId);
-            console.log(`  ✅ Assigned quiz ${apiQuizId}`);
-            assignSuccess++;
-          } catch (quizErr) {
-            const status = quizErr.response?.status;
-            const body = quizErr.response?.data;
-            console.error(
-              `  ❌ Quiz ${apiQuizId} failed: status=${status} body=${JSON.stringify(body)}`
-            );
-            errors.push(`Quiz ${apiQuizId} assignment failed: ${quizErr.message}`);
-            assignFail++;
-          }
-        }
-
-        console.log(`  📊 Assignment: ${assignSuccess} success, ${assignFail} failed`);
+        console.log(`  📚 Adding ${newQuizIds.length} new quiz entitlements`);
       }
 
-      // ── Step 3: Verify assignment on FlexiQuiz ──
-      try {
-        const fqUser = await fqGetUser(fqUserId);
-        const assignedIds = (fqUser?.quizzes || []).map((q) => q.quiz_id || q.quizId);
-        const missing = allApiQuizIds.filter((qid) => !assignedIds.includes(qid));
-        if (missing.length > 0) {
-          console.warn(`  ⚠️ ${child.username} missing ${missing.length} quizzes after assignment`);
-        } else {
-          console.log(`  ✅ Verified: ${child.username} has all ${allApiQuizIds.length} quizzes on FlexiQuiz`);
-        }
-      } catch (verifyErr) {
-        console.warn(`  ⚠️ Verification skipped: ${verifyErr.message}`);
-      }
-    } catch (fqErr) {
-      console.error(`  ❌ FlexiQuiz error for ${child.username}: ${fqErr.message}`);
-      errors.push(`FlexiQuiz error for ${child.username}: ${fqErr.message}`);
-    }
-
-    // ── Step 4: Update child record in our DB ──
-    // entitled_quiz_ids     = embed IDs (frontend uses for display)
-    // entitled_api_quiz_ids = API IDs (for future re-assignment)
-    try {
+      // ── Update child: status → active, add entitlements ──
       await Child.findByIdAndUpdate(childId, {
         $set: { status: "active" },
         $addToSet: {
           entitled_bundle_ids: purchase.bundle_id,
-          entitled_quiz_ids: { $each: allEmbedIds },
-          entitled_api_quiz_ids: { $each: allApiQuizIds },
+          entitled_quiz_ids: { $each: quizIds },
         },
       });
-      console.log(`  ✅ Child record updated → active`);
+
+      console.log(`  ✅ Child ${child.username} → active (${quizIds.length} quizzes entitled)`);
     } catch (dbErr) {
       console.error(`  ❌ DB error for ${child.username}: ${dbErr.message}`);
       errors.push(`DB error for ${child.username}: ${dbErr.message}`);
