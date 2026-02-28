@@ -756,7 +756,7 @@ export default function AdminDashboard() {
                           <td className="px-5 py-3.5">
                             <button onClick={() => setViewQuizId(qid)}
                               className="font-medium text-white hover:text-indigo-400 transition-colors text-left underline decoration-slate-700 hover:decoration-indigo-400">
-                              {quiz.quiz_name}
+                              View
                             </button>
                           </td>
                           <td className="px-5 py-3.5">
