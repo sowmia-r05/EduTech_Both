@@ -192,7 +192,12 @@ export async function fetchResultsByEmail(email, options = {}) {
   if (options.year) params.set("year", options.year);
   if (options.subject) params.set("subject", options.subject);
 
-  const data = await getJson(`/api/results/by-email?${params.toString()}`);
+  // ✅ FIX: Forward auth headers so backend doesn't return 401
+  const fetchOpts = options.headers ? { headers: options.headers } : {};
+  const data = await getJson(
+    `/api/results/by-email?${params.toString()}`,
+    fetchOpts,
+  );
   return Array.isArray(data) ? data : [];
 }
 
@@ -213,7 +218,12 @@ export async function fetchResultsByUsername(username, options = {}) {
   if (options.quiz_name) params.set("quiz_name", options.quiz_name);
   if (options.subject) params.set("subject", options.subject);
 
-  const data = await getJson(`/api/results/by-username?${params.toString()}`);
+  // ✅ FIX: Forward auth headers so backend doesn't return 401
+  const fetchOpts = options.headers ? { headers: options.headers } : {};
+  const data = await getJson(
+    `/api/results/by-username?${params.toString()}`,
+    fetchOpts,
+  );
   return Array.isArray(data) ? data : [];
 }
 

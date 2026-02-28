@@ -185,7 +185,16 @@ export default function StudentDashboardAnalytics({
   const strongest = useMemo(() => {
     const withData = comparisonData.filter((c) => c.count > 0);
     if (!withData.length) return "—";
-    return withData.reduce((p, c) => (c.score > p.score ? c : p)).subject;
+
+    const best = withData.reduce((p, c) => (c.score > p.score ? c : p));
+
+    // ✅ FIX: Don't show "strongest" if:
+    //  1. Only 1 subject has data (same subject can't be both strongest & weakest)
+    //  2. Best score is below 50% (a failing score is NOT a strength)
+    if (withData.length <= 1) return "—";
+    if (best.score < 50) return "—";
+
+    return best.subject;
   }, [comparisonData]);
 
   const weakest = useMemo(() => {

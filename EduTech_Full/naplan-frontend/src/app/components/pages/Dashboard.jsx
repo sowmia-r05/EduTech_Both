@@ -11,6 +11,7 @@ import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopics
 import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
 import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
+import { useAuth } from "@/app/context/AuthContext";
 
 import {
   fetchResultsByEmail,
@@ -83,8 +84,21 @@ const getResultStatus = (percentage) => {
 
 const isAiPending = (doc) => {
   if (!doc) return false;
-  const status = String(doc?.ai?.status || "").toLowerCase();
-  return ["queued", "fetching", "generating", "verifying"].includes(status);
+
+  // Check legacy Result format (FlexiQuiz results)
+  const legacyStatus = String(doc?.ai?.status || "").toLowerCase();
+  if (["queued", "fetching", "generating", "verifying"].includes(legacyStatus))
+    return true;
+
+  // ✅ FIX: Also check native QuizAttempt format (ai_feedback_meta.status)
+  // This fires when the backend normalizeQuizAttempt synthetic `ai` field
+  // is present, but also catches edge cases where it's missing
+  const nativeStatus = String(
+    doc?.ai_feedback_meta?.status || ""
+  ).toLowerCase();
+  if (["pending", "queued", "generating"].includes(nativeStatus)) return true;
+
+  return false;
 };
 
 /* ═══════════════════ Inline Components ═══════════════════ */
@@ -156,6 +170,7 @@ const AiPendingOverlay = ({ aiMessage }) => (
 export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { activeToken } = useAuth();
 
   const responseId = String(searchParams.get("r") || "").trim();
   const hasResponseId = Boolean(responseId && responseId !== "[ResponseId]");
@@ -178,50 +193,91 @@ export default function Dashboard() {
     const load = async () => {
       try {
         setLoadingLatest(true);
-        const doc = await fetchResultByResponseId(responseId);
+        // ✅ FIX: Pass auth token so backend doesn't return 401
+        const authOpts = activeToken
+          ? { headers: { Authorization: `Bearer ${activeToken}` } }
+          : {};
+        const doc = await fetchResultByResponseId(responseId, authOpts);
         if (!doc) return;
         if (!cancelled) {
           setLatestResult(doc);
           if (isAiPending(doc)) setAiPending(true);
-          const username = searchParams.get("username") || doc.user?.user_name || "";
+          const username =
+            searchParams.get("username") || doc.user?.user_name || "";
           const subject = searchParams.get("subject") || "";
           let all;
-          if (username) { all = await fetchResultsByUsername(username, { subject: subject || undefined }); }
-          else { all = await fetchResultsByEmail(doc.user.email_address, { quiz_name: doc.quiz_name }); }
+          if (username) {
+            all = await fetchResultsByUsername(username, {
+              subject: subject || undefined,
+              headers: { Authorization: `Bearer ${activeToken}` },
+            });
+          } else {
+            all = await fetchResultsByEmail(doc.user.email_address, {
+              quiz_name: doc.quiz_name,
+              headers: { Authorization: `Bearer ${activeToken}` },
+            });
+          }
           setResultsList(all || [doc]);
         }
-      } finally { if (!cancelled) setLoadingLatest(false); }
+      } finally {
+        if (!cancelled) setLoadingLatest(false);
+      }
     };
     load();
     return () => (cancelled = true);
-  }, [responseId, hasResponseId, searchParams]);
+  }, [responseId, hasResponseId, searchParams, activeToken]);
 
-  useEffect(() => {
+useEffect(() => {
     if (!aiPending || !responseId) return;
-    let cancelled = false; let pollCount = 0; const MAX_POLLS = 30;
+    let cancelled = false;
+    let pollCount = 0;
+    const MAX_POLLS = 30;
     const poll = async () => {
-      if (cancelled || pollCount >= MAX_POLLS) { setAiPending(false); return; }
+      if (cancelled || pollCount >= MAX_POLLS) {
+        setAiPending(false);
+        return;
+      }
       pollCount++;
       try {
-        const freshDoc = await fetchResultByResponseId(responseId);
+        // ✅ FIX: Pass auth token
+        const authOpts = activeToken
+          ? { headers: { Authorization: `Bearer ${activeToken}` } }
+          : {};
+        const freshDoc = await fetchResultByResponseId(responseId, authOpts);
         if (cancelled) return;
         if (freshDoc && !isAiPending(freshDoc)) {
-          setLatestResult(freshDoc); setAiPending(false);
-          const username = searchParams.get("username") || freshDoc.user?.user_name || "";
+          setLatestResult(freshDoc);
+          setAiPending(false);
+          const username =
+            searchParams.get("username") || freshDoc.user?.user_name || "";
           const subject = searchParams.get("subject") || "";
           let all;
-          if (username) { all = await fetchResultsByUsername(username, { subject: subject || undefined }); }
-          else { all = await fetchResultsByEmail(freshDoc.user.email_address, { quiz_name: freshDoc.quiz_name }); }
+          if (username) {
+            all = await fetchResultsByUsername(username, {
+              subject: subject || undefined,
+              headers: { Authorization: `Bearer ${activeToken}` },
+            });
+          } else {
+            all = await fetchResultsByEmail(freshDoc.user.email_address, {
+              quiz_name: freshDoc.quiz_name,
+              headers: { Authorization: `Bearer ${activeToken}` },
+            });
+          }
           if (!cancelled) setResultsList(all || [freshDoc]);
           return;
         }
         if (freshDoc && !cancelled) setLatestResult(freshDoc);
-      } catch (err) { console.warn("Polling error:", err.message); }
+      } catch (err) {
+        console.warn("Polling error:", err.message);
+      }
       if (!cancelled) setTimeout(poll, 4000);
     };
     const timer = setTimeout(poll, 2000);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [aiPending, responseId, searchParams]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [aiPending, responseId, searchParams, activeToken]);
 
   useEffect(() => { if (!localStorage.getItem("dashboardTourPrompted")) setShowTourModal(true); }, []);
 
