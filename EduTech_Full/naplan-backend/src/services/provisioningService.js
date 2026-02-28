@@ -15,6 +15,10 @@
  *   3. Assigning using the correct API quiz IDs
  *   4. Storing embed IDs on child record (for frontend display)
  *
+ * ✅ SWAP/CASCADE LOGIC:
+ *   If bundle.distribution_mode === "swap", fills quiz slots from
+ *   unpurchased swap-source bundles first, then own pool for remainder.
+ *
  * Idempotent: running twice produces the same result.
  */
 
@@ -172,6 +176,100 @@ function getNewEmbedIds(child, bundle) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ✅ NEW — SWAP / CASCADE LOGIC
+//
+// Standard mode → returns the bundle's own embed IDs (no change)
+// Swap mode     → fills from unpurchased swap-source bundles first,
+//                  then remainder from this bundle's own pool
+//
+// Example: Bundle C (15 quizzes, swap from [A, B])
+//   User owns nothing  → 5 from A + 10 from B + 0 from C = 15
+//   User owns A        → skip A, 10 from B + 5 from C    = 15
+//   User owns A and B  → skip both, 15 from C            = 15
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Resolve the actual quiz embed IDs to provision based on distribution mode.
+ *
+ * @param {Object} bundle   - The QuizCatalog document for the purchased bundle
+ * @param {Object} purchase - The Purchase document
+ * @returns {Promise<string[]>} Array of embed IDs to assign
+ */
+async function resolveQuizIdsWithSwap(bundle, purchase) {
+  const bundleEmbedIds = bundle.flexiquiz_quiz_ids || [];
+
+  // ── Standard mode: return bundle's own IDs (original behavior) ──
+  if (bundle.distribution_mode !== "swap" || !bundle.swap_eligible_from?.length) {
+    console.log(`  📦 Standard mode — using ${bundleEmbedIds.length} quiz IDs from bundle`);
+    return bundleEmbedIds;
+  }
+
+  // ── Swap mode ──
+  console.log(
+    `  ⇄ Swap mode — checking ${bundle.swap_eligible_from.length} source bundle(s): [${bundle.swap_eligible_from.join(", ")}]`
+  );
+
+  // Find which bundles this parent has already purchased (paid + provisioned)
+  const parentPurchases = await Purchase.find({
+    parent_id: purchase.parent_id,
+    status: "paid",
+    provisioned: true,
+    bundle_id: { $ne: purchase.bundle_id }, // exclude current purchase
+  }).lean();
+
+  const ownedBundleIds = new Set(parentPurchases.map((p) => p.bundle_id));
+  console.log(
+    `  📋 Parent already owns bundles: [${[...ownedBundleIds].join(", ") || "none"}]`
+  );
+
+  // Determine max quizzes this bundle should provide
+  const maxQuizzes = bundle.max_quiz_count || bundleEmbedIds.length;
+  let quizPool = [];
+
+  // Fill from unpurchased swap sources (in the order admin configured)
+  for (const sourceId of bundle.swap_eligible_from) {
+    if (quizPool.length >= maxQuizzes) break;
+
+    if (ownedBundleIds.has(sourceId)) {
+      console.log(`  ⏭️ Skipping "${sourceId}" — already owned by parent`);
+      continue;
+    }
+
+    const sourceBundle = await QuizCatalog.findOne({ bundle_id: sourceId }).lean();
+    if (!sourceBundle) {
+      console.warn(`  ⚠️ Swap source "${sourceId}" not found in quiz_catalog, skipping`);
+      continue;
+    }
+
+    const sourceIds = sourceBundle.flexiquiz_quiz_ids || [];
+    const slotsLeft = maxQuizzes - quizPool.length;
+    const toTake = sourceIds.slice(0, slotsLeft);
+    quizPool.push(...toTake);
+    console.log(
+      `  ✅ Took ${toTake.length} quiz(es) from "${sourceBundle.bundle_name}" (${sourceId})`
+    );
+  }
+
+  // Fill remainder from this bundle's own pool (avoid duplicates)
+  const remainingSlots = maxQuizzes - quizPool.length;
+  if (remainingSlots > 0) {
+    const poolSet = new Set(quizPool);
+    const ownNew = bundleEmbedIds.filter((id) => !poolSet.has(id)).slice(0, remainingSlots);
+    quizPool.push(...ownNew);
+    console.log(`  ✅ Filled ${ownNew.length} remaining slot(s) from own bundle pool`);
+  }
+
+  // Trim to max (safety)
+  quizPool = quizPool.slice(0, maxQuizzes);
+
+  console.log(
+    `  📊 Swap result: ${quizPool.length} total quiz IDs to provision (max: ${maxQuizzes})`
+  );
+
+  return quizPool;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Main provisioning function
 // ═══════════════════════════════════════════════════════════════
 
@@ -201,10 +299,13 @@ async function provisionPurchase(purchaseId) {
     return { success: false, error: `Bundle '${purchase.bundle_id}' not found` };
   }
 
-  const allEmbedIds = bundle.flexiquiz_quiz_ids || [];
+  // ✅ SWAP LOGIC: Resolve quiz IDs based on distribution mode
+  //    Standard → bundle's own IDs (same as before)
+  //    Swap     → cascade from unpurchased source bundles first
+  const allEmbedIds = await resolveQuizIdsWithSwap(bundle, purchase);
 
   if (allEmbedIds.length === 0) {
-    console.error(`❌ Bundle '${bundle.bundle_id}' has 0 embed IDs. Run seedBundles.js first.`);
+    console.error(`❌ Bundle '${bundle.bundle_id}' resolved to 0 embed IDs. Run seedBundles.js first.`);
     await Purchase.findByIdAndUpdate(purchaseId, {
       $set: { provisioned: false, provision_error: `Bundle has 0 quiz IDs` },
     });

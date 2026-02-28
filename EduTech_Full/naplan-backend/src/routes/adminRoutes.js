@@ -4,6 +4,9 @@
  * Admin API routes with Email + Password authentication + Registration.
  * No registration code required — simple name, email, password signup.
  *
+ * ✅ UPDATED: Added POST /bundles (create), DELETE /bundles/:bundleId,
+ *    and expanded PATCH /bundles/:bundleId with multi-currency + swap fields.
+ *
  * Mount in app.js:
  *   const adminRoutes = require("./routes/adminRoutes");
  *   app.use("/api/admin", adminRoutes);
@@ -318,12 +321,13 @@ router.delete("/quizzes/:quizId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── Update quiz settings ───
 router.patch("/quizzes/:quizId", async (req, res) => {
   try {
     const quiz = await Quiz.findOne({ quiz_id: req.params.quizId });
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
-    // Allowed fields to update
     const allowedFields = [
       "quiz_name",
       "time_limit_minutes",
@@ -342,12 +346,10 @@ router.patch("/quizzes/:quizId", async (req, res) => {
       }
     }
 
-    // Validate year_level if provided
     if (updates.year_level && ![3, 5, 7, 9].includes(Number(updates.year_level))) {
       return res.status(400).json({ error: "year_level must be 3, 5, 7, or 9" });
     }
 
-    // Validate subject if provided
     if (updates.subject && !["Maths", "Reading", "Writing", "Conventions"].includes(updates.subject)) {
       return res.status(400).json({ error: "Subject must be Maths, Reading, Writing, or Conventions" });
     }
@@ -368,7 +370,6 @@ router.patch("/questions/:questionId", async (req, res) => {
     const question = await Question.findOne({ question_id: req.params.questionId });
     if (!question) return res.status(404).json({ error: "Question not found" });
 
-    // Allowed fields to update
     const { text, type, points, options, categories, image_url, explanation } = req.body;
 
     if (text !== undefined) question.text = text;
@@ -432,7 +433,6 @@ router.delete("/questions/:questionId", async (req, res) => {
       question.quiz_ids = (question.quiz_ids || []).filter((id) => id !== quizId);
 
       if (question.quiz_ids.length === 0) {
-        // Question belongs to no quizzes — delete it entirely
         await question.deleteOne();
       } else {
         await question.save();
@@ -451,7 +451,6 @@ router.delete("/questions/:questionId", async (req, res) => {
       );
     } else {
       // No quiz_id specified — delete question entirely
-      // Remove from all quizzes it belonged to
       for (const qid of question.quiz_ids || []) {
         const remaining = await Question.find({
           quiz_ids: qid,
@@ -476,6 +475,12 @@ router.delete("/questions/:questionId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ════════════════════════════════════════════════════════
+// BUNDLE ROUTES
+// ════════════════════════════════════════════════════════
+
+// ─── List all bundles ───
 router.get("/bundles", async (req, res) => {
   try {
     const bundles = await QuizCatalog.find()
@@ -486,11 +491,94 @@ router.get("/bundles", async (req, res) => {
     const enriched = bundles.map((b) => ({
       ...b,
       quiz_ids: b.quiz_ids || b.flexiquiz_quiz_ids || [],
+      currency: b.currency || "aud",
     }));
 
     res.json(enriched);
   } catch (err) {
     console.error("List bundles error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── ✅ NEW: Create a bundle manually ───
+// POST /api/admin/bundles
+router.post("/bundles", async (req, res) => {
+  try {
+    const {
+      bundle_name,
+      description,
+      year_level,
+      tier,
+      price_cents,
+      currency,
+      max_quiz_count,
+      questions_per_quiz,
+      distribution_mode,
+      swap_eligible_from,
+      subjects,
+    } = req.body;
+
+    // Validation
+    if (!bundle_name || !bundle_name.trim()) {
+      return res.status(400).json({ error: "bundle_name is required" });
+    }
+    if (!year_level || ![3, 5, 7, 9].includes(Number(year_level))) {
+      return res.status(400).json({ error: "year_level must be 3, 5, 7, or 9" });
+    }
+    if (!tier || !["A", "B", "C"].includes(tier)) {
+      return res.status(400).json({ error: "tier must be A, B, or C" });
+    }
+    if (price_cents === undefined || price_cents === null || Number(price_cents) < 0) {
+      return res.status(400).json({ error: "price_cents is required and must be >= 0" });
+    }
+    if (currency && !["aud", "inr", "usd"].includes(currency)) {
+      return res.status(400).json({ error: "currency must be aud, inr, or usd" });
+    }
+    if (max_quiz_count !== undefined && (Number(max_quiz_count) < 1 || isNaN(Number(max_quiz_count)))) {
+      return res.status(400).json({ error: "max_quiz_count must be a positive number" });
+    }
+
+    // Validate swap sources exist (if provided)
+    if (distribution_mode === "swap" && Array.isArray(swap_eligible_from) && swap_eligible_from.length > 0) {
+      const existingSources = await QuizCatalog.find({
+        bundle_id: { $in: swap_eligible_from },
+      }).lean();
+      if (existingSources.length !== swap_eligible_from.length) {
+        const found = existingSources.map((b) => b.bundle_id);
+        const missing = swap_eligible_from.filter((id) => !found.includes(id));
+        return res.status(400).json({
+          error: `Swap source bundle(s) not found: ${missing.join(", ")}`,
+        });
+      }
+    }
+
+    // Generate bundle_id from name
+    const bundle_id =
+      `year${year_level}_${tier.toLowerCase()}_${bundle_name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/_+$/, "")}_${Date.now().toString(36)}`;
+
+    const bundle = await QuizCatalog.create({
+      bundle_id,
+      bundle_name: bundle_name.trim(),
+      description: (description || "").trim(),
+      year_level: Number(year_level),
+      tier,
+      price_cents: Number(price_cents),
+      currency: currency || "aud",
+      max_quiz_count: max_quiz_count ? Number(max_quiz_count) : undefined,
+      questions_per_quiz: questions_per_quiz ? Number(questions_per_quiz) : undefined,
+      distribution_mode: distribution_mode || "standard",
+      swap_eligible_from: distribution_mode === "swap" ? (swap_eligible_from || []) : [],
+      subjects: Array.isArray(subjects) ? subjects : [],
+      is_active: true,
+      quiz_ids: [],
+      flexiquiz_quiz_ids: [],
+      quiz_count: 0,
+    });
+
+    res.status(201).json({ ok: true, bundle });
+  } catch (err) {
+    console.error("Create bundle error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -503,6 +591,7 @@ router.get("/bundles/:bundleId", async (req, res) => {
     res.json({
       ...bundle,
       quiz_ids: bundle.quiz_ids || bundle.flexiquiz_quiz_ids || [],
+      currency: bundle.currency || "aud",
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -588,24 +677,101 @@ router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
   }
 });
 
-// ─── Update bundle settings (price, name, active, etc.) ───
+// ─── ✅ UPDATED: Update bundle settings (now supports all new fields) ───
 // PATCH /api/admin/bundles/:bundleId
 router.patch("/bundles/:bundleId", async (req, res) => {
   try {
     const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId });
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
 
-    const allowed = ["bundle_name", "description", "price_cents", "is_active", "trial_quiz_ids"];
+    // Original fields + new multi-currency / swap fields
+    const allowed = [
+      "bundle_name",
+      "description",
+      "price_cents",
+      "is_active",
+      "trial_quiz_ids",
+      "currency",
+      "max_quiz_count",
+      "questions_per_quiz",
+      "distribution_mode",
+      "swap_eligible_from",
+      "subjects",
+      "year_level",
+      "tier",
+    ];
+
     for (const field of allowed) {
       if (req.body[field] !== undefined) {
         bundle[field] = req.body[field];
       }
     }
 
+    // Validate currency if provided
+    if (req.body.currency && !["aud", "inr", "usd"].includes(req.body.currency)) {
+      return res.status(400).json({ error: "currency must be aud, inr, or usd" });
+    }
+
+    // Validate year_level if provided
+    if (req.body.year_level && ![3, 5, 7, 9].includes(Number(req.body.year_level))) {
+      return res.status(400).json({ error: "year_level must be 3, 5, 7, or 9" });
+    }
+
+    // Validate tier if provided
+    if (req.body.tier && !["A", "B", "C"].includes(req.body.tier)) {
+      return res.status(400).json({ error: "tier must be A, B, or C" });
+    }
+
+    // If switching to standard mode, clear swap sources
+    if (req.body.distribution_mode === "standard") {
+      bundle.swap_eligible_from = [];
+    }
+
+    // Validate swap sources exist (if swap mode)
+    if (
+      req.body.distribution_mode === "swap" &&
+      Array.isArray(req.body.swap_eligible_from) &&
+      req.body.swap_eligible_from.length > 0
+    ) {
+      // Filter out invalid source IDs (including self)
+      const validSources = await QuizCatalog.find({
+        bundle_id: {
+          $in: req.body.swap_eligible_from.filter((id) => id !== bundle.bundle_id),
+        },
+      }).lean();
+      bundle.swap_eligible_from = validSources.map((b) => b.bundle_id);
+    }
+
     await bundle.save();
     res.json({ ok: true, bundle });
   } catch (err) {
+    console.error("Update bundle error:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── ✅ NEW: Delete a bundle ───
+// DELETE /api/admin/bundles/:bundleId
+router.delete("/bundles/:bundleId", async (req, res) => {
+  try {
+    const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId });
+    if (!bundle) return res.status(404).json({ error: "Bundle not found" });
+
+    const deletedId = bundle.bundle_id;
+
+    // Remove this bundle from other bundles' swap_eligible_from arrays
+    await QuizCatalog.updateMany(
+      { swap_eligible_from: deletedId },
+      { $pull: { swap_eligible_from: deletedId } }
+    );
+
+    await bundle.deleteOne();
+
+    res.json({ ok: true, deleted: deletedId });
+  } catch (err) {
+    console.error("Delete bundle error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

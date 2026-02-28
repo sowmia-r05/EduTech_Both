@@ -14,6 +14,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import QuizUploader from "./QuizUploader";
+import BundlesTab from "./BundlesTab";
+
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -369,87 +371,6 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
 }
 
 
-/* ════════════════════════════════════════════════════════
-   BUNDLES TAB — View all bundles & their quizzes
-   ════════════════════════════════════════════════════════ */
-function BundlesTab({ bundles, loading, quizzes }) {
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <div className="w-10 h-10 border-[3px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
-        <p className="mt-4 text-sm text-slate-400">Loading bundles...</p>
-      </div>
-    );
-  }
-  if (bundles.length === 0) {
-    return (
-      <div className="text-center py-20">
-        <p className="text-slate-400 font-medium">No bundles configured</p>
-        <p className="text-sm text-slate-500 mt-1">
-          Run <code className="text-xs bg-slate-800 px-1.5 py-0.5 rounded">node scripts/seedBundles.js</code> to seed bundles.
-        </p>
-      </div>
-    );
-  }
-
-  const byYear = {};
-  bundles.forEach((b) => { if (!byYear[b.year_level]) byYear[b.year_level] = []; byYear[b.year_level].push(b); });
-
-  return (
-    <div className="space-y-6">
-      {Object.entries(byYear).sort(([a], [b]) => a - b).map(([year, yb]) => (
-        <div key={year}>
-          <h3 className="text-sm font-semibold text-slate-300 mb-3">Year {year}</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {yb.sort((a, b) => (a.tier || "").localeCompare(b.tier || "")).map((bundle) => {
-              const qIds = bundle.quiz_ids || [];
-              const mapped = quizzes.filter((q) => qIds.includes(q.quiz_id));
-              return (
-                <div key={bundle.bundle_id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h4 className="text-sm font-semibold text-white">{bundle.bundle_name}</h4>
-                      <p className="text-[11px] text-slate-500 mt-0.5">{bundle.description}</p>
-                    </div>
-                    <TierBadge tier={bundle.tier} />
-                  </div>
-                  <div className="flex items-center gap-4 text-xs text-slate-400 mb-3">
-                    <span>${(bundle.price_cents / 100).toFixed(2)} AUD</span>
-                    <span>•</span>
-                    <span>{qIds.length} quiz{qIds.length !== 1 ? "zes" : ""}</span>
-                    <span>•</span>
-                    <span className={bundle.is_active ? "text-emerald-400" : "text-slate-500"}>
-                      {bundle.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </div>
-                  {mapped.length > 0 ? (
-                    <div className="space-y-1.5">
-                      {mapped.map((q) => (
-                        <div key={q.quiz_id} className="flex items-center gap-2 text-xs">
-                          <span className={`w-1.5 h-1.5 rounded-full ${q.is_active !== false ? "bg-emerald-400" : "bg-slate-600"}`} />
-                          <span className="text-slate-300 truncate flex-1">{q.quiz_name}</span>
-                          <SubjectBadge subject={q.subject} />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-slate-600 italic">No native quizzes mapped yet</p>
-                  )}
-                  {qIds.length > mapped.length && (
-                    <p className="text-[10px] text-amber-500/70 mt-2">
-                      + {qIds.length - mapped.length} legacy FlexiQuiz ID{qIds.length - mapped.length > 1 ? "s" : ""}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 
 /* ════════════════════════════════════════════════════════
    MAIN COMPONENT
@@ -598,8 +519,7 @@ export default function AdminDashboard() {
         </div>
 
         {tab === "upload" && <QuizUploader onUploadSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
-        {tab === "bundles" && <BundlesTab bundles={bundles} loading={bundlesLoading} quizzes={quizzes} />}
-
+        {tab === "bundles" && <BundlesTab bundles={bundles} loading={bundlesLoading} quizzes={quizzes} onRefresh={fetchBundles} />}
         {tab === "quizzes" && (
           <>
             {/* Filters */}

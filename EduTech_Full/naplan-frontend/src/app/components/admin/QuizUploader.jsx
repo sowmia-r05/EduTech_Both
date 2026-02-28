@@ -500,8 +500,9 @@ export default function QuizUploader({ onUploadSuccess }) {
               <h3 className="text-sm font-medium text-white">Quiz Upload Template</h3>
               <p className="text-xs text-slate-400 mt-1">Download, fill in your questions, then upload below.</p>
             </div>
+            {/* ✅ FIX: Same-origin path — serves from naplan-frontend/public/ */}
             <a
-              href={`${API}/api/admin/template`}
+              href="/Quiz_Upload_Template.xlsx"
               download="Quiz_Upload_Template.xlsx"
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
             >
