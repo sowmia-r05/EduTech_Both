@@ -24,10 +24,12 @@ const parentAuthRoutes = require("./routes/parentAuthRoutes");
 // ─── NEW routes ───
 const childRoutes = require("./routes/childRoutes");
 const childAuthRoutes = require("./routes/childAuthRoutes");
-const paymentRoutes = require("./routes/paymentRoutes");  
+const paymentRoutes = require("./routes/paymentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const quizRoutes = require("./routes/quizRoutes");
 
+// ✅ Issue #6: Legacy route auth middleware
+const { secureLegacyResults, secureLegacyWriting } = require("./middleware/legacyRouteAuth");
 
 const app = express();
 
@@ -43,7 +45,7 @@ app.use(
       ? FRONTEND_ORIGIN.split(",").map((s) => s.trim())
       : true, // allow all in dev if not set
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   })
 );
 
@@ -96,9 +98,12 @@ app.use("/api/parents/auth", parentAuthRoutes);
 // ✅ Routes — Children (auth applied inside the route file per-endpoint)
 app.use("/api/children", childRoutes);
 
-// ✅ Routes — Data (existing, currently no auth — add in Phase 6)
-app.use("/api/results", resultsRoutes);
-app.use("/api/writing", writingRoutes);
+// ✅ Issue #6: Routes — Data (SECURED with legacy auth middleware)
+// GET requests require JWT auth; POST webhooks pass through
+app.use("/api/results", secureLegacyResults, resultsRoutes);
+app.use("/api/writing", secureLegacyWriting, writingRoutes);
+
+// ✅ Routes — Catalog (public)
 app.use("/api/catalog", catalogRoutes);
 app.use("/api/users", userRoutes);
 
@@ -111,12 +116,34 @@ app.get("/", (req, res) => {
   res.json({ status: "NAPLAN backend alive" });
 });
 
-
 // ✅ Test if FlexiQuiz key is set (safe: no secret printed)
 app.get("/api/test-flexiquiz-key", (req, res) => {
   res.json({ hasKey: !(!process.env.FLEXIQUIZ_API_KEY) });
 });
+
+// ✅ Routes — Admin, Quiz, Payments
 app.use("/api/admin", adminRoutes);
 app.use("/api", quizRoutes);
 app.use("/api/payments", paymentRoutes);
+
+// ═══════════════════════════════════════
+// CRON JOBS
+// ═══════════════════════════════════════
+
+// ✅ Round 1: Clean up expired quiz attempts (every 5 min)
+try {
+  const { setupExpiredAttemptCleanup } = require("./cron/cleanupExpiredAttempts");
+  setupExpiredAttemptCleanup();
+} catch (err) {
+  console.warn("⚠️ Could not start expired attempt cleanup cron:", err.message);
+}
+
+// ✅ Issue #4: Clean up expired bundle purchases (every 1 hour)
+try {
+  const { setupBundleExpiryCleanup } = require("./cron/cleanupExpiredBundles");
+  setupBundleExpiryCleanup();
+} catch (err) {
+  console.warn("⚠️ Could not start bundle expiry cleanup cron:", err.message);
+}
+
 module.exports = app;

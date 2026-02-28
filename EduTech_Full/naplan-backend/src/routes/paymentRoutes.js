@@ -1,15 +1,18 @@
 /**
  * src/routes/paymentRoutes.js
  *
- * POST /api/payments/checkout       → Create Stripe Checkout session (Parent JWT)
- * POST /api/payments/webhook        → Stripe webhook (signature verified, no JWT)
- * GET  /api/payments/history        → Parent's purchase history (Parent JWT)
- * GET  /api/payments/verify/:sessionId → Verify payment + return purchase details (Parent JWT)
+ * POST /api/payments/checkout              → Create Stripe Checkout session (Parent JWT)
+ * POST /api/payments/webhook               → Stripe webhook (signature verified, no JWT)
+ * GET  /api/payments/history               → Parent's purchase history (Parent JWT)
+ * GET  /api/payments/verify/:sessionId     → Verify payment + return purchase details (Parent JWT)
+ * POST /api/payments/retry/:purchaseId     → Retry payment for failed/pending purchase (Parent JWT)
+ * POST /api/payments/retry-provision/:purchaseId → ✅ Issue #3: Retry provisioning after failure (Parent JWT)
  */
 
 const router = require("express").Router();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const { verifyToken, requireParent } = require("../middleware/auth");
+const connectDB = require("../config/db");
 const Purchase = require("../models/purchase");
 const QuizCatalog = require("../models/quizCatalog");
 const Child = require("../models/child");
@@ -23,6 +26,7 @@ const { provisionPurchase } = require("../services/provisioningService");
 // ────────────────────────────────────────────
 router.post("/checkout", verifyToken, requireParent, async (req, res) => {
   try {
+    await connectDB();
     const parentId = req.user?.parentId || req.user?.parent_id;
     const { bundle_id, child_ids } = req.body;
 
@@ -55,40 +59,41 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
     for (const childId of child_ids) {
       const existingPurchase = await Purchase.findOne({
         parent_id: parentId,
-        bundle_id: bundle_id,
         child_ids: childId,
+        bundle_id: bundle_id,
         status: { $in: ["paid", "pending"] },
       }).lean();
 
       if (existingPurchase) {
-        const child = children.find(
-          (c) => c._id.toString() === childId.toString()
-        );
-        const childName = child?.display_name || child?.username || childId;
+        const childName =
+          children.find((c) => c._id.toString() === childId)?.display_name ||
+          "Child";
 
         if (existingPurchase.status === "paid") {
           return res.status(409).json({
             error: `${childName} already has the "${bundle.bundle_name}" bundle.`,
-            code: "ALREADY_PURCHASED",
+            code: "DUPLICATE_PURCHASE",
             child_name: childName,
             bundle_name: bundle.bundle_name,
           });
-        } else if (existingPurchase.status === "pending") {
-          // Check if the pending session is recent (< 30 min)
-          const age = Date.now() - new Date(existingPurchase.createdAt).getTime();
-          if (age < 30 * 60 * 1000) {
-            return res.status(409).json({
-              error: `A checkout is already in progress for ${childName} — "${bundle.bundle_name}". Please complete or cancel it first.`,
-              code: "CHECKOUT_IN_PROGRESS",
-              child_name: childName,
-              bundle_name: bundle.bundle_name,
-            });
-          } else {
-            // Old pending session — mark as failed and allow new checkout
-            await Purchase.findByIdAndUpdate(existingPurchase._id, {
-              $set: { status: "failed" },
-            });
-          }
+        }
+
+        // Check if pending session is still fresh (< 30 min)
+        const createdAt = new Date(existingPurchase.createdAt).getTime();
+        const isRecent = Date.now() - createdAt < 30 * 60 * 1000;
+
+        if (existingPurchase.status === "pending" && isRecent) {
+          return res.status(409).json({
+            error: `A checkout is already in progress for "${bundle.bundle_name}". Please complete or cancel it first.`,
+            code: "CHECKOUT_IN_PROGRESS",
+            child_name: childName,
+            bundle_name: bundle.bundle_name,
+          });
+        } else {
+          // Old pending session — mark as failed and allow new checkout
+          await Purchase.findByIdAndUpdate(existingPurchase._id, {
+            $set: { status: "failed" },
+          });
         }
       }
     }
@@ -202,6 +207,8 @@ router.post("/webhook", async (req, res) => {
   // Process asynchronously
   setImmediate(async () => {
     try {
+      await connectDB();
+
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
         const sessionId = session.id;
@@ -247,10 +254,10 @@ router.post("/webhook", async (req, res) => {
 // ────────────────────────────────────────────
 // GET /api/payments/history
 // Returns all purchases for the authenticated parent
-// ✅ UPDATED: Now populates child details (display_name, username, year_level, status)
 // ────────────────────────────────────────────
 router.get("/history", verifyToken, requireParent, async (req, res) => {
   try {
+    await connectDB();
     const parentId = req.user?.parentId || req.user?.parent_id;
 
     const purchases = await Purchase.find({ parent_id: parentId })
@@ -268,10 +275,10 @@ router.get("/history", verifyToken, requireParent, async (req, res) => {
 // ────────────────────────────────────────────
 // GET /api/payments/verify/:sessionId
 // Returns purchase details after Stripe redirect (for the success modal).
-// Populates child names + bundle info so the frontend can show a proper receipt.
 // ────────────────────────────────────────────
 router.get("/verify/:sessionId", verifyToken, requireParent, async (req, res) => {
   try {
+    await connectDB();
     const parentId = req.user?.parentId || req.user?.parent_id;
     const { sessionId } = req.params;
 
@@ -286,7 +293,6 @@ router.get("/verify/:sessionId", verifyToken, requireParent, async (req, res) =>
       return res.status(404).json({ error: "Purchase not found" });
     }
 
-    // Fetch bundle info
     const bundle = await QuizCatalog.findOne({ bundle_id: purchase.bundle_id }).lean();
 
     return res.json({
@@ -301,8 +307,13 @@ router.get("/verify/:sessionId", verifyToken, requireParent, async (req, res) =>
   }
 });
 
+// ────────────────────────────────────────────
+// POST /api/payments/retry/:purchaseId
+// Retry payment for a pending/failed purchase (creates new Stripe session)
+// ────────────────────────────────────────────
 router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) => {
   try {
+    await connectDB();
     const parentId = req.user?.parentId || req.user?.parent_id;
     const { purchaseId } = req.params;
 
@@ -331,43 +342,19 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
       });
     }
 
-    // 3. Verify children still belong to this parent
+    // 3. Verify children still belong to parent
     const children = await Child.find({
       _id: { $in: purchase.child_ids },
       parent_id: parentId,
     }).lean();
 
-    if (children.length !== purchase.child_ids.length) {
-      return res.status(403).json({
-        error: "One or more children in this purchase no longer belong to you",
+    if (children.length === 0) {
+      return res.status(400).json({
+        error: "No valid children found for this purchase",
       });
     }
 
-    // 4. Check none of the children already have a paid purchase for this bundle
-    for (const childId of purchase.child_ids) {
-      const alreadyPaid = await Purchase.findOne({
-        _id: { $ne: purchase._id },
-        parent_id: parentId,
-        bundle_id: purchase.bundle_id,
-        child_ids: childId,
-        status: "paid",
-      }).lean();
-
-      if (alreadyPaid) {
-        const child = children.find(
-          (c) => c._id.toString() === childId.toString()
-        );
-        const childName = child?.display_name || child?.username || childId;
-        return res.status(409).json({
-          error: `${childName} already has the "${bundle.bundle_name}" bundle.`,
-          code: "ALREADY_PURCHASED",
-          child_name: childName,
-          bundle_name: bundle.bundle_name,
-        });
-      }
-    }
-
-    // 5. Get or create Stripe customer
+    // 4. Get or create Stripe customer
     const parent = await Parent.findById(parentId);
     let customerId = parent?.stripe_customer_id;
 
@@ -383,9 +370,7 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
       });
     }
 
-    // 6. Create new Stripe Checkout session
-    const FRONTEND_URL = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
-
+    // 5. Build line items
     const lineItems = [
       {
         price_data: {
@@ -401,6 +386,9 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
         quantity: children.length,
       },
     ];
+
+    // 6. Create new Stripe Checkout session
+    const FRONTEND_URL = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
@@ -435,6 +423,64 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
     return res
       .status(500)
       .json({ error: "Failed to create retry checkout session" });
+  }
+});
+
+// ────────────────────────────────────────────
+// ✅ Issue #3: POST /api/payments/retry-provision/:purchaseId
+// Parent-triggered retry of quiz assignment after provisioning failure
+// ────────────────────────────────────────────
+router.post("/retry-provision/:purchaseId", verifyToken, requireParent, async (req, res) => {
+  try {
+    await connectDB();
+
+    const purchaseId = req.params.purchaseId;
+    const parentId = req.user.parentId || req.user.parent_id;
+
+    // Find the purchase — must belong to this parent and be paid but not provisioned
+    const purchase = await Purchase.findOne({
+      _id: purchaseId,
+      parent_id: parentId,
+      status: "paid",
+      provisioned: false,
+    });
+
+    if (!purchase) {
+      return res.status(404).json({
+        error: "Purchase not found or already provisioned.",
+      });
+    }
+
+    // Clear old error before retrying
+    await Purchase.findByIdAndUpdate(purchaseId, {
+      $set: { provision_error: null },
+    });
+
+    // Respond immediately — provisioning runs in background
+    res.json({
+      ok: true,
+      message: "Provisioning retry started. Quizzes will appear in a few minutes.",
+    });
+
+    // Run provisioning in background
+    setImmediate(async () => {
+      try {
+        const result = await provisionPurchase(purchaseId);
+        if (result.success) {
+          console.log(`✅ Retry provisioning succeeded for purchase ${purchaseId}`);
+        } else {
+          console.error(`❌ Retry provisioning failed for purchase ${purchaseId}:`, result.error);
+        }
+      } catch (err) {
+        console.error(`❌ Retry provisioning error for purchase ${purchaseId}:`, err.message);
+        await Purchase.findByIdAndUpdate(purchaseId, {
+          $set: { provision_error: `Retry failed: ${err.message}` },
+        }).catch(() => {});
+      }
+    });
+  } catch (err) {
+    console.error("Retry provision error:", err);
+    return res.status(500).json({ error: "Failed to retry provisioning" });
   }
 });
 
