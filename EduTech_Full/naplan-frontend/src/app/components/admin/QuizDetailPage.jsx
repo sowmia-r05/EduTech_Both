@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
-const API = import.meta.env.VITE_API_URL || "";
+const API = import.meta.env.VITE_API_BASE_URL || "";
 
 function adminFetch(url, opts = {}) {
   const token = localStorage.getItem("admin_token");
