@@ -20,6 +20,7 @@ const otpAuth = require("./routes/otpAuth");
 const flexiquizSso = require("./routes/flexiquizSso");
 const parentRoutes = require("./routes/parentRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
+const regenerateAiRoute = require("./routes/regenerateAiRoute");
 
 // ─── NEW routes ───
 const childRoutes = require("./routes/childRoutes");
@@ -29,6 +30,7 @@ const adminRoutes = require("./routes/adminRoutes");
 const quizRoutes = require("./routes/quizRoutes");
 const availableQuizzesRoute = require("./routes/availableQuizzesRoute"); // ✅ ADDED
 const flashcardsRoute = require("./routes/flashcardsRoute");             // ✅ ADDED
+const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 
 // ✅ Issue #6: Legacy route auth middleware
 const { secureLegacyResults, secureLegacyWriting } = require("./middleware/legacyRouteAuth");
@@ -82,6 +84,9 @@ const apiLimiter = rateLimit({
 app.use("/api/webhooks", webhookLimiter);
 app.use("/api", apiLimiter);
 
+//AI Refetch
+app.use("/api/results", secureLegacyResults, regenerateAiRoute);
+
 // ✅ Routes — webhooks (no auth)
 app.use("/api/webhooks", webhookRoutes);
 
@@ -125,6 +130,7 @@ app.get("/api/test-flexiquiz-key", (req, res) => {
 
 // ✅ Routes — Admin, Quiz, Payments
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin", adminAiFeedbackRoutes);
 app.use("/api", quizRoutes);
 app.use("/api", availableQuizzesRoute);  // ✅ ADDED — powers child dashboard quiz list
 app.use("/api", flashcardsRoute);        // ✅ ADDED — powers flashcard review
