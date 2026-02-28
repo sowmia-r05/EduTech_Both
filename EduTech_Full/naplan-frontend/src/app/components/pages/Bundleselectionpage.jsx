@@ -9,9 +9,22 @@ import { fetchChildren, createChild, checkUsername } from "@/app/utils/api-child
    - Shows free trial pack
    - Shows paid bundles from quiz_catalog
    - Lets parent select children + buy
+   ✅ UPDATED: Multi-currency support (AUD/INR/USD)
 ═══════════════════════════════════════════ */
 
 const YEAR_LABELS = { 3: "Year 3", 5: "Year 5", 7: "Year 7", 9: "Year 9" };
+
+// ✅ Multi-currency formatting helper
+const CURRENCY_CONFIG = {
+  aud: { symbol: "$", label: "AUD" },
+  inr: { symbol: "₹", label: "INR" },
+  usd: { symbol: "$", label: "USD" },
+};
+
+function formatBundlePrice(priceCents, currency = "aud") {
+  const cur = CURRENCY_CONFIG[(currency || "aud").toLowerCase()] || CURRENCY_CONFIG.aud;
+  return `${cur.symbol}${(Number(priceCents || 0) / 100).toFixed(2)} ${cur.label}`;
+}
 
 export const MOCK_BUNDLES = [
   {
@@ -22,6 +35,7 @@ export const MOCK_BUNDLES = [
     subjects: ["Reading", "Writing", "Maths", "Conventions"],
     included_tests: 12,
     price_cents: 4900,
+    currency: "aud",
     is_active: true,
     is_mock: true,
   },
@@ -33,6 +47,7 @@ export const MOCK_BUNDLES = [
     subjects: ["Maths"],
     included_tests: 6,
     price_cents: 1900,
+    currency: "aud",
     is_active: true,
     is_mock: true,
   },
@@ -44,6 +59,7 @@ export const MOCK_BUNDLES = [
     subjects: ["Reading", "Writing", "Maths", "Conventions"],
     included_tests: 14,
     price_cents: 5900,
+    currency: "aud",
     is_active: true,
     is_mock: true,
   },
@@ -55,6 +71,7 @@ export const MOCK_BUNDLES = [
     subjects: ["Maths"],
     included_tests: 8,
     price_cents: 2400,
+    currency: "aud",
     is_active: true,
     is_mock: true,
   },
@@ -66,6 +83,7 @@ export const MOCK_BUNDLES = [
     subjects: ["Reading", "Writing", "Maths", "Conventions"],
     included_tests: 16,
     price_cents: 6900,
+    currency: "aud",
     is_active: true,
     is_mock: true,
   },
@@ -77,6 +95,7 @@ export const MOCK_BUNDLES = [
     subjects: ["Reading", "Writing", "Maths", "Conventions"],
     included_tests: 16,
     price_cents: 6900,
+    currency: "aud",
     is_active: true,
     is_mock: true,
   },
@@ -108,8 +127,6 @@ const YEAR_COLORS = {
     btn: "bg-violet-600 hover:bg-violet-700",
   },
 };
-
-const formatAUD = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)} AUD`;
 
 function CheckIcon() {
   return (
@@ -485,55 +502,50 @@ export default function BundleSelectionPage() {
                     Number(bundle.included_tests || 0) ||
                     Number(bundle.flexiquiz_quiz_ids?.length || 0);
 
+                  // ✅ Get currency config for display
+                  const bundleCurrency = (bundle.currency || "aud").toLowerCase();
+                  const curConfig = CURRENCY_CONFIG[bundleCurrency] || CURRENCY_CONFIG.aud;
+
                   return (
                     <div
                       key={bundle.bundle_id}
                       className={`rounded-2xl border ${colors.border} ${colors.bg} p-5 shadow-sm hover:shadow-md transition flex flex-col`}
                     >
-                      {/* Top row */}
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className={`text-xs font-semibold uppercase tracking-wide ${colors.accent}`}>
-                            {YEAR_LABELS[bundleYear] || `Year ${bundleYear}`}
-                          </p>
-                          {bundle.is_mock && (
-                            <span className="inline-block mt-2 text-[11px] px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500">
-                              Preview data
-                            </span>
-                          )}
-                        </div>
-
-                        <span className="text-xs px-2.5 py-1 rounded-full bg-white/80 border border-slate-200 text-slate-600">
-                          Paid Bundle
+                      {/* Year badge */}
+                      <div className="flex items-center justify-between mb-3">
+                        <span
+                          className={`text-xs font-semibold px-2.5 py-1 rounded-full ${colors.accent} bg-white/80`}
+                        >
+                          {YEAR_LABELS[bundle.year_level] || `Year ${bundle.year_level}`}
                         </span>
+                        {bundle.is_mock && (
+                          <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-medium">
+                            SAMPLE
+                          </span>
+                        )}
                       </div>
 
                       {/* Bundle name + description */}
-                      <h3 className="mt-3 text-lg font-bold text-slate-900">
-                        {bundle.bundle_name}
-                      </h3>
-                      {bundle.description && (
-                        <p className="mt-1 text-sm text-slate-600">{bundle.description}</p>
-                      )}
+                      <h3 className="text-lg font-bold text-slate-900">{bundle.bundle_name}</h3>
+                      <p className="text-sm text-slate-500 mt-1">{bundle.description}</p>
 
                       {/* Subjects */}
-                      {bundle.subjects?.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {bundle.subjects.map((s) => (
-                            <span
-                              key={s}
-                              className="text-xs px-2 py-0.5 rounded-full bg-white/70 text-slate-600 border border-slate-200"
-                            >
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {(bundle.subjects || []).map((subject) => (
+                          <span
+                            key={subject}
+                            className="text-xs px-2 py-0.5 rounded-full bg-white/80 text-slate-600 border border-slate-200"
+                          >
+                            {subject}
+                          </span>
+                        ))}
+                      </div>
 
-                      {/* Quiz count + eligible children */}
+                      {/* Test count + eligible children */}
                       <div className="mt-3 space-y-1">
-                        <p className="text-xs text-slate-500">
-                          {includedCount} practice test{includedCount === 1 ? "" : "s"} included
+                        <p className="text-sm text-slate-600">
+                          <span className="font-medium">{includedCount}</span> test
+                          {includedCount !== 1 ? "s" : ""} included
                         </p>
                         {parentToken && (
                           <p className="text-xs text-slate-500">
@@ -544,14 +556,17 @@ export default function BundleSelectionPage() {
 
                       <div className="flex-1" />
 
-                      {/* Price + CTA */}
+                      {/* ✅ Price + CTA — MULTI-CURRENCY */}
                       <div className="mt-5 pt-4 border-t border-slate-200/60">
                         <div className="flex items-end justify-between gap-3">
                           <div>
                             <span className="text-3xl font-bold text-slate-900">
-                              ${(Number(bundle.price_cents || 0) / 100).toFixed(2)}
+                              {curConfig.symbol}
+                              {(Number(bundle.price_cents || 0) / 100).toFixed(2)}
                             </span>
-                            <span className="text-sm text-slate-500 ml-1">AUD</span>
+                            <span className="text-sm text-slate-500 ml-1">
+                              {curConfig.label}
+                            </span>
                           </div>
 
                           <button
@@ -571,7 +586,7 @@ export default function BundleSelectionPage() {
                         </div>
 
                         <p className="mt-2 text-[11px] text-slate-400">
-                          {formatAUD(bundle.price_cents)}
+                          {formatBundlePrice(bundle.price_cents, bundle.currency)}
                         </p>
                       </div>
                     </div>
@@ -640,6 +655,10 @@ function ChildSelectModal({
     }
   };
 
+  // ✅ Multi-currency price display in modal
+  const bundleCurrency = (bundle.currency || "aud").toLowerCase();
+  const curConfig = CURRENCY_CONFIG[bundleCurrency] || CURRENCY_CONFIG.aud;
+
   return (
     <div
       className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
@@ -690,51 +709,49 @@ function ChildSelectModal({
                           ? "border-emerald-200 bg-emerald-50/50 cursor-not-allowed opacity-70"
                           : isSelected
                             ? "border-indigo-300 bg-indigo-50"
-                            : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                            : "border-slate-200 hover:border-slate-300"
                       }`}
                     >
                       {/* Checkbox */}
                       <div
-                        className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${
+                        className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
                           alreadyHas
                             ? "border-emerald-400 bg-emerald-100"
                             : isSelected
-                              ? "border-indigo-600 bg-indigo-600"
+                              ? "border-indigo-500 bg-indigo-500"
                               : "border-slate-300"
                         }`}
                       >
                         {(isSelected || alreadyHas) && (
                           <svg
-                            className={`w-3 h-3 ${alreadyHas ? "text-emerald-600" : "text-white"}`}
+                            className="w-3 h-3 text-white"
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"
                             strokeWidth={3}
                           >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M5 13l4 4L19 7"
+                            />
                           </svg>
                         )}
                       </div>
 
-                      {/* Avatar */}
-                      <div className="w-9 h-9 rounded-full bg-indigo-600 text-white flex items-center justify-center font-semibold text-sm flex-shrink-0">
-                        {(child.display_name || child.username || "?").charAt(0).toUpperCase()}
-                      </div>
-
-                      {/* Info */}
+                      {/* Child info */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-900 truncate">
+                        <p className="text-sm font-medium text-slate-900">
                           {child.display_name || child.username}
                         </p>
                         <p className="text-xs text-slate-500">
-                          @{child.username} · Year {child.year_level}
+                          @{child.username} • Year {child.year_level}
                         </p>
                       </div>
 
-                      {/* Already purchased badge */}
                       {alreadyHas && (
-                        <span className="text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full flex-shrink-0">
-                          Already owned
+                        <span className="text-xs text-emerald-600 font-medium flex-shrink-0">
+                          Already has this
                         </span>
                       )}
                     </div>
@@ -743,29 +760,23 @@ function ChildSelectModal({
               </div>
             </>
           ) : (
-            <div className="text-center py-4">
-              <p className="text-slate-500 text-sm">No Year {bundleYear} children found.</p>
-              <p className="text-slate-400 text-xs mt-1">Create a child below to continue.</p>
+            <div className="text-center py-6">
+              <p className="text-slate-600 font-medium">
+                No Year {bundleYear} children found
+              </p>
+              <p className="text-slate-500 text-sm mt-1">
+                Add a child with Year {bundleYear} to purchase this bundle.
+              </p>
             </div>
           )}
 
-          {/* Divider */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-slate-200" />
-            <span className="text-xs text-slate-400">or</span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
-
-          {/* Add new child */}
+          {/* Inline add child */}
           {!showAddForm ? (
             <button
               onClick={() => setShowAddForm(true)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-600 text-sm font-medium hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/50 transition"
+              className="w-full py-2.5 border-2 border-dashed border-slate-300 rounded-xl text-sm text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              Add New Year {bundleYear} Child
+              + Add a Year {bundleYear} child
             </button>
           ) : (
             <InlineAddChildForm
@@ -781,34 +792,32 @@ function ChildSelectModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-3 bg-slate-50">
-          <p className="text-xs text-slate-500">
-            {selectedIds.length > 0
-              ? `${selectedIds.length} child${selectedIds.length > 1 ? "ren" : ""} selected`
-              : "Select at least 1 child"}
+        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+          <p className="text-sm text-slate-600">
+            {selectedIds.length} child{selectedIds.length !== 1 ? "ren" : ""} ×{" "}
+            <span className="font-semibold">
+              {formatBundlePrice(bundle.price_cents, bundle.currency)}
+            </span>
+            {selectedIds.length > 1 && (
+              <span className="ml-1 text-slate-500">
+                = {formatBundlePrice(bundle.price_cents * selectedIds.length, bundle.currency)}
+              </span>
+            )}
           </p>
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-100"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleProceed}
-              disabled={selectedIds.length === 0 || checkoutLoading}
-              className="px-5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {checkoutLoading ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Redirecting...
-                </span>
-              ) : (
-                "Proceed to Payment"
-              )}
-            </button>
-          </div>
+          <button
+            onClick={handleProceed}
+            disabled={selectedIds.length === 0 || checkoutLoading}
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition disabled:opacity-50"
+          >
+            {checkoutLoading ? (
+              <span className="flex items-center gap-2">
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Processing...
+              </span>
+            ) : (
+              "Proceed to Checkout"
+            )}
+          </button>
         </div>
       </div>
     </div>
@@ -817,164 +826,130 @@ function ChildSelectModal({
 
 /* ═══════════════════════════════════════════
    INLINE ADD CHILD FORM
-   Compact form for creating a child directly inside the modal.
-   Year level is pre-set to match the bundle.
+   Used inside ChildSelectModal to create a child without leaving.
 ═══════════════════════════════════════════ */
 
 function InlineAddChildForm({ yearLevel, onAdd, onCancel, loading }) {
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
+  const [usernameStatus, setUsernameStatus] = useState(null); // null | "checking" | "available" | "taken"
   const [error, setError] = useState("");
-  const [usernameStatus, setUsernameStatus] = useState(null);
 
+  // Check username availability
   useEffect(() => {
-    let cancelled = false;
-    const clean = username.trim().toLowerCase();
-
-    if (!clean || clean.length < 3 || !/^[a-z0-9_]+$/.test(clean)) {
+    const u = username.trim().toLowerCase();
+    if (u.length < 3) {
       setUsernameStatus(null);
       return;
     }
 
     setUsernameStatus("checking");
-
-    const timer = setTimeout(async () => {
+    const timeout = setTimeout(async () => {
       try {
-        const res = await checkUsername(clean);
-        if (!cancelled) {
-          setUsernameStatus(res?.available ? "available" : "taken");
-        }
+        const result = await checkUsername(u);
+        setUsernameStatus(result?.available ? "available" : "taken");
       } catch {
-        if (!cancelled) setUsernameStatus("error");
+        setUsernameStatus(null);
       }
     }, 500);
 
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    return () => clearTimeout(timeout);
   }, [username]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
     setError("");
 
-    const cleanName = displayName.trim();
-    const cleanUsername = username.trim().toLowerCase();
-
-    if (!cleanName) return setError("Please enter child name");
-    if (!cleanUsername) return setError("Please enter username");
-    if (!/^[a-z0-9_]{3,20}$/.test(cleanUsername)) {
-      return setError("Username: 3-20 chars, letters/numbers/underscore only");
+    if (!displayName.trim()) {
+      setError("Display name is required");
+      return;
     }
-    if (!pin || !/^\d{4}$/.test(pin)) return setError("PIN must be 4 digits");
-    if (pin !== confirmPin) return setError("PINs do not match");
-    if (usernameStatus === "taken") return setError("Username is taken");
+    if (username.trim().length < 3) {
+      setError("Username must be at least 3 characters");
+      return;
+    }
+    if (usernameStatus === "taken") {
+      setError("Username is already taken");
+      return;
+    }
+    if (!pin || pin.length < 4) {
+      setError("PIN must be at least 4 digits");
+      return;
+    }
 
     try {
       await onAdd({
-        display_name: cleanName,
-        username: cleanUsername,
+        display_name: displayName.trim(),
+        username: username.trim().toLowerCase(),
         year_level: yearLevel,
         pin,
       });
     } catch (err) {
-      setError(err?.message || "Failed to add child");
+      setError(err?.message || "Failed to create child");
     }
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3"
-    >
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-slate-800">
-          Add Year {yearLevel} Child
-        </h4>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-xs text-slate-400 hover:text-slate-600"
-        >
-          Cancel
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs text-slate-600 mb-1">Name</label>
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="e.g., Sarah"
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-slate-600 mb-1">Username</label>
-          <div className="relative">
-            <input
-              value={username}
-              onChange={(e) =>
-                setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
-              }
-              placeholder="e.g., sarah_3"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
-            />
-            {usernameStatus === "checking" && (
-              <span className="absolute right-2 top-2.5 w-4 h-4 border-2 border-slate-300 border-t-indigo-500 rounded-full animate-spin" />
-            )}
-            {usernameStatus === "available" && (
-              <span className="absolute right-2 top-2.5 text-emerald-500 text-sm">✓</span>
-            )}
-            {usernameStatus === "taken" && (
-              <span className="absolute right-2 top-2.5 text-rose-500 text-sm">✗</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs text-slate-600 mb-1">PIN (4 digits)</label>
-          <input
-            type="password"
-            inputMode="numeric"
-            maxLength={4}
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-            placeholder="1234"
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-slate-600 mb-1">Confirm PIN</label>
-          <input
-            type="password"
-            inputMode="numeric"
-            maxLength={4}
-            value={confirmPin}
-            onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-            placeholder="1234"
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
-          />
-        </div>
-      </div>
+    <div className="border border-indigo-200 bg-indigo-50/50 rounded-xl p-4 space-y-3">
+      <h4 className="text-sm font-semibold text-slate-900">
+        Add a Year {yearLevel} Child
+      </h4>
 
       {error && (
         <p className="text-xs text-rose-600 bg-rose-50 px-3 py-1.5 rounded-lg">{error}</p>
       )}
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60"
-      >
-        {loading ? "Creating..." : "Create & Add Child"}
-      </button>
-    </form>
+      <input
+        type="text"
+        placeholder="Display name"
+        value={displayName}
+        onChange={(e) => setDisplayName(e.target.value)}
+        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+      />
+
+      <div className="relative">
+        <input
+          type="text"
+          placeholder="Username (min 3 chars)"
+          value={username}
+          onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+        {usernameStatus === "checking" && (
+          <span className="absolute right-3 top-2.5 text-xs text-slate-400">Checking...</span>
+        )}
+        {usernameStatus === "available" && (
+          <span className="absolute right-3 top-2.5 text-xs text-emerald-600">✓ Available</span>
+        )}
+        {usernameStatus === "taken" && (
+          <span className="absolute right-3 top-2.5 text-xs text-rose-600">✗ Taken</span>
+        )}
+      </div>
+
+      <input
+        type="password"
+        placeholder="PIN (min 4 digits)"
+        value={pin}
+        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+        inputMode="numeric"
+        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+      />
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
+        >
+          {loading ? "Creating..." : "Create & Select"}
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-white transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }

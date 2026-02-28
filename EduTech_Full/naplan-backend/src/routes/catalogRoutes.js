@@ -28,6 +28,8 @@ router.get("/bundles", async (req, res) => {
       ...b,
       // Show the "with_lower" count since that's what the user actually GETS
       included_tests: b.quiz_count_with_lower || b.quiz_count || 0,
+      currency: b.currency || "aud",  // ✅ ensure currency is always present
+
     }));
 
     return res.json(enriched);

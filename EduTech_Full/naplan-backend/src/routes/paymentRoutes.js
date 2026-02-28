@@ -6,7 +6,6 @@
  * GET  /api/payments/history               → Parent's purchase history (Parent JWT)
  * GET  /api/payments/verify/:sessionId     → Verify payment + return purchase details (Parent JWT)
  * POST /api/payments/retry/:purchaseId     → Retry payment for failed/pending purchase (Parent JWT)
- * POST /api/payments/retry-provision/:purchaseId → ✅ Issue #3: Retry provisioning after failure (Parent JWT)
  */
 
 const router = require("express").Router();
@@ -114,11 +113,14 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
       });
     }
 
+    // ✅ MULTI-CURRENCY: Read currency from bundle (defaults to aud)
+    const bundleCurrency = bundle.currency || "aud";
+
     // Build line items
     const lineItems = [
       {
         price_data: {
-          currency: "aud",
+          currency: bundleCurrency,
           product_data: {
             name: bundle.bundle_name,
             description:
@@ -156,7 +158,7 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
       bundle_name: bundle.bundle_name,
       stripe_session_id: session.id,
       amount_cents: bundle.price_cents * children.length,
-      currency: "aud",
+      currency: bundleCurrency,
       status: "pending",
     });
 
@@ -370,11 +372,14 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
       });
     }
 
-    // 5. Build line items
+    // ✅ MULTI-CURRENCY: Read currency from bundle (defaults to aud)
+    const bundleCurrency = bundle.currency || "aud";
+
+    // 6. Build line items
     const lineItems = [
       {
         price_data: {
-          currency: "aud",
+          currency: bundleCurrency,
           product_data: {
             name: bundle.bundle_name,
             description:
@@ -387,7 +392,7 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
       },
     ];
 
-    // 6. Create new Stripe Checkout session
+    // 7. Create new Stripe Checkout session
     const FRONTEND_URL = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 
     const session = await stripe.checkout.sessions.create({
@@ -404,12 +409,13 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
       },
     });
 
-    // 7. Update existing purchase with new session (reuse record, don't create duplicate)
+    // 8. Update existing purchase with new session (reuse record, don't create duplicate)
     await Purchase.findByIdAndUpdate(purchase._id, {
       $set: {
         stripe_session_id: session.id,
         status: "pending",
         amount_cents: bundle.price_cents * children.length,
+        currency: bundleCurrency,
       },
     });
 
