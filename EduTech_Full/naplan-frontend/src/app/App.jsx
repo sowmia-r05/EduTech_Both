@@ -1,10 +1,23 @@
 // src/app/App.jsx
+//
+// FULL REPLACEMENT FILE — drop into naplan-frontend/src/app/App.jsx
+//
+// CHANGES FROM ORIGINAL:
+//   ✅ Removed import QuizCompleteBridge
+//   ✅ Removed import QuizCompletePage
+//   ✅ Removed import TrailDashboard
+//   ✅ Removed /quiz-complete route
+//   ✅ Removed /quiz-complete-bridge route
+//   ✅ Removed /dashboard-preview route (was TrailDashboard)
+//   Everything else is IDENTICAL to the original.
 
 import { Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/app/context/AuthContext";
 import { RequireParent, RequireChild, RequireAuth } from "@/app/components/auth/RequireAuth";
 import FooterMinimal from "@/app/components/landing/FooterMinimal";
-import QuizCompleteBridge from "./components/pages/QuizCompleteBridge";
+// ✅ REMOVED: import QuizCompleteBridge from "./components/pages/QuizCompleteBridge";
+// ✅ REMOVED: import QuizCompletePage from "./components/pages/QuizCompletePage";
+// ✅ REMOVED: import TrailDashboard from "@/app/components/pages/TrailDashboard";
 import WelcomePage from "@/app/components/WelcomePage";
 import ResultPage from "@/app/components/ResultPage";
 import Dashboard from "@/app/components/pages/Dashboard";
@@ -14,7 +27,6 @@ import ChildLoginPage from "@/app/components/pages/ChildLoginPage";
 import NotFound from "@/app/components/pages/NotFound";
 import FreeTrialPage from "@/app/components/landing/FreeTrialPage";
 import StartTestPage from "@/app/components/StartTestPage";
-import TrailDashboard from "@/app/components/pages/TrailDashboard";
 import TrialTestPage from "@/app/components/pages/TrialTestPage";
 import TermsPage from "@/app/components/pages/TermsPage";
 import PrivacyPage from "@/app/components/pages/PrivacyPage";
@@ -23,7 +35,6 @@ import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
-import QuizCompletePage from "./components/pages/QuizCompletePage";
 import AdminLogin from "@/app/components/admin/AdminLogin";
 import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin from "@/app/components/admin/RequireAdmin";
@@ -48,7 +59,7 @@ export default function AppRoutes() {
         <Route path="/" element={<WelcomePage />} />
         <Route path="/free-trial" element={<FreeTrialPage />} />
         <Route path="/start-test" element={<StartTestPage />} />
-        <Route path="/dashboard-preview" element={<TrailDashboard />} />
+        {/* ✅ REMOVED: <Route path="/dashboard-preview" element={<TrailDashboard />} /> */}
         <Route path="/trial-test" element={<TrialTestPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
@@ -123,9 +134,9 @@ export default function AppRoutes() {
           path="/student-analytics"
           element={<WithFooter><StudentDashboardAnalytics /></WithFooter>}
         />
-        <Route path="/quiz-complete" element={<WithFooter><QuizCompletePage /></WithFooter>} />
 
-        <Route path="/quiz-complete-bridge" element={<QuizCompleteBridge />} />
+        {/* ✅ REMOVED: <Route path="/quiz-complete" element={<WithFooter><QuizCompletePage /></WithFooter>} /> */}
+        {/* ✅ REMOVED: <Route path="/quiz-complete-bridge" element={<QuizCompleteBridge />} /> */}
 
         {/* ─── Fallback ─── */}
         <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
