@@ -31,6 +31,7 @@ function inferSubjectFromQuizName(quizName = "") {
  * @param {Object|null} child - Child document (lean), for user info
  * @returns {Object} Result-shaped object
  */
+
 function normalizeQuizAttempt(attempt, child) {
   // Convert topic_breakdown (may be Map or Object)
   const tb = {};
@@ -43,6 +44,27 @@ function normalizeQuizAttempt(attempt, child) {
       tb[k] = { scored: v.scored || 0, total: v.total || 0 };
     }
   }
+
+  // ✅ FIX 1: Check if ai_feedback has REAL content (not just empty Mongoose defaults)
+  // Mongoose subdocument schema creates: { overall_feedback: "", strengths: [], ... }
+  // This is truthy but useless — panels render empty shells instead of hiding
+  const fb = attempt.ai_feedback;
+  const hasFeedback =
+    fb &&
+    ((fb.overall_feedback && String(fb.overall_feedback).trim().length > 0) ||
+      (Array.isArray(fb.strengths) && fb.strengths.length > 0) ||
+      (Array.isArray(fb.weaknesses) && fb.weaknesses.length > 0) ||
+      (Array.isArray(fb.coach) && fb.coach.length > 0) ||
+      (Array.isArray(fb.study_tips) && fb.study_tips.length > 0) ||
+      (Array.isArray(fb.topic_wise_tips) && fb.topic_wise_tips.length > 0));
+
+  // ✅ FIX 2: Map ai_feedback_meta.status → synthetic `ai` field
+  // Dashboard.jsx isAiPending() checks doc.ai.status
+  // AiPendingOverlay reads latestResult?.ai?.message
+  // Without this, polling + loading overlay never work for native results
+  const metaStatus = String(
+    attempt.ai_feedback_meta?.status || "pending",
+  ).toLowerCase();
 
   return {
     _id: attempt._id,
@@ -70,9 +92,25 @@ function normalizeQuizAttempt(attempt, child) {
       email_address: "",
     },
     topicBreakdown: tb,
-    ai_feedback: attempt.ai_feedback || null,         // ✅ actual feedback (strengths, weaknesses, etc.)
-    ai_feedback_meta: attempt.ai_feedback_meta || null, // status metadata
+
+    // ✅ Only return ai_feedback if it has real content
+    ai_feedback: hasFeedback ? fb : null,
+    ai_feedback_meta: attempt.ai_feedback_meta || null,
     performance_analysis: attempt.performance_analysis || null,
+
+    // ✅ Synthetic `ai` field — matches legacy Result format
+    // so Dashboard.jsx isAiPending() + AiPendingOverlay work
+    ai: {
+      status: metaStatus === "done" ? "done" : metaStatus,
+      message:
+        attempt.ai_feedback_meta?.status_message ||
+        (metaStatus === "done"
+          ? "Feedback ready"
+          : "Generating AI feedback..."),
+      error: metaStatus === "error" ? "AI feedback generation failed" : null,
+      evaluated_at: attempt.ai_feedback_meta?.generated_at || null,
+    },
+
     source: "native",
     subject: attempt.subject,
     year_level: attempt.year_level,
