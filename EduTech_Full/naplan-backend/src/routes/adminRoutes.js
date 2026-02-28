@@ -318,5 +318,165 @@ router.delete("/quizzes/:quizId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+router.patch("/quizzes/:quizId", async (req, res) => {
+  try {
+    const quiz = await Quiz.findOne({ quiz_id: req.params.quizId });
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    // Allowed fields to update
+    const allowedFields = [
+      "quiz_name",
+      "time_limit_minutes",
+      "difficulty",
+      "tier",
+      "year_level",
+      "subject",
+      "is_active",
+      "is_trial",
+    ];
+
+    const updates = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+
+    // Validate year_level if provided
+    if (updates.year_level && ![3, 5, 7, 9].includes(Number(updates.year_level))) {
+      return res.status(400).json({ error: "year_level must be 3, 5, 7, or 9" });
+    }
+
+    // Validate subject if provided
+    if (updates.subject && !["Maths", "Reading", "Writing", "Conventions"].includes(updates.subject)) {
+      return res.status(400).json({ error: "Subject must be Maths, Reading, Writing, or Conventions" });
+    }
+
+    Object.assign(quiz, updates);
+    await quiz.save();
+
+    res.json({ ok: true, quiz });
+  } catch (err) {
+    console.error("Update quiz error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PATCH /questions/:questionId — Update a single question ───
+router.patch("/questions/:questionId", async (req, res) => {
+  try {
+    const question = await Question.findOne({ question_id: req.params.questionId });
+    if (!question) return res.status(404).json({ error: "Question not found" });
+
+    // Allowed fields to update
+    const { text, type, points, options, categories, image_url, explanation } = req.body;
+
+    if (text !== undefined) question.text = text;
+    if (type !== undefined) question.type = type;
+    if (points !== undefined) question.points = Number(points) || 1;
+    if (image_url !== undefined) question.image_url = image_url;
+    if (explanation !== undefined) question.explanation = explanation;
+
+    // Update categories
+    if (categories !== undefined) {
+      if (typeof categories === "string") {
+        question.categories = categories
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean)
+          .map((name) => ({ name }));
+      } else if (Array.isArray(categories)) {
+        question.categories = categories;
+      }
+    }
+
+    // Update options (for MCQ types)
+    if (options !== undefined && Array.isArray(options)) {
+      question.options = options.map((opt, i) => ({
+        option_id: opt.option_id || `opt_${i + 1}`,
+        label: opt.label || String.fromCharCode(65 + i),
+        text: opt.text || "",
+        image_url: opt.image_url || null,
+        correct: !!opt.correct,
+      }));
+    }
+
+    await question.save();
+
+    // Recalculate quiz total_points if points changed
+    if (points !== undefined) {
+      for (const quizId of question.quiz_ids || []) {
+        const quizQuestions = await Question.find({ quiz_ids: quizId }).lean();
+        const totalPoints = quizQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+        await Quiz.updateOne({ quiz_id: quizId }, { total_points: totalPoints });
+      }
+    }
+
+    res.json({ ok: true, question });
+  } catch (err) {
+    console.error("Update question error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── DELETE /questions/:questionId — Delete a single question ───
+router.delete("/questions/:questionId", async (req, res) => {
+  try {
+    const question = await Question.findOne({ question_id: req.params.questionId });
+    if (!question) return res.status(404).json({ error: "Question not found" });
+
+    const quizId = req.query.quiz_id;
+
+    if (quizId) {
+      // Remove this quiz from the question's quiz_ids
+      question.quiz_ids = (question.quiz_ids || []).filter((id) => id !== quizId);
+
+      if (question.quiz_ids.length === 0) {
+        // Question belongs to no quizzes — delete it entirely
+        await question.deleteOne();
+      } else {
+        await question.save();
+      }
+
+      // Update the quiz's question count and total points
+      const remainingQuestions = await Question.find({ quiz_ids: quizId }).lean();
+      const totalPoints = remainingQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+      await Quiz.updateOne(
+        { quiz_id: quizId },
+        {
+          question_count: remainingQuestions.length,
+          total_points: totalPoints,
+          question_ids: remainingQuestions.map((q) => q.question_id),
+        }
+      );
+    } else {
+      // No quiz_id specified — delete question entirely
+      // Remove from all quizzes it belonged to
+      for (const qid of question.quiz_ids || []) {
+        const remaining = await Question.find({
+          quiz_ids: qid,
+          question_id: { $ne: question.question_id },
+        }).lean();
+        const totalPoints = remaining.reduce((sum, q) => sum + (q.points || 1), 0);
+        await Quiz.updateOne(
+          { quiz_id: qid },
+          {
+            question_count: remaining.length,
+            total_points: totalPoints,
+            question_ids: remaining.map((q) => q.question_id),
+          }
+        );
+      }
+      await question.deleteOne();
+    }
+
+    res.json({ ok: true, deleted: req.params.questionId });
+  } catch (err) {
+    console.error("Delete question error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 
 module.exports = router;
