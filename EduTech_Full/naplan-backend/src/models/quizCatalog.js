@@ -1,15 +1,17 @@
 /**
- * src/models/quizCatalog.js
+ * SCHEMA ADDITION for models/quizCatalog.js
  *
- * Maps purchasable bundles to their FlexiQuiz quiz IDs.
- * Each bundle = one year level + one tier, with its OWN quiz IDs only.
+ * Add this field to the QuizCatalogSchema definition,
+ * right after the flexiquiz_api_quiz_ids field:
  *
- * IMPORTANT: FlexiQuiz has TWO different IDs per quiz:
- *   - flexiquiz_quiz_ids     = embed IDs (for iframe display)
- *   - flexiquiz_api_quiz_ids = API quiz IDs (for assign/unassign API calls)
+ *   // Native quiz IDs → for admin-uploaded quizzes (non-FlexiQuiz)
+ *   quiz_ids: [{ type: String }],
  *
- * Seeded by: node scripts/seedBundles.js
- * API IDs synced by: node scripts/syncQuizIds.js
+ * This keeps native quiz IDs separate from FlexiQuiz IDs.
+ * The admin dashboard uses quiz_ids for mapping.
+ * The provisioning service continues using flexiquiz_quiz_ids for FlexiQuiz.
+ *
+ * UPDATED SCHEMA should look like:
  */
 
 const mongoose = require("mongoose");
@@ -23,11 +25,12 @@ const QuizCatalogSchema = new mongoose.Schema(
     subjects: [{ type: String }],
     tier: { type: String, enum: ["A", "B", "C"], required: true },
 
-    // Embed IDs → used by frontend for iframe embedding + child entitlement display
+    // ── FlexiQuiz IDs (legacy — for iframe embedding) ──
     flexiquiz_quiz_ids: [{ type: String }],
-
-    // API Quiz IDs → used by provisioningService for fqAssignQuiz() calls
     flexiquiz_api_quiz_ids: [{ type: String }],
+
+    // ── Native Quiz IDs (admin-uploaded quizzes) ──
+    quiz_ids: [{ type: String }],
 
     price_cents: { type: Number, required: true },
     is_active: { type: Boolean, default: true },
