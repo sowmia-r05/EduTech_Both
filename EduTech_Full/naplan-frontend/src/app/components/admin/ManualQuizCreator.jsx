@@ -351,8 +351,8 @@ function AddQuestionForm({ onAdd, onCancel }) {
    MAIN: ManualQuizCreator Modal
    ═══════════════════════════════════════ */
 export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
-  const [meta, setMeta] = useState({
-    quiz_name: "", year_level: "", time_limit_minutes: 30,
+ const [meta, setMeta] = useState({
+    quiz_name: "", year_level: "", subject: "", time_limit_minutes: 30,
     difficulty: "", set_number: 1, is_trial: false,
   });
   const [questions, setQuestions] = useState([]);
@@ -382,6 +382,7 @@ export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
           quiz: {
             quiz_name: meta.quiz_name.trim(),
             year_level: meta.year_level.trim() || null,
+            subject: meta.subject || null,
             time_limit_minutes: meta.time_limit_minutes || null,
             difficulty: meta.difficulty || null,
             set_number: meta.set_number || 1,
@@ -420,11 +421,25 @@ export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <div>
               <label className="block text-xs text-slate-400 mb-1">Year Level</label>
               <input type="text" value={meta.year_level} onChange={(e) => setMeta((m) => ({ ...m, year_level: e.target.value }))} placeholder="e.g. 5"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Subject</label>
+              <select value={meta.subject} onChange={(e) => setMeta((m) => ({ ...m, subject: e.target.value }))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none">
+                <option value="">Select...</option>
+                <option value="Maths">Maths</option>
+                <option value="Reading">Reading</option>
+                <option value="Writing">Writing</option>
+                <option value="Conventions">Language Conventions</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Time Limit (min)</label>
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Time Limit (min)</label>
