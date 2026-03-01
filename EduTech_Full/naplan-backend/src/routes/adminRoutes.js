@@ -346,6 +346,7 @@ router.patch("/quizzes/:quizId", async (req, res) => {
       "randomize_options",
       "voice_url",
       "video_url",
+      "max_attempts",
     ];
 
     const updates = {};
@@ -379,17 +380,26 @@ router.patch("/questions/:questionId", async (req, res) => {
     const question = await Question.findOne({ question_id: req.params.questionId });
     if (!question) return res.status(404).json({ error: "Question not found" });
 
-    const { text, type, points, options, categories, image_url, explanation, shuffle_options } = req.body;
+    const { text, type, points, options, categories, category, image_url, explanation, shuffle_options, voice_url, video_url, image_size, image_width, image_height } = req.body;
 
     if (text !== undefined) question.text = text;
     if (type !== undefined) question.type = type;
     if (points !== undefined) question.points = Number(points) || 1;
     if (image_url !== undefined) question.image_url = image_url;
     if (explanation !== undefined) question.explanation = explanation;
-    if (shuffle_options !== undefined) question.shuffle_options = !!shuffle_options; // ✅ per-question shuffle
+    if (shuffle_options !== undefined) question.shuffle_options = !!shuffle_options;
+    if (voice_url !== undefined) question.voice_url = voice_url || null;
+    if (video_url !== undefined) question.video_url = video_url || null;
+    if (image_size !== undefined) question.image_size = image_size || "medium";
+    if (image_width !== undefined) question.image_width = image_width;
+    if (image_height !== undefined) question.image_height = image_height;
 
-    // Update categories
-    if (categories !== undefined) {
+    // Update categories (supports both "category" singular string and "categories" array)
+    if (category !== undefined) {
+      question.categories = category.trim()
+        ? category.split(",").map((c) => c.trim()).filter(Boolean).map((name) => ({ name }))
+        : [];
+    } else if (categories !== undefined) {
       if (typeof categories === "string") {
         question.categories = categories
           .split(",")
@@ -426,6 +436,80 @@ router.patch("/questions/:questionId", async (req, res) => {
     res.json({ ok: true, question });
   } catch (err) {
     console.error("Update question error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /quizzes/:quizId/questions — Add a new question to an existing quiz ───
+router.post("/quizzes/:quizId/questions", async (req, res) => {
+  try {
+    const quiz = await Quiz.findOne({ quiz_id: req.params.quizId });
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    const {
+      text, type = "radio_button", points = 1, category,
+      image_url, image_size = "medium", image_width, image_height,
+      explanation, shuffle_options, voice_url, video_url,
+      options = [],
+    } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: "Question text is required" });
+    }
+
+    // Generate question_id
+    const questionId = `q_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+
+    // Build categories array
+    const categories = [];
+    if (category && category.trim()) {
+      categories.push({ name: category.trim() });
+    }
+
+    // Build options array
+    const builtOptions = options.map((opt, i) => ({
+      option_id: `opt_${i + 1}`,
+      label: String.fromCharCode(65 + i),
+      text: opt.text || "",
+      image_url: opt.image_url || null,
+      correct: !!opt.correct,
+    }));
+
+    const question = new Question({
+      question_id: questionId,
+      quiz_ids: [quiz.quiz_id],
+      text: text.trim(),
+      type,
+      points: Number(points) || 1,
+      categories,
+      options: builtOptions,
+      image_url: image_url || null,
+      image_size: image_size || "medium",
+      image_width: image_width || null,
+      image_height: image_height || null,
+      explanation: explanation || null,
+      shuffle_options: !!shuffle_options,
+      voice_url: voice_url || null,
+      video_url: video_url || null,
+    });
+
+    await question.save();
+
+    // Update quiz totals
+    const allQuestions = await Question.find({ quiz_ids: quiz.quiz_id }).lean();
+    const totalPoints = allQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+    await Quiz.updateOne(
+      { quiz_id: quiz.quiz_id },
+      {
+        question_count: allQuestions.length,
+        total_points: totalPoints,
+        question_ids: allQuestions.map((q) => q.question_id),
+      }
+    );
+
+    res.status(201).json({ ok: true, question_id: questionId, question });
+  } catch (err) {
+    console.error("Add question error:", err);
     res.status(500).json({ error: err.message });
   }
 });

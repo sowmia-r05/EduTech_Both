@@ -54,9 +54,17 @@ const QuestionSchema = new mongoose.Schema(
     explanation: { type: String, default: "" },
 
     // ✅ NEW: Per-question shuffle toggle
-    // When true, the options for THIS question are randomized each attempt
-    // This overrides / supplements the quiz-level randomize_options setting
     shuffle_options: { type: Boolean, default: false },
+
+    // ✅ NEW: Per-question media URLs
+    voice_url: { type: String, default: null },
+    video_url: { type: String, default: null },
+
+    // ✅ NEW: Image display size (small / medium / large / full)
+    image_size: { type: String, default: "medium", enum: ["small", "medium", "large", "full"] },
+    image_width: { type: Number, default: null },
+    image_height: { type: Number, default: null },
+
   },
   { timestamps: true, versionKey: false }
 );
