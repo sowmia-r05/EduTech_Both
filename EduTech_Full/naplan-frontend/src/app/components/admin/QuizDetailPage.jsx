@@ -1,5 +1,5 @@
 /**
- * QuizDetailPage.jsx  (v8 — DARK THEME + FREE TEXT PREVIEW)
+ * QuizDetailPage.jsx  (v9 — FILE UPLOAD FOR VOICE/VIDEO)
  *
  *   ✅ Inline "Add Question" — create new questions directly on this page
  *   ✅ Shuffle cascade: quiz-level master → per-question override
@@ -7,11 +7,12 @@
  *   ✅ Simplified settings, no quiz-level voice/video
  *   ✅ Collapsible image resize widget (no more endless scrolling)
  *   ✅ Student writing area preview when free_text is selected
+ *   ✅ File upload buttons for Audio (.mp3/.wav/.ogg), Video (.mp4/.webm/.mov), and Images
  *
  * Place in: src/app/components/admin/QuizDetailPage.jsx
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import QuizSettingsExtras from "./QuizSettingsExtras";
 import CollapsibleImageResize from "./CollapsibleImageResize";
@@ -30,7 +31,7 @@ function adminFetch(url, opts = {}) {
 /* ── File Upload Button (reusable) ── */
 function FileUploadButton({ onUploaded, accept = "image/*,.pdf", label = "Upload" }) {
   const [uploading, setUploading] = useState(false);
-  const inputRef = { current: null };
+  const inputRef = useRef(null);
   const uploadFile = async (file) => {
     if (!file) return;
     setUploading(true);
@@ -51,7 +52,7 @@ function FileUploadButton({ onUploaded, accept = "image/*,.pdf", label = "Upload
         className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs text-slate-300 rounded-lg border border-slate-600 transition flex items-center gap-1.5 flex-shrink-0">
         {uploading ? <><span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" /> Uploading...</> : <><span className="text-sm">📎</span> {label}</>}
       </button>
-      <input ref={(el) => (inputRef.current = el)} type="file" accept={accept} className="hidden" onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }} />
+      <input ref={inputRef} type="file" accept={accept} className="hidden" onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }} />
     </>
   );
 }
@@ -118,7 +119,7 @@ function OptionsEditor({ form, setForm }) {
   );
 }
 
-/* ── Shared: Per-question settings block ── */
+/* ── Shared: Per-question settings block (with file upload) ── */
 function QuestionSettingsBlock({ form, setForm, quizRandomizeOptions }) {
   return (
     <div className="pt-3 border-t border-slate-700 space-y-3">
@@ -132,14 +133,36 @@ function QuestionSettingsBlock({ form, setForm, quizRandomizeOptions }) {
       </label>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs text-slate-400 mb-1">🔊 Voice / Audio URL</label>
-          <input type="url" value={form.voice_url} onChange={(e) => setForm((f) => ({ ...f, voice_url: e.target.value }))}
-            placeholder="https://... .mp3 / .wav" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+          <label className="block text-xs text-slate-400 mb-1">🔊 Audio File (.mp3 / .wav / .ogg)</label>
+          <div className="flex items-center gap-2">
+            <input type="url" value={form.voice_url} onChange={(e) => setForm((f) => ({ ...f, voice_url: e.target.value }))}
+              placeholder="Paste URL or upload →" className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+            <FileUploadButton accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm,.mp3,.wav,.ogg" label="Upload MP3" onUploaded={(url) => setForm((f) => ({ ...f, voice_url: url }))} />
+          </div>
+          {form.voice_url && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <audio src={form.voice_url} controls className="h-7 flex-1" preload="metadata" />
+              <button onClick={() => setForm((f) => ({ ...f, voice_url: "" }))} className="text-red-400 hover:text-red-300 text-xs flex-shrink-0">✕</button>
+            </div>
+          )}
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1">🎬 Video URL</label>
-          <input type="url" value={form.video_url} onChange={(e) => setForm((f) => ({ ...f, video_url: e.target.value }))}
-            placeholder="https://... YouTube / .mp4" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+          <label className="block text-xs text-slate-400 mb-1">🎬 Video File (.mp4 / .webm / YouTube)</label>
+          <div className="flex items-center gap-2">
+            <input type="url" value={form.video_url} onChange={(e) => setForm((f) => ({ ...f, video_url: e.target.value }))}
+              placeholder="Paste URL or upload →" className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+            <FileUploadButton accept="video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.webm,.mov" label="Upload MP4" onUploaded={(url) => setForm((f) => ({ ...f, video_url: url }))} />
+          </div>
+          {form.video_url && (
+            <div className="mt-1.5 flex items-center gap-2">
+              {form.video_url.match(/youtube\.com|youtu\.be/) ? (
+                <span className="text-xs text-green-400">✓ YouTube link attached</span>
+              ) : (
+                <video src={form.video_url} controls className="w-full max-h-24 rounded border border-slate-700" preload="metadata" />
+              )}
+              <button onClick={() => setForm((f) => ({ ...f, video_url: "" }))} className="text-red-400 hover:text-red-300 text-xs flex-shrink-0">✕</button>
+            </div>
+          )}
         </div>
       </div>
     </div>
