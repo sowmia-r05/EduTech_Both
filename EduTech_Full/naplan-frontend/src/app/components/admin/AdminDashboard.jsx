@@ -7,6 +7,7 @@
  *   - Bundle mapping (assign quizzes → bundles so purchases unlock them)
  *   - Upload tab (QuizUploader)
  *   - Bundle management tab
+ *   ✅ Randomize questions/options + Voice & Video settings
  *
  * Place in: src/app/components/admin/AdminDashboard.jsx
  */
@@ -15,6 +16,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import QuizUploader from "./QuizUploader";
 import BundlesTab from "./BundlesTab";
+import QuizSettingsExtras from "./QuizSettingsExtras";
 
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
@@ -82,6 +84,10 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
     set_number: quiz.set_number || 1,
     is_active: quiz.is_active !== false,
     is_trial: quiz.is_trial || false,
+    randomize_questions: quiz.randomize_questions || false,
+    randomize_options: quiz.randomize_options || false,
+    voice_url: quiz.voice_url || null,
+    video_url: quiz.video_url || null,
   });
   const [saving, setSaving] = useState(false);
 
@@ -96,6 +102,8 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
           year_level: Number(form.year_level),
           set_number: Number(form.set_number) || 1,
           difficulty: form.difficulty || null,
+          voice_url: form.voice_url || null,
+          video_url: form.video_url || null,
         }),
       });
       if (!res.ok) {
@@ -206,6 +214,9 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
               <span className="text-sm text-slate-300">Free Trial Quiz</span>
             </label>
           </div>
+
+          {/* ✅ Randomization + Voice & Video */}
+          <QuizSettingsExtras form={form} onChange={setForm} />
         </div>
 
         {/* Footer */}
