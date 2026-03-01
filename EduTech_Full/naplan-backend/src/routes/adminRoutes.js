@@ -19,8 +19,10 @@
 
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
 const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
+const multer = require("multer");
 const { requireAdmin } = require("../middleware/adminAuth");
 const Admin = require("../models/admin");
 const Quiz = require("../models/quiz");
@@ -78,36 +80,57 @@ router.post("/register", async (req, res) => {
       return res.status(409).json({ error: "An account with this email already exists" });
     }
 
+    // First admin ever → super_admin + active (auto-approved)
+    // All subsequent → admin + pending (needs super_admin approval)
+    const adminCount = await Admin.countDocuments();
+    const isFirstAdmin = adminCount === 0;
+
     // Create admin
     const admin = await Admin.create({
       email,
       name,
       password_hash: password, // pre-save hook will bcrypt this
-      role: "admin",
-      status: "active",
-      last_login_at: new Date(),
-      login_count: 1,
+      role: isFirstAdmin ? "super_admin" : "admin",
+      status: isFirstAdmin ? "active" : "pending",
+      last_login_at: isFirstAdmin ? new Date() : null,
+      login_count: isFirstAdmin ? 1 : 0,
     });
 
-    // Generate JWT (auto-login after register)
-    const token = jwt.sign(
-      {
-        adminId: admin._id,
-        email: admin.email,
-        name: admin.name,
-        role: admin.role,
-      },
-      JWT_SECRET,
-      { expiresIn: "12h" }
-    );
+    // If first admin → auto-login; otherwise → pending approval
+    if (isFirstAdmin) {
+      const token = jwt.sign(
+        {
+          adminId: admin._id,
+          email: admin.email,
+          name: admin.name,
+          role: admin.role,
+        },
+        JWT_SECRET,
+        { expiresIn: "12h" }
+      );
 
+      return res.status(201).json({
+        ok: true,
+        token,
+        admin: {
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+          status: admin.status,
+        },
+      });
+    }
+
+    // Pending admin — no token, show waiting message
     return res.status(201).json({
       ok: true,
-      token,
+      pending: true,
+      message: "Registration successful! Your account is pending approval from a super admin.",
       admin: {
         name: admin.name,
         email: admin.email,
         role: admin.role,
+        status: admin.status,
       },
     });
   } catch (err) {
@@ -140,18 +163,32 @@ router.post("/login", async (req, res) => {
     }
 
     // Find admin
-    const admin = await Admin.findOne({ email, status: "active" });
+    const admin = await Admin.findOne({ email });
 
     if (!admin) {
       trackFailedAttempt(email);
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
-    // Verify password
+    // Verify password first (before status check, for security)
     const isValid = await admin.comparePassword(password);
     if (!isValid) {
       trackFailedAttempt(email);
       return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    // Check account status AFTER password verification
+    if (admin.status === "pending") {
+      return res.status(403).json({
+        error: "Your account is pending approval from a super admin. Please wait for approval.",
+        status: "pending",
+      });
+    }
+    if (admin.status === "suspended") {
+      return res.status(403).json({
+        error: "Your account has been suspended. Contact a super admin for help.",
+        status: "suspended",
+      });
     }
 
     // Clear failed attempts on success
@@ -181,6 +218,7 @@ router.post("/login", async (req, res) => {
         name: admin.name,
         email: admin.email,
         role: admin.role,
+        status: admin.status,
       },
     });
   } catch (err) {
@@ -193,7 +231,7 @@ router.post("/login", async (req, res) => {
 router.get("/me", requireAdmin, async (req, res) => {
   try {
     const admin = await Admin.findById(req.admin.adminId)
-      .select("email name role last_login_at")
+      .select("email name role status last_login_at")
       .lean();
 
     if (!admin) {
@@ -203,6 +241,140 @@ router.get("/me", requireAdmin, async (req, res) => {
     return res.json({ ok: true, admin });
   } catch (err) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════
+// ADMIN MANAGEMENT ROUTES (super_admin only)
+// ════════════════════════════════════════════════════════
+
+// Helper middleware: require super_admin role
+function requireSuperAdmin(req, res, next) {
+  if (req.admin?.role !== "super_admin") {
+    return res.status(403).json({ error: "Super admin access required" });
+  }
+  next();
+}
+
+// ─── GET /admins — List all admin accounts (super_admin only) ───
+router.get("/admins", requireAdmin, requireSuperAdmin, async (req, res) => {
+  try {
+    const admins = await Admin.find()
+      .select("email name role status last_login_at login_count approved_by approved_at createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json(admins);
+  } catch (err) {
+    console.error("List admins error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PATCH /admins/:adminId — Update admin status/role (super_admin only) ───
+// Actions: approve, suspend, reactivate, promote, demote
+router.patch("/admins/:adminId", requireAdmin, requireSuperAdmin, async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.params.adminId);
+    if (!admin) return res.status(404).json({ error: "Admin not found" });
+
+    // Can't modify yourself
+    if (admin._id.toString() === req.admin.adminId) {
+      return res.status(400).json({ error: "You cannot modify your own account" });
+    }
+
+    const { action } = req.body;
+
+    switch (action) {
+      case "approve":
+        if (admin.status !== "pending") {
+          return res.status(400).json({ error: "Admin is not in pending status" });
+        }
+        admin.status = "active";
+        admin.approved_by = req.admin.email;
+        admin.approved_at = new Date();
+        break;
+
+      case "suspend":
+        if (admin.status === "suspended") {
+          return res.status(400).json({ error: "Admin is already suspended" });
+        }
+        admin.status = "suspended";
+        break;
+
+      case "reactivate":
+        if (admin.status !== "suspended") {
+          return res.status(400).json({ error: "Admin is not suspended" });
+        }
+        admin.status = "active";
+        break;
+
+      case "promote":
+        if (admin.role === "super_admin") {
+          return res.status(400).json({ error: "Admin is already a super admin" });
+        }
+        if (admin.status !== "active") {
+          return res.status(400).json({ error: "Only active admins can be promoted" });
+        }
+        admin.role = "super_admin";
+        break;
+
+      case "demote":
+        if (admin.role !== "super_admin") {
+          return res.status(400).json({ error: "Admin is not a super admin" });
+        }
+        // Ensure at least one super_admin remains
+        const superAdminCount = await Admin.countDocuments({ role: "super_admin", status: "active" });
+        if (superAdminCount <= 1) {
+          return res.status(400).json({ error: "Cannot demote — at least one super admin must remain" });
+        }
+        admin.role = "admin";
+        break;
+
+      default:
+        return res.status(400).json({ error: "Invalid action. Use: approve, suspend, reactivate, promote, demote" });
+    }
+
+    await admin.save();
+    res.json({
+      ok: true,
+      admin: {
+        _id: admin._id,
+        email: admin.email,
+        name: admin.name,
+        role: admin.role,
+        status: admin.status,
+      },
+    });
+  } catch (err) {
+    console.error("Update admin error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── DELETE /admins/:adminId — Remove admin account (super_admin only) ───
+router.delete("/admins/:adminId", requireAdmin, requireSuperAdmin, async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.params.adminId);
+    if (!admin) return res.status(404).json({ error: "Admin not found" });
+
+    // Can't delete yourself
+    if (admin._id.toString() === req.admin.adminId) {
+      return res.status(400).json({ error: "You cannot delete your own account" });
+    }
+
+    // Can't delete the last super_admin
+    if (admin.role === "super_admin") {
+      const superAdminCount = await Admin.countDocuments({ role: "super_admin" });
+      if (superAdminCount <= 1) {
+        return res.status(400).json({ error: "Cannot delete the last super admin" });
+      }
+    }
+
+    await admin.deleteOne();
+    res.json({ ok: true, deleted: admin.email });
+  } catch (err) {
+    console.error("Delete admin error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -221,6 +393,47 @@ router.get("/template", (req, res) => {
 // All routes below require admin auth
 // ═══════════════════════════════════════
 router.use(requireAdmin);
+
+// ════════════════════════════════════════════════════════
+// FILE UPLOAD (images + PDFs)
+// ════════════════════════════════════════════════════════
+// IMPORTANT: Add this to app.js for serving uploaded files:
+//   app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
+
+const uploadDir = path.join(__dirname, "..", "public", "uploads");
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const multerStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const sub = new Date().toISOString().slice(0, 7);
+    const dir = path.join(uploadDir, sub);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50);
+    cb(null, `${base}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}${ext}`);
+  },
+});
+
+const uploadMiddleware = multer({
+  storage: multerStorage,
+  fileFilter: (req, file, cb) => {
+    const ok = ["image/jpeg","image/png","image/gif","image/webp","image/svg+xml","application/pdf"].includes(file.mimetype);
+    cb(ok ? null : new Error("Only images and PDFs allowed"), ok);
+  },
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+router.post("/upload", (req, res) => {
+  uploadMiddleware.single("file")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    const sub = new Date().toISOString().slice(0, 7);
+    res.json({ ok: true, url: `/uploads/${sub}/${req.file.filename}`, filename: req.file.filename, mimetype: req.file.mimetype, size: req.file.size });
+  });
+});
 
 // ─── List all quizzes ───
 router.get("/quizzes", async (req, res) => {
@@ -262,7 +475,8 @@ router.post("/quizzes/upload", async (req, res) => {
     }
 
     if (!quizData.quiz_name) return res.status(400).json({ error: "quiz_name is required" });
-    if (![3, 5, 7, 9].includes(quizData.year_level)) return res.status(400).json({ error: "year_level must be 3, 5, 7, or 9" });
+
+    // year_level is optional free-text, subject/tier are optional
 
     const quizId = quizData.quiz_id || uuidv4();
 
@@ -356,13 +570,9 @@ router.patch("/quizzes/:quizId", async (req, res) => {
       }
     }
 
-    if (updates.year_level && ![3, 5, 7, 9].includes(Number(updates.year_level))) {
-      return res.status(400).json({ error: "year_level must be 3, 5, 7, or 9" });
-    }
+    // year_level is free-text — no numeric validation
 
-    if (updates.subject && !["Maths", "Reading", "Writing", "Conventions"].includes(updates.subject)) {
-      return res.status(400).json({ error: "Subject must be Maths, Reading, Writing, or Conventions" });
-    }
+    // subject is free-text — no fixed validation
 
     Object.assign(quiz, updates);
     await quiz.save();

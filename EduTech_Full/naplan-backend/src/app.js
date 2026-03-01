@@ -20,6 +20,7 @@ const otpAuth = require("./routes/otpAuth");
 const flexiquizSso = require("./routes/flexiquizSso");
 const parentRoutes = require("./routes/parentRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
+const path = require("path");
 const regenerateAiRoute = require("./routes/regenerateAiRoute");
 
 // ─── NEW routes ───
@@ -155,5 +156,7 @@ try {
 } catch (err) {
   console.warn("⚠️ Could not start bundle expiry cleanup cron:", err.message);
 }
+app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
+
 
 module.exports = app;
