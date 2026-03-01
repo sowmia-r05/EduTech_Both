@@ -32,6 +32,7 @@ const quizRoutes = require("./routes/quizRoutes");
 const availableQuizzesRoute = require("./routes/availableQuizzesRoute"); // ✅ ADDED
 const flashcardsRoute = require("./routes/flashcardsRoute");             // ✅ ADDED
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
+const healthRoutes = require("./routes/healthRoutes");
 
 // ✅ Issue #6: Legacy route auth middleware
 const { secureLegacyResults, secureLegacyWriting } = require("./middleware/legacyRouteAuth");
@@ -71,6 +72,8 @@ const webhookLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+app.use("/api",healthRoutes);
 
 // 🛡️ General API rate limiting - allow 1000 requests per minute
 const apiLimiter = rateLimit({
