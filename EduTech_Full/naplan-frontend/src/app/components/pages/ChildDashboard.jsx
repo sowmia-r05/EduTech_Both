@@ -136,7 +136,7 @@ export default function ChildDashboard() {
 
   /* ─── STATE ─── */
   const [tests, setTests] = useState([]);
-  const [childStatus, setChildStatus] = useState("trial");
+  const [childStatus, setChildStatus] = useState(() => childProfile?.status || "trial");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -156,7 +156,6 @@ export default function ChildDashboard() {
   const [quizzesLoading, setQuizzesLoading] = useState(true);
 
   const testsPerPage = 8;
-  const hasTests = tests.length > 0;
 
   /* ─── Resolve child info + entitled quiz IDs ─── */
   const resolveChildInfo = useCallback(async () => {
@@ -191,6 +190,8 @@ export default function ChildDashboard() {
             });
           }
           setChildEntitledQuizIds(match.entitled_quiz_ids || []);
+          // ✅ FIX: Update child status from backend (parent viewing child)
+          if (match.status) setChildStatus(match.status);
         } else {
           setChildEntitledQuizIds([]);
         }
@@ -210,9 +211,14 @@ export default function ChildDashboard() {
     if (!activeToken || !childId) { setQuizzesLoading(false); return; }
     setQuizzesLoading(true);
    fetchAvailableQuizzes(activeToken, childId)
-     .then((quizzes) => {
-       console.log(`✅ Fetched ${quizzes.length} available quizzes from backend`);
-       setAvailableQuizzes(quizzes.map((q) => ({ ...q, subject: normalizeSubject(q.subject) })));
+     .then((data) => {
+       // ✅ FIX: fetchAvailableQuizzes returns { quizzes: [], child_status: "" }
+       // Handle both new format (object) and legacy format (plain array)
+       const quizList = Array.isArray(data) ? data : (data?.quizzes || []);
+       console.log(`✅ Fetched ${quizList.length} available quizzes from backend`);
+       setAvailableQuizzes(quizList.map((q) => ({ ...q, subject: normalizeSubject(q.subject) })));
+       // ✅ FIX: Use backend-provided status (more reliable than stale localStorage)
+       if (data?.child_status) setChildStatus(data.child_status);
      })
       .catch((err) => {
         console.error("Failed to fetch available quizzes:", err);
@@ -245,22 +251,6 @@ export default function ChildDashboard() {
       .finally(() => setLoading(false));
   }, [activeToken, childId]);
 
-  /* ─── CALCULATIONS ─── */
-  const overallAverage = useMemo(() => { if (!tests.length) return 0; return Math.round(tests.reduce((s, t) => s + t.score, 0) / tests.length); }, [tests]);
-  const totalXP = useMemo(() => tests.reduce((s, t) => s + t.score * 10, 0), [tests]);
-  const level = useMemo(() => Math.max(1, Math.floor(totalXP / 500) + 1), [totalXP]);
-  const xpProgress = useMemo(() => ((totalXP % 500) / 500) * 100, [totalXP]);
-  const streak = useMemo(() => {
-    if (!tests.length) return 0;
-    const sorted = [...tests].sort((a, b) => new Date(b.date) - new Date(a.date));
-    let count = 1;
-    for (let i = 1; i < sorted.length; i++) {
-      const diffDays = Math.floor((new Date(sorted[i - 1].date) - new Date(sorted[i].date)) / (1000 * 60 * 60 * 24));
-      if (diffDays <= 1) count++; else break;
-    }
-    return count;
-  }, [tests]);
-
   /* ═══════════════════════════════════════════════════════
      ✅ QUIZ CATALOG — now fetched dynamically from backend
      No more hardcoded QUIZ_CATALOG or FlexiQuiz embed_ids
@@ -269,17 +259,62 @@ export default function ChildDashboard() {
     return availableQuizzes;
   }, [availableQuizzes]);
 
-  /* ─── Subject breakdown ─── */
+  /* ─── Filter tests to only count results from entitled quizzes ─── */
+  // ✅ KPI FIX: Trial children should only see KPIs from quizzes they're entitled to.
+  // Active/paid children see ALL their results (no filtering).
+  // Without this, old results from paid quizzes (before the trial bug fix) inflate KPIs for trial users.
+  const entitledTests = useMemo(() => {
+    // Active or paid children — show ALL results, no filtering needed
+    if (childStatus === "active") return tests;
+
+    // Still loading quizzes — don't flash stale data
+    if (quizzesLoading) return [];
+
+    // Trial children with no entitled quizzes — show nothing
+    if (entitledCatalog.length === 0) return [];
+
+    // Trial children — filter to only results from entitled quizzes
+    const entitledNames = new Set(
+      entitledCatalog.map((q) => (q.quiz_name || q.name || "").toLowerCase().trim())
+    );
+
+    return tests.filter((t) => {
+      const testName = (t.name || t.quiz_name || "").toLowerCase().trim();
+      // Match by exact name or partial inclusion (same logic as mergedQuizzes)
+      return [...entitledNames].some(
+        (qName) => testName === qName || testName.includes(qName) || qName.includes(testName)
+      );
+    });
+  }, [tests, entitledCatalog, quizzesLoading, childStatus]);
+
+  // ✅ KPI FIX: hasTests now reflects entitled results only
+  const hasTests = entitledTests.length > 0;
+
+  /* ─── CALCULATIONS (now based on entitledTests) ─── */
+  const overallAverage = useMemo(() => { if (!entitledTests.length) return 0; return Math.round(entitledTests.reduce((s, t) => s + t.score, 0) / entitledTests.length); }, [entitledTests]);
+  const totalXP = useMemo(() => entitledTests.reduce((s, t) => s + t.score * 10, 0), [entitledTests]);
+  const level = useMemo(() => Math.max(1, Math.floor(totalXP / 500) + 1), [totalXP]);
+  const xpProgress = useMemo(() => ((totalXP % 500) / 500) * 100, [totalXP]);
+  const streak = useMemo(() => {
+    if (!entitledTests.length) return 0;
+    const sorted = [...entitledTests].sort((a, b) => new Date(b.date) - new Date(a.date));
+    let count = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      const diffDays = Math.floor((new Date(sorted[i - 1].date) - new Date(sorted[i].date)) / (1000 * 60 * 60 * 24));
+      if (diffDays <= 1) count++; else break;
+    }
+    return count;
+  }, [entitledTests]);
   const subjectBreakdown = useMemo(() => {
     return SUBJECTS.map((subj) => {
-      const subjectTests = tests.filter((t) => t.subject === subj);
+      const subjectTests = entitledTests.filter((t) => t.subject === subj);
       const subjectQuizTotal = entitledCatalog.filter((q) => q.subject === subj).length;
       const avg = subjectTests.length
         ? Math.round(subjectTests.reduce((s, t) => s + t.score, 0) / subjectTests.length)
         : 0;
       return { subject: subj, average: avg, count: subjectTests.length, total: subjectQuizTotal };
     });
-  }, [tests, entitledCatalog]);
+  }, [entitledTests, entitledCatalog]);
 
   /* ─── Merge available quizzes with completed results ─── */
   const mergedQuizzes = useMemo(() => {
@@ -340,7 +375,7 @@ export default function ChildDashboard() {
   const totalPages = Math.max(1, Math.ceil(sortedQuizzes.length / testsPerPage));
   const paginatedQuizzes = sortedQuizzes.slice((currentPage - 1) * testsPerPage, currentPage * testsPerPage);
 
-  const recentActivity = useMemo(() => [...tests].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4), [tests]);
+  const recentActivity = useMemo(() => [...entitledTests].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4), [entitledTests]);
 
   const handleSort = (key) => {
     setSortConfig((prev) => prev.key === key ? { key, direction: prev.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" });
@@ -382,7 +417,11 @@ export default function ChildDashboard() {
 
       // Also refresh available quizzes (attempt count may have changed)
       fetchAvailableQuizzes(activeToken, childId)
-        .then((quizzes) => setAvailableQuizzes(quizzes.map((q) => ({ ...q, subject: normalizeSubject(q.subject) }))))
+        .then((data) => {
+          const quizList = Array.isArray(data) ? data : (data?.quizzes || []);
+          setAvailableQuizzes(quizList.map((q) => ({ ...q, subject: normalizeSubject(q.subject) })));
+          if (data?.child_status) setChildStatus(data.child_status);
+        })
         .catch(() => {});
     }
   };
@@ -445,7 +484,7 @@ export default function ChildDashboard() {
           yearLevel={yearLevel}
         >
           <StudentDashboardAnalytics
-            tests={tests}
+            tests={entitledTests}
             displayName={displayName}
             yearLevel={yearLevel}
             embedded={true}

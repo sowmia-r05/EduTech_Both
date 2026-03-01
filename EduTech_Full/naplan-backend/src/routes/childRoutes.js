@@ -17,6 +17,7 @@ const Result = require("../models/result");
 const Writing = require("../models/writing");
 const Parent = require("../models/parent");
 const QuizAttempt = require("../models/quizAttempt"); // ✅ NEW
+const Quiz = require("../models/quiz"); // ✅ KPI FIX: needed for trial filtering
 const { registerRespondent, fqDeleteUser } = require("../services/flexiQuizUsersService");
 const { encryptPassword } = require("../utils/flexiquizCrypto");
 
@@ -108,7 +109,103 @@ async function aggregateChildStats(child) {
   const nativeAvg = nativeStats?.avgScore || 0;
   const nativeLast = nativeStats?.lastActivity || null;
 
-  // ── Merge ──
+  // ── ✅ KPI FIX: If child is on trial, only count results from trial quizzes ──
+  const childStatus = (child.status || "trial").toLowerCase();
+  if (childStatus === "trial") {
+    // Get list of trial quizzes for this child's year level
+    const trialQuizzes = await Quiz.find({
+      is_active: true,
+      is_trial: true,
+      year_level: child.year_level,
+    }).select("quiz_id quiz_name").lean();
+
+    const trialQuizIds = trialQuizzes.map((q) => q.quiz_id);
+    const trialQuizNames = trialQuizzes.map((q) => (q.quiz_name || "").toLowerCase().trim());
+
+    // Re-count native attempts — only trial quizzes
+    let filteredNativeCount = 0;
+    let filteredNativeAvg = 0;
+    let filteredNativeLast = null;
+
+    if (trialQuizIds.length > 0) {
+      const [trialNativeStats] = await QuizAttempt.aggregate([
+        {
+          $match: {
+            child_id: child._id,
+            status: { $in: ["scored", "ai_done", "submitted"] },
+            quiz_id: { $in: trialQuizIds },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            count: { $sum: 1 },
+            avgScore: { $avg: "$score.percentage" },
+            lastActivity: { $max: "$submitted_at" },
+          },
+        },
+      ]);
+
+      filteredNativeCount = trialNativeStats?.count || 0;
+      filteredNativeAvg = trialNativeStats?.avgScore || 0;
+      filteredNativeLast = trialNativeStats?.lastActivity || null;
+    }
+
+    // For legacy results, filter by quiz_name match to trial quizzes
+    let filteredLegacyCount = 0;
+    let filteredLegacyAvg = 0;
+    let filteredLegacyLast = null;
+
+    if (matchQuery && trialQuizNames.length > 0) {
+      const legacyResults = await Result.find(matchQuery)
+        .select("quiz_name score.percentage date_submitted")
+        .lean();
+      const filteredLegacy = legacyResults.filter((r) => {
+        const name = (r.quiz_name || "").toLowerCase().trim();
+        return trialQuizNames.some(
+          (tn) => name === tn || name.includes(tn) || tn.includes(name)
+        );
+      });
+      filteredLegacyCount = filteredLegacy.length;
+      if (filteredLegacy.length > 0) {
+        filteredLegacyAvg =
+          filteredLegacy.reduce((sum, r) => sum + (r.score?.percentage || 0), 0) /
+          filteredLegacy.length;
+        const legacyDatesFiltered = filteredLegacy
+          .map((r) => r.date_submitted)
+          .filter(Boolean);
+        if (legacyDatesFiltered.length > 0) {
+          filteredLegacyLast = new Date(
+            Math.max(...legacyDatesFiltered.map((d) => new Date(d)))
+          );
+        }
+      }
+    }
+
+    const trialQuizCount = filteredLegacyCount + filteredNativeCount;
+    const trialTotalScored = filteredLegacyCount + filteredNativeCount;
+    let trialAvgScore = 0;
+    if (trialTotalScored > 0) {
+      trialAvgScore = Math.round(
+        (filteredLegacyAvg * filteredLegacyCount +
+          filteredNativeAvg * filteredNativeCount) /
+          trialTotalScored
+      );
+    }
+
+    const trialDates = [filteredNativeLast, filteredLegacyLast].filter(Boolean);
+    const trialLastActivity = trialDates.length
+      ? new Date(Math.max(...trialDates.map((d) => new Date(d))))
+      : null;
+
+    return {
+      quizCount: trialQuizCount,
+      averageScore: trialAvgScore,
+      lastActivity: trialLastActivity,
+    };
+  }
+
+  // ── Merge (active/paid children — count everything) ──
   const quizCount = legacyQuizCount + writingCount + nativeCount;
 
   // Weighted average across legacy + native
