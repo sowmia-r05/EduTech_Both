@@ -1,5 +1,5 @@
 /**
- * ManualQuizCreator.jsx  (v8 — DARK THEME + FREE TEXT PREVIEW)
+ * ManualQuizCreator.jsx  (v9 — DARK THEME + FREE TEXT PREVIEW)
  *
  *   ✅ File upload (images + PDFs) via drag-drop or click
  *   ✅ Per-question: voice_url, video_url, shuffle_options
@@ -236,17 +236,20 @@ function AddQuestionForm({ onAdd, onCancel }) {
         </label>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-slate-400 mb-1">🔊 Voice / Audio URL</label>
+            <label className="block text-xs text-slate-400 mb-1">🔊 Audio File</label>
             <div className="flex items-center gap-2">
-              <input type="url" value={q.voice_url} onChange={(e) => setQ((p) => ({ ...p, voice_url: e.target.value }))} placeholder="https://... .mp3"
+              <input type="url" value={q.voice_url} onChange={(e) => setQ((p) => ({ ...p, voice_url: e.target.value }))} placeholder="Paste URL or upload →"
                 className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none" />
-              <FileUploadButton accept="audio/*" label="📎" onUploaded={(url) => setQ((p) => ({ ...p, voice_url: url }))} />
+              <FileUploadButton accept="audio/*" label="Upload" onUploaded={(url) => setQ((p) => ({ ...p, voice_url: url }))} />
             </div>
           </div>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">🎬 Video URL</label>
-            <input type="url" value={q.video_url} onChange={(e) => setQ((p) => ({ ...p, video_url: e.target.value }))} placeholder="https://... YouTube / .mp4"
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none" />
+            <label className="block text-xs text-slate-400 mb-1">🎬 Video File</label>
+            <div className="flex items-center gap-2">
+              <input type="url" value={q.video_url} onChange={(e) => setQ((p) => ({ ...p, video_url: e.target.value }))} placeholder="Paste URL or upload →"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none" />
+              <FileUploadButton accept="video/*" label="Upload" onUploaded={(url) => setQ((p) => ({ ...p, video_url: url }))} />
+            </div>
           </div>
         </div>
       </div>
@@ -274,7 +277,7 @@ function AddQuestionForm({ onAdd, onCancel }) {
                 <div className="flex items-center gap-2 ml-8">
                   <input type="text" value={opt.image_url} onChange={(e) => updateOption(i, "image_url", e.target.value)} placeholder="Option image URL (optional)"
                     className="flex-1 bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1 text-xs text-slate-300 outline-none" />
-                  <FileUploadButton accept="image/*" label="📎"
+                  <FileUploadButton accept="image/*" label="Upload"
                     onUploaded={(url) => updateOption(i, "image_url", url)} />
                 </div>
                 {opt.image_url && (
