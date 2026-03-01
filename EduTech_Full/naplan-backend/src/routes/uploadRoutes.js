@@ -53,18 +53,20 @@ const fileFilter = (req, file, cb) => {
   const allowed = [
     "image/jpeg", "image/png", "image/gif",
     "image/webp", "image/svg+xml", "application/pdf",
+    "audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "audio/webm",
+    "video/mp4", "video/webm", "video/ogg", "video/quicktime",
   ];
   if (allowed.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("Only images (jpg, png, gif, webp, svg) and PDFs are allowed"), false);
+    cb(new Error("Allowed: images, PDFs, audio (mp3/wav/ogg), and video (mp4/webm/mov)"), false);
   }
 };
 
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
 });
 
 // ─── POST /upload — Single file upload ───
