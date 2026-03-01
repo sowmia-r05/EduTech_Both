@@ -485,7 +485,8 @@ export default function QuizUploader({ onUploadSuccess }) {
               <p className="text-xs text-slate-400 mt-1">Download, fill in your questions, then upload below.</p>
             </div>
             <a
-              href="/Quiz_Upload_Template.xlsx"
+              // Line 488
+            href="https://docs.google.com/spreadsheets/d/1EdN6coi8VePzQI0oM9d6Yh9aul9sr_oL/edit?usp=sharing&ouid=107123046742355467108&rtpof=true&sd=true"
               download="Quiz_Upload_Template.xlsx"
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
             >

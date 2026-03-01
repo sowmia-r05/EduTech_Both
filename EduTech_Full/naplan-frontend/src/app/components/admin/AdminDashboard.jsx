@@ -17,6 +17,7 @@ import { useNavigate } from "react-router-dom";
 import QuizUploader from "./QuizUploader";
 import BundlesTab from "./BundlesTab";
 import QuizSettingsExtras from "./QuizSettingsExtras";
+import ManualQuizCreator from "./ManualQuizCreator";
 
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
@@ -88,6 +89,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
     randomize_options: quiz.randomize_options || false,
     voice_url: quiz.voice_url || null,
     video_url: quiz.video_url || null,
+    max_attempts: quiz.max_attempts ?? null,
   });
   const [saving, setSaving] = useState(false);
 
@@ -104,6 +106,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
           difficulty: form.difficulty || null,
           voice_url: form.voice_url || null,
           video_url: form.video_url || null,
+          max_attempts: form.max_attempts,
         }),
       });
       if (!res.ok) {
@@ -142,50 +145,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
 
-          {/* Year + Subject */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Year Level</label>
-              <select value={form.year_level} onChange={u("year_level")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value={3}>Year 3</option><option value={5}>Year 5</option>
-                <option value={7}>Year 7</option><option value={9}>Year 9</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Subject</label>
-              <select value={form.subject} onChange={u("subject")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">— Select —</option>
-                <option value="Maths">Maths</option><option value="Reading">Reading</option>
-                <option value="Writing">Writing</option><option value="Conventions">Conventions</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Tier + Difficulty */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Bundle Tier</label>
-              <select value={form.tier} onChange={u("tier")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="A">A — Full Tests</option>
-                <option value="B">B — Topic Standard</option>
-                <option value="C">C — Topic Hard</option>
-                <option value="Trial">Trial — Free Sample</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Difficulty</label>
-              <select value={form.difficulty} onChange={u("difficulty")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">Auto / Not set</option>
-                <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Time Limit + Set Number */}
+          {/* Time Limit + Difficulty */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">Time Limit (minutes)</label>
@@ -194,10 +154,12 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
               <p className="text-[10px] text-slate-500 mt-1">Leave empty = unlimited time</p>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Set Number</label>
-              <input type="number" min="1" value={form.set_number} onChange={u("set_number")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              <p className="text-[10px] text-slate-500 mt-1">For quizzes with multiple sets</p>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Difficulty</label>
+              <select value={form.difficulty} onChange={u("difficulty")}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">Auto / Not set</option>
+                <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
+              </select>
             </div>
           </div>
 
@@ -215,7 +177,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
             </label>
           </div>
 
-          {/* ✅ Randomization + Voice & Video */}
+          {/* ✅ Retakes + Randomization + Voice & Video */}
           <QuizSettingsExtras form={form} onChange={setForm} />
         </div>
 
@@ -518,6 +480,7 @@ export default function AdminDashboard() {
           {[
             { id: "quizzes", label: "All Quizzes" },
             { id: "upload", label: "Upload Quiz" },
+            { id: "create", label: "✚ Create Quiz" },
             { id: "bundles", label: "Bundles" },
           ].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
@@ -530,6 +493,7 @@ export default function AdminDashboard() {
         </div>
 
         {tab === "upload" && <QuizUploader onUploadSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
+        {tab === "create" && <ManualQuizCreator isOpen={true} onClose={() => setTab("quizzes")} onSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
         {tab === "bundles" && <BundlesTab bundles={bundles} loading={bundlesLoading} quizzes={quizzes} onRefresh={fetchBundles} />}
         {tab === "quizzes" && (
           <>
