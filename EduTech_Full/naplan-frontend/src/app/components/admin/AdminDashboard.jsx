@@ -125,6 +125,18 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
           </div>
 
           {/* Time Limit + Difficulty */}
+          {/* Subject */}
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Subject</label>
+            <select value={form.subject} onChange={u("subject")}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="">Not set</option>
+              <option value="Maths">Maths</option>
+              <option value="Reading">Reading</option>
+              <option value="Writing">Writing</option>
+              <option value="Conventions">Language Conventions</option>
+            </select>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">Time Limit (minutes)</label>
@@ -516,6 +528,7 @@ export default function AdminDashboard() {
                       <tr className="border-b border-slate-800">
                         <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Quiz Name</th>
                         <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Year</th>
+                        <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-24">Subject</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-12">Qs</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Time</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Status</th>
@@ -537,8 +550,13 @@ export default function AdminDashboard() {
                                 <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase">Trial</span>
                               )}
                             </td>
-                            <td className="px-3 py-3 text-slate-300 text-xs">Yr {quiz.year_level}</td>
-                            <td className="px-3 py-3 text-center text-slate-400 font-mono text-xs">{quiz.question_count || 0}</td>
+                           <td className="px-3 py-3 text-slate-300 text-xs">Yr {quiz.year_level}</td>
+<td className="px-3 py-3 text-xs">
+  {quiz.subject
+    ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">{quiz.subject}</span>
+    : <span className="text-slate-600">—</span>}
+</td>
+<td className="px-3 py-3 text-center text-slate-400 font-mono text-xs">{quiz.question_count || 0}</td>
                             <td className="px-3 py-3 text-center text-xs">
                               {quiz.time_limit_minutes
                                 ? <span className="text-amber-400">{quiz.time_limit_minutes}m</span>
