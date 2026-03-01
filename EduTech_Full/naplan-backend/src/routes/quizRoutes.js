@@ -227,7 +227,7 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       .lean();
 
     // CRITICAL: Strip correct answer flags before sending to client
-    const safeQuestions = questions.map((q) => ({
+      const safeQuestions = questions.map((q) => ({
       question_id: q.question_id,
       type: q.type,
       text: q.text,
@@ -235,13 +235,15 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
         option_id: opt.option_id,
         text: opt.text,
         image_url: opt.image_url,
-        // ⚠️ NO correct field sent to client
       })),
       points: q.points,
       categories: q.categories,
       image_url: q.image_url,
       order: q.order,
+      voice_url: q.voice_url || null,   // ✅ ADD THIS
+      video_url: q.video_url || null,   // ✅ ADD THIS
     }));
+
 
     // ✅ Randomize question order if enabled
     if (quiz.randomize_questions) {

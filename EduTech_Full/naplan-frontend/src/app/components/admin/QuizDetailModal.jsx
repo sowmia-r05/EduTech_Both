@@ -1,16 +1,18 @@
 /**
- * QuizDetailModal.jsx  (v7 — DARK THEME + FREE TEXT PREVIEW)
+ * QuizDetailModal.jsx  (v9 — FILE UPLOAD FOR VOICE/VIDEO/IMAGE)
  *
  *   ✅ Shuffle cascade: quiz-level master → per-question override
  *   ✅ Per-question: voice_url, video_url, image resize (width + height)
  *   ✅ No quiz-level voice/video
  *   ✅ Collapsible image resize widget (no more endless scrolling)
  *   ✅ Student writing area preview when free_text is selected
+ *   ✅ Voice/Audio URL and Video URL inputs visible in Edit Question form
+ *   ✅ File upload buttons for Audio (.mp3/.wav/.ogg), Video (.mp4/.webm/.mov), and Images
  *
  * Place in: src/app/components/admin/QuizDetailModal.jsx
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import QuizSettingsExtras from "./QuizSettingsExtras";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import FreeTextPreview from "./FreeTextPreview";
@@ -20,6 +22,35 @@ const API = import.meta.env.VITE_API_BASE_URL || "";
 function adminFetch(url, opts = {}) {
   const token = localStorage.getItem("admin_token");
   return fetch(`${API}${url}`, { ...opts, headers: { "Content-Type": "application/json", ...opts.headers, Authorization: `Bearer ${token}` } });
+}
+
+/* ── File Upload Button (reusable) ── */
+function FileUploadButton({ onUploaded, accept = "image/*,.pdf", label = "Upload" }) {
+  const inputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const token = localStorage.getItem("admin_token");
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${API}/api/admin/upload`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Upload failed"); }
+      const data = await res.json();
+      onUploaded(data.url.startsWith("http") ? data.url : `${API}${data.url}`, data);
+    } catch (err) { alert(err.message); }
+    finally { setUploading(false); }
+  };
+  return (
+    <>
+      <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs text-slate-300 rounded-lg border border-slate-600 transition flex items-center gap-1.5 flex-shrink-0">
+        {uploading ? <><span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" /> Uploading...</> : <><span className="text-sm">📎</span> {label}</>}
+      </button>
+      <input ref={inputRef} type="file" accept={accept} className="hidden" onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }} />
+    </>
+  );
 }
 
 function HtmlContent({ html, className = "" }) {
@@ -106,9 +137,12 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
         </div>
       </div>
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Image URL</label>
-        <input type="text" value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+        <label className="block text-xs text-slate-400 mb-1">Image (paste URL or upload)</label>
+        <div className="flex items-center gap-2">
+          <input type="text" value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))} placeholder="https://... or upload →"
+            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+          <FileUploadButton accept="image/*,.pdf" label="Upload" onUploaded={(url) => setForm((f) => ({ ...f, image_url: url }))} />
+        </div>
       </div>
       <CollapsibleImageResize form={form} setForm={setForm} />
       <div>
@@ -116,7 +150,8 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
         <input type="text" value={form.explanation} onChange={(e) => setForm((f) => ({ ...f, explanation: e.target.value }))}
           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
       </div>
-      {/* Per-question settings */}
+
+      {/* ✅ Per-question settings — QUESTION SETTINGS BLOCK */}
       <div className="pt-3 border-t border-slate-700 space-y-3">
         <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Question Settings</p>
         <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
@@ -127,18 +162,42 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
         </label>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-slate-400 mb-1">🔊 Voice / Audio URL</label>
-            <input type="url" value={form.voice_url} onChange={(e) => setForm((f) => ({ ...f, voice_url: e.target.value }))} placeholder="https://... .mp3 / .wav"
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+            <label className="block text-xs text-slate-400 mb-1">🔊 Audio File (.mp3 / .wav / .ogg)</label>
+            <div className="flex items-center gap-2">
+              <input type="url" value={form.voice_url} onChange={(e) => setForm((f) => ({ ...f, voice_url: e.target.value }))} placeholder="Paste URL or upload →"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+              <FileUploadButton accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm,.mp3,.wav,.ogg" label="Upload MP3" onUploaded={(url) => setForm((f) => ({ ...f, voice_url: url }))} />
+            </div>
+            {form.voice_url && (
+              <div className="mt-1.5 flex items-center gap-2">
+                <audio src={form.voice_url} controls className="h-7 flex-1" preload="metadata" />
+                <button onClick={() => setForm((f) => ({ ...f, voice_url: "" }))} className="text-red-400 hover:text-red-300 text-xs flex-shrink-0">✕</button>
+              </div>
+            )}
           </div>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">🎬 Video URL</label>
-            <input type="url" value={form.video_url} onChange={(e) => setForm((f) => ({ ...f, video_url: e.target.value }))} placeholder="https://... YouTube / .mp4"
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+            <label className="block text-xs text-slate-400 mb-1">🎬 Video File (.mp4 / .webm / YouTube)</label>
+            <div className="flex items-center gap-2">
+              <input type="url" value={form.video_url} onChange={(e) => setForm((f) => ({ ...f, video_url: e.target.value }))} placeholder="Paste URL or upload →"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+              <FileUploadButton accept="video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.webm,.mov" label="Upload MP4" onUploaded={(url) => setForm((f) => ({ ...f, video_url: url }))} />
+            </div>
+            {form.video_url && (
+              <div className="mt-1.5 flex items-center gap-2">
+                {form.video_url.match(/youtube\.com|youtu\.be/) ? (
+                  <span className="text-xs text-green-400">✓ YouTube link attached</span>
+                ) : (
+                  <video src={form.video_url} controls className="w-full max-h-24 rounded border border-slate-700" preload="metadata" />
+                )}
+                <button onClick={() => setForm((f) => ({ ...f, video_url: "" }))} className="text-red-400 hover:text-red-300 text-xs flex-shrink-0">✕</button>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
       <FreeTextPreview form={form} />
+
       {/* Options */}
       {form.type !== "free_text" && (
         <div>
@@ -263,26 +322,27 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
             <div className="flex items-center gap-2">
               <button onClick={() => setEditSettings(!editSettings)}
                 className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded-lg transition">⚙️ Settings</button>
-              <button onClick={onClose} className="text-slate-500 hover:text-white p-1">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
+              <button onClick={onClose}
+                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">✕</button>
             </div>
           </div>
+
+          {/* Settings Panel */}
           {editSettings && (
-            <div className="mt-4 bg-slate-800/50 border border-slate-700 rounded-xl p-4 space-y-3">
+            <div className="mt-4 pt-4 border-t border-slate-700 space-y-3">
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Quiz Name</label>
+                  <label className="block text-xs text-slate-500 mb-1">Quiz Name</label>
                   <input type="text" value={settingsForm.quiz_name} onChange={(e) => setSettingsForm((f) => ({ ...f, quiz_name: e.target.value }))}
                     className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-white outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Time Limit (min)</label>
+                  <label className="block text-xs text-slate-500 mb-1">Time Limit (min)</label>
                   <input type="number" value={settingsForm.time_limit_minutes} onChange={(e) => setSettingsForm((f) => ({ ...f, time_limit_minutes: e.target.value }))} placeholder="No limit"
                     className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-white outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Difficulty</label>
+                  <label className="block text-xs text-slate-500 mb-1">Difficulty</label>
                   <select value={settingsForm.difficulty} onChange={(e) => setSettingsForm((f) => ({ ...f, difficulty: e.target.value }))}
                     className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-white outline-none">
                     <option value="">Auto</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
@@ -340,11 +400,11 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                       <button onClick={() => handleDeleteQuestion(q.question_id)} className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
                     </div>
                   </div>
-                  <div className="mb-3">
+                  <div className="mb-3 ml-10">
                     <HtmlContent html={q.text} className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
                   </div>
                   {q.image_url && !q.text?.includes(q.image_url) && (
-                    <div className="mb-3"><img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} /></div>
+                    <div className="mb-3 ml-10"><img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} /></div>
                   )}
                   {q.options?.length > 0 && (
                     <div className="space-y-1.5 ml-10">
