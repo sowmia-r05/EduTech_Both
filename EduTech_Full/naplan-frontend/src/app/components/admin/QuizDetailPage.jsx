@@ -1,10 +1,12 @@
 /**
- * QuizDetailPage.jsx  (v7 — DARK THEME)
+ * QuizDetailPage.jsx  (v8 — DARK THEME + FREE TEXT PREVIEW)
  *
  *   ✅ Inline "Add Question" — create new questions directly on this page
  *   ✅ Shuffle cascade: quiz-level master → per-question override
  *   ✅ Per-question: voice_url, video_url, image resize (width + height)
  *   ✅ Simplified settings, no quiz-level voice/video
+ *   ✅ Collapsible image resize widget (no more endless scrolling)
+ *   ✅ Student writing area preview when free_text is selected
  *
  * Place in: src/app/components/admin/QuizDetailPage.jsx
  */
@@ -12,6 +14,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import QuizSettingsExtras from "./QuizSettingsExtras";
+import CollapsibleImageResize from "./CollapsibleImageResize";
+import FreeTextPreview from "./FreeTextPreview";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -69,65 +73,6 @@ function TypeBadge({ type }) {
 }
 
 const IMAGE_SIZE_MAP = { small: "max-w-[200px]", medium: "max-w-md", large: "max-w-xl", full: "max-w-full" };
-
-/* ── Shared: Image Resize Widget ── */
-function ImageResizeWidget({ form, setForm }) {
-  if (!form.image_url) return null;
-  return (
-    <div className="bg-slate-900/60 border border-slate-700 rounded-xl p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-slate-300">↔ Image Width</p>
-        <span className="text-xs text-indigo-400 font-mono">{form.image_width ? `${form.image_width}px` : form.image_size}</span>
-      </div>
-      <div className="flex gap-2">
-        {[{ label: "S", value: "small", px: 200 },{ label: "M", value: "medium", px: 400 },{ label: "L", value: "large", px: 576 },{ label: "Full", value: "full", px: null }].map((p) => (
-          <button key={p.value} onClick={() => setForm((f) => ({ ...f, image_size: p.value, image_width: p.px }))}
-            className={`px-3 py-1 text-xs rounded-lg border transition ${form.image_size === p.value ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-800 border-slate-600 text-slate-400 hover:border-slate-500"}`}>{p.label}</button>
-        ))}
-      </div>
-      <div className="space-y-1">
-        <input type="range" min="80" max="900" step="10" value={form.image_width || 400}
-          onChange={(e) => { const w = parseInt(e.target.value); setForm((f) => ({ ...f, image_width: w, image_size: w <= 200 ? "small" : w <= 448 ? "medium" : w <= 576 ? "large" : "full" })); }}
-          className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
-        <div className="flex justify-between text-[10px] text-slate-600"><span>80px</span><span>900px</span></div>
-      </div>
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-slate-500">Exact width:</label>
-        <input type="number" min="50" max="1200" step="10" value={form.image_width || ""}
-          onChange={(e) => setForm((f) => ({ ...f, image_width: e.target.value ? parseInt(e.target.value) : null }))} placeholder="Auto"
-          className="w-24 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none text-center" />
-        <span className="text-xs text-slate-500">px</span>
-        {form.image_width && <button onClick={() => setForm((f) => ({ ...f, image_width: null }))} className="text-[10px] text-slate-500 hover:text-red-400 ml-1">Reset</button>}
-      </div>
-      <div className="pt-2 border-t border-slate-700/50 space-y-1">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-slate-300">↕ Image Height</p>
-          <span className="text-xs text-violet-400 font-mono">{form.image_height ? `${form.image_height}px` : "Auto"}</span>
-        </div>
-        <input type="range" min="40" max="800" step="10" value={form.image_height || 300}
-          onChange={(e) => setForm((f) => ({ ...f, image_height: parseInt(e.target.value) }))}
-          className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-500" />
-        <div className="flex justify-between text-[10px] text-slate-600"><span>40px</span><span>800px</span></div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-slate-500">Exact height:</label>
-          <input type="number" min="20" max="1200" step="10" value={form.image_height || ""}
-            onChange={(e) => setForm((f) => ({ ...f, image_height: e.target.value ? parseInt(e.target.value) : null }))} placeholder="Auto"
-            className="w-24 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none text-center" />
-          <span className="text-xs text-slate-500">px</span>
-          {form.image_height && <button onClick={() => setForm((f) => ({ ...f, image_height: null }))} className="text-[10px] text-slate-500 hover:text-red-400 ml-1">Reset</button>}
-        </div>
-      </div>
-      <div>
-        <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">Preview:</p>
-        <div className="overflow-auto max-h-80 bg-slate-950/50 rounded-lg p-2 border border-slate-800">
-          <img src={form.image_url} alt="Preview"
-            style={{ ...(form.image_width ? { width: `${form.image_width}px`, maxWidth: "100%" } : {}), ...(form.image_height ? { height: `${form.image_height}px`, objectFit: "contain" } : {}) }}
-            className={`${!form.image_width ? (IMAGE_SIZE_MAP[form.image_size] || "max-w-md") : ""} rounded-lg border border-slate-600`} />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ── Shared: Options Editor ── */
 function OptionsEditor({ form, setForm }) {
@@ -278,13 +223,14 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           <a href={form.image_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-red-400 hover:text-red-300">📄 PDF — click to preview</a>
         )}
       </div>
-      <ImageResizeWidget form={form} setForm={setForm} />
+      <CollapsibleImageResize form={form} setForm={setForm} />
       <div>
         <label className="block text-xs text-slate-400 mb-1">Explanation</label>
         <input type="text" value={form.explanation} onChange={(e) => setForm((f) => ({ ...f, explanation: e.target.value }))}
           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
       </div>
       <QuestionSettingsBlock form={form} setForm={setForm} quizRandomizeOptions={quizRandomizeOptions} />
+      <FreeTextPreview form={form} />
       <OptionsEditor form={form} setForm={setForm} />
       <div className="flex justify-end gap-2 pt-2">
         <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">Cancel</button>
@@ -391,13 +337,14 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
           <a href={form.image_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-red-400 hover:text-red-300">📄 PDF — click to preview</a>
         )}
       </div>
-      <ImageResizeWidget form={form} setForm={setForm} />
+      <CollapsibleImageResize form={form} setForm={setForm} />
       <div>
         <label className="block text-xs text-slate-400 mb-1">Explanation (shown after answer)</label>
         <input type="text" value={form.explanation} onChange={(e) => setForm((f) => ({ ...f, explanation: e.target.value }))}
           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
       </div>
       <QuestionSettingsBlock form={form} setForm={setForm} quizRandomizeOptions={quizRandomizeOptions} />
+      <FreeTextPreview form={form} />
       <OptionsEditor form={form} setForm={setForm} />
       <div className="flex justify-end gap-2 pt-2">
         <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">Cancel</button>
