@@ -1,18 +1,35 @@
+// src/app/components/landing/FreeTrialPage.jsx
+//
+// CHANGES FROM ORIGINAL:
+//   ✅ Added useAuth import to check login state
+//   ✅ handleStartTest now checks parentToken:
+//      - Logged in   → /start-test (existing behavior)
+//      - Not logged  → /parent/create?redirect=free-trial (new registration funnel)
+//   Everything else is IDENTICAL to the original.
+
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useAuth } from "@/app/context/AuthContext";
 
 export default function FreeTrialPage() {
   const navigate = useNavigate();
+  const { parentToken } = useAuth();
 
   const steps = [
-    "Select your child’s Year Level (3, 5, 7, or 9).",
+    "Select your child's Year Level (3, 5, 7, or 9).",
     "Complete a full-length NAPLAN-style practice test online.",
     "Receive instant scoring and detailed performance feedback.",
     "Identify strengths and areas for improvement with topic-wise insights.",
   ];
 
   const handleStartTest = () => {
-    navigate("/start-test"); // 🔥 Updated route
+    if (parentToken) {
+      // ✅ Already authenticated — go straight to test setup
+      navigate("/start-test");
+    } else {
+      // 🔒 Not logged in — funnel through registration, preserving intent
+      navigate("/parent/create?redirect=free-trial");
+    }
   };
 
   return (
@@ -69,7 +86,7 @@ export default function FreeTrialPage() {
             whileTap={{ scale: 0.97 }}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-16 py-5 rounded-2xl text-lg font-semibold shadow-lg hover:shadow-2xl transition"
           >
-            Start My Child’s Free Test
+            Start My Child's Free Test
           </motion.button>
 
           {/* Secondary Action */}
