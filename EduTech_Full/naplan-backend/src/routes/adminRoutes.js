@@ -6,6 +6,11 @@
  *
  * ✅ UPDATED: Added POST /bundles (create), DELETE /bundles/:bundleId,
  *    and expanded PATCH /bundles/:bundleId with multi-currency + swap fields.
+ * ✅ UPDATED: Quiz settings now support randomize_questions, randomize_options,
+ *    voice_url, video_url.
+ * ✅ FIXED: Bundle year_level is now optional free-text (not restricted to 3/5/7/9).
+ * ✅ FIXED: Bundle tier is now optional free-text (not restricted to A/B/C).
+ * ✅ FIXED: allowedFields indentation in PATCH /quizzes/:quizId.
  *
  * Mount in app.js:
  *   const adminRoutes = require("./routes/adminRoutes");
@@ -337,6 +342,10 @@ router.patch("/quizzes/:quizId", async (req, res) => {
       "subject",
       "is_active",
       "is_trial",
+      "randomize_questions",
+      "randomize_options",
+      "voice_url",
+      "video_url",
     ];
 
     const updates = {};
@@ -501,8 +510,9 @@ router.get("/bundles", async (req, res) => {
   }
 });
 
-// ─── ✅ NEW: Create a bundle manually ───
+// ─── Create a bundle manually ───
 // POST /api/admin/bundles
+// ✅ year_level is optional free-text, tier is optional free-text
 router.post("/bundles", async (req, res) => {
   try {
     const {
@@ -519,15 +529,9 @@ router.post("/bundles", async (req, res) => {
       subjects,
     } = req.body;
 
-    // Validation
+    // Validation — only bundle_name and price_cents are required
     if (!bundle_name || !bundle_name.trim()) {
       return res.status(400).json({ error: "bundle_name is required" });
-    }
-    if (!year_level || ![3, 5, 7, 9].includes(Number(year_level))) {
-      return res.status(400).json({ error: "year_level must be 3, 5, 7, or 9" });
-    }
-    if (!tier || !["A", "B", "C"].includes(tier)) {
-      return res.status(400).json({ error: "tier must be A, B, or C" });
     }
     if (price_cents === undefined || price_cents === null || Number(price_cents) < 0) {
       return res.status(400).json({ error: "price_cents is required and must be >= 0" });
@@ -538,6 +542,8 @@ router.post("/bundles", async (req, res) => {
     if (max_quiz_count !== undefined && (Number(max_quiz_count) < 1 || isNaN(Number(max_quiz_count)))) {
       return res.status(400).json({ error: "max_quiz_count must be a positive number" });
     }
+    // ✅ year_level — optional free-text (e.g. "Year 3", "Grade 5", "Level 1", or empty)
+    // ✅ tier — optional free-text (e.g. "A", "Premium", "Basic", or empty)
 
     // Validate swap sources exist (if provided)
     if (distribution_mode === "swap" && Array.isArray(swap_eligible_from) && swap_eligible_from.length > 0) {
@@ -553,16 +559,22 @@ router.post("/bundles", async (req, res) => {
       }
     }
 
-    // Generate bundle_id from name
-    const bundle_id =
-      `year${year_level}_${tier.toLowerCase()}_${bundle_name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/_+$/, "")}_${Date.now().toString(36)}`;
+    // Generate bundle_id from name (safe slugs for free-text values)
+    const yearSlug = year_level
+      ? String(year_level).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/_+$/, "")
+      : "general";
+    const tierSlug = tier
+      ? `_${String(tier).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/_+$/, "")}`
+      : "";
+    const nameSlug = bundle_name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/_+$/, "");
+    const bundle_id = `${yearSlug}${tierSlug}_${nameSlug}_${Date.now().toString(36)}`;
 
     const bundle = await QuizCatalog.create({
       bundle_id,
       bundle_name: bundle_name.trim(),
       description: (description || "").trim(),
-      year_level: Number(year_level),
-      tier,
+      year_level: year_level ? String(year_level).trim() : null,
+      tier: tier ? String(tier).trim() : null,
       price_cents: Number(price_cents),
       currency: currency || "aud",
       max_quiz_count: max_quiz_count ? Number(max_quiz_count) : undefined,
@@ -677,14 +689,15 @@ router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
   }
 });
 
-// ─── ✅ UPDATED: Update bundle settings (now supports all new fields) ───
+// ─── Update bundle settings (supports all fields) ───
 // PATCH /api/admin/bundles/:bundleId
+// ✅ year_level and tier are free-text for bundles — no hardcoded validation
 router.patch("/bundles/:bundleId", async (req, res) => {
   try {
     const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId });
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
 
-    // Original fields + new multi-currency / swap fields
+    // All allowed fields for bundle updates
     const allowed = [
       "bundle_name",
       "description",
@@ -712,15 +725,8 @@ router.patch("/bundles/:bundleId", async (req, res) => {
       return res.status(400).json({ error: "currency must be aud, inr, or usd" });
     }
 
-    // Validate year_level if provided
-    if (req.body.year_level && ![3, 5, 7, 9].includes(Number(req.body.year_level))) {
-      return res.status(400).json({ error: "year_level must be 3, 5, 7, or 9" });
-    }
-
-    // Validate tier if provided
-    if (req.body.tier && !["A", "B", "C"].includes(req.body.tier)) {
-      return res.status(400).json({ error: "tier must be A, B, or C" });
-    }
+    // ✅ year_level — free-text for bundles, no numeric validation
+    // ✅ tier — free-text for bundles, no A/B/C validation
 
     // If switching to standard mode, clear swap sources
     if (req.body.distribution_mode === "standard") {
@@ -750,7 +756,7 @@ router.patch("/bundles/:bundleId", async (req, res) => {
   }
 });
 
-// ─── ✅ NEW: Delete a bundle ───
+// ─── Delete a bundle ───
 // DELETE /api/admin/bundles/:bundleId
 router.delete("/bundles/:bundleId", async (req, res) => {
   try {

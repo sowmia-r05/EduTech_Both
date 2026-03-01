@@ -1,5 +1,5 @@
 /**
- * routes/quizRoutes.js  (v2 — ALL GAPS FILLED)
+ * routes/quizRoutes.js  (v3 — ALL GAPS FILLED + RANDOMIZE + MEDIA)
  *
  * Quiz-taking API routes for children (and parents viewing results).
  *
@@ -11,6 +11,9 @@
  *   ✅ Gap 5: Max attempts enforcement (configurable per quiz, default 5)
  *   ✅ Gap 6: Server-side timer with expires_at enforcement
  *   ✅ Gap 7: Resume quiz flow (GET /api/quizzes/:quizId/resume + GET /api/children/:childId/in-progress)
+ *   ✅ NEW: Randomize questions and options (Fisher-Yates shuffle)
+ *   ✅ NEW: Voice/video media URLs returned with questions
+ *   ✅ FIX: Closed missing try-catch block on GET /questions route
  *
  * Mount in app.js:
  *   const quizRoutes = require("./routes/quizRoutes");
@@ -211,6 +214,7 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
 // ═══════════════════════════════════════
 // GET /api/quizzes/:quizId/questions
 // Returns questions WITHOUT correct answers
+// ✅ Supports randomization + voice/video media
 // ═══════════════════════════════════════
 router.get("/quizzes/:quizId/questions", async (req, res) => {
   try {
@@ -239,7 +243,32 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       order: q.order,
     }));
 
-    res.json({ questions: safeQuestions, total: safeQuestions.length });
+    // ✅ Randomize question order if enabled
+    if (quiz.randomize_questions) {
+      for (let i = safeQuestions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [safeQuestions[i], safeQuestions[j]] = [safeQuestions[j], safeQuestions[i]];
+      }
+    }
+
+    // ✅ Randomize option order within each question if enabled
+    if (quiz.randomize_options) {
+      for (const q of safeQuestions) {
+        if (q.options && q.options.length > 1) {
+          for (let i = q.options.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [q.options[i], q.options[j]] = [q.options[j], q.options[i]];
+          }
+        }
+      }
+    }
+
+    res.json({
+      questions: safeQuestions,
+      // ✅ Include media URLs so the player can show them
+      voice_url: quiz.voice_url || null,
+      video_url: quiz.video_url || null,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
