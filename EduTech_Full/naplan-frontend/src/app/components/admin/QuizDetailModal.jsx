@@ -64,12 +64,49 @@ function TypeBadge({ type }) {
     checkbox: "bg-amber-500/10 text-amber-400 border-amber-500/20",
     picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
     free_text: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    short_answer: "bg-orange-500/10 text-orange-400 border-orange-500/20",
   };
-  const labels = { radio_button: "Single Choice", checkbox: "Multiple Choice", picture_choice: "Picture Choice", free_text: "Free Text" };
+  const labels = { radio_button: "Single Choice", checkbox: "Multiple Choice", picture_choice: "Picture Choice", free_text: "Free Text", short_answer: "Short Answer" };
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>{labels[type] || type}</span>;
 }
 
 const IMAGE_SIZE_MAP = { small: "max-w-[200px]", medium: "max-w-md", large: "max-w-xl", full: "max-w-full" };
+
+/* ── Short Answer correct answer input ── */
+function ShortAnswerEditor({ form, setForm }) {
+  if (form.type !== "short_answer") return null;
+  const answers = (form.correct_answer || "").split("|").filter(Boolean);
+  return (
+    <div className="pt-3 border-t border-slate-700 space-y-3">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">✍️ Correct Answer</p>
+      <div>
+        <label className="block text-xs text-slate-400 mb-1">
+          Expected Answer(s) <span className="text-slate-600">— separate multiple accepted answers with | (pipe)</span>
+        </label>
+        <input type="text" value={form.correct_answer}
+          onChange={(e) => setForm((f) => ({ ...f, correct_answer: e.target.value }))}
+          placeholder='e.g. "1025" or "1 025|1025|one thousand twenty-five"'
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-orange-500" />
+        {answers.length > 1 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {answers.map((a, i) => (
+              <span key={i} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-[10px] font-medium">
+                ✓ {a.trim()}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <input type="checkbox" checked={form.case_sensitive}
+          onChange={(e) => setForm((f) => ({ ...f, case_sensitive: e.target.checked }))}
+          className="rounded border-slate-600 bg-slate-800 text-orange-500 focus:ring-orange-500" />
+        Case-sensitive grading
+        <span className="text-[10px] text-slate-500">(default: ignores case)</span>
+      </label>
+    </div>
+  );
+}
 
 /* ── Question Editor ── */
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
@@ -80,6 +117,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     image_size: question.image_size || "medium", image_width: question.image_width || null, image_height: question.image_height || null,
     explanation: question.explanation || "", shuffle_options: resolvedShuffle,
     voice_url: question.voice_url || "", video_url: question.video_url || "",
+    correct_answer: question.correct_answer || "", case_sensitive: question.case_sensitive || false,
     options: (question.options || []).map((o) => ({ option_id: o.option_id, text: o.text || "", image_url: o.image_url || "", correct: o.correct || false })),
   });
   const [saving, setSaving] = useState(false);
@@ -100,7 +138,9 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       text: form.text, type: form.type, points: form.points, category: form.category,
       image_url: form.image_url, image_size: form.image_size, image_width: form.image_width, image_height: form.image_height,
       explanation: form.explanation, shuffle_options: form.shuffle_options,
-      voice_url: form.voice_url || null, video_url: form.video_url || null, options: form.options,
+      voice_url: form.voice_url || null, video_url: form.video_url || null,
+      correct_answer: form.correct_answer || null, case_sensitive: form.case_sensitive,
+      options: form.options,
     });
     setSaving(false);
   };
@@ -122,7 +162,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
             <option value="radio_button">Single Choice</option><option value="checkbox">Multiple Choice</option>
-            <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text</option>
+            <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text</option><option value="short_answer">Short Answer</option>
           </select>
         </div>
         <div>
@@ -197,9 +237,10 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       </div>
 
       <FreeTextPreview form={form} />
+      <ShortAnswerEditor form={form} setForm={setForm} />
 
       {/* Options */}
-      {form.type !== "free_text" && (
+      {form.type !== "free_text" && form.type !== "short_answer" && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs text-slate-400">Options (check = correct)</label>
@@ -406,6 +447,33 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                   {q.image_url && !q.text?.includes(q.image_url) && (
                     <div className="mb-3 ml-10"><img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} /></div>
                   )}
+                  {/* Audio & Video preview players */}
+                  {(q.voice_url || q.video_url) && (
+                    <div className="mb-3 ml-10 space-y-2">
+                      {q.voice_url && (
+                        <div className="flex items-center gap-3 bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/50">
+                          <span className="text-sm">🔊</span>
+                          <audio src={q.voice_url} controls preload="metadata" className="h-8 flex-1" />
+                          <span className="text-[10px] text-slate-500 flex-shrink-0">{q.voice_url.split('/').pop()?.slice(0, 30)}</span>
+                        </div>
+                      )}
+                      {q.video_url && (
+                        <div className="bg-slate-800/60 rounded-lg border border-slate-700/50 overflow-hidden">
+                          {q.video_url.match(/youtube\.com|youtu\.be/) ? (
+                            <iframe
+                              src={`https://www.youtube.com/embed/${q.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)?.[1]}`}
+                              className="w-full aspect-video max-h-48 rounded-lg"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                              title="Quiz Video"
+                            />
+                          ) : (
+                            <video src={q.video_url} controls preload="metadata" className="w-full max-h-48 rounded-lg" />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {q.options?.length > 0 && (
                     <div className="space-y-1.5 ml-10">
                       {q.options.map((opt, oi) => {
@@ -420,6 +488,18 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+                  {q.type === "short_answer" && q.correct_answer && (
+                    <div className="mt-3 ml-10 px-3 py-2 bg-orange-500/5 border border-orange-500/10 rounded-lg">
+                      <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wider mb-1">✍️ Correct Answer</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {q.correct_answer.split("|").map((a, i) => (
+                          <span key={i} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-xs font-medium">
+                            {a.trim()}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {q.explanation && (
