@@ -278,36 +278,95 @@ router.get("/history", verifyToken, requireParent, async (req, res) => {
 // GET /api/payments/verify/:sessionId
 // Returns purchase details after Stripe redirect (for the success modal).
 // ────────────────────────────────────────────
-router.get("/verify/:sessionId", verifyToken, requireParent, async (req, res) => {
-  try {
-    await connectDB();
-    const parentId = req.user?.parentId || req.user?.parent_id;
-    const { sessionId } = req.params;
+router.get(
+  "/verify/:sessionId",
+  verifyToken,
+  requireParent,
+  async (req, res) => {
+    try {
+      await connectDB();
+      const parentId = req.user?.parentId || req.user?.parent_id;
+      const { sessionId } = req.params;
 
-    const purchase = await Purchase.findOne({
-      stripe_session_id: sessionId,
-      parent_id: parentId,
-    })
-      .populate("child_ids", "display_name username year_level status")
-      .lean();
+      let purchase = await Purchase.findOne({
+        stripe_session_id: sessionId,
+        parent_id: parentId,
+      }).lean();
 
-    if (!purchase) {
-      return res.status(404).json({ error: "Purchase not found" });
+      if (!purchase) {
+        return res.status(404).json({ error: "Purchase not found" });
+      }
+
+      // ── FIX: If still pending, check Stripe directly ──
+      if (purchase.status === "pending") {
+        try {
+          const stripeSession =
+            await stripe.checkout.sessions.retrieve(sessionId);
+
+          if (stripeSession.payment_status === "paid") {
+            // Webhook hasn't arrived yet — update the purchase ourselves
+            await Purchase.findByIdAndUpdate(purchase._id, {
+              $set: {
+                status: "paid",
+                stripe_payment_intent: stripeSession.payment_intent,
+              },
+            });
+            purchase = {
+              ...purchase,
+              status: "paid",
+              stripe_payment_intent: stripeSession.payment_intent,
+            };
+
+            console.log(
+              `💰 Verify fallback: Payment confirmed for purchase ${purchase._id}`,
+            );
+
+            // Trigger provisioning in background
+            setImmediate(async () => {
+              try {
+                const result = await provisionPurchase(purchase._id.toString());
+                if (result.success) {
+                  console.log(
+                    `✅ Verify fallback: Provisioning complete for purchase ${purchase._id}`,
+                  );
+                } else {
+                  console.error(
+                    `❌ Verify fallback: Provisioning failed:`,
+                    result.error,
+                  );
+                }
+              } catch (err) {
+                console.error("Verify fallback provisioning error:", err);
+              }
+            });
+          }
+        } catch (stripeErr) {
+          console.warn("Stripe session check failed:", stripeErr.message);
+          // Continue with whatever status we have from DB
+        }
+      }
+
+      // Re-fetch with populated children (status may have changed from provisioning)
+      const freshPurchase = await Purchase.findById(purchase._id)
+        .populate("child_ids", "display_name username year_level status")
+        .lean();
+
+      const bundle = await QuizCatalog.findOne({
+        bundle_id: freshPurchase.bundle_id,
+      }).lean();
+
+      return res.json({
+        ok: true,
+        purchase: freshPurchase,
+        children: freshPurchase.child_ids,
+        bundle: bundle || null,
+      });
+    } catch (err) {
+      console.error("Payment verify error:", err);
+      return res.status(500).json({ error: "Failed to verify payment" });
     }
-
-    const bundle = await QuizCatalog.findOne({ bundle_id: purchase.bundle_id }).lean();
-
-    return res.json({
-      ok: true,
-      purchase,
-      children: purchase.child_ids,
-      bundle: bundle || null,
-    });
-  } catch (err) {
-    console.error("Payment verify error:", err);
-    return res.status(500).json({ error: "Failed to verify payment" });
-  }
-});
+  },
+);
 
 // ────────────────────────────────────────────
 // POST /api/payments/retry/:purchaseId

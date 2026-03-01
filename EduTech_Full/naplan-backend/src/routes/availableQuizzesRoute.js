@@ -2,8 +2,15 @@
  * routes/availableQuizzesRoute.js
  *
  * ═══════════════════════════════════════════════════════════════
- * NEW ENDPOINT: Returns admin-uploaded quizzes for the child dashboard.
+ * Returns admin-uploaded quizzes for the child dashboard.
  * Replaces the hardcoded QUIZ_CATALOG in ChildDashboard.jsx.
+ *
+ * ✅ FIX: Trial children now only receive quizzes they're entitled to
+ *    (is_trial quizzes only). Paid quizzes are filtered out on the backend
+ *    so they never reach the frontend for trial users.
+ *
+ * ✅ PATCHED: Added normalizeSubject() to map admin subjects
+ *    ("Maths", "Conventions") to dashboard subjects ("Numeracy", "Language")
  * ═══════════════════════════════════════════════════════════════
  *
  * Mount in app.js:
@@ -20,9 +27,58 @@ const Child = require("../models/child");
 const router = express.Router();
 
 // ═══════════════════════════════════════
+// Subject normalization — maps admin/legacy subject names
+// to the standard 4 NAPLAN subjects used by the child dashboard:
+//   "Reading", "Writing", "Numeracy", "Language"
+// ═══════════════════════════════════════
+function normalizeSubject(subject) {
+  if (!subject) return "Other";
+  const s = subject.toLowerCase().trim();
+
+  // Numeracy variants
+  if (
+    s === "maths" ||
+    s === "math" ||
+    s === "mathematics" ||
+    s === "numeracy" ||
+    s.includes("numeracy") ||
+    s.includes("number and algebra") ||
+    s.includes("statistics") ||
+    s.includes("measurement") ||
+    s.includes("probability") ||
+    s.includes("geometry")
+  ) {
+    return "Numeracy";
+  }
+
+  // Language variants
+  if (
+    s === "conventions" ||
+    s === "language conventions" ||
+    s === "language_convention" ||
+    s.includes("convention") ||
+    s.includes("grammar") ||
+    s.includes("punctuation") ||
+    s.includes("spelling")
+  ) {
+    return "Language";
+  }
+
+  // Language (exact match — must come AFTER conventions check)
+  if (s === "language") return "Language";
+
+  // Reading
+  if (s === "reading" || s.includes("reading")) return "Reading";
+
+  // Writing
+  if (s === "writing" || s.includes("writing")) return "Writing";
+
+  return "Other";
+}
+
+// ═══════════════════════════════════════
 // GET /api/children/:childId/available-quizzes
-// Returns all active quizzes the child can take
-// Replaces the hardcoded QUIZ_CATALOG in ChildDashboard
+// Returns quizzes the child can take based on their status
 // ═══════════════════════════════════════
 router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, async (req, res) => {
   try {
@@ -31,7 +87,7 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
     const childId = req.params.childId;
 
     // Auth check: child can see own quizzes, parent can see any of their children's
-    const isChild = String(tokenChildId) === childId;
+    const isChild = role === "child" && String(tokenChildId) === childId;
     const isParent = role === "parent";
     if (!isChild && !isParent) {
       return res.status(403).json({ error: "Access denied" });
@@ -46,21 +102,32 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // Fetch all active quizzes for child's year level from MongoDB
-    // These are the quizzes uploaded by admin via QuizUploader
-    const quizzes = await Quiz.find({
+    // Determine child's status and entitlements
+    const childEntitledQuizIds = child.entitled_quiz_ids || [];
+    const childStatus = child.status || "trial";
+
+    // ═══════════════════════════════════════
+    // ✅ FIX: Build query based on child status
+    // Trial children → only see trial quizzes
+    // Active children → see all quizzes for their year level
+    // ═══════════════════════════════════════
+    const query = {
       is_active: true,
       year_level: child.year_level,
-    })
+    };
+
+    // If child is on trial, only fetch trial quizzes from the database
+    // This prevents paid quizzes from ever reaching the frontend
+    if (childStatus === "trial") {
+      query.is_trial = true;
+    }
+
+    const quizzes = await Quiz.find(query)
       .sort({ subject: 1, quiz_name: 1 })
       .select(
         "quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number"
       )
       .lean();
-
-    // Determine entitlements
-    const childEntitledQuizIds = child.entitled_quiz_ids || [];
-    const childStatus = child.status || "trial";
 
     const enrichedQuizzes = quizzes.map((q) => {
       // A child is entitled to a quiz if:
@@ -75,7 +142,7 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
       return {
         quiz_id: q.quiz_id,
         quiz_name: q.quiz_name,
-        subject: q.subject,
+        subject: normalizeSubject(q.subject),
         year_level: q.year_level,
         tier: q.tier || "A",
         difficulty: q.difficulty || "Standard",
@@ -88,7 +155,11 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
       };
     });
 
-    res.json({ quizzes: enrichedQuizzes });
+    // ✅ Also return child_status so frontend knows without extra API call
+    res.json({
+      quizzes: enrichedQuizzes,
+      child_status: childStatus,
+    });
   } catch (err) {
     console.error("Available quizzes error:", err);
     res.status(500).json({ error: err.message });

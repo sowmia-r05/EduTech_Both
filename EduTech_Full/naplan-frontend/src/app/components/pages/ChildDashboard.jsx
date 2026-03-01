@@ -4,6 +4,7 @@ import { useAuth } from "@/app/context/AuthContext";
 import { fetchChildResults, fetchChildrenSummaries, fetchAvailableQuizzes } from "@/app/utils/api-children"; // ✅ UPDATED
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import NativeQuizPlayer from "@/app/components/quiz/NativeQuizPlayer";
+import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
 
 /* ─── Subject inference from quiz name ─── */
 function inferSubject(quizName) {
@@ -13,6 +14,18 @@ function inferSubject(quizName) {
   if (q.includes("language") || q.includes("convention") || q.includes("grammar")) return "Language";
   if (q.includes("reading")) return "Reading";
   if (q.includes("writing")) return "Writing";
+  return "Other";
+}
+
+function normalizeSubject(subject) {
+  if (!subject) return "Other";
+  const s = subject.toLowerCase().trim();
+  if (s === "maths" || s === "math" || s === "mathematics" || s.includes("numeracy") || s.includes("number")) return "Numeracy";
+  if (s === "conventions" || s.includes("convention") || s.includes("grammar") || s.includes("punctuation") || s.includes("spelling") || s === "language_convention") return "Language";
+  if (s === "language") return "Language";
+  if (s.includes("reading")) return "Reading";
+  if (s.includes("writing")) return "Writing";
+  if (["Reading", "Writing", "Numeracy", "Language"].includes(subject)) return subject;
   return "Other";
 }
 
@@ -196,11 +209,11 @@ export default function ChildDashboard() {
   useEffect(() => {
     if (!activeToken || !childId) { setQuizzesLoading(false); return; }
     setQuizzesLoading(true);
-    fetchAvailableQuizzes(activeToken, childId)
-      .then((quizzes) => {
-        console.log(`✅ Fetched ${quizzes.length} available quizzes from backend`);
-        setAvailableQuizzes(quizzes);
-      })
+   fetchAvailableQuizzes(activeToken, childId)
+     .then((quizzes) => {
+       console.log(`✅ Fetched ${quizzes.length} available quizzes from backend`);
+       setAvailableQuizzes(quizzes.map((q) => ({ ...q, subject: normalizeSubject(q.subject) })));
+     })
       .catch((err) => {
         console.error("Failed to fetch available quizzes:", err);
         setAvailableQuizzes([]);
@@ -217,7 +230,7 @@ export default function ChildDashboard() {
         setTests(results.map((r) => ({
           id: r._id,
           response_id: r.response_id,
-          subject: r.subject || inferSubject(r.quiz_name), // ✅ use backend subject first
+          subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)), // ✅ use backend subject first
           name: r.quiz_name || "Untitled Quiz",
           score: Math.round(r.score?.percentage || 0),
           date: r.date_submitted || r.createdAt,
@@ -355,7 +368,7 @@ export default function ChildDashboard() {
           setTests(results.map((r) => ({
             id: r._id,
             response_id: r.response_id,
-            subject: r.subject || inferSubject(r.quiz_name),
+            subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
             name: r.quiz_name || "Untitled Quiz",
             score: Math.round(r.score?.percentage || 0),
             date: r.date_submitted || r.createdAt,
@@ -369,7 +382,7 @@ export default function ChildDashboard() {
 
       // Also refresh available quizzes (attempt count may have changed)
       fetchAvailableQuizzes(activeToken, childId)
-        .then((quizzes) => setAvailableQuizzes(quizzes))
+        .then((quizzes) => setAvailableQuizzes(quizzes.map((q) => ({ ...q, subject: normalizeSubject(q.subject) }))))
         .catch(() => {});
     }
   };
@@ -393,18 +406,56 @@ export default function ChildDashboard() {
   }
 
   if (showAnalytics) {
+    // Determine viewer type
+    const viewerType = childToken && !isParentViewing
+      ? "child"
+      : isParentViewing
+        ? "parent_viewing_child"
+        : "parent";
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
+        {/* Sticky nav bar — unchanged */}
         <div className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3">
           <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
-            <button onClick={() => setShowAnalytics(false)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-all">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            <button
+              onClick={() => setShowAnalytics(false)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+                         text-slate-700 bg-white border border-slate-200 shadow-sm
+                         hover:bg-slate-50 hover:border-slate-300 transition-all"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
               Back to Dashboard
             </button>
-            <span className="text-sm text-slate-500 hidden sm:inline">{displayName}'s Analytics</span>
+            <span className="text-sm text-slate-500 hidden sm:inline">
+              {displayName}'s Analytics
+            </span>
           </div>
         </div>
-        <StudentDashboardAnalytics tests={tests} displayName={displayName} yearLevel={yearLevel} embedded={true} onLogout={() => { if (childToken) logoutChild(); else logout(); navigate("/"); }} />
+
+        {/* ✅ Wrap analytics in TrialGateOverlay */}
+        <TrialGateOverlay
+          isTrialUser={childStatus === "trial"}
+          preset="analytics"
+          viewerType={viewerType}
+          onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")}
+          onBack={() => setShowAnalytics(false)}
+          yearLevel={yearLevel}
+        >
+          <StudentDashboardAnalytics
+            tests={tests}
+            displayName={displayName}
+            yearLevel={yearLevel}
+            embedded={true}
+            onLogout={() => {
+              if (childToken) { logoutChild(); }
+              else { logout(); }
+              navigate("/");
+            }}
+          />
+        </TrialGateOverlay>
       </div>
     );
   }

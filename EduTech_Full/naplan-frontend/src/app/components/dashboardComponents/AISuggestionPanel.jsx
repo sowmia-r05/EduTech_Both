@@ -1,13 +1,49 @@
+/**
+ * AISuggestionPanel.jsx
+ *
+ * ✅ UPDATED: Shows loading spinner when AI is auto-generating
+ *    instead of returning null (which left an empty white box).
+ *
+ * New prop: isRegenerating — boolean, shows spinner while generating.
+ */
 export default function AISuggestionPanel({
   suggestions,
   studyTips = [],
   topicWiseTips = [],
+  isRegenerating = false,
 }) {
   const hasSuggestions = Array.isArray(suggestions) && suggestions.length > 0;
   const hasStudyTips = Array.isArray(studyTips) && studyTips.length > 0;
   const hasTopicWiseTips = Array.isArray(topicWiseTips) && topicWiseTips.length > 0;
 
-  if (!hasSuggestions && !hasStudyTips && !hasTopicWiseTips) return null;
+  // ✅ If nothing to show, display loading or empty state
+  if (!hasSuggestions && !hasStudyTips && !hasTopicWiseTips) {
+    return (
+      <div>
+        <h3 className="text-lg font-semibold mb-3 text-amber-600">
+          AI Study Recommendations
+        </h3>
+        <div className="flex flex-col items-center justify-center text-center py-6">
+          {isRegenerating ? (
+            <>
+              <div className="w-8 h-8 mb-3 relative">
+                <div className="absolute inset-0 rounded-full border-3 border-amber-100" />
+                <div className="absolute inset-0 rounded-full border-3 border-transparent border-t-amber-500 animate-spin" />
+              </div>
+              <p className="text-slate-500 text-xs">Generating study recommendations…</p>
+            </>
+          ) : (
+            <>
+              <div className="text-2xl mb-2 opacity-40">📚</div>
+              <p className="text-slate-400 text-xs">
+                Study recommendations not available for this attempt
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const displayTitleMap = {
     Improvement: "What to Focus On Next",
@@ -51,7 +87,6 @@ export default function AISuggestionPanel({
 
   return (
     <div>
-      {/* Header — amber instead of blue */}
       <h3 className="text-lg font-semibold mb-3 text-amber-600">
         AI Study Recommendations
       </h3>
@@ -73,7 +108,7 @@ export default function AISuggestionPanel({
                   <div className="space-y-2">
                     {items.map((tip, i) => (
                       <p key={i} className="text-sm text-gray-600 flex items-start gap-2">
-                        <span className="text-gray-400">➜</span>
+                        <span className="text-amber-500 mt-0.5">→</span>
                         <span>{tip}</span>
                       </p>
                     ))}
@@ -81,29 +116,36 @@ export default function AISuggestionPanel({
                 )}
 
                 {title === "Topic Wise Tips" && (
-                  <div className="space-y-4">
-                    {items.map((block, idx) => (
-                      <div key={`${block?.topic || "topic"}-${idx}`}>
-                        <h5 className="text-sm font-semibold text-gray-700 mb-1">
-                          {block?.topic}
-                        </h5>
-                        <div className="space-y-1 pl-3">
-                          {(block?.tips || []).map((tip, i) => (
-                            <p key={i} className="text-sm text-gray-600 flex items-start gap-2">
-                              <span className="text-gray-400">➜</span>
-                              <span>{tip}</span>
-                            </p>
-                          ))}
+                  <div className="space-y-3">
+                    {items.map((item, i) => {
+                      if (!item?.topic || !Array.isArray(item.tips)) return null;
+                      return (
+                        <div key={i}>
+                          <p className="text-sm font-semibold text-gray-700 mb-1">
+                            📌 {item.topic}
+                          </p>
+                          <div className="space-y-1 ml-4">
+                            {item.tips.map((tip, j) => (
+                              <p key={j} className="text-sm text-gray-600 flex items-start gap-2">
+                                <span className="text-green-500 mt-0.5">•</span>
+                                <span>{tip}</span>
+                              </p>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
                 {title !== "Study Tips" && title !== "Topic Wise Tips" && (
-                  <p className="text-sm text-gray-600 text-justify">
-                    {Array.isArray(items) ? items.join(" ") : String(items)}
-                  </p>
+                  <div className="space-y-2">
+                    {items.map((desc, i) => (
+                      <p key={i} className="text-sm text-gray-600 leading-snug">
+                        {desc}
+                      </p>
+                    ))}
+                  </div>
                 )}
               </div>
             );

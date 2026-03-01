@@ -188,15 +188,22 @@ export async function fetchChildQuizzes(token, childId) {
  * Fetch all available quizzes for a child from admin-uploaded quiz database.
  * Returns quizzes that match the child's year level, with entitlement info.
  *
- * This replaces the hardcoded QUIZ_CATALOG in ChildDashboard.jsx.
+ * ✅ FIX: Now also returns child_status from the backend so the frontend
+ * doesn't have to guess or rely on stale localStorage data.
+ *
+ * For TRIAL children: backend only returns is_trial quizzes (paid quizzes are filtered out)
+ * For ACTIVE children: backend returns all quizzes for their year level
  *
  * @param {string} token - Parent or Child JWT
  * @param {string} childId - MongoDB _id of the child
- * @returns {Promise<Array>} Array of quiz objects with is_entitled flag
+ * @returns {Promise<{ quizzes: Array, child_status: string }>}
  */
 export async function fetchAvailableQuizzes(token, childId) {
   const data = await authGet(`/api/children/${childId}/available-quizzes`, token);
-  return data?.quizzes || [];
+  return {
+    quizzes: data?.quizzes || [],
+    child_status: data?.child_status || "trial",
+  };
 }
 
 /**
