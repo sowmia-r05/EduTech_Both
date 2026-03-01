@@ -346,8 +346,8 @@ function AddQuestionForm({ onAdd, onCancel }) {
    ═══════════════════════════════════════ */
 export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
   const [meta, setMeta] = useState({
-    quiz_name: "", year_level: 0, subject: "", tier: "A",
-    time_limit_minutes: 30, difficulty: "", set_number: 1, is_trial: false,
+    quiz_name: "", year_level: "", time_limit_minutes: 30,
+    difficulty: "", set_number: 1, is_trial: false,
   });
   const [questions, setQuestions] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -368,14 +368,21 @@ export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
   const handleSubmit = async () => {
     setError("");
     if (!meta.quiz_name.trim()) return setError("Quiz title is required");
-    if (![3, 5, 7, 9].includes(meta.year_level)) return setError("Year level must be 3, 5, 7, or 9");
-    if (!["Maths", "Reading", "Writing", "Conventions"].includes(meta.subject)) return setError("Subject is required");
-    if (questions.length === 0) return setError("Add at least one question");
     setSubmitting(true);
     try {
       const res = await adminFetch("/api/admin/quizzes/upload", {
         method: "POST",
-        body: JSON.stringify({ quiz: { quiz_name: meta.quiz_name.trim(), year_level: meta.year_level, subject: meta.subject, tier: meta.tier, time_limit_minutes: meta.time_limit_minutes || null, difficulty: meta.difficulty || null, set_number: meta.set_number || 1, is_trial: meta.is_trial }, questions }),
+        body: JSON.stringify({
+          quiz: {
+            quiz_name: meta.quiz_name.trim(),
+            year_level: meta.year_level.trim() || null,
+            time_limit_minutes: meta.time_limit_minutes || null,
+            difficulty: meta.difficulty || null,
+            set_number: meta.set_number || 1,
+            is_trial: meta.is_trial,
+          },
+          questions,
+        }),
       });
       if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.error || `Upload failed (${res.status})`); }
       onSuccess?.(); onClose();
@@ -407,32 +414,17 @@ export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
               className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Year Level *</label>
-              <select value={meta.year_level} onChange={(e) => setMeta((m) => ({ ...m, year_level: parseInt(e.target.value) || 0 }))}
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white outline-none">
-                <option value={0}>Select...</option><option value={3}>Year 3</option><option value={5}>Year 5</option><option value={7}>Year 7</option><option value={9}>Year 9</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Subject *</label>
-              <select value={meta.subject} onChange={(e) => setMeta((m) => ({ ...m, subject: e.target.value }))}
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white outline-none">
-                <option value="">Select...</option><option value="Maths">Maths</option><option value="Reading">Reading</option><option value="Writing">Writing</option><option value="Conventions">Conventions</option>
-              </select>
+              <label className="block text-sm font-medium text-slate-300 mb-1">Year Level</label>
+              <input type="text" value={meta.year_level} onChange={(e) => setMeta((m) => ({ ...m, year_level: e.target.value }))}
+                placeholder="e.g. Year 3, Grade 5, Level 1"
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white outline-none" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1">Time (min)</label>
               <input type="number" value={meta.time_limit_minutes || ""} onChange={(e) => setMeta((m) => ({ ...m, time_limit_minutes: e.target.value ? parseInt(e.target.value) : null }))} placeholder="No limit"
                 className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white outline-none" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Tier</label>
-              <select value={meta.tier} onChange={(e) => setMeta((m) => ({ ...m, tier: e.target.value }))}
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white outline-none">
-                <option value="A">A</option><option value="B">B</option><option value="C">C</option>
-              </select>
             </div>
           </div>
 
@@ -487,7 +479,7 @@ export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
           <span className="text-xs text-slate-500">{questions.length} question{questions.length !== 1 ? "s" : ""} added</span>
           <div className="flex gap-3">
             <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancel</button>
-            <button onClick={handleSubmit} disabled={submitting || questions.length === 0}
+            <button onClick={handleSubmit} disabled={submitting}
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg">
               {submitting ? "Creating..." : "Create Quiz"}
             </button>

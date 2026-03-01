@@ -23,6 +23,35 @@ function adminFetch(url, opts = {}) {
   });
 }
 
+/* ── File Upload Button (reusable) ── */
+function FileUploadButton({ onUploaded, accept = "image/*,.pdf", label = "Upload" }) {
+  const [uploading, setUploading] = useState(false);
+  const inputRef = { current: null };
+  const uploadFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const token = localStorage.getItem("admin_token");
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${API}/api/admin/upload`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Upload failed"); }
+      const data = await res.json();
+      onUploaded(data.url.startsWith("http") ? data.url : `${API}${data.url}`, data);
+    } catch (err) { alert(err.message); }
+    finally { setUploading(false); }
+  };
+  return (
+    <>
+      <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs text-slate-300 rounded-lg border border-slate-600 transition flex items-center gap-1.5 flex-shrink-0">
+        {uploading ? <><span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" /> Uploading...</> : <><span className="text-sm">📎</span> {label}</>}
+      </button>
+      <input ref={(el) => (inputRef.current = el)} type="file" accept={accept} className="hidden" onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }} />
+    </>
+  );
+}
+
 function HtmlContent({ html, className = "" }) {
   if (!html) return null;
   return <div className={className} dangerouslySetInnerHTML={{ __html: html }} />;
@@ -130,8 +159,11 @@ function OptionsEditor({ form, setForm }) {
             <input type="text" value={opt.text} onChange={(e) => updateOption(i, "text", e.target.value)} placeholder="Option text..."
               className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
             {form.type === "picture_choice" && (
-              <input type="text" value={opt.image_url || ""} onChange={(e) => updateOption(i, "image_url", e.target.value)} placeholder="Image URL..."
-                className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
+              <>
+                <input type="text" value={opt.image_url || ""} onChange={(e) => updateOption(i, "image_url", e.target.value)} placeholder="Image URL..."
+                  className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
+                <FileUploadButton accept="image/*" label="📎" onUploaded={(url) => updateOption(i, "image_url", url)} />
+              </>
             )}
             {form.options.length > 2 && <button onClick={() => removeOption(i)} className="text-slate-500 hover:text-red-400 text-xs">✕</button>}
           </div>
@@ -233,9 +265,18 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
         </div>
       </div>
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Image URL</label>
-        <input type="text" value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))} placeholder="https://..."
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+        <label className="block text-xs text-slate-400 mb-1">Image (paste URL or upload)</label>
+        <div className="flex items-center gap-2">
+          <input type="text" value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))} placeholder="https://... or upload →"
+            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+          <FileUploadButton accept="image/*,.pdf" label="Upload" onUploaded={(url) => setForm((f) => ({ ...f, image_url: url }))} />
+        </div>
+        {form.image_url && !form.image_url.toLowerCase().endsWith(".pdf") && (
+          <img src={form.image_url} alt="Preview" className="mt-2 max-w-[180px] max-h-24 rounded border border-slate-700 object-contain" />
+        )}
+        {form.image_url && form.image_url.toLowerCase().endsWith(".pdf") && (
+          <a href={form.image_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-red-400 hover:text-red-300">📄 PDF — click to preview</a>
+        )}
       </div>
       <ImageResizeWidget form={form} setForm={setForm} />
       <div>
@@ -337,9 +378,18 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
         </div>
       </div>
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Image URL</label>
-        <input type="text" value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))} placeholder="https://..."
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+        <label className="block text-xs text-slate-400 mb-1">Image (paste URL or upload)</label>
+        <div className="flex items-center gap-2">
+          <input type="text" value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))} placeholder="https://... or upload →"
+            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+          <FileUploadButton accept="image/*,.pdf" label="Upload" onUploaded={(url) => setForm((f) => ({ ...f, image_url: url }))} />
+        </div>
+        {form.image_url && !form.image_url.toLowerCase().endsWith(".pdf") && (
+          <img src={form.image_url} alt="Preview" className="mt-2 max-w-[180px] max-h-24 rounded border border-slate-700 object-contain" />
+        )}
+        {form.image_url && form.image_url.toLowerCase().endsWith(".pdf") && (
+          <a href={form.image_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-red-400 hover:text-red-300">📄 PDF — click to preview</a>
+        )}
       </div>
       <ImageResizeWidget form={form} setForm={setForm} />
       <div>
