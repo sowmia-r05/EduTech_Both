@@ -11,7 +11,7 @@ export default function Navbar() {
 
   // Highlight active section
   useEffect(() => {
-    const sections = ["home", "why", "faq"];
+    const sections = ["home", "why", "pricing", "faq"];
 
     const handleScroll = () => {
       const scrollPosition = window.scrollY + 120;
@@ -47,6 +47,7 @@ export default function Navbar() {
   const links = [
     { id: "home", label: "Home" },
     { id: "why", label: "Why Choose Us" },
+    { id: "pricing", label: "Pricing"},
     { id: "faq", label: "FAQ" },
   ];
 

@@ -11,7 +11,9 @@ import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopics
 import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
 import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
+import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
 import { useAuth } from "@/app/context/AuthContext";
+
 
 import {
   fetchResultsByEmail,
@@ -31,6 +33,8 @@ const formatDuration = (seconds) => {
   const s = Math.round(secs % 60);
   return m <= 0 ? `${s}s` : `${m}m ${s}s`;
 };
+
+
 
 const buildTopicStrength = (topicBreakdown = {}) => {
   const strong = [];
@@ -184,6 +188,16 @@ export default function Dashboard() {
   const [showTourModal, setShowTourModal] = useState(false);
   const [selectedAttemptOverride, setSelectedAttemptOverride] = useState(null);
   const [aiPending, setAiPending] = useState(false);
+  const { childToken, childProfile, parentToken } = useAuth();
+const isParentViewing = !childToken && !!parentToken;
+const childStatus = childProfile?.status || "trial";
+const yearLevel = childProfile?.yearLevel || null;
+
+const viewerType = childToken && !isParentViewing
+  ? "child"
+  : isParentViewing
+    ? "parent_viewing_child"
+    : "parent";
 
   useEffect(() => { if (!hasResponseId) navigate("/", { replace: true }); }, [hasResponseId, navigate]);
 
@@ -348,6 +362,11 @@ useEffect(() => {
   const totalAttempts = quizAttempts.length;
 
   return (
+    <TrialGateOverlay
+    isTrialUser={childStatus === "trial"}
+    preset="nonwriting"
+    viewerType={viewerType}
+    yearLevel={yearLevel}>
     <div className="relative min-h-screen bg-gray-100">
       {aiPending && <AiPendingOverlay aiMessage={latestResult?.ai?.message} />}
       <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
@@ -445,5 +464,6 @@ useEffect(() => {
         </div>
       </div>
     </div>
+    </TrialGateOverlay>
   );
 }

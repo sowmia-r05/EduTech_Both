@@ -4,6 +4,7 @@ import { useAuth } from "@/app/context/AuthContext";
 import { fetchChildResults, fetchChildrenSummaries, fetchAvailableQuizzes } from "@/app/utils/api-children"; // ✅ UPDATED
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import NativeQuizPlayer from "@/app/components/quiz/NativeQuizPlayer";
+import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
 
 /* ─── Subject inference from quiz name ─── */
 function inferSubject(quizName) {
@@ -405,18 +406,56 @@ export default function ChildDashboard() {
   }
 
   if (showAnalytics) {
+    // Determine viewer type
+    const viewerType = childToken && !isParentViewing
+      ? "child"
+      : isParentViewing
+        ? "parent_viewing_child"
+        : "parent";
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
+        {/* Sticky nav bar — unchanged */}
         <div className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3">
           <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
-            <button onClick={() => setShowAnalytics(false)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-all">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            <button
+              onClick={() => setShowAnalytics(false)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+                         text-slate-700 bg-white border border-slate-200 shadow-sm
+                         hover:bg-slate-50 hover:border-slate-300 transition-all"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
               Back to Dashboard
             </button>
-            <span className="text-sm text-slate-500 hidden sm:inline">{displayName}'s Analytics</span>
+            <span className="text-sm text-slate-500 hidden sm:inline">
+              {displayName}'s Analytics
+            </span>
           </div>
         </div>
-        <StudentDashboardAnalytics tests={tests} displayName={displayName} yearLevel={yearLevel} embedded={true} onLogout={() => { if (childToken) logoutChild(); else logout(); navigate("/"); }} />
+
+        {/* ✅ Wrap analytics in TrialGateOverlay */}
+        <TrialGateOverlay
+          isTrialUser={childStatus === "trial"}
+          preset="analytics"
+          viewerType={viewerType}
+          onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")}
+          onBack={() => setShowAnalytics(false)}
+          yearLevel={yearLevel}
+        >
+          <StudentDashboardAnalytics
+            tests={tests}
+            displayName={displayName}
+            yearLevel={yearLevel}
+            embedded={true}
+            onLogout={() => {
+              if (childToken) { logoutChild(); }
+              else { logout(); }
+              navigate("/");
+            }}
+          />
+        </TrialGateOverlay>
       </div>
     );
   }
