@@ -12,6 +12,10 @@
  * ✅ FIXED: Bundle tier is now optional free-text (not restricted to A/B/C).
  * ✅ FIXED: allowedFields indentation in PATCH /quizzes/:quizId.
  * ✅ FIXED: Upload now supports images, PDFs, audio, and video (50MB limit).
+ * ✅ FIXED: Removed duplicate POST /upload route.
+ * ✅ FIXED: POST /bundles/:bundleId/quizzes was missing res.json() and closing brackets.
+ * ✅ NEW: Bundle quiz add/remove now auto-syncs entitlements to children who purchased the bundle.
+ * ✅ NEW: POST /bundles/:bundleId/re-provision endpoint to fix failed past purchases.
  *
  * Mount in app.js:
  *   const adminRoutes = require("./routes/adminRoutes");
@@ -30,6 +34,7 @@ const Quiz = require("../models/quiz");
 const Question = require("../models/question");
 const QuizCatalog = require("../models/quizCatalog");
 const Child = require("../models/child");
+const Purchase = require("../models/purchase"); // ✅ NEW: needed for re-provision
 
 const router = express.Router();
 
@@ -340,6 +345,7 @@ const uploadMiddleware = multer({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
 });
 
+// ✅ FIXED: Only ONE upload route (duplicate removed)
 router.post("/upload", (req, res) => {
   uploadMiddleware.single("file")(req, res, (err) => {
     if (err) {
@@ -369,15 +375,6 @@ router.post("/upload", (req, res) => {
       return res.status(400).json({ error: "Video files must be under 50MB. Supported: mp4, webm, mov." });
     }
 
-    const sub = new Date().toISOString().slice(0, 7);
-    res.json({ ok: true, url: `/uploads/${sub}/${req.file.filename}`, filename: req.file.filename, mimetype: req.file.mimetype, size: req.file.size });
-  });
-});
-
-router.post("/upload", (req, res) => {
-  uploadMiddleware.single("file")(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message });
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
     const sub = new Date().toISOString().slice(0, 7);
     res.json({ ok: true, url: `/uploads/${sub}/${req.file.filename}`, filename: req.file.filename, mimetype: req.file.mimetype, size: req.file.size });
   });
@@ -792,6 +789,12 @@ router.get("/bundles/:bundleId", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// ✅ FIXED: POST /bundles/:bundleId/quizzes
+// Was missing res.json() and closing brackets.
+// ✅ NEW: Auto-syncs quiz to children who own this bundle
+// ✅ NEW: Auto-re-provisions failed purchases (bundle had 0 quizzes at purchase time)
+// ═══════════════════════════════════════════════════════
 router.post("/bundles/:bundleId/quizzes", async (req, res) => {
   try {
     const { quiz_id } = req.body;
@@ -819,13 +822,70 @@ router.post("/bundles/:bundleId/quizzes", async (req, res) => {
     bundle.quiz_count = bundle.quiz_ids.length;
     await bundle.save();
 
-    res.json({ ok: true, bundle_id: bundle.bundle_id, quiz_ids: bundle.quiz_ids, quiz_count: bundle.quiz_count });
+    // ═══════════════════════════════════════════════════════
+    // ✅ NEW: Sync new quiz to all children who own this bundle
+    // This fixes the issue where quizzes added AFTER purchase
+    // don't appear on the child's dashboard
+    // ═══════════════════════════════════════════════════════
+    const syncResult = await Child.updateMany(
+      { entitled_bundle_ids: bundle.bundle_id },
+      { $addToSet: { entitled_quiz_ids: quiz_id } }
+    );
+    console.log(`📦 Synced quiz "${quiz_id}" to ${syncResult.modifiedCount} children who own bundle "${bundle.bundle_id}"`);
+
+    // ═══════════════════════════════════════════════════════
+    // ✅ NEW: Auto re-provision any failed purchases for this bundle
+    // (purchases that failed because bundle had 0 quizzes at the time)
+    // ═══════════════════════════════════════════════════════
+    const failedPurchases = await Purchase.find({
+      bundle_id: bundle.bundle_id,
+      status: "paid",
+      provisioned: false,
+    });
+
+    let reprovisionedCount = 0;
+    for (const purchase of failedPurchases) {
+      for (const childId of (purchase.child_ids || [])) {
+        await Child.findByIdAndUpdate(childId, {
+          $set: { status: "active" },
+          $addToSet: {
+            entitled_bundle_ids: bundle.bundle_id,
+            entitled_quiz_ids: { $each: bundle.quiz_ids },
+          },
+        });
+      }
+      await Purchase.findByIdAndUpdate(purchase._id, {
+        $set: {
+          provisioned: true,
+          provisioned_at: new Date(),
+          provision_error: null,
+        },
+      });
+      reprovisionedCount++;
+    }
+
+    if (reprovisionedCount > 0) {
+      console.log(`🔄 Auto-reprovisioned ${reprovisionedCount} previously failed purchase(s) for bundle "${bundle.bundle_id}"`);
+    }
+
+    res.json({
+      ok: true,
+      bundle_id: bundle.bundle_id,
+      quiz_ids: bundle.quiz_ids,
+      quiz_count: bundle.quiz_count,
+      children_synced: syncResult.modifiedCount,
+      purchases_reprovisioned: reprovisionedCount,
+    });
   } catch (err) {
     console.error("Add quiz to bundle error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// ✅ FIXED: DELETE /bundles/:bundleId/quizzes
+// ✅ NEW: Removes quiz entitlement from children (safely checks other bundles)
+// ═══════════════════════════════════════════════════════
 router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
   try {
     const { quiz_id } = req.body;
@@ -844,9 +904,116 @@ router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
     bundle.quiz_count = (bundle.quiz_ids || []).length;
     await bundle.save();
 
-    res.json({ ok: true, bundle_id: bundle.bundle_id, quiz_ids: bundle.quiz_ids || [], quiz_count: bundle.quiz_count });
+    // ═══════════════════════════════════════════════════════
+    // ✅ NEW: Remove quiz entitlement from children who own this bundle
+    // But ONLY if the quiz isn't part of another bundle they also own
+    // ═══════════════════════════════════════════════════════
+    const childrenWithBundle = await Child.find({ entitled_bundle_ids: bundle.bundle_id }).lean();
+    let removedCount = 0;
+
+    for (const child of childrenWithBundle) {
+      // Check if this quiz_id exists in any OTHER bundle the child owns
+      const otherBundles = (child.entitled_bundle_ids || []).filter(bid => bid !== bundle.bundle_id);
+      let quizInOtherBundle = false;
+
+      if (otherBundles.length > 0) {
+        const otherBundleDocs = await QuizCatalog.find({
+          bundle_id: { $in: otherBundles },
+          quiz_ids: quiz_id,
+        }).lean();
+        quizInOtherBundle = otherBundleDocs.length > 0;
+      }
+
+      if (!quizInOtherBundle) {
+        await Child.findByIdAndUpdate(child._id, {
+          $pull: { entitled_quiz_ids: quiz_id }
+        });
+        removedCount++;
+      }
+    }
+
+    console.log(`📦 Removed quiz "${quiz_id}" entitlement from ${removedCount} children`);
+
+    res.json({
+      ok: true,
+      bundle_id: bundle.bundle_id,
+      quiz_ids: bundle.quiz_ids || [],
+      quiz_count: bundle.quiz_count,
+      children_updated: removedCount,
+    });
   } catch (err) {
     console.error("Remove quiz from bundle error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// ✅ NEW: POST /bundles/:bundleId/re-provision
+// Re-syncs all quiz IDs from this bundle to all children
+// who purchased it. Use to fix children who bought a bundle
+// before quizzes were assigned to it.
+// ═══════════════════════════════════════════════════════
+router.post("/bundles/:bundleId/re-provision", async (req, res) => {
+  try {
+    const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId });
+    if (!bundle) return res.status(404).json({ error: "Bundle not found" });
+
+    const quizIds = (bundle.quiz_ids && bundle.quiz_ids.length > 0)
+      ? bundle.quiz_ids
+      : bundle.flexiquiz_quiz_ids || [];
+
+    if (quizIds.length === 0) {
+      return res.status(400).json({
+        error: "Bundle still has 0 quizzes. Assign quizzes first before re-provisioning.",
+      });
+    }
+
+    // Find all paid purchases for this bundle
+    const purchases = await Purchase.find({
+      bundle_id: bundle.bundle_id,
+      status: "paid",
+    }).lean();
+
+    let childrenUpdated = 0;
+    let purchasesFixed = 0;
+
+    for (const purchase of purchases) {
+      for (const childId of (purchase.child_ids || [])) {
+        const result = await Child.findByIdAndUpdate(childId, {
+          $set: { status: "active" },
+          $addToSet: {
+            entitled_bundle_ids: bundle.bundle_id,
+            entitled_quiz_ids: { $each: quizIds },
+          },
+        });
+        if (result) childrenUpdated++;
+      }
+
+      // Fix provisioning status if it was marked as failed
+      if (!purchase.provisioned) {
+        await Purchase.findByIdAndUpdate(purchase._id, {
+          $set: {
+            provisioned: true,
+            provisioned_at: new Date(),
+            provision_error: null,
+          },
+        });
+        purchasesFixed++;
+      }
+    }
+
+    console.log(`🔄 Re-provisioned bundle "${bundle.bundle_id}": ${childrenUpdated} children updated, ${purchasesFixed} purchases fixed`);
+
+    res.json({
+      ok: true,
+      bundle_id: bundle.bundle_id,
+      quiz_ids_synced: quizIds.length,
+      children_updated: childrenUpdated,
+      purchases_fixed: purchasesFixed,
+      total_purchases_found: purchases.length,
+    });
+  } catch (err) {
+    console.error("Re-provision error:", err);
     res.status(500).json({ error: err.message });
   }
 });
