@@ -1,5 +1,5 @@
 /**
- * QuizUploader.jsx
+ * QuizUploader.jsx  (v2 — VOICE/VIDEO SUPPORT)
  * 
  * Handles the full upload flow:
  *   1. Download template (link)
@@ -7,6 +7,7 @@
  *   3. Client-side parse & validate (using SheetJS)
  *   4. Preview questions in a table
  *   5. Submit to backend
+ *   ✅ NEW: voice_url and video_url parsed from Excel + editable in preview
  * 
  * Place in: src/app/components/admin/QuizUploader.jsx
  */
@@ -30,11 +31,11 @@ function adminFetch(url, opts = {}) {
 function stripHtml(html) {
   if (!html) return "";
   return String(html)
-    .replace(/<img[^>]*>/gi, "") // remove images (handled separately)
-    .replace(/<br\s*\/?>/gi, " ") // br → space
-    .replace(/&nbsp;/gi, " ")     // non-breaking space
-    .replace(/<[^>]+>/g, "")      // strip all remaining tags
-    .replace(/\s+/g, " ")         // collapse whitespace
+    .replace(/<img[^>]*>/gi, "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -52,13 +53,10 @@ function extractImageUrl(html) {
    ═══════════════════════════════════════════════════════ */
 function detectFormat(workbook) {
   const names = workbook.SheetNames;
-  // Our template has "Questions" and "Quiz Info" sheets
   if (names.includes("Questions") && names.includes("Quiz Info")) return "custom";
-  // FlexiQuiz exports have a single sheet starting with "Template" or containing FlexiQuiz headers
   for (const name of names) {
     const sheet = workbook.Sheets[name];
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-    // Check row 2 (index 1) for FlexiQuiz header pattern
     const headerRow = rows[1] || rows[0] || [];
     const headerStr = headerRow.map((h) => String(h || "").toLowerCase()).join("|");
     if (headerStr.includes("question text") && headerStr.includes("option 1 text")) {
@@ -74,12 +72,10 @@ function detectFormat(workbook) {
 function parseFlexiQuiz(workbook, fileName) {
   const errors = [];
   
-  // Find the data sheet
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-  // Find header row (contains "Question Text")
   let headerRowIdx = -1;
   for (let i = 0; i < Math.min(5, rows.length); i++) {
     const rowStr = (rows[i] || []).map((c) => String(c || "")).join("|").toLowerCase();
@@ -95,7 +91,6 @@ function parseFlexiQuiz(workbook, fileName) {
 
   const headers = rows[headerRowIdx].map((h) => String(h || "").trim());
 
-  // Map columns by name
   const colIdx = {};
   headers.forEach((h, i) => {
     const lower = h.toLowerCase().replace(/\n/g, " ");
@@ -104,15 +99,12 @@ function parseFlexiQuiz(workbook, fileName) {
     if (lower.startsWith("question points")) colIdx.question_points = i;
     if (lower.startsWith("question feedback")) colIdx.question_feedback = i;
     if (lower.startsWith("question categories")) colIdx.categories = i;
-    // Map option columns
     for (let n = 1; n <= 10; n++) {
       if (lower === `option ${n} text`) colIdx[`opt${n}_text`] = i;
       if (lower === `option ${n} correct` || lower === `option ${n}\ncorrect`) colIdx[`opt${n}_correct`] = i;
     }
   });
 
-  // Infer quiz metadata from filename
-  // e.g. "Year3_Numeracy_set2.xlsx" → name: "Year 3 Numeracy Set 2", year: 3, subject: "Numeracy"
   const baseName = fileName.replace(/\.[^.]+$/, "").replace(/[_-]/g, " ");
   const yearMatch = baseName.match(/year\s*(\d)/i);
   const yearLevel = yearMatch ? parseInt(yearMatch[1]) : 0;
@@ -125,7 +117,7 @@ function parseFlexiQuiz(workbook, fileName) {
   else if (lowerName.includes("language") || lowerName.includes("convention") || lowerName.includes("grammar")) subject = "Conventions";
 
   const quizMeta = {
-    quiz_name: baseName.replace(/\b\w/g, (c) => c.toUpperCase()), // Title case
+    quiz_name: baseName.replace(/\b\w/g, (c) => c.toUpperCase()),
     year_level: yearLevel,
     subject: subject,
     tier: "A",
@@ -133,10 +125,11 @@ function parseFlexiQuiz(workbook, fileName) {
     difficulty: null,
     set_number: 1,
     is_trial: false,
-    _needsReview: true, // flag to show edit form
+    _needsReview: true,
+    voice_url: null,   // ✅ NEW
+    video_url: null,   // ✅ NEW
   };
 
-  // Parse questions
   const questions = [];
   for (let r = headerRowIdx + 1; r < rows.length; r++) {
     const row = rows[r] || [];
@@ -144,7 +137,6 @@ function parseFlexiQuiz(workbook, fileName) {
     if (!rawText || !String(rawText).trim()) continue;
 
     const rawStr = String(rawText).trim();
-    // Skip metadata rows like "v=1.1"
     if (/^v=\d/.test(rawStr) || rawStr.length < 5) continue;
 
     const questionText = stripHtml(rawStr);
@@ -153,16 +145,13 @@ function parseFlexiQuiz(workbook, fileName) {
     const feedback = stripHtml(String(row[colIdx.question_feedback] || ""));
     const categories = String(row[colIdx.categories] || "").trim();
 
-    // Skip rows with no question type (not real questions)
     if (!rawType) continue;
 
-    // Map FlexiQuiz types to our types
     let type = "radio_button";
     if (rawType.includes("multiple") || rawType.includes("checkbox")) type = "checkbox";
     else if (rawType.includes("free") || rawType.includes("essay") || rawType.includes("text")) type = "free_text";
     else if (rawType.includes("picture") || rawType.includes("image")) type = "picture_choice";
 
-    // Build options
     const options = [];
     let correctAnswer = [];
     let hasImageOptions = false;
@@ -176,12 +165,10 @@ function parseFlexiQuiz(workbook, fileName) {
       const cleanText = stripHtml(optStr);
       const optImage = extractImageUrl(optStr);
 
-      // Keep option if it has text OR an image
       if (!cleanText && !optImage) continue;
-
       if (optImage && !cleanText) hasImageOptions = true;
 
-      const label = String.fromCharCode(64 + options.length + 1); // A, B, C, D...
+      const label = String.fromCharCode(64 + options.length + 1);
       const isCorrect = String(row[colIdx[`opt${n}_correct`]] || "").toLowerCase();
 
       options.push({
@@ -195,7 +182,6 @@ function parseFlexiQuiz(workbook, fileName) {
       }
     }
 
-    // If options are all images, mark as picture_choice
     if (hasImageOptions && type === "radio_button") type = "picture_choice";
 
     const q = {
@@ -210,7 +196,6 @@ function parseFlexiQuiz(workbook, fileName) {
       explanation: feedback,
     };
 
-    // Validate
     if (type !== "free_text") {
       if (options.length < 2) {
         errors.push(`Row ${r + 1}: MCQ needs at least 2 options`);
@@ -238,7 +223,6 @@ function parseFlexiQuiz(workbook, fileName) {
 function parseCustomTemplate(workbook) {
   const errors = [];
 
-  // ── 1. Parse Quiz Info sheet ──
   const infoSheet = workbook.Sheets["Quiz Info"];
   if (!infoSheet) {
     errors.push("Missing 'Quiz Info' sheet. Please use the provided template.");
@@ -263,6 +247,8 @@ function parseCustomTemplate(workbook) {
     difficulty: meta.difficulty || null,
     set_number: parseInt(meta.set_number) || 1,
     is_trial: meta.is_trial === "true",
+    voice_url: meta.voice_url || null,   // ✅ NEW
+    video_url: meta.video_url || null,   // ✅ NEW
   };
 
   if (!quizMeta.quiz_name) errors.push("Quiz name is required (Quiz Info sheet)");
@@ -271,7 +257,6 @@ function parseCustomTemplate(workbook) {
     errors.push("Subject must be Maths, Reading, Writing, or Conventions");
   }
 
-  // ── 2. Parse Questions sheet ──
   const qSheet = workbook.Sheets["Questions"];
   if (!qSheet) {
     errors.push("Missing 'Questions' sheet. Please use the provided template.");
@@ -387,12 +372,12 @@ function Badge({ type }) {
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════ */
 export default function QuizUploader({ onUploadSuccess }) {
-  const [step, setStep] = useState("select"); // select | preview | uploading | done
+  const [step, setStep] = useState("select");
   const [file, setFile] = useState(null);
   const [parsed, setParsed] = useState(null);
   const [uploadError, setUploadError] = useState("");
   const [uploadResult, setUploadResult] = useState(null);
-  const [editMeta, setEditMeta] = useState(null); // editable quiz meta for FlexiQuiz imports
+  const [editMeta, setEditMeta] = useState(null);
   const fileRef = useRef(null);
 
   const handleFile = async (e) => {
@@ -407,7 +392,6 @@ export default function QuizUploader({ onUploadSuccess }) {
       const result = parseExcel(wb, f.name);
       setParsed(result);
 
-      // If FlexiQuiz format, allow editing metadata
       if (result.quizMeta?._needsReview) {
         setEditMeta({ ...result.quizMeta });
       } else {
@@ -427,10 +411,8 @@ export default function QuizUploader({ onUploadSuccess }) {
     setStep("uploading");
     setUploadError("");
 
-    // Use edited meta if available (FlexiQuiz format)
     const finalMeta = editMeta || parsed.quizMeta;
 
-    // Validate edited meta
     if (!finalMeta.quiz_name) { setUploadError("Quiz name is required"); setStep("preview"); return; }
     if (![3, 5, 7, 9].includes(finalMeta.year_level)) { setUploadError("Year level must be 3, 5, 7, or 9"); setStep("preview"); return; }
     if (!["Maths", "Reading", "Writing", "Conventions"].includes(finalMeta.subject)) { setUploadError("Subject must be Maths, Reading, Writing, or Conventions"); setStep("preview"); return; }
@@ -449,6 +431,8 @@ export default function QuizUploader({ onUploadSuccess }) {
             difficulty: finalMeta.difficulty || null,
             set_number: finalMeta.set_number || 1,
             is_trial: finalMeta.is_trial || false,
+            voice_url: finalMeta.voice_url || null,   // ✅ NEW
+            video_url: finalMeta.video_url || null,   // ✅ NEW
           },
           questions: parsed.questions.map((q) => ({
             question_text: q.question_text,
@@ -500,7 +484,6 @@ export default function QuizUploader({ onUploadSuccess }) {
               <h3 className="text-sm font-medium text-white">Quiz Upload Template</h3>
               <p className="text-xs text-slate-400 mt-1">Download, fill in your questions, then upload below.</p>
             </div>
-            {/* ✅ FIX: Same-origin path — serves from naplan-frontend/public/ */}
             <a
               href="/Quiz_Upload_Template.xlsx"
               download="Quiz_Upload_Template.xlsx"
@@ -718,6 +701,21 @@ export default function QuizUploader({ onUploadSuccess }) {
                     <option value="hard">Hard</option>
                   </select>
                 </div>
+                {/* ✅ NEW: Voice & Video URL inputs */}
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">🔊 Voice / Audio URL</label>
+                  <input type="url" value={editMeta.voice_url || ""}
+                    onChange={(e) => setEditMeta((m) => ({ ...m, voice_url: e.target.value || null }))}
+                    placeholder="https://... .mp3 / .wav"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">🎬 Video URL</label>
+                  <input type="url" value={editMeta.video_url || ""}
+                    onChange={(e) => setEditMeta((m) => ({ ...m, video_url: e.target.value || null }))}
+                    placeholder="https://... YouTube / .mp4"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
+                </div>
               </div>
             ) : (
               /* Read-only display for our template format */
@@ -728,6 +726,8 @@ export default function QuizUploader({ onUploadSuccess }) {
                 <div><span className="text-slate-500">Tier:</span> <span className="text-white font-medium ml-1">{meta.tier || "—"}</span></div>
                 {meta.time_limit_minutes && <div><span className="text-slate-500">Time:</span> <span className="text-white ml-1">{meta.time_limit_minutes} min</span></div>}
                 {meta.difficulty && <div><span className="text-slate-500">Difficulty:</span> <span className="text-white ml-1">{meta.difficulty}</span></div>}
+                {meta.voice_url && <div><span className="text-slate-500">🔊 Voice:</span> <span className="text-indigo-400 ml-1 truncate text-xs">{meta.voice_url}</span></div>}
+                {meta.video_url && <div><span className="text-slate-500">🎬 Video:</span> <span className="text-indigo-400 ml-1 truncate text-xs">{meta.video_url}</span></div>}
               </div>
             )}
           </div>

@@ -1,16 +1,19 @@
 /**
- * QuizDetailModal.jsx
- * 
+ * QuizDetailModal.jsx  (v2 — SHUFFLE PER QUESTION + VOICE/VIDEO SETTINGS)
+ *
  * Full quiz viewer & editor:
- *   - View all questions with rendered HTML/images
- *   - Edit question text, options, correct answers
- *   - Delete individual questions
- *   - Edit quiz settings (time, name, etc.)
- * 
+ *   ✅ View all questions with rendered HTML/images
+ *   ✅ Edit question text, options, correct answers
+ *   ✅ Delete individual questions
+ *   ✅ Edit quiz settings (time, name, etc.)
+ *   ✅ NEW: Per-question shuffle_options toggle
+ *   ✅ NEW: Quiz-level randomize + voice/video via QuizSettingsExtras
+ *
  * Place in: src/app/components/admin/QuizDetailModal.jsx
  */
 
 import { useState, useEffect } from "react";
+import QuizSettingsExtras from "./QuizSettingsExtras"; // ✅ NEW
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -66,6 +69,7 @@ function QuestionEditor({ question, onSave, onCancel }) {
     category: question.categories?.[0]?.name || "",
     image_url: question.image_url || "",
     explanation: question.explanation || "",
+    shuffle_options: question.shuffle_options || false, // ✅ NEW
     options: (question.options || []).map((o) => ({
       option_id: o.option_id,
       text: o.text || "",
@@ -107,6 +111,7 @@ function QuestionEditor({ question, onSave, onCancel }) {
       category: form.category,
       image_url: form.image_url,
       explanation: form.explanation,
+      shuffle_options: form.shuffle_options, // ✅ NEW
       options: form.options,
     });
     setSaving(false);
@@ -121,12 +126,13 @@ function QuestionEditor({ question, onSave, onCancel }) {
 
       {/* Question text */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Question Text (supports HTML)</label>
-        <textarea rows={4} value={form.text}
+        <label className="block text-xs text-slate-400 mb-1">Question Text (HTML supported)</label>
+        <textarea rows={3} value={form.text}
           onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono resize-y focus:ring-2 focus:ring-indigo-500 outline-none" />
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none" />
       </div>
 
+      {/* Type / Points / Category / Image */}
       <div className="grid grid-cols-4 gap-3">
         <div>
           <label className="block text-xs text-slate-400 mb-1">Type</label>
@@ -140,7 +146,7 @@ function QuestionEditor({ question, onSave, onCancel }) {
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Points</label>
-          <input type="number" min={1} value={form.points}
+          <input type="number" min="1" value={form.points}
             onChange={(e) => setForm((f) => ({ ...f, points: parseInt(e.target.value) || 1 }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
         </div>
@@ -165,6 +171,17 @@ function QuestionEditor({ question, onSave, onCancel }) {
           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
       </div>
 
+      {/* ✅ NEW: Per-question shuffle toggle */}
+      <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={form.shuffle_options}
+          onChange={(e) => setForm((f) => ({ ...f, shuffle_options: e.target.checked }))}
+          className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+        />
+        🔀 Shuffle Options (randomize answer order for this question)
+      </label>
+
       {/* Options */}
       {form.type !== "free_text" && (
         <div>
@@ -178,7 +195,8 @@ function QuestionEditor({ question, onSave, onCancel }) {
                 <button
                   onClick={() => updateOption(i, "correct", !opt.correct)}
                   className={`w-5 h-5 rounded flex-shrink-0 flex items-center justify-center border text-xs transition ${
-                    opt.correct ? "bg-emerald-600 border-emerald-500 text-white" : "bg-slate-900 border-slate-600 hover:border-slate-500"
+                    opt.correct
+                      ? "bg-emerald-600 border-emerald-500 text-white" : "bg-slate-900 border-slate-600 hover:border-slate-500"
                   }`}
                 >
                   {opt.correct && "✓"}
@@ -242,6 +260,11 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
         subject: data.subject || "",
         is_active: data.is_active !== false,
         is_trial: data.is_trial || false,
+        // ✅ NEW: randomization + media
+        randomize_questions: data.randomize_questions || false,
+        randomize_options: data.randomize_options || false,
+        voice_url: data.voice_url || null,
+        video_url: data.video_url || null,
       });
     } catch (err) {
       console.error(err);
@@ -296,6 +319,11 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
           subject: settingsForm.subject,
           is_active: settingsForm.is_active,
           is_trial: settingsForm.is_trial,
+          // ✅ NEW: randomization + media
+          randomize_questions: settingsForm.randomize_questions,
+          randomize_options: settingsForm.randomize_options,
+          voice_url: settingsForm.voice_url || null,
+          video_url: settingsForm.video_url || null,
         }),
       });
       if (res.ok) {
@@ -382,8 +410,8 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                   <select value={settingsForm.year_level}
                     onChange={(e) => setSettingsForm((f) => ({ ...f, year_level: e.target.value }))}
                     className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-white outline-none">
-                    <option value={3}>Year 3</option><option value={5}>Year 5</option>
-                    <option value={7}>Year 7</option><option value={9}>Year 9</option>
+                    <option value="3">Year 3</option><option value="5">Year 5</option>
+                    <option value="7">Year 7</option><option value="9">Year 9</option>
                   </select>
                 </div>
                 <div>
@@ -400,7 +428,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                   <select value={settingsForm.difficulty}
                     onChange={(e) => setSettingsForm((f) => ({ ...f, difficulty: e.target.value }))}
                     className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-white outline-none">
-                    <option value="">Auto</option><option value="easy">Easy</option>
+                    <option value="">None</option><option value="easy">Easy</option>
                     <option value="medium">Medium</option><option value="hard">Hard</option>
                   </select>
                 </div>
@@ -413,6 +441,10 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                   </select>
                 </div>
               </div>
+
+              {/* ✅ NEW: Randomization + Voice/Video settings */}
+              <QuizSettingsExtras form={settingsForm} onChange={setSettingsForm} compact />
+
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                   <input type="checkbox" checked={settingsForm.is_active}
@@ -473,6 +505,12 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                       {q.categories?.[0]?.name && (
                         <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>
                       )}
+                      {/* ✅ NEW: Shuffle badge */}
+                      {q.shuffle_options && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
+                          🔀 Shuffle
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
                       <button onClick={() => setEditingId(q.question_id)}
@@ -512,16 +550,11 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                             <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${
                               opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"
                             }`}>
-                              {letter}
+                              {opt.correct ? "✓" : letter}
                             </span>
-                            <div className="flex-1">
-                              {opt.text && <HtmlContent html={opt.text} className="text-slate-300 [&_img]:max-w-xs [&_img]:rounded [&_img]:mt-1" />}
-                              {opt.image_url && (
-                                <img src={opt.image_url} alt={`Option ${letter}`} className="max-w-xs rounded mt-1 border border-slate-700" />
-                              )}
-                            </div>
-                            {opt.correct && (
-                              <span className="text-[10px] text-emerald-400 font-medium flex-shrink-0 mt-0.5">✓ Correct</span>
+                            <span className="text-slate-300 text-sm">{opt.text}</span>
+                            {opt.image_url && (
+                              <img src={opt.image_url} alt={`Option ${letter}`} className="w-16 h-16 rounded-lg object-cover border border-slate-700" />
                             )}
                           </div>
                         );
@@ -532,8 +565,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                   {/* Explanation */}
                   {q.explanation && (
                     <div className="mt-3 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
-                      <span className="text-[10px] uppercase tracking-wider text-amber-500 font-medium">Explanation</span>
-                      <HtmlContent html={q.explanation} className="text-xs text-amber-300/80 mt-0.5" />
+                      <p className="text-xs text-amber-400/80">💡 {q.explanation}</p>
                     </div>
                   )}
                 </div>
@@ -543,16 +575,8 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-slate-950 border-t border-slate-800 px-6 py-3 rounded-b-2xl">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-500">
-              {questions.length} questions · {quiz?.total_points || 0} total points
-              {quiz?.time_limit_minutes ? ` · ${quiz.time_limit_minutes} min time limit` : " · No time limit"}
-            </p>
-            <button onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-lg">
-              Close
-            </button>
-          </div>
+        <div className="border-t border-slate-800 px-6 py-3 flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Close</button>
         </div>
       </div>
     </div>

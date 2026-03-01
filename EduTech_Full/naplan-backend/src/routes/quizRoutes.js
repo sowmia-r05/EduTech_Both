@@ -251,14 +251,20 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       }
     }
 
-    // ✅ Randomize option order within each question if enabled
-    if (quiz.randomize_options) {
-      for (const q of safeQuestions) {
-        if (q.options && q.options.length > 1) {
-          for (let i = q.options.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [q.options[i], q.options[j]] = [q.options[j], q.options[i]];
-          }
+    // ✅ Randomize option order — checks BOTH quiz-level AND per-question setting
+    // Build a lookup for per-question shuffle_options from the original DB questions
+    const shuffleMap = {};
+    for (const q of questions) {
+      shuffleMap[q.question_id] = !!q.shuffle_options;
+    }
+
+    for (const q of safeQuestions) {
+      // Shuffle if quiz-level randomize_options is ON, or this specific question has shuffle_options ON
+      const shouldShuffle = quiz.randomize_options || shuffleMap[q.question_id];
+      if (shouldShuffle && q.options && q.options.length > 1) {
+        for (let i = q.options.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [q.options[i], q.options[j]] = [q.options[j], q.options[i]];
         }
       }
     }
