@@ -1,5 +1,5 @@
 /**
- * ManualQuizCreator.jsx  (v9 — DARK THEME + FREE TEXT PREVIEW)
+ * ManualQuizCreator.jsx  (v10 — SHORT ANSWER SUPPORT)
  *
  *   ✅ File upload (images + PDFs) via drag-drop or click
  *   ✅ Per-question: voice_url, video_url, shuffle_options
@@ -7,6 +7,7 @@
  *   ✅ Option images can also be uploaded
  *   ✅ Collapsible image resize widget (no more endless scrolling)
  *   ✅ Student writing area preview when free_text is selected
+ *   ✅ NEW: Short Answer type — admin enters correct answer, student sees input box
  *
  * Requires: POST /api/admin/upload endpoint (uploadRoutes.js)
  * Place in: src/app/components/admin/ManualQuizCreator.jsx
@@ -139,6 +140,7 @@ function AddQuestionForm({ onAdd, onCancel }) {
     points: 1, category: "", image_url: "", image_size: "medium",
     image_width: null, image_height: null,
     explanation: "", voice_url: "", video_url: "", shuffle_options: false,
+    correct_answer: "", case_sensitive: false,
   });
 
   const updateOption = (idx, field, value) => {
@@ -159,14 +161,17 @@ function AddQuestionForm({ onAdd, onCancel }) {
 
   const handleSave = () => {
     if (!q.question_text.trim()) return alert("Question text is required");
-    if (q.type !== "free_text") {
+    if (q.type === "short_answer") {
+      if (!q.correct_answer.trim()) return alert("Correct answer is required for Short Answer questions");
+    } else if (q.type !== "free_text") {
       if (q.options.filter((o) => o.text.trim()).length < 2) return alert("At least 2 options required");
       if (!q.options.some((o) => o.correct)) return alert("Mark at least one correct answer");
     }
     onAdd({
       question_text: q.question_text.trim(), type: q.type,
-      options: q.type === "free_text" ? [] : q.options.filter((o) => o.text.trim()).map((o) => ({ label: o.label, text: o.text.trim(), image_url: o.image_url.trim() || null })),
-      correct_answer: q.type === "free_text" ? "" : q.options.filter((o) => o.correct).map((o) => o.label).join(","),
+      options: (q.type === "free_text" || q.type === "short_answer") ? [] : q.options.filter((o) => o.text.trim()).map((o) => ({ label: o.label, text: o.text.trim(), image_url: o.image_url.trim() || null })),
+      correct_answer: q.type === "short_answer" ? q.correct_answer.trim() : (q.type === "free_text" ? "" : q.options.filter((o) => o.correct).map((o) => o.label).join(",")),
+      case_sensitive: q.case_sensitive,
       points: q.points, category: q.category.trim(),
       image_url: q.image_url.trim(), image_size: q.image_size, image_width: q.image_width, image_height: q.image_height,
       explanation: q.explanation.trim(),
@@ -196,6 +201,7 @@ function AddQuestionForm({ onAdd, onCancel }) {
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none">
             <option value="radio_button">Single Choice (MCQ)</option><option value="checkbox">Multiple Choice</option>
             <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text / Writing</option>
+            <option value="short_answer">Short Answer</option>
           </select>
         </div>
         <div>
@@ -257,8 +263,50 @@ function AddQuestionForm({ onAdd, onCancel }) {
       {/* Free Text — Student Writing Area Preview (textarea only, no duplicate image) */}
       <FreeTextPreview form={q} />
 
-      {/* Options (hidden for free_text) */}
-      {q.type !== "free_text" && (
+      {/* Short Answer — Correct Answer Input */}
+      {q.type === "short_answer" && (
+        <div className="pt-3 border-t border-slate-700 space-y-3">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">✍️ Correct Answer</p>
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">
+              Expected Answer(s) <span className="text-slate-600">— separate multiple accepted answers with | (pipe)</span>
+            </label>
+            <input type="text" value={q.correct_answer}
+              onChange={(e) => setQ((p) => ({ ...p, correct_answer: e.target.value }))}
+              placeholder='e.g. "1025" or "1 025|1025|one thousand twenty-five"'
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-orange-500" />
+            {q.correct_answer && q.correct_answer.includes("|") && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {q.correct_answer.split("|").filter(Boolean).map((a, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-[10px] font-medium">
+                    ✓ {a.trim()}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={q.case_sensitive}
+              onChange={(e) => setQ((p) => ({ ...p, case_sensitive: e.target.checked }))}
+              className="rounded border-slate-600 bg-slate-800 text-orange-500 focus:ring-orange-500" />
+            Case-sensitive grading
+            <span className="text-[10px] text-slate-500">(default: ignores case)</span>
+          </label>
+          {/* Student preview */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-3">
+            <p className="text-[10px] text-slate-500 mb-2 uppercase tracking-wider">Student View Preview:</p>
+            <div className="bg-white rounded-lg px-4 py-3 border border-slate-300">
+              <p className="text-xs text-slate-400 mb-1">Your Answer:</p>
+              <div className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 flex items-center text-sm text-slate-400">
+                Type your answer here...
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Options (hidden for free_text and short_answer) */}
+      {q.type !== "free_text" && q.type !== "short_answer" && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-medium text-slate-400">Options * (click ✓ for correct)</label>
@@ -368,48 +416,62 @@ export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
 
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Quiz Title *</label>
-            <input type="text" value={meta.quiz_name} onChange={(e) => setMeta((m) => ({ ...m, quiz_name: e.target.value }))} placeholder="e.g. Year 3 Maths Set 1"
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
+            <input type="text" value={meta.quiz_name} onChange={(e) => setMeta((m) => ({ ...m, quiz_name: e.target.value }))} placeholder="e.g. Year 5 Maths — Set 1"
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Year Level</label>
-              <input type="text" value={meta.year_level} onChange={(e) => setMeta((m) => ({ ...m, year_level: e.target.value }))}
-                placeholder="e.g. Year 3, Grade 5, Level 1"
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white outline-none" />
+              <label className="block text-xs text-slate-400 mb-1">Year Level</label>
+              <input type="text" value={meta.year_level} onChange={(e) => setMeta((m) => ({ ...m, year_level: e.target.value }))} placeholder="e.g. 5"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Time (min)</label>
-              <input type="number" value={meta.time_limit_minutes || ""} onChange={(e) => setMeta((m) => ({ ...m, time_limit_minutes: e.target.value ? parseInt(e.target.value) : null }))} placeholder="No limit"
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white outline-none" />
+              <label className="block text-xs text-slate-400 mb-1">Time Limit (min)</label>
+              <input type="number" min={0} value={meta.time_limit_minutes} onChange={(e) => setMeta((m) => ({ ...m, time_limit_minutes: parseInt(e.target.value) || "" }))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Difficulty</label>
+              <select value={meta.difficulty} onChange={(e) => setMeta((m) => ({ ...m, difficulty: e.target.value }))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none">
+                <option value="">Auto</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
+              </select>
             </div>
           </div>
 
-          {/* Questions section */}
-          <div className="border-t border-slate-800 pt-5">
+          {/* Divider */}
+          <div className="border-t border-slate-800 pt-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-white">Questions ({questions.length})</h3>
+              <h3 className="text-sm font-medium text-white">Questions</h3>
               {!showAddForm && (
                 <button onClick={() => { setShowAddForm(true); setEditingIdx(null); }}
-                  className="text-xs font-medium text-indigo-400 hover:text-indigo-300 flex items-center gap-1">+ Add Question</button>
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition">
+                  + Add Question
+                </button>
               )}
             </div>
 
-            {showAddForm && <AddQuestionForm onAdd={handleAddQuestion} onCancel={() => { setShowAddForm(false); setEditingIdx(null); }} />}
+            {showAddForm && (
+              <AddQuestionForm
+                onAdd={handleAddQuestion}
+                onCancel={() => { setShowAddForm(false); setEditingIdx(null); }}
+              />
+            )}
 
             {questions.length > 0 ? (
               <div className="space-y-2 mt-3">
                 {questions.map((q, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-slate-800/50 border border-slate-700/50 rounded-lg px-4 py-3 group">
-                    <span className="text-xs font-bold text-slate-500 w-6 flex-shrink-0">{i + 1}</span>
+                  <div key={i} className="flex items-center justify-between bg-slate-800/50 border border-slate-700/50 rounded-lg px-4 py-2.5 group hover:border-slate-600 transition">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white truncate">{q.question_text}</p>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      <p className="text-sm text-white truncate">{i + 1}. {q.question_text}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                           q.type === "radio_button" ? "bg-blue-500/10 text-blue-400" :
                           q.type === "checkbox" ? "bg-amber-500/10 text-amber-400" :
-                          q.type === "free_text" ? "bg-emerald-500/10 text-emerald-400" : "bg-purple-500/10 text-purple-400"
+                          q.type === "free_text" ? "bg-emerald-500/10 text-emerald-400" :
+                          q.type === "short_answer" ? "bg-orange-500/10 text-orange-400" :
+                          "bg-purple-500/10 text-purple-400"
                         }`}>{q.type}</span>
                         <span className="text-[10px] text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
                         {q.image_url && <span className="text-[10px] text-sky-400">{q.image_url.endsWith(".pdf") ? "📄" : "🖼️"}</span>}

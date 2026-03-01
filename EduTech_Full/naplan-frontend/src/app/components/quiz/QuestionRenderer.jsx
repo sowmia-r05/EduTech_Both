@@ -1,5 +1,5 @@
 /**
- * QuestionRenderer.jsx
+ * QuestionRenderer.jsx  (v2 — SHORT ANSWER SUPPORT)
  *
  * Student-facing question display + answer input.
  * Renders different UIs based on question.type:
@@ -7,6 +7,7 @@
  *   - checkbox: Multiple choice
  *   - picture_choice: Image-based options
  *   - free_text: Large writing/textarea box
+ *   - short_answer: Single-line input box (auto-graded)
  *
  * Place in: src/app/components/quiz/QuestionRenderer.jsx
  */
@@ -197,6 +198,47 @@ function FreeTextQuestion({ question, answer, onAnswer }) {
 }
 
 /* ═══════════════════════════════════════
+   SHORT ANSWER (Fill in the Blank)
+   Single-line input, auto-graded against correct answer
+   ═══════════════════════════════════════ */
+function ShortAnswerQuestion({ question, answer, onAnswer }) {
+  const text = answer?.text || "";
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white border-2 border-slate-200 rounded-xl overflow-hidden focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+        <div className="px-5 py-4">
+          <label className="block text-sm font-medium text-slate-500 mb-2">Your Answer:</label>
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => onAnswer({ text: e.target.value })}
+            placeholder="Type your answer here..."
+            className="w-full px-4 py-3 text-base text-slate-800 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all placeholder:text-slate-400"
+            autoComplete="off"
+            spellCheck="false"
+          />
+        </div>
+        {text.trim() && (
+          <div className="flex items-center justify-between px-5 py-2 bg-slate-50 border-t border-slate-100">
+            <span className="text-xs text-slate-400">{text.trim().length} characters</span>
+            <button
+              onClick={() => onAnswer({ text: "" })}
+              className="text-xs text-slate-400 hover:text-red-500 transition"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-slate-400">
+        ✍️ Type your answer in the box above. Your answer is saved automatically.
+      </p>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════
    MAIN: QuestionRenderer
    ═══════════════════════════════════════ */
 export default function QuestionRenderer({ question, questionNumber, answer, isFlagged, onAnswer, onToggleFlag }) {
@@ -279,6 +321,7 @@ export default function QuestionRenderer({ question, questionNumber, answer, isF
       {question.type === "picture_choice" && <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} />}
       {question.type === "checkbox" && <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} />}
       {question.type === "free_text" && <FreeTextQuestion question={question} answer={answer} onAnswer={onAnswer} />}
+      {question.type === "short_answer" && <ShortAnswerQuestion question={question} answer={answer} onAnswer={onAnswer} />}
 
       {zoomImg && <ImageModal src={zoomImg} alt="Question image" onClose={() => setZoomImg(null)} />}
     </div>

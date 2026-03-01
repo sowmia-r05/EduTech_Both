@@ -68,6 +68,7 @@ function TypeBadge({ type }) {
     checkbox: { label: "Multiple Choice", cls: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
     picture_choice: { label: "Picture Choice", cls: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
     free_text: { label: "Free Text", cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+    short_answer: { label: "Short Answer", cls: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
   };
   const { label, cls } = map[type] || { label: type, cls: "bg-slate-500/10 text-slate-400" };
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${cls}`}>{label}</span>;
@@ -87,7 +88,7 @@ function OptionsEditor({ form, setForm }) {
   };
   const addOption = () => { if (form.options.length >= 8) return; setForm((f) => ({ ...f, options: [...f.options, { option_id: "", text: "", image_url: "", correct: false }] })); };
   const removeOption = (idx) => { if (form.options.length <= 2) return; setForm((f) => ({ ...f, options: f.options.filter((_, i) => i !== idx) })); };
-  if (form.type === "free_text") return null;
+  if (form.type === "free_text" || form.type === "short_answer") return null;
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
@@ -169,6 +170,52 @@ function QuestionSettingsBlock({ form, setForm, quizRandomizeOptions }) {
   );
 }
 
+/* ── Shared: Short Answer correct answer input ── */
+function ShortAnswerEditor({ form, setForm }) {
+  if (form.type !== "short_answer") return null;
+  const answers = (form.correct_answer || "").split("|").filter(Boolean);
+  return (
+    <div className="pt-3 border-t border-slate-700 space-y-3">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">✍️ Correct Answer</p>
+      <div>
+        <label className="block text-xs text-slate-400 mb-1">
+          Expected Answer(s) <span className="text-slate-600">— separate multiple accepted answers with | (pipe)</span>
+        </label>
+        <input type="text" value={form.correct_answer}
+          onChange={(e) => setForm((f) => ({ ...f, correct_answer: e.target.value }))}
+          placeholder='e.g. "1025" or "1 025|1025|one thousand twenty-five"'
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-orange-500" />
+        {answers.length > 1 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {answers.map((a, i) => (
+              <span key={i} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-[10px] font-medium">
+                ✓ {a.trim()}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <input type="checkbox" checked={form.case_sensitive}
+          onChange={(e) => setForm((f) => ({ ...f, case_sensitive: e.target.checked }))}
+          className="rounded border-slate-600 bg-slate-800 text-orange-500 focus:ring-orange-500" />
+        Case-sensitive grading
+        <span className="text-[10px] text-slate-500">(default: ignores case)</span>
+      </label>
+      {/* Student preview */}
+      <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-3">
+        <p className="text-[10px] text-slate-500 mb-2 uppercase tracking-wider">Student View Preview:</p>
+        <div className="bg-white rounded-lg px-4 py-3 border border-slate-300">
+          <p className="text-xs text-slate-400 mb-1">Your Answer:</p>
+          <div className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 flex items-center text-sm text-slate-400">
+            Type your answer here...
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════
    EDIT existing question
    ═══════════════════════════════════════ */
@@ -180,6 +227,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     image_size: question.image_size || "medium", image_width: question.image_width || null, image_height: question.image_height || null,
     explanation: question.explanation || "", shuffle_options: resolvedShuffle,
     voice_url: question.voice_url || "", video_url: question.video_url || "",
+    correct_answer: question.correct_answer || "", case_sensitive: question.case_sensitive || false,
     options: (question.options || []).map((o) => ({ option_id: o.option_id, text: o.text || "", image_url: o.image_url || "", correct: o.correct || false })),
   });
   const [saving, setSaving] = useState(false);
@@ -190,7 +238,9 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       text: form.text, type: form.type, points: form.points, category: form.category,
       image_url: form.image_url, image_size: form.image_size, image_width: form.image_width, image_height: form.image_height,
       explanation: form.explanation, shuffle_options: form.shuffle_options,
-      voice_url: form.voice_url || null, video_url: form.video_url || null, options: form.options,
+      voice_url: form.voice_url || null, video_url: form.video_url || null,
+      correct_answer: form.correct_answer || null, case_sensitive: form.case_sensitive,
+      options: form.options,
     });
     setSaving(false);
   };
@@ -218,7 +268,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
             <option value="radio_button">Single Choice</option><option value="checkbox">Multiple Choice</option>
-            <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text</option>
+            <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text</option><option value="short_answer">Short Answer</option>
           </select>
         </div>
         <div>
@@ -254,6 +304,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       </div>
       <QuestionSettingsBlock form={form} setForm={setForm} quizRandomizeOptions={quizRandomizeOptions} />
       <FreeTextPreview form={form} />
+      <ShortAnswerEditor form={form} setForm={setForm} />
       <OptionsEditor form={form} setForm={setForm} />
       <div className="flex justify-end gap-2 pt-2">
         <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">Cancel</button>
@@ -275,6 +326,7 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
     image_url: "", image_size: "medium", image_width: null, image_height: null,
     explanation: "", shuffle_options: quizRandomizeOptions || false,
     voice_url: "", video_url: "",
+    correct_answer: "", case_sensitive: false,
     options: [
       { option_id: "", text: "", image_url: "", correct: false },
       { option_id: "", text: "", image_url: "", correct: false },
@@ -286,7 +338,9 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
 
   const handleSave = async () => {
     if (!form.text.trim()) return alert("Question text is required");
-    if (form.type !== "free_text") {
+    if (form.type === "short_answer") {
+      if (!form.correct_answer.trim()) return alert("Correct answer is required for Short Answer questions");
+    } else if (form.type !== "free_text") {
       if (form.options.filter((o) => o.text.trim()).length < 2) return alert("At least 2 options required");
       if (!form.options.some((o) => o.correct)) return alert("Mark at least one correct answer");
     }
@@ -300,7 +354,8 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
           image_width: form.image_width, image_height: form.image_height,
           explanation: form.explanation.trim() || null, shuffle_options: form.shuffle_options,
           voice_url: form.voice_url.trim() || null, video_url: form.video_url.trim() || null,
-          options: form.type === "free_text" ? [] : form.options.filter((o) => o.text.trim()).map((o) => ({ text: o.text.trim(), image_url: o.image_url?.trim() || null, correct: o.correct })),
+          correct_answer: form.correct_answer.trim() || null, case_sensitive: form.case_sensitive,
+          options: (form.type === "free_text" || form.type === "short_answer") ? [] : form.options.filter((o) => o.text.trim()).map((o) => ({ text: o.text.trim(), image_url: o.image_url?.trim() || null, correct: o.correct })),
         }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed to add question"); }
@@ -332,7 +387,7 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
           <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
             <option value="radio_button">Single Choice</option><option value="checkbox">Multiple Choice</option>
-            <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text</option>
+            <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text</option><option value="short_answer">Short Answer</option>
           </select>
         </div>
         <div>
@@ -368,6 +423,7 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
       </div>
       <QuestionSettingsBlock form={form} setForm={setForm} quizRandomizeOptions={quizRandomizeOptions} />
       <FreeTextPreview form={form} />
+      <ShortAnswerEditor form={form} setForm={setForm} />
       <OptionsEditor form={form} setForm={setForm} />
       <div className="flex justify-end gap-2 pt-2">
         <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">Cancel</button>
@@ -596,6 +652,33 @@ export default function QuizDetailPage() {
                   {q.image_url && !q.text?.includes(q.image_url) && (
                     <div className="mt-3"><img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} /></div>
                   )}
+                  {/* Audio & Video preview players */}
+                  {(q.voice_url || q.video_url) && (
+                    <div className="mt-3 ml-6 space-y-2">
+                      {q.voice_url && (
+                        <div className="flex items-center gap-3 bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/50">
+                          <span className="text-sm">🔊</span>
+                          <audio src={q.voice_url} controls preload="metadata" className="h-8 flex-1" />
+                          <span className="text-[10px] text-slate-500 flex-shrink-0">{q.voice_url.split('/').pop()?.slice(0, 30)}</span>
+                        </div>
+                      )}
+                      {q.video_url && (
+                        <div className="bg-slate-800/60 rounded-lg border border-slate-700/50 overflow-hidden">
+                          {q.video_url.match(/youtube\.com|youtu\.be/) ? (
+                            <iframe
+                              src={`https://www.youtube.com/embed/${q.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)?.[1]}`}
+                              className="w-full aspect-video max-h-48 rounded-lg"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                              title="Quiz Video"
+                            />
+                          ) : (
+                            <video src={q.video_url} controls preload="metadata" className="w-full max-h-48 rounded-lg" />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {q.options?.length > 0 && (
                     <div className="space-y-1.5 mt-4 ml-6">
                       {q.options.map((opt, oi) => {
@@ -610,6 +693,19 @@ export default function QuizDetailPage() {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+                  {q.type === "short_answer" && q.correct_answer && (
+                    <div className="mt-4 ml-6 px-3 py-2 bg-orange-500/5 border border-orange-500/10 rounded-lg">
+                      <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wider mb-1">✍️ Correct Answer</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {q.correct_answer.split("|").map((a, i) => (
+                          <span key={i} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-xs font-medium">
+                            {a.trim()}
+                          </span>
+                        ))}
+                      </div>
+                      {q.case_sensitive && <p className="text-[10px] text-slate-500 mt-1">🔤 Case-sensitive</p>}
                     </div>
                   )}
                   {q.explanation && (
