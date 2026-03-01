@@ -379,13 +379,14 @@ router.patch("/questions/:questionId", async (req, res) => {
     const question = await Question.findOne({ question_id: req.params.questionId });
     if (!question) return res.status(404).json({ error: "Question not found" });
 
-    const { text, type, points, options, categories, image_url, explanation } = req.body;
+    const { text, type, points, options, categories, image_url, explanation, shuffle_options } = req.body;
 
     if (text !== undefined) question.text = text;
     if (type !== undefined) question.type = type;
     if (points !== undefined) question.points = Number(points) || 1;
     if (image_url !== undefined) question.image_url = image_url;
     if (explanation !== undefined) question.explanation = explanation;
+    if (shuffle_options !== undefined) question.shuffle_options = !!shuffle_options; // ✅ per-question shuffle
 
     // Update categories
     if (categories !== undefined) {

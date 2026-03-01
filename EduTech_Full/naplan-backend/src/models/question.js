@@ -1,8 +1,10 @@
 /**
  * models/question.js
- * 
+ *
  * Individual quiz question. Belongs to one or more quizzes via quiz_ids.
  * Created by admin upload (Excel → parse → save).
+ *
+ * ✅ NEW: shuffle_options — per-question toggle to randomize option order
  */
 
 const mongoose = require("mongoose");
@@ -50,6 +52,11 @@ const QuestionSchema = new mongoose.Schema(
     subject: { type: String, index: true },
     image_url: { type: String, default: null },
     explanation: { type: String, default: "" },
+
+    // ✅ NEW: Per-question shuffle toggle
+    // When true, the options for THIS question are randomized each attempt
+    // This overrides / supplements the quiz-level randomize_options setting
+    shuffle_options: { type: Boolean, default: false },
   },
   { timestamps: true, versionKey: false }
 );
