@@ -21,7 +21,7 @@ import QuizNavigation from "./QuizNavigation";
 import QuizReview from "./QuizReview";
 import QuizResult from "./QuizResult";
 
-const API = import.meta.env.VITE_API_URL || "";
+const API = import.meta.env.VITE_API_BASE_URL || "";
 
 /* ═══════════════════════════════════════
    QuizMediaPanel — collapsible audio/video
