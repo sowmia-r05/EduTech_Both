@@ -5,12 +5,14 @@
  *   - Score & grade (instant for MCQ)
  *   - Topic breakdown
  *   - "Generating AI feedback..." polling for writing quizzes
+ *   - "View Answers" button → opens AnswersModal with PDF download
  *   - Link back to dashboard
  *
  * Place in: src/app/components/quiz/QuizResult.jsx
  */
 
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
+import AnswersModal from "./AnswersModal";
 
 /* ─── Score Ring SVG ─── */
 function ScoreRing({ percentage }) {
@@ -73,6 +75,12 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
   const topics = result?.topic_breakdown || {};
   const isWriting = result?.is_writing;
   const aiStatus = result?.ai_status;
+
+  // ─── NEW: Answers modal state ───
+  const [showAnswers, setShowAnswers] = useState(false);
+
+  // Resolve the attempt ID (native quiz attempts use attempt_id; legacy uses response_id)
+  const attemptId = result?.attempt_id || result?.response_id || result?.responseId || null;
 
   const gradeEmoji = useMemo(() => {
     const p = score.percentage || 0;
@@ -189,8 +197,22 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
           </div>
         )}
 
-        {/* Actions */}
+        {/* ═══ Actions ═══ */}
         <div className="flex flex-col gap-3">
+          {/* NEW: View Answers Button */}
+          {attemptId && !isWriting && (
+            <button
+              onClick={() => setShowAnswers(true)}
+              className="w-full px-6 py-3 bg-white border-2 border-indigo-200 text-indigo-600 text-sm font-bold rounded-xl hover:bg-indigo-50 hover:border-indigo-300 transition-colors flex items-center justify-center gap-2"
+            >
+              <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+              </svg>
+              View Answers
+            </button>
+          )}
+
+          {/* Back to Dashboard */}
           <button
             onClick={onClose}
             className="w-full px-6 py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
@@ -199,6 +221,17 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
           </button>
         </div>
       </div>
+
+      {/* ═══ Answers Modal ═══ */}
+      {showAnswers && (
+        <AnswersModal
+          attemptId={attemptId}
+          quizName={quizName}
+          score={score}
+          topics={topics}
+          onClose={() => setShowAnswers(false)}
+        />
+      )}
     </div>
   );
 }
