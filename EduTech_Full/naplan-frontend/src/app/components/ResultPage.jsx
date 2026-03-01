@@ -24,6 +24,8 @@ import {
 import waitingGif from "@/app/components/Public/dragon_play.gif";
 import AvatarMenu from "@/app/components/ResultComponents/AvatarMenu";
 import DateRangeWritingFilter from "@/app/components/dashboardComponents/DateRangeWritingFilter";
+import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
+import { useAuth } from "@/app/context/AuthContext";
 
 import {
   fetchLatestWritingByEmailAndQuiz,
@@ -42,6 +44,8 @@ const isAiPending = (d) => {
   if (["error", "failed"].includes(s)) return false;
   return true;
 };
+
+
 
 /* -------------------- No Data Modal -------------------- */
 const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
@@ -100,6 +104,17 @@ export default function ResultPage() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [showNoDataModal, setShowNoDataModal] = useState(false);
   const [selectedAttemptOverride, setSelectedAttemptOverride] = useState(null);
+
+  const { childToken, childProfile, parentToken } = useAuth();
+const isParentViewing = !childToken && !!parentToken;
+const childStatus = childProfile?.status || "trial";
+const yearLevel = childProfile?.yearLevel || null;
+
+const viewerType = childToken && !isParentViewing
+  ? "child"
+  : isParentViewing
+    ? "parent_viewing_child"
+    : "parent";
 
   // --- Fetch ---
   useEffect(() => {
@@ -249,6 +264,11 @@ export default function ResultPage() {
 
   // --- Main UI ---
   return (
+    <TrialGateOverlay
+    isTrialUser={childStatus === "trial"}
+    preset="writing"
+    viewerType={viewerType}
+    yearLevel={yearLevel}>
     <div className="relative min-h-screen bg-gray-100">
       <NoDataModal isOpen={showNoDataModal} onClose={() => setShowNoDataModal(false)}
         onClearFilter={() => { setSelectedDate(null); setSelectedAttemptOverride(null); setShowNoDataModal(false); }} />
@@ -476,5 +496,6 @@ export default function ResultPage() {
         )}
       </div>
     </div>
+    </TrialGateOverlay>
   );
 }
