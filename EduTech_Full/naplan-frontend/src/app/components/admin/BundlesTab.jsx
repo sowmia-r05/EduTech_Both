@@ -11,6 +11,8 @@
  *   ✅ Two distribution logics: Standard / Swap-Cascade
  *   ✅ Edit / Delete / Toggle active
  *   ✅ Quiz assignment modal with search & enforced count
+ *   ✅ Year/Level is now a free-text optional field (generic, not NAPLAN-specific)
+ *   ✅ Manual quiz removal from expanded bundle view
  *
  * Place in: src/app/components/admin/BundlesTab.jsx
  * ═══════════════════════════════════════════════════════════════
@@ -59,7 +61,7 @@ function CreateBundleModal({ bundle, allBundles, onSave, onClose }) {
   const [form, setForm] = useState({
     bundle_name: bundle?.bundle_name || "",
     description: bundle?.description || "",
-    year_level: bundle?.year_level?.toString() || "3",
+    year_level: bundle?.year_level?.toString() || "",
     price_cents: bundle ? (bundle.price_cents / 100).toString() : "",
     currency: bundle?.currency || "aud",
     max_quiz_count: bundle?.max_quiz_count?.toString() || "",
@@ -98,7 +100,7 @@ function CreateBundleModal({ bundle, allBundles, onSave, onClose }) {
       const payload = {
         bundle_name: form.bundle_name.trim(),
         description: form.description.trim(),
-        year_level: Number(form.year_level),
+        year_level: form.year_level.trim() || null,
         price_cents: Math.round(Number(form.price_cents) * 100),
         currency: form.currency,
         max_quiz_count: Number(form.max_quiz_count),
@@ -151,16 +153,11 @@ function CreateBundleModal({ bundle, allBundles, onSave, onClose }) {
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
 
-          {/* Year Level */}
+          {/* Year Level — free text, optional */}
           <div>
-            <label className="text-[11px] text-slate-400 uppercase tracking-wide font-semibold mb-1.5 block">Year Level *</label>
-            <select value={form.year_level} onChange={u("year_level")}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="3">Year 3</option>
-              <option value="5">Year 5</option>
-              <option value="7">Year 7</option>
-              <option value="9">Year 9</option>
-            </select>
+            <label className="text-[11px] text-slate-400 uppercase tracking-wide font-semibold mb-1.5 block">Year / Level <span className="text-slate-600">(optional)</span></label>
+            <input value={form.year_level} onChange={u("year_level")} placeholder="e.g. Year 3, Grade 5, Level 1..."
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
 
           {/* Price + Currency */}
@@ -251,7 +248,7 @@ function CreateBundleModal({ bundle, allBundles, onSave, onClose }) {
                         <div className="flex-1 min-w-0">
                           <span className="text-sm font-medium text-white">{b.bundle_name}</span>
                           <span className="text-[11px] text-slate-500 ml-2">
-                            Year {b.year_level} • {qCount} quizzes • {formatPrice(b.price_cents, b.currency || "aud")}
+                            {b.year_level ? `${b.year_level} • ` : ""}{qCount} quizzes • {formatPrice(b.price_cents, b.currency || "aud")}
                           </span>
                         </div>
                       </button>
@@ -386,7 +383,7 @@ function QuizAssignmentModal({ bundle, quizzes, allBundles, onSave, onClose }) {
                   <div className="flex-1 min-w-0">
                     <span className={`text-sm font-medium block truncate ${isSelected ? "text-white" : "text-slate-300"}`}>{quiz.quiz_name}</span>
                     <span className="text-[10px] text-slate-500">
-                      {quiz.subject && `${quiz.subject} • `}Year {quiz.year_level} • {quiz.question_count || "?"} questions
+                      {quiz.subject && `${quiz.subject} • `}{quiz.year_level ? `Year ${quiz.year_level} • ` : ""}{quiz.question_count || "?"} questions
                       {isElsewhere && " • assigned to another bundle"}
                     </span>
                   </div>
@@ -423,6 +420,7 @@ export default function BundlesTab({ bundles, loading, quizzes, onRefresh }) {
   const [deleting, setDeleting] = useState(null);
   const [filter, setFilter] = useState("all");
   const [expandedId, setExpandedId] = useState(null);
+  const [removingQuiz, setRemovingQuiz] = useState(null);
 
   if (loading) {
     return (
@@ -452,13 +450,36 @@ export default function BundlesTab({ bundles, loading, quizzes, onRefresh }) {
     } catch (err) { alert(err.message); }
   };
 
+  const handleRemoveQuiz = async (bundleId, quizId) => {
+    if (!confirm("Remove this quiz from the bundle?")) return;
+    setRemovingQuiz(quizId);
+    try {
+      const res = await adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
+        method: "DELETE",
+        body: JSON.stringify({ quiz_id: quizId }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Failed to remove quiz");
+      }
+      onRefresh();
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+    setRemovingQuiz(null);
+  };
+
   const filtered = filter === "all" ? bundles
     : filter === "active" ? bundles.filter((b) => b.is_active)
     : filter === "swap" ? bundles.filter((b) => b.distribution_mode === "swap")
     : bundles.filter((b) => b.distribution_mode !== "swap");
 
   const byYear = {};
-  filtered.forEach((b) => { if (!byYear[b.year_level]) byYear[b.year_level] = []; byYear[b.year_level].push(b); });
+  filtered.forEach((b) => {
+    const key = b.year_level || "Uncategorized";
+    if (!byYear[key]) byYear[key] = [];
+    byYear[key].push(b);
+  });
 
   return (
     <div>
@@ -503,9 +524,9 @@ export default function BundlesTab({ bundles, loading, quizzes, onRefresh }) {
 
       {/* Bundle Cards */}
       <div className="space-y-8">
-        {Object.entries(byYear).sort(([a], [b]) => a - b).map(([year, yBundles]) => (
+        {Object.entries(byYear).sort(([a], [b]) => String(a).localeCompare(String(b))).map(([year, yBundles]) => (
           <div key={year}>
-            <h3 className="text-sm font-semibold text-slate-300 mb-3">Year {year}</h3>
+            <h3 className="text-sm font-semibold text-slate-300 mb-3">{year}</h3>
             <div className="space-y-3">
               {yBundles.sort((a, b) => (a.bundle_name || "").localeCompare(b.bundle_name || "")).map((bundle) => {
                 const qIds = bundle.quiz_ids || [];
@@ -572,7 +593,19 @@ export default function BundlesTab({ bundles, loading, quizzes, onRefresh }) {
                               <div className="flex flex-wrap gap-1.5">
                                 {qIds.map((qid) => {
                                   const quiz = quizzes.find((q) => q.quiz_id === qid);
-                                  return <span key={qid} className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">{quiz ? quiz.quiz_name : qid}</span>;
+                                  return (
+                                    <span key={qid} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 group">
+                                      {quiz ? quiz.quiz_name : qid}
+                                      <button
+                                        onClick={() => handleRemoveQuiz(bundle.bundle_id, qid)}
+                                        disabled={removingQuiz === qid}
+                                        className="ml-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[9px] text-indigo-400 hover:bg-red-500/20 hover:text-red-400 transition opacity-60 group-hover:opacity-100 disabled:opacity-30"
+                                        title="Remove quiz"
+                                      >
+                                        {removingQuiz === qid ? "…" : "✕"}
+                                      </button>
+                                    </span>
+                                  );
                                 })}
                               </div>
                             )}
