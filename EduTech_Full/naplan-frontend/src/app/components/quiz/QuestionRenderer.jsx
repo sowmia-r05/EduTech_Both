@@ -282,16 +282,6 @@ export default function QuestionRenderer({ question, questionNumber, answer, isF
         </div>
       )}
 
-      {/* Category tag */}
-      {question.categories?.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {question.categories.map((cat) => (
-            <span key={cat.category_id || cat.name} className="px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-md">
-              {cat.name}
-            </span>
-          ))}
-        </div>
-      )}
 
       {/* Answer area — renders based on question type */}
       {question.type === "radio_button" && <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} />}
