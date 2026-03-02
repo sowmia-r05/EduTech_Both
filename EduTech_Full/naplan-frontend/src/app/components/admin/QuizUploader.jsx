@@ -455,6 +455,7 @@ export default function QuizUploader({ onUploadSuccess }) {
       const data = await res.json();
       setUploadResult(data);
       setStep("done");
+      onUploadSuccess?.(); // ✅ Auto-refresh quiz list in AdminDashboar
     } catch (err) {
       setUploadError(err.message);
       setStep("preview");
