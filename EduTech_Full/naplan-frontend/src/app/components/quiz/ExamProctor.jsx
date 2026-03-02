@@ -13,11 +13,17 @@
  * Wraps around any quiz content (NativeQuizPlayer).
  * Does NOT touch quiz logic — purely a proctoring shell.
  *
+ * ✅ FIX: Added `submitting` prop to suppress violation recording
+ *    during quiz submission. When the quiz is being submitted,
+ *    exitFullscreen() is called intentionally — this should NOT
+ *    count as a violation.
+ *
  * Place in: src/app/components/quiz/ExamProctor.jsx
  *
  * Props:
  *   quiz       — { quiz_id, quiz_name, subject, year_level, difficulty, time_limit_minutes, question_count }
  *   enabled    — boolean (if false, renders children directly — no proctoring)
+ *   submitting — boolean (if true, suppresses violation recording) ← NEW
  *   onCancel   — () => void
  *   onStart    — () => void (called when countdown finishes and quiz begins)
  *   onViolation — ({ type, count }) => void (optional callback on each violation)
@@ -43,150 +49,109 @@ function exitFullscreen() {
 }
 
 function isFullscreen() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+  return !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.msFullscreenElement
+  );
 }
 
-/* ─── Subject styling ─── */
-const SUBJECT_STYLE = {
-  Reading: { icon: "📖", gradient: "from-sky-500 to-blue-600" },
-  Writing: { icon: "✍️", gradient: "from-violet-500 to-purple-600" },
-  Numeracy: { icon: "🔢", gradient: "from-amber-500 to-orange-600" },
-  Maths: { icon: "🔢", gradient: "from-amber-500 to-orange-600" },
-  Language: { icon: "📝", gradient: "from-emerald-500 to-teal-600" },
-  Conventions: { icon: "📝", gradient: "from-emerald-500 to-teal-600" },
-  Other: { icon: "📚", gradient: "from-slate-500 to-slate-600" },
-};
-
 /* ═══════════════════════════════════════════════════════
-   PRE-QUIZ LAUNCH SCREEN
+   LAUNCH SCREEN
    ═══════════════════════════════════════════════════════ */
 function LaunchScreen({ quiz, onStart, onCancel }) {
-  const style = SUBJECT_STYLE[quiz.subject] || SUBJECT_STYLE.Other;
-  const estMinutes = quiz.time_limit_minutes || Math.max(5, (quiz.question_count || 10) * 1.5);
+  const subject = quiz?.subject || "Quiz";
+  const timeLimit = quiz?.time_limit_minutes;
+  const questionCount = quiz?.question_count;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: "rgba(15,23,42,0.7)", backdropFilter: "blur(10px)" }}
-    >
-      <div
-        className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden"
-        style={{ animation: "quizFadeIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards" }}
-      >
-        {/* Header gradient */}
-        <div className={`bg-gradient-to-r ${style.gradient} px-8 py-6 text-white`}>
-          <div className="flex items-center gap-4">
-            <div
-              className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"
-              style={{ backdropFilter: "blur(8px)" }}
-            >
-              <span className="text-2xl">{style.icon}</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-white/70 text-xs font-medium uppercase tracking-wider mb-1">
-                {quiz.subject || "Quiz"}
-              </p>
-              <h2 className="text-lg font-bold leading-tight truncate">
-                {quiz.quiz_name || quiz.name || "Practice Test"}
-              </h2>
-            </div>
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex items-center justify-center px-4">
+      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 text-center space-y-6">
+        {/* Icon */}
+        <div className="w-16 h-16 mx-auto bg-indigo-100 rounded-full flex items-center justify-center">
+          <svg className="w-8 h-8 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+          </svg>
         </div>
 
-        {/* Body */}
-        <div className="px-8 py-6 space-y-5">
-          {/* Info cards */}
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: "Questions", value: `📋 ${quiz.question_count || "—"}` },
-              { label: "Year Level", value: `📚 Year ${quiz.year_level || "—"}` },
-              { label: "Time Limit", value: quiz.time_limit_minutes ? `⏱ ${quiz.time_limit_minutes} min` : "⏱ No limit" },
-            ].map(({ label, value }) => (
-              <div key={label} className="bg-slate-50 rounded-xl p-3 text-center">
-                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">{label}</p>
-                <p className="text-sm font-semibold text-slate-800 mt-1">{value}</p>
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Exam Mode</h2>
+          <p className="text-sm text-slate-500 mt-1">{quiz?.quiz_name || subject}</p>
+        </div>
+
+        {/* Info cards */}
+        <div className="space-y-3 text-left">
+          <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-3">
+            <span className="text-lg">🖥️</span>
+            <div>
+              <p className="text-sm font-medium text-slate-800">Fullscreen required</p>
+              <p className="text-xs text-slate-500">Your browser will enter fullscreen mode</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-3">
+            <span className="text-lg">👁️</span>
+            <div>
+              <p className="text-sm font-medium text-slate-800">Tab switches monitored</p>
+              <p className="text-xs text-slate-500">Switching tabs will be recorded</p>
+            </div>
+          </div>
+          {timeLimit && (
+            <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-3">
+              <span className="text-lg">⏱️</span>
+              <div>
+                <p className="text-sm font-medium text-slate-800">{timeLimit} minute time limit</p>
+                <p className="text-xs text-slate-500">{questionCount ? `${questionCount} questions` : "Complete all questions"}</p>
               </div>
-            ))}
-          </div>
+            </div>
+          )}
+        </div>
 
-          {/* Exam mode notice */}
-          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
-            <p className="text-sm font-semibold text-indigo-800 mb-2">🔒 Exam Mode</p>
-            <p className="text-xs text-indigo-600 leading-relaxed">
-              This quiz will open in <strong>full-screen exam mode</strong>. Your browser will go full-screen,
-              and switching tabs will be detected and recorded. Please close all other tabs before starting.
-            </p>
-          </div>
-
-          {/* Tips */}
-          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
-            <p className="text-sm font-semibold text-amber-800 mb-2">💡 Before you begin:</p>
-            <ul className="text-xs text-amber-700 space-y-1.5">
-              {[
-                "Read each question carefully before answering",
-                "You can flag questions to review later",
-                "Your progress is auto-saved every 30 seconds",
-                "Do NOT press Escape or switch tabs during the quiz",
-              ].map((t) => (
-                <li key={t} className="flex items-start gap-2">
-                  <span className="mt-0.5 text-amber-500">✓</span>
-                  <span>{t}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Buttons */}
-          <div className="flex gap-3 pt-1">
-            <button
-              onClick={onCancel}
-              className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
-            >
-              Go Back
-            </button>
-            <button
-              onClick={onStart}
-              className={`flex-1 px-4 py-3 rounded-xl bg-gradient-to-r ${style.gradient} text-white text-sm font-bold shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]`}
-            >
-              🔒 Enter Exam Mode →
-            </button>
-          </div>
+        {/* Actions */}
+        <div className="space-y-3 pt-2">
+          <button
+            onClick={onStart}
+            className="w-full px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold rounded-xl hover:from-indigo-700 hover:to-violet-700 transition-all shadow-lg shadow-indigo-200"
+          >
+            🚀 Start Exam
+          </button>
+          <button
+            onClick={onCancel}
+            className="w-full px-6 py-2.5 text-slate-500 text-sm font-medium hover:text-slate-700 transition-colors"
+          >
+            Cancel
+          </button>
         </div>
       </div>
-
-      <style>{`@keyframes quizFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════
-   3-2-1-GO COUNTDOWN
+   COUNTDOWN (3-2-1-Go)
    ═══════════════════════════════════════════════════════ */
 function CountdownScreen({ onDone }) {
   const [count, setCount] = useState(3);
 
   useEffect(() => {
-    if (count <= 0) {
-      onDone();
-      return;
+    if (count === 0) {
+      const t = setTimeout(onDone, 600);
+      return () => clearTimeout(t);
     }
-    const t = setTimeout(() => setCount((c) => c - 1), 800);
+    const t = setTimeout(() => setCount((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [count, onDone]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-gradient-to-b from-indigo-600 to-violet-700 flex items-center justify-center">
-      <div className="text-center">
-        {count > 0 ? (
-          <div key={count} className="animate-ping-once">
-            <span className="text-[120px] font-black text-white/90 drop-shadow-2xl">{count}</span>
-          </div>
-        ) : (
-          <div className="animate-pulse">
-            <span className="text-6xl font-black text-white">Go! 🚀</span>
-          </div>
-        )}
-      </div>
+    <div className="fixed inset-0 z-50 bg-gradient-to-br from-indigo-600 to-violet-700 flex items-center justify-center">
+      {count > 0 ? (
+        <div key={count} className="animate-ping-once">
+          <span className="text-[120px] font-black text-white/90 drop-shadow-2xl">{count}</span>
+        </div>
+      ) : (
+        <div className="animate-pulse">
+          <span className="text-6xl font-black text-white">Go! 🚀</span>
+        </div>
+      )}
       <style>{`@keyframes pingOnce { 0% { transform: scale(0.5); opacity: 0; } 50% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 1; } } .animate-ping-once { animation: pingOnce 0.6s ease-out; }`}</style>
     </div>
   );
@@ -244,7 +209,7 @@ function ViolationBadge({ count }) {
 /* ═══════════════════════════════════════════════════════
    MAIN: ExamProctor
    ═══════════════════════════════════════════════════════ */
-export default function ExamProctor({ quiz, enabled = true, onCancel, onStart, onViolation, children }) {
+export default function ExamProctor({ quiz, enabled = true, onCancel, onStart, onViolation, submitting = false, children }) {
   const [phase, setPhase] = useState("launch"); // launch | countdown | active | finished
   const [violations, setViolations] = useState(0);
   const [showFsWarning, setShowFsWarning] = useState(false);
@@ -271,21 +236,25 @@ export default function ExamProctor({ quiz, enabled = true, onCancel, onStart, o
   );
 
   // ─── Tab-switch detection ───
+  // ✅ FIX: Skip recording when `submitting` is true (quiz is being submitted intentionally)
   useEffect(() => {
     if (phase !== "active") return;
     const handler = () => {
+      if (submitting) return; // ✅ FIX: Don't record during submission
       if (document.hidden) {
         recordViolation("tab_switch");
       }
     };
     document.addEventListener("visibilitychange", handler);
     return () => document.removeEventListener("visibilitychange", handler);
-  }, [phase, recordViolation]);
+  }, [phase, recordViolation, submitting]); // ✅ FIX: Added submitting to deps
 
   // ─── Fullscreen-exit detection ───
+  // ✅ FIX: Skip recording when `submitting` is true (exitFullscreen is called intentionally on submit)
   useEffect(() => {
     if (phase !== "active") return;
     const handler = () => {
+      if (submitting) return; // ✅ FIX: Don't record during submission
       if (!isFullscreen()) {
         setShowFsWarning(true);
         recordViolation("fullscreen_exit");
@@ -299,7 +268,14 @@ export default function ExamProctor({ quiz, enabled = true, onCancel, onStart, o
       document.removeEventListener("fullscreenchange", handler);
       document.removeEventListener("webkitfullscreenchange", handler);
     };
-  }, [phase, recordViolation]);
+  }, [phase, recordViolation, submitting]); // ✅ FIX: Added submitting to deps
+
+  // ✅ FIX: Hide fullscreen warning when submitting starts
+  useEffect(() => {
+    if (submitting) {
+      setShowFsWarning(false);
+    }
+  }, [submitting]);
 
   // ─── Cleanup: exit fullscreen on unmount ───
   useEffect(() => {
@@ -331,9 +307,6 @@ export default function ExamProctor({ quiz, enabled = true, onCancel, onStart, o
       .catch(() => {});
   }, []);
 
-  // ─── Public method: call when quiz ends to exit fullscreen gracefully ───
-  // (This is done by unmounting ExamProctor — cleanup effect handles it)
-
   /* ═══ RENDER ═══ */
 
   if (phase === "launch") {
@@ -347,7 +320,8 @@ export default function ExamProctor({ quiz, enabled = true, onCancel, onStart, o
   // ─── Active phase: fullscreen proctored shell ───
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col overflow-auto">
-      {showFsWarning && <FullscreenWarning onReEnter={handleReEnter} />}
+      {/* ✅ FIX: Don't show fullscreen warning during submission */}
+      {showFsWarning && !submitting && <FullscreenWarning onReEnter={handleReEnter} />}
       <ViolationBadge count={violations} />
       {children}
     </div>

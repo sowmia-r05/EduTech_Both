@@ -286,12 +286,13 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
   const goPrev = useCallback(() => goTo(currentIdx - 1), [currentIdx, goTo]);
 
   // ═══ SUBMIT ═══
-  const handleSubmit = useCallback(async () => {
+const handleSubmit = useCallback(async () => {
     if (submitCalledRef.current) return;
     submitCalledRef.current = true;
     setPhase("submitting");
     clearInterval(autoSaveTimer.current);
-    exitFullscreen().catch(() => {});
+    // ✅ FIX: Do NOT call exitFullscreen() here — it triggers a false violation
+    // Instead, we exit fullscreen AFTER the phase changes to "result"
 
     try {
       const payload = buildAnswersPayload();
@@ -306,7 +307,14 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
       const data = await res.json();
       setResult(data);
       setPhase("result");
-    } catch (err) { setError(err.message); setPhase("error"); }
+      // ✅ FIX: Exit fullscreen AFTER phase is "result" — ExamProctor's submitting
+      // prop will suppress violations during this transition
+      exitFullscreen().catch(() => {});
+    } catch (err) {
+      setError(err.message);
+      setPhase("error");
+      exitFullscreen().catch(() => {});
+    }
   }, [attemptId, buildAnswersPayload, apiFetch, proctored]);
 
   // ═══ CANCEL ═══
@@ -457,6 +465,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
       quiz={quiz} enabled={proctored}
       onCancel={() => onClose?.({ completed: false })}
       onStart={handleProctoringStart} onViolation={handleViolation}
+      submitting={phase === "submitting" || phase === "result"}   
     >
       {quizContent}
     </ExamProctor>

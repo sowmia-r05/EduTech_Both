@@ -1,11 +1,13 @@
 // src/app/components/landing/FreeTrialPage.jsx
 //
 // CHANGES FROM ORIGINAL:
-//   ✅ Added useAuth import to check login state
-//   ✅ handleStartTest now checks parentToken:
-//      - Logged in   → /start-test (existing behavior)
-//      - Not logged  → /parent/create?redirect=free-trial (new registration funnel)
-//   Everything else is IDENTICAL to the original.
+//   ✅ (Existing) Added useAuth import to check login state
+//   ✅ (Existing) Not logged in → /parent/create?redirect=free-trial
+//   ✅ NEW: Logged-in parents → /parent-dashboard?onboarding=free-trial
+//     This ensures they go through the proper child-creation flow instead
+//     of the legacy /start-test page that bypasses the parent-child model.
+//   ✅ NEW: If parent already has children, navigates to /parent-dashboard
+//     where they can pick a child and start a quiz from the child dashboard.
 
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -24,8 +26,11 @@ export default function FreeTrialPage() {
 
   const handleStartTest = () => {
     if (parentToken) {
-      // ✅ Already authenticated — go straight to test setup
-      navigate("/start-test");
+      // ✅ UPDATED: Send logged-in parents through the onboarding flow
+      // instead of the legacy /start-test page. This ensures they create
+      // a child profile (if they don't have one) and use the proper
+      // child dashboard quiz flow.
+      navigate("/parent-dashboard?onboarding=free-trial");
     } else {
       // 🔒 Not logged in — funnel through registration, preserving intent
       navigate("/parent/create?redirect=free-trial");
