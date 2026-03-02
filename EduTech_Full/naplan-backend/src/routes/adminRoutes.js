@@ -623,71 +623,116 @@ router.patch("/questions/:questionId", async (req, res) => {
 });
 
 // ─── POST /quizzes/:quizId/questions — Add a new question to an existing quiz ───
-router.post("/quizzes/:quizId/questions", async (req, res) => {
+router.post("/quizzes/upload", async (req, res) => {
   try {
-    const quiz = await Quiz.findOne({ quiz_id: req.params.quizId });
-    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+    const { quiz: quizData, questions: questionsData } = req.body;
 
-    const {
-      text, type = "radio_button", points = 1, category,
-      image_url, image_size = "medium", image_width, image_height,
-      explanation, shuffle_options, voice_url, video_url,
-      options = [],
-    } = req.body;
-
-    if (!text || !text.trim()) {
-      return res.status(400).json({ error: "Question text is required" });
+    if (!quizData || !questionsData || !Array.isArray(questionsData)) {
+      return res.status(400).json({ error: "Invalid payload. Expected { quiz, questions[] }" });
     }
 
-    const questionId = `q_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    if (!quizData.quiz_name) return res.status(400).json({ error: "quiz_name is required" });
 
-    const categories = [];
-    if (category && category.trim()) {
-      categories.push({ name: category.trim() });
-    }
+    const quizId = quizData.quiz_id || uuidv4();
 
-    const builtOptions = options.map((opt, i) => ({
-      option_id: `opt_${i + 1}`,
-      label: String.fromCharCode(65 + i),
-      text: opt.text || "",
-      image_url: opt.image_url || null,
-      correct: !!opt.correct,
-    }));
-
-    const question = new Question({
-      question_id: questionId,
-      quiz_ids: [quiz.quiz_id],
-      text: text.trim(),
-      type,
-      points: Number(points) || 1,
-      categories,
-      options: builtOptions,
-      image_url: image_url || null,
-      image_size: image_size || "medium",
-      image_width: image_width || null,
-      image_height: image_height || null,
-      explanation: explanation || null,
-      shuffle_options: !!shuffle_options,
-      voice_url: voice_url || null,
-      video_url: video_url || null,
-    });
-
-    await question.save();
-
-    const allQuestions = await Question.find({ quiz_ids: quiz.quiz_id }).lean();
-    const totalPoints = allQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
-    await Quiz.updateOne(
-      { quiz_id: quiz.quiz_id },
-      {
-        question_count: allQuestions.length,
-        total_points: totalPoints,
-        question_ids: allQuestions.map((q) => q.question_id),
-      }
+    const quiz = await Quiz.findOneAndUpdate(
+      { quiz_id: quizId },
+      { ...quizData, quiz_id: quizId, question_count: questionsData.length },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    res.status(201).json({ ok: true, question_id: questionId, question });
+    // ✅ FIX: Build question operations with proper field mapping
+    const generatedQuestionIds = []; // Track generated IDs
+
+    const questionOps = questionsData.map((q, i) => {
+      const questionId = q.question_id || uuidv4();
+      generatedQuestionIds.push(questionId);
+
+      // ✅ FIX 1: Map question_text → text (frontend sends question_text, schema expects text)
+      const questionText = q.question_text || q.text || "";
+
+      // ✅ FIX 2: Map correct_answer string ("A,B") onto options as correct: true/false
+      const correctLabels = (q.correct_answer || "")
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+
+      const options = (q.options || []).map((opt, idx) => {
+        const label = opt.label || String.fromCharCode(65 + idx);
+        return {
+          option_id: opt.option_id || `opt_${idx + 1}`,
+          label,
+          text: opt.text || "",
+          image_url: opt.image_url || null,
+          correct: correctLabels.includes(label),
+        };
+      });
+
+      // ✅ FIX: Build categories array from category string
+      const categories = [];
+      if (q.category && String(q.category).trim()) {
+        String(q.category)
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean)
+          .forEach((name) => categories.push({ name }));
+      }
+
+      return {
+        updateOne: {
+          filter: { question_id: questionId },
+          update: {
+            $set: {
+              question_id: questionId,
+              text: questionText,                    // ✅ Correct field name
+              type: q.type || "radio_button",
+              options: options,                      // ✅ With correct: true/false
+              points: Number(q.points) || 1,
+              categories: categories,                // ✅ Properly built
+              image_url: q.image_url || null,
+              explanation: q.explanation || "",
+              order: i + 1,
+              // Short answer support
+              correct_answer: q.correct_answer || null,
+              case_sensitive: q.case_sensitive || false,
+              // Media
+              shuffle_options: !!q.shuffle_options,
+              voice_url: q.voice_url || null,
+              video_url: q.video_url || null,
+              image_size: q.image_size || "medium",
+              image_width: q.image_width || null,
+              image_height: q.image_height || null,
+            },
+            $addToSet: { quiz_ids: quizId },
+          },
+          upsert: true,
+        },
+      };
+    });
+
+    if (questionOps.length > 0) {
+      await Question.bulkWrite(questionOps);
+    }
+
+    // ✅ FIX 3: Fetch actual questions from DB to get correct IDs and calculate total_points
+    const allQuestions = await Question.find({ quiz_ids: quizId }).lean();
+    const totalPoints = allQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+
+    quiz.question_ids = allQuestions.map((q) => q.question_id);
+    quiz.question_count = allQuestions.length;
+    quiz.total_points = totalPoints;  // ✅ Now calculated!
+    await quiz.save();
+
+    res.json({
+      ok: true,
+      quiz_id: quizId,
+      quiz_name: quiz.quiz_name,
+      question_count: allQuestions.length,
+      total_points: totalPoints,
+      questions_upserted: questionsData.length,
+    });
   } catch (err) {
-    console.error("Add question error:", err);
+    console.error("Upload quiz error:", err);
     res.status(500).json({ error: err.message });
   }
 });
