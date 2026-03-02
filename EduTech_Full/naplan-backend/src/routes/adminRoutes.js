@@ -429,27 +429,83 @@ router.post("/quizzes/upload", async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    const questionOps = questionsData.map((q, i) => ({
-      updateOne: {
-        filter: { question_id: q.question_id || uuidv4() },
-        update: {
-          $set: { ...q, order: i + 1 },
-          $addToSet: { quiz_ids: quizId },
-        },
-        upsert: true,
-      },
-    }));
+    const questionOps = questionsData.map((q, i) => {
+          const questionId = q.question_id || uuidv4();
 
-    if (questionOps.length > 0) {
-      await Question.bulkWrite(questionOps);
-    }
+          // ✅ FIX 1: Map question_text → text (frontend sends question_text, schema expects text)
+          const text = q.question_text || q.text || "";
 
-    const questionIds = questionsData.map((q) => q.question_id);
-    quiz.question_ids = questionIds;
-    quiz.question_count = questionIds.length;
-    await quiz.save();
+          // ✅ FIX 2: Map correct_answer string onto options with correct: true/false
+          const correctLabels = (q.correct_answer || "")
+            .split(",")
+            .map((s) => s.trim().toUpperCase())
+            .filter(Boolean);
 
-    res.json({ ok: true, quiz_id: quizId, questions_upserted: questionsData.length });
+          const options = (q.options || []).map((opt, idx) => ({
+            option_id: opt.option_id || `opt_${idx + 1}`,
+            label: opt.label || String.fromCharCode(65 + idx),
+            text: opt.text || "",
+            image_url: opt.image_url || null,
+            correct: correctLabels.includes(opt.label || String.fromCharCode(65 + idx)),
+          }));
+
+          // Build categories array from category string
+          const categories = [];
+          if (q.category && String(q.category).trim()) {
+            String(q.category)
+              .split(",")
+              .map((c) => c.trim())
+              .filter(Boolean)
+              .forEach((name) => categories.push({ name }));
+          }
+
+          return {
+            updateOne: {
+              filter: { question_id: questionId },
+              update: {
+                $set: {
+                  question_id: questionId,
+                  text: text,
+                  type: q.type || "radio_button",
+                  options: options,
+                  points: Number(q.points) || 1,
+                  categories: categories,
+                  image_url: q.image_url || null,
+                  explanation: q.explanation || "",
+                  order: i + 1,
+                  // Short answer support
+                  correct_answer: q.correct_answer || null,
+                  case_sensitive: q.case_sensitive || false,
+                  // Optional media
+                  shuffle_options: !!q.shuffle_options,
+                  voice_url: q.voice_url || null,
+                  video_url: q.video_url || null,
+                  image_size: q.image_size || "medium",
+                  image_width: q.image_width || null,
+                  image_height: q.image_height || null,
+                },
+                $addToSet: { quiz_ids: quizId },
+              },
+              upsert: true,
+            },
+          };
+        });
+
+        if (questionOps.length > 0) {
+          await Question.bulkWrite(questionOps);
+        }
+
+// ✅ FIX 3: Calculate total_points after inserting questions
+const allQuestions = await Question.find({ quiz_ids: quizId }).lean();
+const totalPoints = allQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+const questionIds = allQuestions.map((q) => q.question_id);
+
+quiz.question_ids = questionIds;
+quiz.question_count = questionIds.length;
+quiz.total_points = totalPoints;
+await quiz.save();
+
+res.json({ ok: true, quiz_id: quizId, questions_upserted: questionsData.length });
   } catch (err) {
     console.error("Upload quiz error:", err);
     res.status(500).json({ error: err.message });
@@ -511,7 +567,7 @@ router.patch("/questions/:questionId", async (req, res) => {
     const question = await Question.findOne({ question_id: req.params.questionId });
     if (!question) return res.status(404).json({ error: "Question not found" });
 
-    const { text, type, points, options, categories, category, image_url, explanation, shuffle_options, voice_url, video_url, image_size, image_width, image_height } = req.body;
+    const { text, type, points, options, categories, category, image_url, explanation, shuffle_options, voice_url, video_url, image_size, image_width, image_height, correct_answer, case_sensitive } = req.body;
 
     if (text !== undefined) question.text = text;
     if (type !== undefined) question.type = type;
@@ -524,6 +580,8 @@ router.patch("/questions/:questionId", async (req, res) => {
     if (image_size !== undefined) question.image_size = image_size || "medium";
     if (image_width !== undefined) question.image_width = image_width;
     if (image_height !== undefined) question.image_height = image_height;
+    if (correct_answer !== undefined) question.correct_answer = correct_answer || null;
+    if (case_sensitive !== undefined) question.case_sensitive = !!case_sensitive;
 
     if (category !== undefined) {
       question.categories = category.trim()
