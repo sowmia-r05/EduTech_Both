@@ -11,7 +11,9 @@
  * Place in: src/app/components/quiz/QuizResult.jsx
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/app/context/AuthContext";
 import AnswersModal from "./AnswersModal";
 
 /* ─── Score Ring SVG ─── */
@@ -71,6 +73,8 @@ function TopicBar({ name, scored, total }) {
    MAIN: QuizResult
    ═══════════════════════════════════════ */
 export default function QuizResult({ result, quizName, violations = 0, onClose }) {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const score = result?.score || {};
   const topics = result?.topic_breakdown || {};
   const isWriting = result?.is_writing;
@@ -81,6 +85,19 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
 
   // Resolve the attempt ID (native quiz attempts use attempt_id; legacy uses response_id)
   const attemptId = result?.attempt_id || result?.response_id || result?.responseId || null;
+   const handleViewAIFeedback = useCallback(() => {
+    if (!attemptId) return;
+    const params = new URLSearchParams({ r: attemptId });
+    if (user?.username) params.set("username", user.username);
+    if (result?.subject) params.set("subject", result.subject);
+    if (quizName) params.set("quiz_name", quizName);
+
+    navigate(isWriting ? `/writing-feedback/result?${params}` : `/NonWritingLookupQuizResults/results?${params}`);
+  }, [attemptId, user?.username, result?.subject, quizName, navigate, isWriting]);
+
+  const handleViewAnalytics = useCallback(() => {
+    navigate("/student-analytics");
+  }, [navigate]);
 
   const gradeEmoji = useMemo(() => {
     const p = score.percentage || 0;
@@ -211,6 +228,22 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
               View Answers
             </button>
           )}
+          {attemptId && (
+            <button
+              onClick={handleViewAIFeedback}
+              className="w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold rounded-xl hover:from-indigo-700 hover:to-violet-700 transition-colors shadow-lg shadow-indigo-200"
+            >
+            AI Feedback
+            </button>
+          )}
+
+          <button
+            onClick={handleViewAnalytics}
+            className="w-full px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-colors"
+          >
+            📊 View Analytics
+          </button>
+
 
           {/* Back to Dashboard */}
           <button
