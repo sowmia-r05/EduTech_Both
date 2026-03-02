@@ -9,7 +9,6 @@ import {
   Cell,
 } from "recharts";
 
-const PRIMARY_COLOR = "#3F51B5";
 const STRONG_RED = "#ef4444";
 const MUTED_RED = "#fca5a5";
 
@@ -24,11 +23,8 @@ const WeakTopicsBarChart = ({ topics = [] }) => {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <h3
-        className="font-semibold mb-3 font-semibold text-blue-600"
-        style={{ color: PRIMARY_COLOR }}
-      >
+      {/* Header — rose instead of blue */}
+      <h3 className="font-semibold mb-3 text-rose-600">
         Priority Improvement Areas
       </h3>
 
@@ -40,37 +36,13 @@ const WeakTopicsBarChart = ({ topics = [] }) => {
             layout="vertical"
             margin={{ top: 10, right: 24, left: 24, bottom: 10 }}
           >
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="#e5e7eb"
-            />
-
-            <XAxis
-              type="number"
-              tick={{ fill: "#6b7280", fontSize: 12 }}
-              axisLine={false}
-            />
-
-            <YAxis
-              type="category"
-              dataKey="topic"
-              width={100}
-              tick={{ fill: "#374151", fontSize: 15 }}
-              axisLine={false}
-            />
-
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis type="number" tick={{ fill: "#6b7280", fontSize: 12 }} axisLine={false} />
+            <YAxis type="category" dataKey="topic" width={100} tick={{ fill: "#374151", fontSize: 15 }} axisLine={false} />
             <Tooltip />
-
-            <Bar
-              dataKey="lostMarks"
-              radius={[0, 8, 8, 0]}
-              barSize={26}
-            >
+            <Bar dataKey="lostMarks" radius={[0, 8, 8, 0]} barSize={26}>
               {topThreeWeakTopics.map((_, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={index === 0 ? STRONG_RED : MUTED_RED}
-                />
+                <Cell key={`cell-${index}`} fill={index === 0 ? STRONG_RED : MUTED_RED} />
               ))}
             </Bar>
           </BarChart>

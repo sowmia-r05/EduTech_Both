@@ -31,6 +31,7 @@ def infer_subject_from_quiz_name(quiz_name: str) -> str:
 YEAR_RE = re.compile(r"\b(?:year|yr|grade)\s*([3579])\b", re.IGNORECASE)
 YEAR_DIGIT_RE = re.compile(r"\b([3579])\s*(?:year|yr|grade)\b", re.IGNORECASE)
 
+
 def infer_year_level(doc: Dict[str, Any], quiz_name: str) -> Optional[int]:
     """
     Try to infer year level from:
@@ -382,6 +383,7 @@ YOU MUST:
 1) Include "{weakest_topic['name']}" as FIRST item in weaknesses AND growth_areas.
 2) Create at least ONE coach item about "{weakest_topic['name']}" with an actionable task.
 3) Include a study_tip specifically for "{weakest_topic['name']}".
+4) topic_wise_tips[0].topic MUST be "{weakest_topic['name']}".
 
 If "{weakest_topic['name']}" is missing from weaknesses, the output is INVALID.
 """
@@ -447,6 +449,13 @@ Required JSON structure:
   "weaknesses": ["3 points, max 10 words each", "...", "..."],
   "growth_areas": ["3 points, max 10 words each", "...", "..."],
   "study_tips": ["up to 3 items, max 10 words each", "...", "..."],
+
+  "topic_wise_tips": [
+    {{"topic":"<topic name>","tips":["<=14 words","<=14 words"]}},
+    {{"topic":"<topic name>","tips":["<=14 words","<=14 words"]}},
+    {{"topic":"<topic name>","tips":["<=14 words","<=14 words"]}}
+  ],
+
   "cta": "One motivating call-to-action (12 words max)",
   "encouragement": "4-5 short sentences, supportive and specific."
 }}
@@ -454,6 +463,9 @@ Required JSON structure:
 CHECKLIST:
 - weaknesses MUST exist and have 3 points
 - weaknesses[0] MUST be the weakest topic name
+- topic_wise_tips MUST exist and have 3 items
+- topic_wise_tips topics MUST match weak topics (use real names)
+- topic_wise_tips[0].topic MUST be the weakest topic
 - Include timing in overall_feedback (1 sentence)
 - Use real topic names and real numbers
 - Actions must include a number + time or quantity
@@ -513,7 +525,7 @@ def generate_feedback(model, prompt: str, max_retries: int = 2) -> Dict[str, Any
 
 # -------------------------
 # Schema coercion + fallback
-# Ensures weaknesses ALWAYS appear + timing appears
+# Ensures weaknesses ALWAYS appear + timing appears + topic_wise_tips (NEW SHAPE)
 # -------------------------
 def coerce_ai_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any], subject: str) -> Dict[str, Any]:
     ai = ai if isinstance(ai, dict) else {}
@@ -523,6 +535,13 @@ def coerce_ai_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any], subj
 
     def ensure_string(x):
         return str(x).strip() if x else ""
+
+    def clamp_words(s: str, max_words: int) -> str:
+        s = (s or "").strip()
+        if not s:
+            return ""
+        parts = s.split()
+        return " ".join(parts[:max_words])
 
     weak_topics = analysis.get("weak_topics") or []
     top_topics = analysis.get("top_topics") or []
@@ -664,6 +683,88 @@ def coerce_ai_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any], subj
     # Keep max 3
     study_tips = study_tips[:3]
 
+    # ---- TOPIC-WISE TIPS (NEW SHAPE) ----
+    # Expect: [{"topic": "...", "tips": ["...", "..."]}, ...]
+    topic_wise_tips: List[Dict[str, Any]] = []
+    raw = ai.get("topic_wise_tips")
+
+    def normalize_tips_list(x) -> List[str]:
+        if not isinstance(x, list):
+            return []
+        out = []
+        for t in x:
+            tt = clamp_words(str(t).strip(), 14)
+            if tt:
+                out.append(tt)
+        return out[:3]  # 1–3 bullets
+
+    if isinstance(raw, list):
+        for it in raw:
+            if not isinstance(it, dict):
+                continue
+            topic = ensure_string(it.get("topic"))
+            tips_list = normalize_tips_list(it.get("tips"))
+            if topic and tips_list:
+                topic_wise_tips.append({"topic": topic, "tips": tips_list})
+
+    weak3 = weak_topics[:3]
+
+    def default_topic_block(topic_name: str) -> Dict[str, Any]:
+        return {
+            "topic": topic_name,
+            "tips": [
+                clamp_words(f"Practice {topic_name} for 10 minutes daily.", 14),
+                clamp_words("Review mistakes and redo similar questions.", 14),
+            ],
+        }
+
+    # Ensure weakest topic is FIRST
+    if weakest_topic:
+        wk = weakest_topic["name"]
+        if not topic_wise_tips:
+            topic_wise_tips = [default_topic_block(wk)]
+        else:
+            if wk.lower() not in (topic_wise_tips[0].get("topic", "").lower()):
+                existing_idx = None
+                for i, t in enumerate(topic_wise_tips):
+                    if wk.lower() in (t.get("topic", "").lower()):
+                        existing_idx = i
+                        break
+                if existing_idx is not None:
+                    item = topic_wise_tips.pop(existing_idx)
+                    topic_wise_tips.insert(0, item)
+                else:
+                    topic_wise_tips.insert(0, default_topic_block(wk))
+
+    # Fill remaining topics using weak topics
+    for t in weak3:
+        if len(topic_wise_tips) >= 3:
+            break
+        name = t["name"]
+        if name.lower() not in " ".join(x["topic"].lower() for x in topic_wise_tips):
+            missed = int(t.get("missed", 0))
+            total = int(t.get("total", 0))
+            topic_wise_tips.append({
+                "topic": name,
+                "tips": [
+                    clamp_words(f"Revise {name} basics before mixed questions.", 14),
+                    clamp_words(f"You missed {missed} of {total}; fix repeat patterns.", 14),
+                    clamp_words(f"Do 12 {name} questions in 15 minutes.", 14),
+                ],
+            })
+
+    # Ensure exactly 3 topic blocks
+    while len(topic_wise_tips) < 3:
+        topic_wise_tips.append({
+            "topic": "General",
+            "tips": [
+                "Write an error log after practice.",
+                "Redo wrong questions after 24 hours.",
+            ],
+        })
+
+    topic_wise_tips = topic_wise_tips[:3]
+
     # ---- OVERALL FEEDBACK (must mention timing) ----
     overall_feedback = ensure_string(ai.get("overall_feedback"))
     if not overall_feedback:
@@ -671,7 +772,6 @@ def coerce_ai_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any], subj
 
     # Ensure timing mentioned somewhere in overall_feedback
     if time_taken is not None and ("minute" not in overall_feedback.lower()) and ("time" not in overall_feedback.lower()):
-        # Force timing mention by appending short phrase (still keep it tight)
         overall_feedback = f"{overall_feedback} Time taken: {time_taken} minutes."
 
     cta = ensure_string(ai.get("cta")) or "Pick one weak topic and practice it today."
@@ -686,9 +786,10 @@ def coerce_ai_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any], subj
         "overall_feedback": overall_feedback,
         "coach": coach_items,
         "strengths": strengths,
-        "weaknesses": weaknesses,          # ✅ NEW
+        "weaknesses": weaknesses,
         "growth_areas": growth_areas,
         "study_tips": study_tips,
+        "topic_wise_tips": topic_wise_tips,  # ✅ NEW SHAPE
         "cta": cta,
         "encouragement": encouragement,
     }
@@ -725,12 +826,15 @@ def placeholder_feedback(subject: str, quiz_name: str, model_name: str, year_lev
                 }
             ],
             "strengths": [],
-            "weaknesses": [],   # ✅ NEW
+            "weaknesses": [],
             "growth_areas": [],
             "study_tips": [
                 "Start with a small set of questions",
                 "Work in short focused sessions",
                 "Review mistakes to learn faster"
+            ],
+            "topic_wise_tips": [
+                {"topic": "Getting Started", "tips": ["Finish one quiz attempt to unlock tips."]}
             ],
             "cta": "Take your first quiz to unlock your AI Coach!",
             "encouragement": "You are ready to start. One small step today is progress.",
@@ -801,6 +905,7 @@ def main():
         "Balance encouragement with honest focus areas",
         "Include timing insights when pace is fast/slow",
         "Keep language appropriate for the year level",
+        "For topic_wise_tips: topic + 1-3 bullet tips only",
     ]
 
     prompt = build_gemini_prompt(analysis, subject, product_insights)

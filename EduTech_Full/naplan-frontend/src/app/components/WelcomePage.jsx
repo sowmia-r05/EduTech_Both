@@ -7,19 +7,22 @@ import TestimonialsSection from '@/app/components/landing/TestimonialsSection'
 import PricingSection from '@/app/components/landing/PricingSection'
 import FAQSection from '@/app/components/landing/FAQSection'
 import CTASection from '@/app/components/landing/CTASection'
+import Footer from '@/app/components/landing/Footer'
+import FreeVsPaidSection from '@/app/components/landing/FreeVsPaidSection'
 
 export default function WelcomePage() {
   return (
-    <div>
+  <div>
       <Navbar />
       <HeroSection />
       <TrustBar />
       <HowItWorks />
       <WhySection />
+      <FreeVsPaidSection />       
       <TestimonialsSection />
-      <PricingSection />
       <FAQSection />
       <CTASection />
+      <Footer />
     </div>
   )
 }

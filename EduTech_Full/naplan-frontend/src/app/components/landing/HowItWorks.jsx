@@ -9,7 +9,7 @@ export default function HowItWorks() {
   ]
 
   return (
-    <section className="py-24 bg-white">
+    <section id="how" className="py-24 bg-white scroll-mt-28">
       <div className="max-w-6xl mx-auto px-6 text-center">
 
         <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-16">

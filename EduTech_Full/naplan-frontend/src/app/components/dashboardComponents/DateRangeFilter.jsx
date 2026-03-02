@@ -1,62 +1,201 @@
-import React from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import DatePicker from "react-datepicker";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import "react-datepicker/dist/react-datepicker.css";
 
-export default function DateRangeFilter({
-  selectedDate,
-  onChange,
-  testTakenDates = [],
-}) {
-  const testDatesSet = new Set(
-    testTakenDates.map((d) => d.toDateString())
+const unwrapDate = (d) => d && typeof d === "object" && "$date" in d ? d.$date : d;
+const toDateKey = (d) => { const dt = new Date(d); dt.setHours(0, 0, 0, 0); return dt.toDateString(); };
+const formatTime = (dateStr) => { const d = new Date(dateStr); return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); };
+
+/* ═══════════════════════ ATTEMPT PICKER MODAL ═══════════════════════ */
+function AttemptPickerModal({ isOpen, onClose, attempts, onSelect, dateLabel }) {
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.style.overflow = "hidden";
+    const handleEsc = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleEsc);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleEsc);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen || !attempts?.length) return null;
+
+  // ✅ Portal to document.body — escapes sticky header stacking context
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      style={{ zIndex: 9999 }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800">Multiple Attempts Found</h3>
+            <p className="text-sm text-gray-500 mt-0.5">{dateLabel}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-100 transition">
+            <XMarkIcon className="h-5 w-5 text-gray-400" />
+          </button>
+        </div>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {attempts.map((attempt, idx) => {
+            const raw = unwrapDate(attempt?.createdAt || attempt?.date_submitted || attempt?.submitted_at);
+            const time = raw ? formatTime(raw) : "—";
+            const score = attempt?.score?.percentage != null ? `${Math.round(Number(attempt.score.percentage))}%` : "—";
+            const pct = Math.round(Number(attempt?.score?.percentage || 0));
+            const statusLabel = pct > 90 ? "Outstanding" : pct > 70 ? "Well Done" : pct > 50 ? "On Track" : pct > 30 ? "Developing" : "Needs Practice";
+            const quizName = attempt?.quiz_name || "Quiz";
+            return (
+              <button key={attempt._id || attempt.response_id || idx} onClick={() => onSelect(attempt, idx)}
+                className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:border-teal-300 hover:bg-teal-50/50 transition group text-left">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">Attempt {idx + 1} — {quizName}</p>
+                  <p className="text-xs text-gray-500">{time} • Score: {score} • {statusLabel}</p>
+                </div>
+                <svg className="w-4 h-4 text-gray-300 group-hover:text-teal-500 transition flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-gray-400 mt-3 text-center">Select an attempt to view its detailed report</p>
+      </div>
+    </div>,
+    document.body
   );
+}
+
+/* ═══════════════════════ DATE RANGE FILTER ═══════════════════════ */
+export default function DateRangeFilter({
+  selectedDate, onChange, testTakenDates = [], quizAttempts = [], onAttemptSelect = null,
+}) {
+  const datePickerRef = useRef(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pendingDate, setPendingDate] = useState(null);
+  const [pendingAttempts, setPendingAttempts] = useState([]);
+
+  /* ─── dateCountMap: uses testTakenDates ─── */
+  const dateCountMap = useMemo(() => {
+    const map = {};
+    testTakenDates.forEach((d) => { const key = d.toDateString(); map[key] = (map[key] || 0) + 1; });
+    return map;
+  }, [testTakenDates]);
+
+  /* ─── dateAttemptsMap: dedup by response_id + attempt ─── */
+  const dateAttemptsMap = useMemo(() => {
+    const map = {};
+    const seen = new Set();
+
+    quizAttempts.forEach((a) => {
+      const respId = a?.response_id || a?.responseId || "";
+      const attempt = a?.attempt ?? "";
+      const uid = `${respId}__${attempt}`;
+      if (seen.has(uid)) return;
+      seen.add(uid);
+
+      const raw = unwrapDate(a?.createdAt || a?.date_submitted || a?.submitted_at);
+      if (!raw) return;
+      const dt = new Date(raw);
+      if (isNaN(dt.getTime())) return;
+      const key = toDateKey(dt);
+      if (!map[key]) map[key] = [];
+      map[key].push(a);
+    });
+
+    Object.values(map).forEach((arr) =>
+      arr.sort((a, b) => {
+        const da = new Date(unwrapDate(a?.createdAt || a?.date_submitted || a?.submitted_at) || 0);
+        const db = new Date(unwrapDate(b?.createdAt || b?.date_submitted || b?.submitted_at) || 0);
+        return da - db;
+      })
+    );
+    return map;
+  }, [quizAttempts]);
+
+  const handleDateChange = (date) => {
+    if (!date) { onChange(null); return; }
+    const key = toDateKey(date);
+    const attemptsForDay = dateAttemptsMap[key] || [];
+    if (attemptsForDay.length > 1 && onAttemptSelect) {
+      // ✅ Close the DatePicker calendar FIRST, then show modal after delay
+      if (datePickerRef.current) {
+        datePickerRef.current.setOpen(false);
+      }
+      setPendingDate(date);
+      setPendingAttempts(attemptsForDay);
+      setTimeout(() => setPickerOpen(true), 150);
+    } else {
+      onChange(date);
+    }
+  };
+
+  const handleAttemptPick = (attempt, index) => {
+    setPickerOpen(false);
+    onChange(pendingDate);
+    if (onAttemptSelect) onAttemptSelect(attempt, index);
+    setPendingDate(null);
+    setPendingAttempts([]);
+  };
+
+  const handlePickerClose = () => {
+    setPickerOpen(false);
+    if (pendingDate) onChange(pendingDate);
+    setPendingDate(null);
+    setPendingAttempts([]);
+  };
+
+  const dateLabel = pendingDate
+    ? pendingDate.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+    : "";
 
   return (
-    <div className="relative inline-block">
-      <DatePicker
-        selected={selectedDate}
-        onChange={onChange}
-        placeholderText="Select date"
-        maxDate={new Date()} // disable future dates
-        renderDayContents={(day, date) => {
-          const isTestDate = testDatesSet.has(date.toDateString());
+    <>
+      <div className="relative inline-block">
+        <DatePicker
+          ref={datePickerRef}
+          selected={selectedDate}
+          onChange={handleDateChange}
+          placeholderText="Select date"
+          maxDate={new Date()}
+          renderDayContents={(day, date) => {
+            const key = date.toDateString();
+            const count = dateCountMap[key] || 0;
+            return (
+              <div className="relative flex justify-center items-center w-full h-full">
+                {day}
+                {count > 0 && (
+                  <span className="absolute -bottom-1 flex justify-center">
+                    <span className={`w-1.5 h-1.5 rounded-full ${count === 1 ? "bg-teal-500" : "bg-orange-500"}`} />
+                  </span>
+                )}
+              </div>
+            );
+          }}
+          className="w-56 border border-purple-300 rounded-lg px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-purple-400"
+        />
+        {selectedDate && (
+          <button type="button" onClick={() => onChange(null)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-purple-600 hover:bg-purple-600 hover:text-white transition">
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        )}
+      </div>
 
-          return (
-            <div className="relative flex justify-center items-center w-full h-full">
-              {day}
-              {isTestDate && (
-                <span className="absolute -bottom-1 w-1.5 h-1.5 bg-purple-600 rounded-full"></span>
-              )}
-            </div>
-          );
-        }}
-        className="
-          w-56
-          border border-purple-300
-          rounded-lg
-          px-3 py-2 pr-10
-          focus:outline-none
-          focus:ring-2 focus:ring-purple-400
-        "
+      {/* Modal renders via portal to document.body — completely outside header DOM */}
+      <AttemptPickerModal
+        isOpen={pickerOpen}
+        onClose={handlePickerClose}
+        attempts={pendingAttempts}
+        onSelect={handleAttemptPick}
+        dateLabel={dateLabel}
       />
-
-      {/* ✅ Clear Button */}
-      {selectedDate && (
-        <button
-          type="button"
-          onClick={() => onChange(null)}
-          className="
-            absolute right-2 top-1/2 -translate-y-1/2
-            p-1 rounded-full
-            text-purple-600
-            hover:bg-purple-600 hover:text-white
-            transition
-          "
-        >
-          <XMarkIcon className="h-4 w-4" />
-        </button>
-      )}
-    </div>
+    </>
   );
 }
