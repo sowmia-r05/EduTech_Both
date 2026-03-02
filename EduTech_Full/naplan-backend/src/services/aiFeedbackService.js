@@ -20,15 +20,12 @@ const path = require("path");
 const QuizAttempt = require("../models/quizAttempt");
 
 // ─── Config ───
-const SUBJECT_FEEDBACK_SCRIPT = path.resolve(
-  __dirname,
-  "../subject_feedback/gemini_subject_feedback.py"
-);
-const WRITING_FEEDBACK_SCRIPT = path.resolve(
-  __dirname,
-  "../writing_feedback/gemini_writing_evaluator.py"
-);
-const PYTHON_BIN = process.env.PYTHON_BIN || "python3";
+const SUBJECT_FEEDBACK_SCRIPT = path.resolve(__dirname, "../../subject_feedback/gemini_subject_feedback.py")
+
+const WRITING_FEEDBACK_SCRIPT = path.resolve(__dirname, "../../writing_feedback/gemini_writing_evaluator.py")
+
+const PYTHON_BIN = process.env.PYTHON_BIN
+  || (process.platform === "win32" ? "py" : "python3");
 const FEEDBACK_TIMEOUT_MS = 60000; // 60s max for AI generation
 
 /**
