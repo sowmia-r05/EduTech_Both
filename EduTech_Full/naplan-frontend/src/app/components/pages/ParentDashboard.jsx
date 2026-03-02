@@ -12,6 +12,8 @@ import { createCheckout } from "@/app/utils/api-payments";
 import { BUNDLE_CATALOG } from "@/app/data/bundleCatalog";
 import PaymentSuccessModal from "@/app/components/payments/PaymentSuccessModal";
 import PurchaseHistory from "@/app/components/payments/PurchaseHistory";
+import QuickChildLoginModal from "@/app/components/dashboardComponents/QuickChildLoginModal";
+import FreeTrialOnboarding from "@/app/components/dashboardComponents/FreeTrialOnboarding";
 
 const formatAUD = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)} AUD`;
 
@@ -33,6 +35,26 @@ export default function ParentDashboard() {
   const [bundleModalChild, setBundleModalChild] = useState(null);
   const [checkoutLoadingBundle, setCheckoutLoadingBundle] = useState(null);
   const [successSessionId, setSuccessSessionId] = useState(null);
+
+  const [isChildLoginModalOpen, setIsChildLoginModalOpen] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(
+    () => searchParams.get("onboarding") === "free-trial"
+  );
+
+  // Handler: onboarding complete (child was created)
+  const handleOnboardingComplete = useCallback((newChild) => {
+    // Refresh children list
+    loadChildren();  // or whatever your existing refresh function is called
+    // (look for fetchChildrenSummaries or similar call in the component)
+  }, []);
+
+  // Handler: onboarding skipped
+  const handleOnboardingSkip = useCallback(() => {
+    setShowOnboarding(false);
+    // Clean the URL param so it doesn't re-trigger on refresh
+    searchParams.delete("onboarding");
+    setSearchParams(searchParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const loadChildren = useCallback(async () => {
     if (!parentToken) return;
@@ -190,6 +212,8 @@ export default function ParentDashboard() {
     return date.toLocaleDateString();
   };
 
+
+
   const enhancedChildren = useMemo(() => {
     return (children || []).map((c) => {
       const quizCount =
@@ -298,6 +322,12 @@ export default function ParentDashboard() {
               className="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700"
             >
               Practice Packs
+            </button>
+             <button
+              onClick={() => setIsChildLoginModalOpen(true)}
+              className="px-3 sm:px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-colors"
+            >
+              🎒 Child Login
             </button>
             <button
               onClick={() => setIsAddModalOpen(true)}
@@ -450,6 +480,13 @@ export default function ParentDashboard() {
           }}
         />
       )}
+
+      {/* QUICK CHILD LOGIN MODAL */}
+      <QuickChildLoginModal
+        isOpen={isChildLoginModalOpen}
+        onClose={() => setIsChildLoginModalOpen(false)}
+        childrenList={children}
+      />
     </div>
   );
 }
@@ -1196,6 +1233,13 @@ function ModalWrapper({ children, onClose, maxWidth = "max-w-md" }) {
       >
         {children}
       </div>
+            {showOnboarding && (
+        <FreeTrialOnboarding
+          parentToken={parentToken}
+          onComplete={handleOnboardingComplete}
+          onSkip={handleOnboardingSkip}
+        />
+      )}
     </div>
   );
 }

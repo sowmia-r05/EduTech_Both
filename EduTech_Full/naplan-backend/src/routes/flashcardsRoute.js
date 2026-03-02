@@ -93,7 +93,24 @@ router.get("/attempts/:attemptId/flashcards", verifyToken, requireAuth, async (r
         child_answer_text: childAnswerText,
         child_answer_option_ids: answer?.selected_option_ids || [],
         correct_answer_text: correctOptionTexts.join(", "),
-        is_correct: answer?.is_correct || false,
+        is_correct: answer
+          ? answer.is_correct === true ||
+            (answer.is_correct === undefined &&
+              (answer.points_scored || 0) > 0) ||
+            (answer.is_correct === undefined &&
+              answer.points_scored === undefined &&
+              (() => {
+                const correctIds = correctOptions
+                  .map((o) => o.option_id)
+                  .sort();
+                const selectedIds = (answer.selected_option_ids || []).sort();
+                return (
+                  correctIds.length > 0 &&
+                  correctIds.length === selectedIds.length &&
+                  correctIds.every((id, i) => id === selectedIds[i])
+                );
+              })())
+          : false,
         category: q.categories || [],
         explanation: q.explanation || "",
         points: q.points || 1,
