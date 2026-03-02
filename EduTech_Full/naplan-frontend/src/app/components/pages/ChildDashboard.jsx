@@ -236,6 +236,7 @@ export default function ChildDashboard() {
         setTests(results.map((r) => ({
           id: r._id,
           response_id: r.response_id,
+          quiz_id: r.quiz_id,
           subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)), // ✅ use backend subject first
           name: r.quiz_name || "Untitled Quiz",
           score: Math.round(r.score?.percentage || 0),
@@ -319,11 +320,14 @@ export default function ChildDashboard() {
   /* ─── Merge available quizzes with completed results ─── */
   const mergedQuizzes = useMemo(() => {
     return entitledCatalog.map((quiz) => {
-      const matched = tests.find((t) => {
+    const matched = tests.find((t) => {
+        // ✅ Priority 1: Match by quiz_id (reliable, unique)
+        if (quiz.quiz_id && t.quiz_id && quiz.quiz_id === t.quiz_id) return true;
+        // ✅ Priority 2: Exact name match only (no fuzzy includes!)
         const tName = (t.name || "").toLowerCase().trim();
-        const qName = (quiz.quiz_name || "").toLowerCase().trim(); // ✅ quiz_name from backend
-        return tName === qName || tName.includes(qName) || qName.includes(tName);
-      });
+        const qName = (quiz.quiz_name || "").toLowerCase().trim();
+        return tName === qName;
+    });
       return {
         // Map backend fields to the shape the UI expects
         id: quiz.quiz_id,
