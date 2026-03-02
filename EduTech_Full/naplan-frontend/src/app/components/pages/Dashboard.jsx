@@ -295,14 +295,21 @@ useEffect(() => {
 
   useEffect(() => { if (!localStorage.getItem("dashboardTourPrompted")) setShowTourModal(true); }, []);
 
-  const quizAttempts = useMemo(() => {
+const quizAttempts = useMemo(() => {
     if (!latestResult) return [];
     const subject = searchParams.get("subject") || "";
+    const quizName = searchParams.get("quiz_name") || "";   // ✅ NEW
     let attempts;
-    if (subject) { attempts = resultsList; }
-    else { attempts = resultsList.filter((r) => r.quiz_name === latestResult.quiz_name); }
+    if (quizName) {
+        // ✅ Filter to only this specific quiz's attempts
+        attempts = resultsList.filter((r) => r.quiz_name === quizName);
+    } else if (subject) {
+        attempts = resultsList;
+    } else {
+        attempts = resultsList.filter((r) => r.quiz_name === latestResult.quiz_name);
+    }
     return deduplicateAttempts(attempts);
-  }, [resultsList, latestResult, searchParams]);
+}, [resultsList, latestResult, searchParams]);
 
   const filteredResults = useMemo(() => {
     if (!selectedDate) return quizAttempts;
@@ -318,11 +325,15 @@ useEffect(() => {
 
   useEffect(() => { if (selectedDate) setShowNoDataModal(filteredResults.length === 0); }, [selectedDate, filteredResults]);
 
-  const selectedResult = useMemo(() => {
+const selectedResult = useMemo(() => {
     if (selectedAttemptOverride) return selectedAttemptOverride;
-    if (!filteredResults.length) return latestResult;
-    return [...filteredResults].sort((a, b) => new Date(unwrapDate(b.createdAt || b.date_submitted)) - new Date(unwrapDate(a.createdAt || a.date_submitted)))[0];
-  }, [filteredResults, latestResult, selectedAttemptOverride]);
+    if (latestResult) return latestResult;              // ✅ Always prefer the clicked quiz result
+    if (!filteredResults.length) return null;
+    return [...filteredResults].sort((a, b) => 
+        new Date(unwrapDate(b.createdAt || b.date_submitted)) - 
+        new Date(unwrapDate(a.createdAt || a.date_submitted))
+    )[0];
+}, [filteredResults, latestResult, selectedAttemptOverride]);
 
   const testTakenDates = useMemo(() => {
     return quizAttempts.map((r) => {

@@ -395,6 +395,7 @@ export default function ChildDashboard() {
     const username = childProfile?.username || childInfo?.username || null;
     if (username) params.set("username", username);
     if (item.subject) params.set("subject", item.subject);
+    if (item.name) params.set("quiz_name", item.name);
     navigate(isWriting ? `/writing-feedback/result?${params}` : `/NonWritingLookupQuizResults/results?${params}`);
   };
 
