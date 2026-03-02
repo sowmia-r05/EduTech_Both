@@ -446,6 +446,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
           text_answer: "",
           points_scored: 0,
           points_available: 0,
+          is_correct: pointsScored > 0,
         };
       }
 

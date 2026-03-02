@@ -2,6 +2,11 @@ import { createContext, useContext, useState, useCallback, useMemo } from "react
 
 const AuthContext = createContext(null);
 
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL !== undefined
+    ? import.meta.env.VITE_API_BASE_URL
+    : "";
+
 function safeJsonParse(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -67,6 +72,23 @@ export function AuthProvider({ children }) {
     return { Authorization: `Bearer ${activeToken}` };
   }, [activeToken]);
 
+  // ─── ✅ FIX: apiFetch helper — used by AnswersModal, FlashcardReview, etc. ───
+  // Previously missing, causing "i is not a function" error when AnswersModal
+  // destructured { apiFetch } from useAuth() and got undefined.
+  const apiFetch = useCallback(
+    (url, opts = {}) => {
+      return fetch(`${API_BASE}${url}`, {
+        ...opts,
+        headers: {
+          "Content-Type": "application/json",
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+          ...opts.headers,
+        },
+      });
+    },
+    [activeToken]
+  );
+
   const value = useMemo(
     () => ({
       parentToken,
@@ -80,6 +102,7 @@ export function AuthProvider({ children }) {
       logout,
       logoutChild,
       authHeaders,
+      apiFetch,             // ✅ FIX: Now exposed in context
       isAuthenticated: !!activeToken,
       isParent: activeRole === "parent",
       isChild: activeRole === "child",
@@ -88,6 +111,7 @@ export function AuthProvider({ children }) {
       parentToken, childToken, parentProfile, childProfile,
       activeRole, activeToken,
       loginParent, loginChild, logout, logoutChild, authHeaders,
+      apiFetch,             // ✅ FIX: Added to deps
     ]
   );
 
