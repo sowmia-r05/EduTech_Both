@@ -1,14 +1,14 @@
 /**
- * models/quiz.js  (v3 — GAPS FILLED + RANDOMIZE + MEDIA)
+ * models/quiz.js  (v4 — ALL FIELDS OPTIONAL)
  *
  * Native quiz metadata. Created by admin upload.
  *
  * CHANGES:
- *   ✅ Gap 5: Added max_attempts field (configurable per quiz)
- *   ✅ NEW: randomize_questions — shuffle question order per attempt
- *   ✅ NEW: randomize_options — quiz-level fallback for option shuffling
- *   ✅ NEW: voice_url — audio resource URL
- *   ✅ NEW: video_url — video resource URL
+ *   ✅ year_level — optional free-text (was: Number, required, enum [3,5,7,9])
+ *   ✅ subject — optional free-text (was: required)
+ *   ✅ tier — optional free-text (was: enum [A,B,C])
+ *   ✅ max_attempts, randomize_questions, randomize_options
+ *   ✅ voice_url, video_url
  */
 
 const mongoose = require("mongoose");
@@ -24,26 +24,26 @@ const QuizSchema = new mongoose.Schema(
       default: () => uuidv4(),
     },
     quiz_name: { type: String, required: true },
-    year_level: { type: Number, required: true, enum: [3, 5, 7, 9], index: true },
-    subject: { type: String, required: true, index: true },
+    year_level: { type: mongoose.Schema.Types.Mixed, default: null, index: true },
+    subject: { type: String, default: null, index: true },
     question_ids: [{ type: String }],
     question_count: { type: Number, default: 0 },
     time_limit_minutes: { type: Number, default: null },
     total_points: { type: Number, default: 0 },
-    tier: { type: String, enum: ["A", "B", "C"], default: "A", index: true },
+    tier: { type: String, default: null, index: true },
     difficulty: { type: String, enum: ["easy", "medium", "hard", null], default: null },
     set_number: { type: Number, default: 1 },
     is_trial: { type: Boolean, default: false },
     is_active: { type: Boolean, default: true },
 
-    // ✅ Gap 5: Configurable max attempts per quiz
+    // Configurable max attempts per quiz
     max_attempts: { type: Number, default: null },
 
-    // ✅ NEW: Randomization settings
+    // Randomization settings
     randomize_questions: { type: Boolean, default: false },
-    randomize_options: { type: Boolean, default: false }, // quiz-level fallback
+    randomize_options: { type: Boolean, default: false },
 
-    // ✅ NEW: Media resources
+    // Media resources
     voice_url: { type: String, default: null },
     video_url: { type: String, default: null },
   },

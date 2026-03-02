@@ -41,6 +41,7 @@ import RequireAdmin from "@/app/components/admin/RequireAdmin";
 import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
 import AdminRegister from "@/app/components/admin/AdminRegister";
 
+
 /* ── Layout wrapper — adds minimal disclaimer footer below any page ── */
 function WithFooter({ children }) {
   return (

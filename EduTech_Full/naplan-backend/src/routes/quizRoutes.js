@@ -14,6 +14,7 @@
  *   ✅ NEW: Randomize questions and options (Fisher-Yates shuffle)
  *   ✅ NEW: Voice/video media URLs returned with questions
  *   ✅ FIX: Closed missing try-catch block on GET /questions route
+ *   ✅ FIX: Entitlement check now uses BUNDLE-BASED LOOKUP (no more entitled_quiz_ids)
  *
  * Mount in app.js:
  *   const quizRoutes = require("./routes/quizRoutes");
@@ -28,6 +29,7 @@ const Question = require("../models/question");
 const QuizAttempt = require("../models/quizAttempt");
 const Child = require("../models/child");
 const { triggerAiFeedback } = require("../services/aiFeedbackService"); // ✅ Gap 2
+const QuizCatalog = require("../models/quizCatalog"); // ✅ For bundle-based entitlement
 
 const router = express.Router();
 
@@ -70,33 +72,37 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
     // ═══════════════════════════════════════
-    // ✅ Gap 1: ENTITLEMENT CHECK
-    // Validates child has access to this quiz
+    // ✅ Gap 1: ENTITLEMENT CHECK (BUNDLE-BASED)
+    // Validates child has access to this quiz by checking their bundles.
+    // No longer uses entitled_quiz_ids — looks up bundles directly.
     // ═══════════════════════════════════════
     const child = await Child.findById(childId).lean();
     if (!child) return res.status(404).json({ error: "Child profile not found" });
 
     const isTrialQuiz = quiz.is_trial === true;
-    const childEntitledQuizIds = child.entitled_quiz_ids || [];
-    const childEntitledBundleIds = child.entitled_bundle_ids || [];
 
     if (!isTrialQuiz) {
-      // For paid quizzes, check if child has this quiz in their entitlements
-      // We check both the native quiz_id AND the quiz catalog bundle approach
-      const hasDirectEntitlement = childEntitledQuizIds.includes(quiz.quiz_id);
+      const childBundleIds = child.entitled_bundle_ids || [];
 
-      if (!hasDirectEntitlement) {
-        // Also check if child's status is "active" (they purchased something)
-        // and the quiz matches their year level (basic access check)
-        const hasActiveStatus = child.status === "active";
-        const matchesYearLevel = quiz.year_level === child.year_level;
+      let hasEntitlement = false;
 
-        if (!(hasActiveStatus && matchesYearLevel)) {
-          return res.status(403).json({
-            error: "You don't have access to this quiz. Ask your parent to purchase a bundle.",
-            code: "NOT_ENTITLED",
-          });
-        }
+      if (childBundleIds.length > 0) {
+        const bundleWithQuiz = await QuizCatalog.findOne({
+          bundle_id: { $in: childBundleIds },
+          $or: [
+            { quiz_ids: quiz.quiz_id },
+            { flexiquiz_quiz_ids: quiz.quiz_id },
+          ],
+        }).lean();
+
+        hasEntitlement = !!bundleWithQuiz;
+      }
+
+      if (!hasEntitlement) {
+        return res.status(403).json({
+          error: "You don't have access to this quiz. Ask your parent to purchase a bundle.",
+          code: "NOT_ENTITLED",
+        });
       }
     }
     // Trial quizzes are always accessible — no check needed
@@ -235,12 +241,13 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
         option_id: opt.option_id,
         text: opt.text,
         image_url: opt.image_url,
-        // ⚠️ NO correct field sent to client
       })),
       points: q.points,
       categories: q.categories,
       image_url: q.image_url,
       order: q.order,
+      voice_url: q.voice_url || null,
+      video_url: q.video_url || null,
     }));
 
     // ✅ Randomize question order if enabled

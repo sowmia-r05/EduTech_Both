@@ -8,6 +8,7 @@
  *   - Upload tab (QuizUploader)
  *   - Bundle management tab
  *   ✅ Randomize questions/options + Voice & Video settings
+ *   ✅ Cleaned up: removed Subject/Tier/Diff columns from table
  *
  * Place in: src/app/components/admin/AdminDashboard.jsx
  */
@@ -17,7 +18,7 @@ import { useNavigate } from "react-router-dom";
 import QuizUploader from "./QuizUploader";
 import BundlesTab from "./BundlesTab";
 import QuizSettingsExtras from "./QuizSettingsExtras";
-
+import ManualQuizCreator from "./ManualQuizCreator";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -36,6 +37,7 @@ function adminFetch(url, opts = {}) {
 /* ════════════════════════════════════════════════════════
    HELPER BADGES
    ════════════════════════════════════════════════════════ */
+/* TierBadge kept — used in BundleMappingModal */
 function TierBadge({ tier }) {
   const map = {
     A: { label: "A — Full Tests", cls: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" },
@@ -45,28 +47,6 @@ function TierBadge({ tier }) {
   };
   const { label, cls } = map[tier] || { label: tier, cls: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>{label}</span>;
-}
-
-function SubjectBadge({ subject }) {
-  const map = {
-    Maths: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    Reading: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    Writing: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    Conventions: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  };
-  const cls = map[subject] || "bg-slate-500/10 text-slate-400 border-slate-500/20";
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>{subject}</span>;
-}
-
-function DifficultyBadge({ difficulty }) {
-  if (!difficulty) return <span className="text-[10px] text-slate-500">—</span>;
-  const map = {
-    easy: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    medium: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-    hard: "bg-red-500/10 text-red-400 border-red-500/20",
-  };
-  const cls = map[difficulty] || "bg-slate-500/10 text-slate-400 border-slate-500/20";
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize ${cls}`}>{difficulty}</span>;
 }
 
 
@@ -88,6 +68,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
     randomize_options: quiz.randomize_options || false,
     voice_url: quiz.voice_url || null,
     video_url: quiz.video_url || null,
+    max_attempts: quiz.max_attempts ?? null,
   });
   const [saving, setSaving] = useState(false);
 
@@ -104,6 +85,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
           difficulty: form.difficulty || null,
           voice_url: form.voice_url || null,
           video_url: form.video_url || null,
+          max_attempts: form.max_attempts,
         }),
       });
       if (!res.ok) {
@@ -137,55 +119,24 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
         <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
           {/* Quiz Name */}
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">Quiz Name</label>
+            <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide max-w-xs">Quiz Name</th>
             <input type="text" value={form.quiz_name} onChange={u("quiz_name")}
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
 
-          {/* Year + Subject */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Year Level</label>
-              <select value={form.year_level} onChange={u("year_level")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value={3}>Year 3</option><option value={5}>Year 5</option>
-                <option value={7}>Year 7</option><option value={9}>Year 9</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Subject</label>
-              <select value={form.subject} onChange={u("subject")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">— Select —</option>
-                <option value="Maths">Maths</option><option value="Reading">Reading</option>
-                <option value="Writing">Writing</option><option value="Conventions">Conventions</option>
-              </select>
-            </div>
+          {/* Time Limit + Difficulty */}
+          {/* Subject */}
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Subject</label>
+            <select value={form.subject} onChange={u("subject")}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="">Not set</option>
+              <option value="Maths">Maths</option>
+              <option value="Reading">Reading</option>
+              <option value="Writing">Writing</option>
+              <option value="Conventions">Language Conventions</option>
+            </select>
           </div>
-
-          {/* Tier + Difficulty */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Bundle Tier</label>
-              <select value={form.tier} onChange={u("tier")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="A">A — Full Tests</option>
-                <option value="B">B — Topic Standard</option>
-                <option value="C">C — Topic Hard</option>
-                <option value="Trial">Trial — Free Sample</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Difficulty</label>
-              <select value={form.difficulty} onChange={u("difficulty")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">Auto / Not set</option>
-                <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Time Limit + Set Number */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">Time Limit (minutes)</label>
@@ -194,10 +145,12 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
               <p className="text-[10px] text-slate-500 mt-1">Leave empty = unlimited time</p>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Set Number</label>
-              <input type="number" min="1" value={form.set_number} onChange={u("set_number")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              <p className="text-[10px] text-slate-500 mt-1">For quizzes with multiple sets</p>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Difficulty</label>
+              <select value={form.difficulty} onChange={u("difficulty")}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">Auto / Not set</option>
+                <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
+              </select>
             </div>
           </div>
 
@@ -215,7 +168,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
             </label>
           </div>
 
-          {/* ✅ Randomization + Voice & Video */}
+          {/* ✅ Retakes + Randomization + Voice & Video */}
           <QuizSettingsExtras form={form} onChange={setForm} />
         </div>
 
@@ -382,7 +335,6 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
 }
 
 
-
 /* ════════════════════════════════════════════════════════
    MAIN COMPONENT
    ════════════════════════════════════════════════════════ */
@@ -396,7 +348,6 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [filterYear, setFilterYear] = useState("all");
-  const [filterSubject, setFilterSubject] = useState("all");
   const [deletingId, setDeletingId] = useState(null);
   const [settingsQuiz, setSettingsQuiz] = useState(null);
   const [bundleMapQuiz, setBundleMapQuiz] = useState(null);
@@ -457,13 +408,12 @@ export default function AdminDashboard() {
 
   const filtered = useMemo(() => quizzes.filter((q) => {
     if (filterYear !== "all" && q.year_level !== Number(filterYear)) return false;
-    if (filterSubject !== "all" && q.subject !== filterSubject) return false;
     if (search) {
       const s = search.toLowerCase();
-      return (q.quiz_name || "").toLowerCase().includes(s) || (q.subject || "").toLowerCase().includes(s);
+      return (q.quiz_name || "").toLowerCase().includes(s);
     }
     return true;
-  }), [quizzes, filterYear, filterSubject, search]);
+  }), [quizzes, filterYear, search]);
 
   const totalQuizzes = quizzes.length;
   const activeQuizzes = quizzes.filter((q) => q.is_active !== false).length;
@@ -518,6 +468,7 @@ export default function AdminDashboard() {
           {[
             { id: "quizzes", label: "All Quizzes" },
             { id: "upload", label: "Upload Quiz" },
+            { id: "create", label: "✚ Create Quiz" },
             { id: "bundles", label: "Bundles" },
           ].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
@@ -530,6 +481,7 @@ export default function AdminDashboard() {
         </div>
 
         {tab === "upload" && <QuizUploader onUploadSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
+        {tab === "create" && <ManualQuizCreator isOpen={true} onClose={() => setTab("quizzes")} onSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
         {tab === "bundles" && <BundlesTab bundles={bundles} loading={bundlesLoading} quizzes={quizzes} onRefresh={fetchBundles} />}
         {tab === "quizzes" && (
           <>
@@ -541,11 +493,6 @@ export default function AdminDashboard() {
                 className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="all">All Years</option><option value="3">Year 3</option><option value="5">Year 5</option>
                 <option value="7">Year 7</option><option value="9">Year 9</option>
-              </select>
-              <select value={filterSubject} onChange={(e) => setFilterSubject(e.target.value)}
-                className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="all">All Subjects</option><option value="Maths">Maths</option><option value="Reading">Reading</option>
-                <option value="Writing">Writing</option><option value="Conventions">Conventions</option>
               </select>
               <span className="text-xs text-slate-500 ml-auto">{filtered.length} quiz{filtered.length !== 1 ? "zes" : ""}</span>
             </div>
@@ -582,8 +529,6 @@ export default function AdminDashboard() {
                         <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Quiz Name</th>
                         <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Year</th>
                         <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-24">Subject</th>
-                        <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-28">Tier</th>
-                        <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-20">Diff.</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-12">Qs</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Time</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Status</th>
@@ -605,11 +550,13 @@ export default function AdminDashboard() {
                                 <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase">Trial</span>
                               )}
                             </td>
-                            <td className="px-3 py-3 text-slate-300 text-xs">Yr {quiz.year_level}</td>
-                            <td className="px-3 py-3"><SubjectBadge subject={quiz.subject} /></td>
-                            <td className="px-3 py-3"><TierBadge tier={quiz.tier} /></td>
-                            <td className="px-3 py-3"><DifficultyBadge difficulty={quiz.difficulty} /></td>
-                            <td className="px-3 py-3 text-center text-slate-400 font-mono text-xs">{quiz.question_count || 0}</td>
+                           <td className="px-3 py-3 text-slate-300 text-xs">Yr {quiz.year_level}</td>
+<td className="px-3 py-3 text-xs">
+  {quiz.subject
+    ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">{quiz.subject}</span>
+    : <span className="text-slate-600">—</span>}
+</td>
+<td className="px-3 py-3 text-center text-slate-400 font-mono text-xs">{quiz.question_count || 0}</td>
                             <td className="px-3 py-3 text-center text-xs">
                               {quiz.time_limit_minutes
                                 ? <span className="text-amber-400">{quiz.time_limit_minutes}m</span>
@@ -626,23 +573,26 @@ export default function AdminDashboard() {
                               </button>
                             </td>
                             <td className="px-3 py-3 text-center">
-                              <button onClick={() => setBundleMapQuiz(quiz)}
-                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold transition cursor-pointer ${
-                                  qBundles.length > 0
-                                    ? "bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20"
-                                    : "text-slate-600 hover:text-slate-400"
-                                }`}>
-                                {qBundles.length > 0 ? `${qBundles.length}` : "+ Map"}
-                              </button>
-                            </td>
+                            {(() => {
+                              const totalMappings = qBundles.length + (quiz.is_trial ? 1 : 0);
+                              return (
+                                <button onClick={() => setBundleMapQuiz(quiz)}
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold transition cursor-pointer ${
+                                    totalMappings > 0
+                                      ? "bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20"
+                                      : "text-slate-600 hover:text-slate-400"
+                                  }`}>
+                                  {totalMappings > 0 ? totalMappings : "+ Map"}
+                                </button>
+                              );
+                            })()}
+                          </td>
                             <td className="px-5 py-3 text-right">
                               <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                                 <button onClick={() => navigate(`/admin/quiz/${quiz.quiz_id}`)}
                                   className="px-2.5 py-1.5 text-xs font-medium text-indigo-400 hover:text-white hover:bg-indigo-600/20 rounded-lg transition-colors">View</button>
                                 <button onClick={() => setSettingsQuiz(quiz)}
                                   className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="Settings">⚙</button>
-                                <button onClick={() => setBundleMapQuiz(quiz)}
-                                  className="px-2.5 py-1.5 text-xs font-medium text-purple-400 hover:text-white hover:bg-purple-600/20 rounded-lg transition-colors" title="Bundle">📦</button>
                                 <button onClick={() => handleDelete(quiz.quiz_id, quiz.quiz_name)} disabled={deletingId === quiz.quiz_id}
                                   className="px-2.5 py-1.5 text-xs font-medium text-red-400 hover:text-white hover:bg-red-600/20 rounded-lg transition-colors disabled:opacity-40">
                                   {deletingId === quiz.quiz_id ? "..." : "Del"}

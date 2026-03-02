@@ -424,6 +424,13 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
           <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-8 md:px-8">
             {/* ✅ NEW: Voice & Video Media Panel — above the question */}
             <QuizMediaPanel voiceUrl={voiceUrl} videoUrl={videoUrl} />
+            {/* Per-question media (changes per question) */}
+              {questions[currentIdx] && (
+                <QuizMediaPanel
+                  voiceUrl={questions[currentIdx].voice_url}
+                  videoUrl={questions[currentIdx].video_url}
+                />
+              )}
 
             <QuestionRenderer
               question={currentQuestion} questionNumber={currentIdx + 1}

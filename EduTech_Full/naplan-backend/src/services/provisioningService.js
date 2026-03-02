@@ -5,14 +5,16 @@
  * Triggered after successful Stripe payment.
  * ═══════════════════════════════════════════════════════════════
  *
- * REWRITTEN: Removed all FlexiQuiz API dependencies.
- * Now works entirely with native quizzes (admin-uploaded via Quiz model).
+ * ✅ SIMPLIFIED: Uses BUNDLE-BASED LOOKUP now.
+ *    Provisioning only needs to:
+ *      1. Set child status → "active"
+ *      2. Add bundle_id to child's entitled_bundle_ids
  *
- * Flow:
- *   1. Find the purchase + bundle
- *   2. Get quiz IDs from bundle (native quiz_ids)
- *   3. For each child: update status → "active", add entitled quiz IDs
- *   4. Mark purchase as provisioned
+ *    entitled_quiz_ids is NO LONGER the source of truth.
+ *    The bundle's quiz_ids array IS the source of truth.
+ *    Provisioning can NEVER fail due to "0 quiz IDs" anymore —
+ *    admin can add quizzes to the bundle at any time and children
+ *    see them immediately via availableQuizzesRoute + quizRoutes.
  *
  * Idempotent: running twice produces the same result.
  */
@@ -54,22 +56,12 @@ async function provisionPurchase(purchaseId) {
     return { success: false, error: `Bundle '${purchase.bundle_id}' not found` };
   }
 
-  // ── Get quiz IDs: prefer native quiz_ids, fall back to flexiquiz_quiz_ids for backward compat ──
-  const quizIds = (bundle.quiz_ids && bundle.quiz_ids.length > 0)
-    ? bundle.quiz_ids
-    : bundle.flexiquiz_quiz_ids || [];
-
-  if (quizIds.length === 0) {
-    console.error(`❌ Bundle '${bundle.bundle_id}' has 0 quiz IDs. Run seedBundles.js or map quizzes in Admin.`);
-    await Purchase.findByIdAndUpdate(purchaseId, {
-      $set: { provisioned: false, provision_error: `Bundle has 0 quiz IDs` },
-    });
-    return { success: false, error: "Bundle has no quiz IDs" };
-  }
+  // ✅ REMOVED: No longer check quiz_ids count or fail on 0 quizzes.
+  // Quizzes are looked up dynamically from the bundle when the child
+  // views their dashboard. Admin can add quizzes at any time.
 
   console.log(`\n🔧 Provisioning purchase ${purchaseId}`);
   console.log(`   Bundle: ${bundle.bundle_name} (${bundle.bundle_id})`);
-  console.log(`   Quiz IDs: ${quizIds.length} quizzes`);
   console.log(`   Children: ${purchase.child_ids.length}`);
 
   const errors = [];
@@ -81,29 +73,19 @@ async function provisionPurchase(purchaseId) {
       continue;
     }
 
-    console.log(`\n── Provisioning ${child.username} (Year ${bundle.year_level}) ──`);
+    console.log(`\n── Provisioning ${child.username} ──`);
 
     try {
-      // ── Determine which quiz IDs are new for this child ──
-      const existingQuizIds = new Set(child.entitled_quiz_ids || []);
-      const newQuizIds = quizIds.filter((id) => !existingQuizIds.has(id));
-
-      if (newQuizIds.length === 0) {
-        console.log(`  ℹ️ No new quizzes to add (all already entitled)`);
-      } else {
-        console.log(`  📚 Adding ${newQuizIds.length} new quiz entitlements`);
-      }
-
-      // ── Update child: status → active, add entitlements ──
+      // ✅ SIMPLIFIED: Only set status + add bundle ID.
+      // No entitled_quiz_ids needed — bundles are looked up dynamically.
       await Child.findByIdAndUpdate(childId, {
         $set: { status: "active" },
         $addToSet: {
           entitled_bundle_ids: purchase.bundle_id,
-          entitled_quiz_ids: { $each: quizIds },
         },
       });
 
-      console.log(`  ✅ Child ${child.username} → active (${quizIds.length} quizzes entitled)`);
+      console.log(`  ✅ Child ${child.username} → active (bundle: ${purchase.bundle_id})`);
     } catch (dbErr) {
       console.error(`  ❌ DB error for ${child.username}: ${dbErr.message}`);
       errors.push(`DB error for ${child.username}: ${dbErr.message}`);

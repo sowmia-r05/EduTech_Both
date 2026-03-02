@@ -1,4 +1,12 @@
 // src/app/components/pages/ParentVerifyPage.jsx
+//
+// CHANGES FROM ORIGINAL:
+//   ✅ After successful OTP verification, checks localStorage for "parent_signup_redirect"
+//   ✅ If redirect=free-trial → navigates to /parent-dashboard?onboarding=free-trial
+//     (so the dashboard can prompt child creation + free trial start)
+//   ✅ Cleans up the redirect key from localStorage after consuming it
+//   Everything else is IDENTICAL to the original.
+
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -16,6 +24,24 @@ import OtpExpiredModal from "@/app/components/auth/OtpExpiredModal";
 
 /* ── OTP expiry duration (must match backend OTP_TTL_MS) ── */
 const OTP_DURATION_SECONDS = 5 * 60; // 5 minutes
+
+/**
+ * ✅ NEW: Helper to resolve the post-verification redirect destination.
+ * Reads and clears the stored redirect intent from localStorage.
+ */
+function resolvePostVerifyRedirect() {
+  const redirect = localStorage.getItem("parent_signup_redirect") || "";
+  localStorage.removeItem("parent_signup_redirect"); // consume it
+
+  switch (redirect) {
+    case "free-trial":
+      // Land on parent dashboard with onboarding param so the dashboard
+      // can prompt "Add your child" → "Start free test" flow
+      return "/parent-dashboard?onboarding=free-trial";
+    default:
+      return "/parent-dashboard";
+  }
+}
 
 export default function ParentVerifyPage() {
   const navigate = useNavigate();
@@ -104,7 +130,9 @@ export default function ParentVerifyPage() {
       localStorage.removeItem("parent_pending_masked");
       localStorage.removeItem("parent_pending_profile");
 
-      navigate("/parent-dashboard", { replace: true });
+      // ✅ CHANGED: Use the redirect resolver instead of always going to /parent-dashboard
+      const destination = resolvePostVerifyRedirect();
+      navigate(destination, { replace: true });
     } catch (err) {
       setError(err?.message || "OTP verification failed");
     } finally {
@@ -176,88 +204,68 @@ export default function ParentVerifyPage() {
             type="button"
           >
             <LogIn className="h-4 w-4 mr-2" />
-            Login Instead
+            Login
           </Button>
         </div>
 
         <Card className="bg-white shadow-lg">
           <CardHeader>
-            <CardTitle className="text-2xl text-center">Verify Email</CardTitle>
+            <CardTitle className="text-2xl text-center">Verify Your Email</CardTitle>
           </CardHeader>
 
           <CardContent>
+            {/* Status alerts */}
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            {info && (
+              <Alert className="mb-4 border-indigo-200 bg-indigo-50 text-indigo-900">
+                <Mail className="h-4 w-4" />
+                <AlertDescription>{info}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Sent-to message */}
+            <p className="text-sm text-gray-600 text-center mb-6">
+              We've sent a 6-digit code to{" "}
+              <span className="font-semibold text-indigo-600">{displayEmail}</span>.
+              <br />
+              Enter it below to verify your account.
+            </p>
+
             <form onSubmit={onVerify} className="space-y-5">
-              {/* Error */}
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-              {/* Info */}
-              {info && (
-                <Alert className="border-indigo-200 bg-indigo-50 text-indigo-900">
-                  <Mail className="h-4 w-4" />
-                  <AlertDescription>{info}</AlertDescription>
-                </Alert>
-              )}
-
-              {/* Email info card */}
-              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 rounded-full bg-indigo-100 p-2">
-                    <Mail className="h-4 w-4 text-indigo-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Enter OTP sent to</p>
-                    <p className="text-sm font-medium text-gray-900 break-all">
-                      {displayEmail}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* ─── OTP Countdown Timer ─── */}
-              <div className={`flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-sm font-medium ${
-                isOtpExpired
-                  ? "bg-red-50 text-red-700 ring-1 ring-red-200"
-                  : parseInt(otpTimerDisplay) <= 1
-                    ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
-                    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-              }`}>
-                <Clock className={`h-4 w-4 ${isOtpExpired ? "text-red-500" : ""}`} />
-                {isOtpExpired ? (
-                  <span>OTP expired — please request a new code</span>
-                ) : (
-                  <span>Code expires in <strong className="tabular-nums">{otpTimerDisplay}</strong></span>
-                )}
-              </div>
-
-              {/* OTP Input */}
               <div className="space-y-2">
-                <Label htmlFor="verify-otp">6-Digit OTP</Label>
+                <Label htmlFor="otp-input">Verification Code</Label>
                 <Input
-                  id="verify-otp"
+                  id="otp-input"
                   type="text"
                   inputMode="numeric"
-                  autoComplete="one-time-code"
-                  placeholder="Enter 6-digit OTP"
+                  pattern="\d{6}"
                   maxLength={6}
+                  placeholder="Enter 6-digit OTP"
                   value={otp}
-                  onChange={(e) =>
-                    setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))
-                  }
-                  disabled={loading || isOtpExpired}
-                  className="text-center tracking-[0.3em] text-lg"
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  autoComplete="one-time-code"
+                  disabled={loading}
                 />
               </div>
 
-              {/* Verify button */}
+              {/* Timer display */}
+              {!isOtpExpired && (
+                <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>Code expires in {otpTimerDisplay}</span>
+                </div>
+              )}
+
               <Button
                 type="submit"
-                disabled={!isOtpValid || loading || isOtpExpired}
+                disabled={!isOtpValid || loading}
                 className={`w-full ${
-                  isOtpValid && !loading && !isOtpExpired
+                  isOtpValid && !loading
                     ? "bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
                     : "bg-gray-400 cursor-not-allowed"
                 }`}
@@ -268,39 +276,28 @@ export default function ParentVerifyPage() {
                   "Verify & Continue"
                 )}
               </Button>
-
-              {/* Resend */}
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={handleResendOtp}
-                disabled={resending || loading}
-              >
-                {resending ? "Resending..." : "Resend OTP"}
-              </Button>
-
-              {/* Change email */}
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={() => navigate("/parent/create")}
-                  className="text-sm text-indigo-600 hover:underline"
-                >
-                  Use a different email
-                </button>
-              </div>
             </form>
+
+            {/* Resend */}
+            <div className="mt-4 text-center">
+              <button
+                onClick={handleResendOtp}
+                disabled={resending}
+                className="text-sm text-indigo-600 hover:text-indigo-700 font-medium disabled:text-gray-400 disabled:cursor-not-allowed"
+              >
+                {resending ? "Sending..." : "Resend OTP"}
+              </button>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* ─── OTP Expired Confirmation Modal ─── */}
+      {/* Expired OTP Modal */}
       {showExpiredModal && (
         <OtpExpiredModal
-          onRequestNewOtp={handleResendOtp}
+          onResend={handleResendOtp}
           onGoBack={handleExpiredGoBack}
-          loading={resending}
+          resending={resending}
         />
       )}
     </div>

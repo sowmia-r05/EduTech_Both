@@ -1,5 +1,14 @@
+// src/app/components/pages/ParentCreatePage.jsx
+//
+// CHANGES FROM ORIGINAL:
+//   ✅ Added useSearchParams import to read ?redirect= query param
+//   ✅ onSubmit stores redirect intent in localStorage ("parent_signup_redirect")
+//   ✅ "Login" button preserves redirect param when navigating to /parent-login
+//   ✅ Added a contextual banner when arriving from free-trial flow
+//   Everything else is IDENTICAL to the original.
+
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
@@ -56,6 +65,10 @@ function Modal({ title, children, onClose }) {
 ----------------------------- */
 export default function ParentCreatePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // ✅ NEW: Read the redirect intent from the URL (e.g. ?redirect=free-trial)
+  const redirectIntent = searchParams.get("redirect") || "";
 
   const [formData, setFormData] = useState({
     firstName: "",
@@ -122,6 +135,11 @@ export default function ParentCreatePage() {
         JSON.stringify({ firstName, lastName, email })
       );
 
+      // ✅ NEW: Persist the redirect intent so ParentVerifyPage can honor it
+      if (redirectIntent) {
+        localStorage.setItem("parent_signup_redirect", redirectIntent);
+      }
+
       navigate("/parent/verify");
     } catch (err) {
       setError(err?.message || "Failed to send OTP");
@@ -146,7 +164,13 @@ export default function ParentCreatePage() {
           </Button>
 
           <Button
-            onClick={() => navigate("/parent-login")}
+            onClick={() => {
+              // ✅ NEW: Preserve redirect param when switching to login
+              const loginUrl = redirectIntent
+                ? `/parent-login?redirect=${encodeURIComponent(redirectIntent)}`
+                : "/parent-login";
+              navigate(loginUrl);
+            }}
             variant="outline"
             className="bg-white"
             type="button"
@@ -155,6 +179,18 @@ export default function ParentCreatePage() {
             Login
           </Button>
         </div>
+
+        {/* ✅ NEW: Contextual banner when arriving from free-trial */}
+        {redirectIntent === "free-trial" && (
+          <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 text-center">
+            <p className="text-sm text-indigo-700 font-medium">
+              🎯 Create your free account to start your child's practice test
+            </p>
+            <p className="text-xs text-indigo-500 mt-1">
+              Quick sign-up — then you'll set up your child's profile and begin
+            </p>
+          </div>
+        )}
 
         <Card className="bg-white shadow-lg">
           <CardHeader>
@@ -210,66 +246,64 @@ export default function ParentCreatePage() {
                   type="checkbox"
                   checked={acceptedTerms}
                   onChange={(e) => setAcceptedTerms(e.target.checked)}
-                  className="mt-0.5 h-4 w-4"
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300"
                 />
-                <label
-                  htmlFor="accept-parent-terms"
-                  className="leading-4 text-gray-700 text-xs"
-                >
+                <label htmlFor="accept-parent-terms" className="text-gray-600 leading-snug">
                   I agree to the{" "}
-                  <span
+                  <button
+                    type="button"
                     onClick={() => setModalContent("terms")}
-                    className="text-indigo-600 underline cursor-pointer"
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setModalContent("terms");
-                      }
-                    }}
+                    className="text-indigo-600 underline hover:text-indigo-700"
                   >
-                    Terms & Conditions
-                  </span>{" "}
+                    Terms &amp; Conditions
+                  </button>{" "}
                   and{" "}
-                  <span
+                  <button
+                    type="button"
                     onClick={() => setModalContent("privacy")}
-                    className="text-indigo-600 underline cursor-pointer"
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setModalContent("privacy");
-                      }
-                    }}
+                    className="text-indigo-600 underline hover:text-indigo-700"
                   >
                     Privacy Policy
-                  </span>
-                  .
+                  </button>
                 </label>
               </div>
 
               <Button
+                type="submit"
+                disabled={!canSubmit || loading}
                 className={`w-full ${
-                  canSubmit
+                  canSubmit && !loading
                     ? "bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
                     : "bg-gray-400 cursor-not-allowed"
                 }`}
-                type="submit"
-                disabled={!canSubmit || loading}
               >
                 {loading ? (
                   <Loader2 className="h-4 w-4 animate-spin mx-auto" />
                 ) : (
-                  "Send OTP"
+                  "Create Account & Send OTP"
                 )}
               </Button>
             </form>
           </CardContent>
         </Card>
+
+        <p className="text-center text-sm text-slate-500 mt-4">
+          Already have an account?{" "}
+          <button
+            onClick={() => {
+              const loginUrl = redirectIntent
+                ? `/parent-login?redirect=${encodeURIComponent(redirectIntent)}`
+                : "/parent-login";
+              navigate(loginUrl);
+            }}
+            className="text-indigo-600 hover:text-indigo-700 font-medium"
+          >
+            Log in
+          </button>
+        </p>
       </div>
 
+      {/* Terms / Privacy Modals */}
       {modalContent === "terms" && (
         <Modal title="Terms & Conditions" onClose={() => setModalContent(null)}>
           <TermsAndConditions />

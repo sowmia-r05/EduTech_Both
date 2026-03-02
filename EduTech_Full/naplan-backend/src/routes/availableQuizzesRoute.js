@@ -5,9 +5,11 @@
  * Returns admin-uploaded quizzes for the child dashboard.
  * Replaces the hardcoded QUIZ_CATALOG in ChildDashboard.jsx.
  *
- * ✅ FIX: Trial children now only receive quizzes they're entitled to
- *    (is_trial quizzes only). Paid quizzes are filtered out on the backend
- *    so they never reach the frontend for trial users.
+ * ✅ REWRITTEN: Now uses BUNDLE-BASED LOOKUP instead of entitled_quiz_ids.
+ *    - Looks up child's entitled_bundle_ids → fetches bundles → gets quiz_ids
+ *    - No more sync issues: when admin adds a quiz to a bundle, all children
+ *      who own that bundle see it immediately.
+ *    - entitled_quiz_ids on the child document is NO LONGER used.
  *
  * ✅ PATCHED: Added normalizeSubject() to map admin subjects
  *    ("Maths", "Conventions") to dashboard subjects ("Numeracy", "Language")
@@ -23,6 +25,7 @@ const { verifyToken, requireAuth } = require("../middleware/auth");
 const connectDB = require("../config/db");
 const Quiz = require("../models/quiz");
 const Child = require("../models/child");
+const QuizCatalog = require("../models/quizCatalog");
 
 const router = express.Router();
 
@@ -51,7 +54,7 @@ function normalizeSubject(subject) {
     return "Numeracy";
   }
 
-  // Language variants
+  // Language Conventions variants
   if (
     s === "conventions" ||
     s === "language conventions" ||
@@ -78,7 +81,7 @@ function normalizeSubject(subject) {
 
 // ═══════════════════════════════════════
 // GET /api/children/:childId/available-quizzes
-// Returns quizzes the child can take based on their status
+// Returns quizzes the child can take based on their bundles
 // ═══════════════════════════════════════
 router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, async (req, res) => {
   try {
@@ -93,7 +96,7 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // Fetch child to get year_level and entitlements
+    // Fetch child to get year_level and bundle entitlements
     const child = await Child.findById(childId).lean();
     if (!child) return res.status(404).json({ error: "Child not found" });
 
@@ -102,42 +105,82 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // Determine child's status and entitlements
-    const childEntitledQuizIds = child.entitled_quiz_ids || [];
     const childStatus = child.status || "trial";
+    const childBundleIds = child.entitled_bundle_ids || [];
 
-    // ═══════════════════════════════════════
-    // ✅ FIX: Build query based on child status
-    // Trial children → only see trial quizzes
-    // Active children → see all quizzes for their year level
-    // ═══════════════════════════════════════
-    const query = {
-      is_active: true,
-      year_level: child.year_level,
-    };
+    // ═══════════════════════════════════════════════════════
+    // ✅ NEW: BUNDLE-BASED QUIZ LOOKUP
+    // Instead of relying on entitled_quiz_ids (which goes out of sync),
+    // we look up the child's bundles and get quiz_ids directly from them.
+    // This means when admin adds a quiz to a bundle, it's INSTANTLY
+    // visible to all children who own that bundle.
+    // ═══════════════════════════════════════════════════════
 
-    // If child is on trial, only fetch trial quizzes from the database
-    // This prevents paid quizzes from ever reaching the frontend
-    if (childStatus === "trial") {
-      query.is_trial = true;
+    // Step 1: Get all quiz IDs from the child's purchased bundles
+    let bundleQuizIds = [];
+    if (childBundleIds.length > 0) {
+      const bundles = await QuizCatalog.find({
+        bundle_id: { $in: childBundleIds },
+      }).lean();
+
+      for (const bundle of bundles) {
+        const ids = (bundle.quiz_ids && bundle.quiz_ids.length > 0)
+          ? bundle.quiz_ids
+          : bundle.flexiquiz_quiz_ids || [];
+        bundleQuizIds.push(...ids);
+      }
+      // Deduplicate
+      bundleQuizIds = [...new Set(bundleQuizIds)];
     }
 
-    const quizzes = await Quiz.find(query)
-      .sort({ subject: 1, quiz_name: 1 })
-      .select(
-        "quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number"
-      )
-      .lean();
+    // Step 2: Build the quiz query
+    let quizzes = [];
 
-    const enrichedQuizzes = quizzes.map((q) => {
+    if (childStatus === "trial") {
+      // Trial children → only see trial quizzes for their year level
+      quizzes = await Quiz.find({
+        is_active: true,
+        year_level: child.year_level,
+        is_trial: true,
+      })
+        .sort({ subject: 1, quiz_name: 1 })
+        .select("quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number")
+        .lean();
+    } else {
+      // Active children → see quizzes from their bundles + trial quizzes
+      // Use $or to get: (quizzes in their bundles) OR (trial quizzes for their year level)
+      const orConditions = [
+        { is_active: true, year_level: child.year_level, is_trial: true },
+      ];
+
+      if (bundleQuizIds.length > 0) {
+        orConditions.push({ is_active: true, quiz_id: { $in: bundleQuizIds } });
+      }
+
+      quizzes = await Quiz.find({ $or: orConditions })
+        .sort({ subject: 1, quiz_name: 1 })
+        .select("quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number")
+        .lean();
+    }
+
+    // Step 3: Deduplicate (a quiz could match both trial AND bundle conditions)
+    const seen = new Set();
+    const uniqueQuizzes = quizzes.filter((q) => {
+      if (seen.has(q.quiz_id)) return false;
+      seen.add(q.quiz_id);
+      return true;
+    });
+
+    // Step 4: Enrich with entitlement info
+    const bundleQuizIdSet = new Set(bundleQuizIds);
+
+    const enrichedQuizzes = uniqueQuizzes.map((q) => {
       // A child is entitled to a quiz if:
       //   1. It's a trial quiz (always accessible), OR
-      //   2. The quiz_id is in their entitled_quiz_ids list, OR
-      //   3. The child status is "active" and quiz matches their year level
+      //   2. The quiz_id is in one of their purchased bundles
       const isEntitled =
         q.is_trial === true ||
-        childEntitledQuizIds.includes(q.quiz_id) ||
-        (childStatus === "active" && q.year_level === child.year_level);
+        bundleQuizIdSet.has(q.quiz_id);
 
       return {
         quiz_id: q.quiz_id,

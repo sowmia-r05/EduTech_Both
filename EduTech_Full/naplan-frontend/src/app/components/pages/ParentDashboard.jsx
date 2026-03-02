@@ -12,6 +12,7 @@ import { createCheckout } from "@/app/utils/api-payments";
 import { BUNDLE_CATALOG } from "@/app/data/bundleCatalog";
 import PaymentSuccessModal from "@/app/components/payments/PaymentSuccessModal";
 import PurchaseHistory from "@/app/components/payments/PurchaseHistory";
+import QuickChildLoginModal from "@/app/components/dashboardComponents/QuickChildLoginModal";
 
 const formatAUD = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)} AUD`;
 
@@ -33,6 +34,8 @@ export default function ParentDashboard() {
   const [bundleModalChild, setBundleModalChild] = useState(null);
   const [checkoutLoadingBundle, setCheckoutLoadingBundle] = useState(null);
   const [successSessionId, setSuccessSessionId] = useState(null);
+
+  const [isChildLoginModalOpen, setIsChildLoginModalOpen] = useState(false);
 
   const loadChildren = useCallback(async () => {
     if (!parentToken) return;
@@ -299,6 +302,12 @@ export default function ParentDashboard() {
             >
               Practice Packs
             </button>
+             <button
+              onClick={() => setIsChildLoginModalOpen(true)}
+              className="px-3 sm:px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-colors"
+            >
+              🎒 Child Login
+            </button>
             <button
               onClick={() => setIsAddModalOpen(true)}
               className="px-3 sm:px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
@@ -450,6 +459,13 @@ export default function ParentDashboard() {
           }}
         />
       )}
+
+      {/* QUICK CHILD LOGIN MODAL */}
+      <QuickChildLoginModal
+        isOpen={isChildLoginModalOpen}
+        onClose={() => setIsChildLoginModalOpen(false)}
+        childrenList={children}
+      />
     </div>
   );
 }

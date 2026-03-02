@@ -137,9 +137,14 @@ export default function AdminLogin() {
             )}
           </button>
 
-          <p className="text-xs text-slate-500 text-center">
-            This panel is for internal use only.
-          </p>
+        <p className="text-xs text-slate-500 text-center">
+        This panel is for internal use only.
+      </p>
+      <div className="text-center pt-2">
+        <button onClick={() => navigate("/login")} className="text-xs text-indigo-400 hover:text-indigo-300 transition">
+          ← Back to Student Sign In
+        </button>
+      </div>
         </form>
       </div>
     </div>
