@@ -106,9 +106,17 @@ export default function ResultPage() {
   const [selectedAttemptOverride, setSelectedAttemptOverride] = useState(null);
 
   const { childToken, childProfile, parentToken } = useAuth();
+  const activeToken = childToken || parentToken || null;
+
+  const authOpts = activeToken
+  ? { headers: { Authorization: `Bearer ${activeToken}` } }
+  : {};
+
 const isParentViewing = !childToken && !!parentToken;
 const childStatus = childProfile?.status || "trial";
 const yearLevel = childProfile?.yearLevel || null;
+
+
 
 const viewerType = childToken && !isParentViewing
   ? "child"
@@ -124,14 +132,14 @@ const viewerType = childToken && !isParentViewing
       try {
         setLoading(true); setError(null);
         const data = responseId
-          ? await fetchWritingByResponseId(responseId)
-          : await fetchLatestWritingByEmailAndQuiz(email, quizName);
+          ? await fetchWritingByResponseId(responseId, authOpts)
+          : await fetchLatestWritingByEmailAndQuiz(email, quizName, authOpts);
         if (cancelled) return;
         if (!data) { setError("No writing document found."); setLoading(false); return; }
         setDoc(data);
         const effectiveUsername = usernameParam || data?.user?.user_name || "";
         if (effectiveUsername) {
-          try { const all = await fetchWritingsByUsername(effectiveUsername); if (!cancelled) setWritingsList(all || []); }
+          try { const all = await fetchWritingsByUsername(effectiveUsername, authOpts); if (!cancelled) setWritingsList(all || []); }
           catch { if (!cancelled) setWritingsList([]); }
         }
         setLoading(false);
@@ -149,7 +157,7 @@ const viewerType = childToken && !isParentViewing
       pollCount++;
       if (pollCount > 60) { setError("AI evaluation timed out. Please try again in 1–2 minutes."); return; }
       try {
-        const latest = responseId ? await fetchWritingByResponseId(responseId) : await fetchLatestWritingByEmailAndQuiz(email, quizName);
+        const latest = responseId ? await fetchWritingByResponseId(responseId, authOpts) : await fetchLatestWritingByEmailAndQuiz(email, quizName, authOpts);
         if (cancelled) return; setDoc(latest);
         if (isAiPending(latest)) timer = setTimeout(poll, 4000);
       } catch { if (!cancelled) timer = setTimeout(poll, 6000); }

@@ -115,6 +115,8 @@ router.get("/attempts/:attemptId/flashcards", verifyToken, requireAuth, async (r
         explanation: q.explanation || "",
         points: q.points || 1,
         points_earned: answer?.points_earned || 0,
+        child_answer: childAnswerText || "No answer",
+        correct_answer: correctOptionTexts.join(", ") || "—",
       };
     });
 

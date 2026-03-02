@@ -487,6 +487,22 @@ export default function ParentDashboard() {
         onClose={() => setIsChildLoginModalOpen(false)}
         childrenList={children}
       />
+
+      {/* ═══ Free Trial Onboarding Wizard ═══ */}
+      {showOnboarding && (
+        <FreeTrialOnboarding
+          parentToken={parentToken}
+          onComplete={(newChild) => {
+            loadChildren();  // your existing function that refreshes the children list
+          }}
+          onSkip={() => {
+            setShowOnboarding(false);
+            searchParams.delete("onboarding");
+            setSearchParams(searchParams, { replace: true });
+          }}
+        />
+      )}
+      
     </div>
   );
 }
@@ -1229,17 +1245,9 @@ function ModalWrapper({ children, onClose, maxWidth = "max-w-md" }) {
     >
       <div
         className={`bg-white w-full ${maxWidth} rounded-xl p-6 shadow-xl max-h-[90vh] overflow-y-auto`}
-        onClick={(e) => e.stopPropagation()}
-      >
+        onClick={(e) => e.stopPropagation()} >
         {children}
       </div>
-            {showOnboarding && (
-        <FreeTrialOnboarding
-          parentToken={parentToken}
-          onComplete={handleOnboardingComplete}
-          onSkip={handleOnboardingSkip}
-        />
-      )}
     </div>
   );
 }

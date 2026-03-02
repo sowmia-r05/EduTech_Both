@@ -286,7 +286,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
   const goPrev = useCallback(() => goTo(currentIdx - 1), [currentIdx, goTo]);
 
   // ═══ SUBMIT ═══
-const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(async () => {
     if (submitCalledRef.current) return;
     submitCalledRef.current = true;
     setPhase("submitting");
@@ -465,7 +465,7 @@ const handleSubmit = useCallback(async () => {
       quiz={quiz} enabled={proctored}
       onCancel={() => onClose?.({ completed: false })}
       onStart={handleProctoringStart} onViolation={handleViolation}
-      submitting={phase === "submitting" || phase === "result"}   
+      submitting={phase === "submitting" || phase === "result"}   /* ✅ FIX: suppress violations during submit */
     >
       {quizContent}
     </ExamProctor>
