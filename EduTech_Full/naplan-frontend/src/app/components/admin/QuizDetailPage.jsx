@@ -52,7 +52,7 @@ function FileUploadButton({ onUploaded, accept = "image/*,.pdf", label = "Upload
         className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs text-slate-300 rounded-lg border border-slate-600 transition flex items-center gap-1.5 flex-shrink-0">
         {uploading ? <><span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" /> Uploading...</> : <><span className="text-sm">📎</span> {label}</>}
       </button>
-      <input ref={inputRef} type="file" accept={accept} className="hidden" onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }} />
+      <input ref={inputRef} type="file" accept={accept} style={{ display: "none" }} onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }} />
     </>
   );
 }
@@ -105,7 +105,7 @@ function OptionsEditor({ form, setForm }) {
             <span className="text-xs text-slate-500 w-4">{String.fromCharCode(65 + i)}</span>
             <input type="text" value={opt.text} onChange={(e) => updateOption(i, "text", e.target.value)} placeholder="Option text..."
               className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
-            {form.type === "picture_choice" && (
+              {form.type === "picture_choice" && (
               <>
                 <input type="text" value={opt.image_url || ""} onChange={(e) => updateOption(i, "image_url", e.target.value)} placeholder="Image URL..."
                   className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />

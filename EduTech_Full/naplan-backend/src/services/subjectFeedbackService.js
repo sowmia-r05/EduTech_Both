@@ -10,8 +10,15 @@ const { spawn } = require("child_process");
  *   { success: boolean, ... }
  *
  * Env supported:
- * - SUBJECT_FEEDBACK_PYTHON (optional): python command ("python" / "python3" / full path)
+ * - PYTHON_BIN (preferred): python command ("python" / "python3" / "py" / full path)
+ * - SUBJECT_FEEDBACK_PYTHON (legacy): python command override
  * - SUBJECT_FEEDBACK_TIMEOUT_MS (optional): default 25000
+ *
+ * ═══════════════════════════════════════════════════════
+ * ✅ FIX: Python binary — was hardcoded "python" (fails on Windows with code 9009)
+ *         Now uses cross-platform detection: "py" on Windows, "python3" on Linux/Render
+ *         Can be overridden via PYTHON_BIN or SUBJECT_FEEDBACK_PYTHON env var
+ * ═══════════════════════════════════════════════════════
  */
 function runSubjectFeedbackPython(payload) {
   return new Promise((resolve, reject) => {
@@ -23,8 +30,16 @@ function runSubjectFeedbackPython(payload) {
       "gemini_subject_feedback.py"
     );
 
-    const pythonCmd = process.env.SUBJECT_FEEDBACK_PYTHON || "python";
+    // ✅ FIX: Cross-platform Python binary detection
+    // OLD: process.env.SUBJECT_FEEDBACK_PYTHON || "python"  ← fails on Windows
+    // NEW: Check PYTHON_BIN first, then SUBJECT_FEEDBACK_PYTHON, then platform-detect
+    const pythonCmd = process.env.PYTHON_BIN
+      || process.env.SUBJECT_FEEDBACK_PYTHON
+      || (process.platform === "win32" ? "py" : "python3");
+
     const timeoutMs = Number(process.env.SUBJECT_FEEDBACK_TIMEOUT_MS || 25000);
+
+    console.log(`🐍 Subject feedback: ${pythonCmd} ${script}`);
 
     const p = spawn(pythonCmd, [script], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -66,7 +81,7 @@ function runSubjectFeedbackPython(payload) {
 
     p.on("error", (e) => {
       cleanup();
-      reject(new Error(`Failed to start python process: ${e.message}`));
+      reject(new Error(`Failed to start python process (${pythonCmd}): ${e.message}`));
     });
 
     p.on("close", (code) => {
