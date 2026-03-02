@@ -541,7 +541,7 @@ router.patch("/quizzes/:quizId", async (req, res) => {
       "quiz_name", "time_limit_minutes", "difficulty", "tier",
       "year_level", "subject", "is_active", "is_trial",
       "randomize_questions", "randomize_options",
-      "voice_url", "video_url", "max_attempts",
+      "voice_url", "video_url", "max_attempts","attempts_enabled",
     ];
 
     const updates = {};

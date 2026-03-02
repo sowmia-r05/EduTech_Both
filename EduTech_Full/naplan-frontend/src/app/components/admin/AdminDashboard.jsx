@@ -531,6 +531,7 @@ export default function AdminDashboard() {
                         <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-24">Subject</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-12">Qs</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Time</th>
+                        <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-20">Attempts</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Status</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-20">Bundle</th>
                         <th className="text-right px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-48">Actions</th>
@@ -562,6 +563,15 @@ export default function AdminDashboard() {
                                 ? <span className="text-amber-400">{quiz.time_limit_minutes}m</span>
                                 : <span className="text-slate-600">—</span>}
                             </td>
+                            <td className="px-3 py-3 text-center">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                  quiz.attempts_enabled
+                                    ? "bg-emerald-500/10 text-emerald-400"
+                                    : "bg-slate-700/50 text-slate-500"
+                                }`}>
+                                  {quiz.attempts_enabled ? (quiz.max_attempts || "∞") : "Off"}
+                                </span>
+                              </td>
                             <td className="px-3 py-3 text-center">
                               <button onClick={() => handleToggleActive(quiz)}
                                 className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold transition cursor-pointer ${
