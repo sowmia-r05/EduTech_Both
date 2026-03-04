@@ -462,9 +462,11 @@ export default function ChildDashboard() {
     const rid = item.response_id;
     if (!rid) return;
     const isWriting = item.subject === "Writing";
-    const params = new URLSearchParams({ r: rid });
+    const params = new URLSearchParams();
+    
 
     const username = childProfile?.username || childInfo?.username || null;
+    if (item.response_id) params.set("r", item.response_id);
     if (username) params.set("username", username);
     if (item.subject) params.set("subject", item.subject);
     if (item.name) params.set("quiz_name", item.name);
@@ -475,6 +477,7 @@ export default function ChildDashboard() {
         : `/NonWritingLookupQuizResults/results?${params}`
     );
   };
+  
 
   const handleQuizClose = () => {
     setActiveQuiz(null);
@@ -830,7 +833,8 @@ export default function ChildDashboard() {
                     { key: "name", label: "Quiz Name" },
                     { key: "status", label: "Status" },
                     { key: "score", label: "Score" },     // numeric only
-                    { key: null, label: "Action" },       // start/retake
+                    { key: null, label: "Action" }, 
+                    { key: null, label: "Quiz Result" },  // result page button      // start/retake
                     { key: null, label: "AI Feedback" },  // button
                     { key: null, label: "" },             // icon column
                   ].map((col, idx) => (
@@ -861,9 +865,14 @@ export default function ChildDashboard() {
                   paginatedQuizzes.map((quiz) => {
                     const style = SUBJECT_STYLE[quiz.subject] || SUBJECT_STYLE.Other;
                     const isCompleted = quiz.status === "completed";
+                    const canOpenResult = Boolean(quiz.response_id);
 
                     return (
-                      <tr key={quiz.id} className="hover:bg-indigo-50/30 transition">
+                      <tr
+                        key={quiz.id}
+                        onClick={() => canOpenResult && handleViewResult(quiz)}
+                        className={`hover:bg-indigo-50/30 transition ${canOpenResult ? "cursor-pointer" : ""}`}
+                      >
                         {/* Subject */}
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-2.5">
@@ -924,7 +933,10 @@ export default function ChildDashboard() {
                         <td className="px-5 py-4">
                           {isCompleted ? (
                             <button
-                              onClick={() => setActiveQuiz(quiz)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveQuiz(quiz);
+                              }}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-lg hover:bg-amber-600 transition"
                               title="Retake Exam"
                               aria-label={`Retake ${quiz.name}`}
@@ -936,7 +948,10 @@ export default function ChildDashboard() {
                             </button>
                           ) : (
                             <button
-                              onClick={() => setActiveQuiz(quiz)}
+                             onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveQuiz(quiz);
+                              }}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 transition"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -947,12 +962,34 @@ export default function ChildDashboard() {
                             </button>
                           )}
                         </td>
+                        {/* ✅ Quiz Result column */}
+                        <td className="px-5 py-4">
+                          {quiz.response_id ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewResult(quiz);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs font-medium rounded-lg hover:bg-violet-700 transition"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 3h1a2.251 2.251 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+                              </svg>
+                              View Result
+                            </button>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
 
                         {/* ✅ AI Feedback column */}
                         <td className="px-5 py-4">
                           {quiz.response_id ? (
                             <button
-                              onClick={() => handleViewResult(quiz)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewResult(quiz);
+                              }}
                               className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition"
                             >
                               AI Feedback
@@ -965,7 +1002,7 @@ export default function ChildDashboard() {
                         {/* ✅ Analytics icon far right */}
                         <td className="px-5 py-4">
                           <button
-                            onClick={() => setShowAnalytics(true)}
+                            onClick={(e) => { e.stopPropagation(); setShowAnalytics(true); }}
                             className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition"
                             title="Overall Analytics"
                             aria-label="Overall Analytics"
@@ -980,7 +1017,7 @@ export default function ChildDashboard() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center">
+                    <td colSpan={8} className="px-5 py-12 text-center">
                       <p className="text-slate-400 text-sm">No quizzes match your filters.</p>
                       <button
                         onClick={() => {

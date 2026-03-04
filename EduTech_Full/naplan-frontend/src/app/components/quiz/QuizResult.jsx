@@ -233,7 +233,7 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
               onClick={handleViewAIFeedback}
               className="w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold rounded-xl hover:from-indigo-700 hover:to-violet-700 transition-colors shadow-lg shadow-indigo-200"
             >
-            AI Feedback
+              View AI Feedback
             </button>
           )}
 

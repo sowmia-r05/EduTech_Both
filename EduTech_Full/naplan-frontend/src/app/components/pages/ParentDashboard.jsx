@@ -14,6 +14,7 @@ import PaymentSuccessModal from "@/app/components/payments/PaymentSuccessModal";
 import PurchaseHistory from "@/app/components/payments/PurchaseHistory";
 import QuickChildLoginModal from "@/app/components/dashboardComponents/QuickChildLoginModal";
 import FreeTrialOnboarding from "@/app/components/dashboardComponents/FreeTrialOnboarding";
+import ChildDataConsentPolicy from "@/app/components/ChildDataConsentPolicy";
 
 const formatAUD = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)} AUD`;
 
@@ -826,6 +827,9 @@ function AddChildModal({ onClose, onAdd, loading }) {
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
   const [usernameStatus, setUsernameStatus] = useState(null);
+  const [consent, setConsent] = useState(false);
+  const [emailNotifications, setEmailNotifications] = useState(false);
+  const [showConsentPolicy, setShowConsentPolicy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -870,17 +874,21 @@ function AddChildModal({ onClose, onAdd, loading }) {
       );
     }
     if (!yearLevel) return setError("Please select year level");
-    if (!pin || !/^\d{4}$/.test(pin))
-      return setError("PIN must be exactly 4 digits");
+    if (!pin || !/^\d{6}$/.test(pin))
+      return setError("PIN must be exactly 6 digits");
     if (pin !== confirmPin) return setError("PINs do not match");
-    if (usernameStatus === "taken")
+   if (usernameStatus === "taken")
       return setError("Username is already taken");
+    if (!consent)
+      return setError("Please provide parental consent to continue");
 
     await onAdd({
       display_name: cleanDisplayName,
       username: cleanUsername,
       year_level: Number(yearLevel),
       pin,
+      parental_consent: consent,
+      email_notifications: emailNotifications,
     });
   };
 
@@ -955,17 +963,17 @@ function AddChildModal({ onClose, onAdd, loading }) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm text-slate-700 mb-1">
-              PIN (4 digits)
+              PIN (6 digits)
             </label>
             <input
               type="password"
               inputMode="numeric"
-              maxLength={4}
+              maxLength={6}
               value={pin}
               onChange={(e) =>
-                setPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                setPin(e.target.value.replace(/\D/g, "").slice(0, 6))
               }
-              placeholder="1234"
+              placeholder="123456"
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
             />
           </div>
@@ -977,16 +985,114 @@ function AddChildModal({ onClose, onAdd, loading }) {
             <input
               type="password"
               inputMode="numeric"
-              maxLength={4}
+              maxLength={6}
               value={confirmPin}
               onChange={(e) =>
-                setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 6))
               }
-              placeholder="1234"
+              placeholder="123456"
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
             />
           </div>
         </div>
+        {/* ── Email Notifications (optional) ── */}
+        <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-3.5">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={emailNotifications}
+              onChange={(e) => setEmailNotifications(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span className="text-[11px] text-slate-600">
+              Enable email notifications
+              <span className="text-slate-400 ml-1">(optional)</span>
+            </span>
+            <div className="relative group ml-auto">
+              <svg className="w-4 h-4 text-slate-400 hover:text-indigo-500 cursor-help transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+              </svg>
+              <div className="absolute bottom-full right-0 mb-2 w-56 bg-slate-800 text-white text-[10px] leading-relaxed rounded-lg p-3 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                <p className="font-semibold mb-1">We'll send you:</p>
+                <ul className="space-y-0.5 list-disc ml-3">
+                  <li>Quiz completion scores</li>
+                  <li>Weekly progress reports</li>
+                  <li>Personalised learning tips</li>
+                  <li>Platform updates</li>
+                </ul>
+                <p className="mt-1.5 text-slate-300">You can turn this off anytime from your dashboard.</p>
+                <div className="absolute bottom-0 right-4 translate-y-1/2 rotate-45 w-2 h-2 bg-slate-800"></div>
+              </div>
+            </div>
+          </label>
+        </div>
+
+        {/* ── Parental Consent (required) ── */}
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span className="text-[10px] text-slate-600 leading-relaxed">
+              I have read and agree to the{" "}
+             <button
+                type="button"
+                onClick={() => setShowConsentPolicy(true)}
+                className="text-indigo-600 underline hover:text-indigo-700 font-medium text-[11px]"
+              >
+                Child Data Collection Policy
+              </button>{" "}
+              and consent to the collection and use of my child's information as described therein.
+              <span className="text-red-500 ml-0.5">*</span>
+            </span>
+          </label>
+        </div>
+
+        
+
+        {/* ── Consent Policy Modal ── */}
+        {showConsentPolicy && (
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+            onClick={() => setShowConsentPolicy(false)}
+          >
+            <div
+              className="bg-white w-full max-w-3xl max-h-[85vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-indigo-50 to-white border-b border-gray-100">
+                <h2 className="text-lg font-semibold text-indigo-600">
+                  Child Data Collection Policy
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowConsentPolicy(false)}
+                  className="p-2 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="px-6 py-6 overflow-y-auto flex-1 min-h-0">
+                <ChildDataConsentPolicy />
+              </div>
+              <div className="px-6 py-3 bg-gray-50 border-t border-gray-100 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConsent(true);
+                    setShowConsentPolicy(false);
+                  }}
+                  className="px-5 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition"
+                >
+                  I Agree
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -1050,7 +1156,7 @@ function EditChildModal({ child, onClose, onSave, loading }) {
     }
 
     if (changePin) {
-      if (!pin || !/^\d{4}$/.test(pin)) return setError("PIN must be exactly 4 digits");
+      if (!pin || !/^\d{6}$/.test(pin)) return setError("PIN must be exactly 6 digits");
       if (pin !== confirmPin) return setError("PINs do not match");
       updates.pin = pin;
     }
@@ -1141,12 +1247,12 @@ function EditChildModal({ child, onClose, onSave, loading }) {
                 <input
                   type="password"
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={6}
                   value={pin}
                   onChange={(e) =>
-                    setPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                    setPin(e.target.value.replace(/\D/g, "").slice(0, 6))
                   }
-                  placeholder="1234"
+                  placeholder="123456"
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
                 />
               </div>
@@ -1155,19 +1261,19 @@ function EditChildModal({ child, onClose, onSave, loading }) {
                 <input
                   type="password"
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={6}
                   value={confirmPin}
                   onChange={(e) =>
-                    setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                    setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 6))
                   }
-                  placeholder="1234"
+                  placeholder="123456"
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
                 />
               </div>
             </div>
           ) : (
             <div className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-400">
-              ••••
+              ••••••
             </div>
           )}
         </div>
