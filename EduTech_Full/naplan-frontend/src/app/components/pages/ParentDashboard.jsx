@@ -1134,6 +1134,7 @@ function EditChildModal({ child, onClose, onSave, loading }) {
   const [confirmPin, setConfirmPin] = useState("");
   const [changePin, setChangePin] = useState(false);
   const [error, setError] = useState("");
+  const [emailNotifications, setEmailNotifications] = useState(child.email_notifications || false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1159,6 +1160,9 @@ function EditChildModal({ child, onClose, onSave, loading }) {
       if (!pin || !/^\d{6}$/.test(pin)) return setError("PIN must be exactly 6 digits");
       if (pin !== confirmPin) return setError("PINs do not match");
       updates.pin = pin;
+    }
+    if (emailNotifications !== (child.email_notifications || false)) {
+      updates.email_notifications = emailNotifications;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -1276,6 +1280,21 @@ function EditChildModal({ child, onClose, onSave, loading }) {
               ••••••
             </div>
           )}
+        </div>
+        {/* ── Email Notifications ── */}
+        <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-3">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={emailNotifications}
+              onChange={(e) => setEmailNotifications(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span className="text-[11px] text-slate-600">
+              Enable email notifications
+              <span className="text-slate-400 ml-1">(quiz results & progress reports)</span>
+            </span>
+          </label>
         </div>
 
         {/* Error */}

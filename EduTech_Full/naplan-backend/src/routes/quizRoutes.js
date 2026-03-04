@@ -29,6 +29,7 @@ const Question = require("../models/question");
 const QuizAttempt = require("../models/quizAttempt");
 const Child = require("../models/child");
 const { triggerAiFeedback } = require("../services/aiFeedbackService"); // ✅ Gap 2
+const { sendQuizCompletionEmail, checkNotificationEligibility } = require("../services/emailNotifications");
 const QuizCatalog = require("../models/quizCatalog"); // ✅ For bundle-based entitlement
 
 const router = express.Router();
@@ -551,6 +552,32 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     }).catch((err) => {
       console.error(`❌ AI feedback trigger failed for attempt ${attempt.attempt_id}:`, err.message);
     });
+
+    // ── Send quiz completion email (non-blocking) ──
+    (async () => {
+      try {
+        const eligibility = await checkNotificationEligibility(attempt.child_id);
+        if (!eligibility.shouldSend) return;
+
+        // Convert topic_breakdown Map to plain object
+        const tbObj = attempt.topic_breakdown instanceof Map
+          ? Object.fromEntries(attempt.topic_breakdown)
+          : topicBreakdown;
+
+        await sendQuizCompletionEmail({
+          parentEmail: eligibility.parentEmail,
+          childName: eligibility.childName,
+          quizName: attempt.quiz_name || "Practice Quiz",
+          score: attempt.score,
+          topicBreakdown: tbObj,
+          duration: attempt.duration_sec,
+          subject: attempt.subject,
+        });
+        console.log(`📧 Quiz completion email sent to ${eligibility.parentEmail} for ${eligibility.childName}`);
+      } catch (emailErr) {
+        console.error(`⚠️ Failed to send quiz completion email:`, emailErr.message);
+      }
+    })();
 
     res.json({
       attempt_id: attempt.attempt_id,
