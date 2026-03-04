@@ -244,14 +244,6 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
             📊 View Analytics
           </button>
 
-
-          {/* Back to Dashboard */}
-          <button
-            onClick={onClose}
-            className="w-full px-6 py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
-          >
-            Back to Dashboard
-          </button>
         </div>
       </div>
 

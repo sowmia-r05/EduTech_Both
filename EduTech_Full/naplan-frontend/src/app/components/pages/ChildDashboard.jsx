@@ -10,6 +10,7 @@ import {
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import NativeQuizPlayer from "@/app/components/quiz/NativeQuizPlayer";
 import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
+import QuizResult from "@/app/components/quiz/QuizResult";
 
 /* ─── Subject inference from quiz name ─── */
 function inferSubject(quizName) {
@@ -185,6 +186,9 @@ export default function ChildDashboard() {
   const [childInfo, setChildInfo] = useState(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [activeQuiz, setActiveQuiz] = useState(null);
+  // ✅ NEW: Inline QuizResult view state
+  const [selectedQuizResult, setSelectedQuizResult] = useState(null); // { result, quizName }
+  const [resultLoading, setResultLoading] = useState(false);
   const [viewMode, setViewMode] = useState("all");
 
   const [childEntitledQuizIds, setChildEntitledQuizIds] = useState(null);
@@ -458,25 +462,69 @@ export default function ChildDashboard() {
     setCurrentPage(1);
   }, [subjectFilter, search, viewMode]);
 
-  const handleViewResult = (item) => {
+  const handleViewResult = useCallback(async (item) => {
     const rid = item.response_id;
     if (!rid) return;
-    const isWriting = item.subject === "Writing";
-    const params = new URLSearchParams();
-    
 
-    const username = childProfile?.username || childInfo?.username || null;
-    if (item.response_id) params.set("r", item.response_id);
-    if (username) params.set("username", username);
-    if (item.subject) params.set("subject", item.subject);
-    if (item.name) params.set("quiz_name", item.name);
+    setResultLoading(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+      const res = await fetch(`${API_BASE}/api/results/${encodeURIComponent(rid)}`, {
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+        },
+        cache: "no-store",
+      });
 
-    navigate(
-      isWriting
-        ? `/writing-feedback/result?${params}`
-        : `/NonWritingLookupQuizResults/results?${params}`
-    );
-  };
+      if (!res.ok) throw new Error("Failed to fetch result");
+      const data = await res.json();
+      if (!data) throw new Error("Result not found");
+
+      // Normalize into the shape QuizResult expects
+      const normalizedResult = {
+        score: data.score || {
+          percentage: item.score || 0,
+          points: 0,
+          available: 0,
+          grade: item.grade || "",
+        },
+        topic_breakdown: data.topicBreakdown || data.topic_breakdown || {},
+        is_writing: (item.subject || "").toLowerCase() === "writing",
+        ai_status: data.ai?.status || data.ai_feedback_meta?.status || null,
+        attempt_id: data.response_id || data.responseId || data.attempt_id || rid,
+        response_id: rid,
+        subject: item.subject || data.subject || "",
+      };
+
+      setSelectedQuizResult({
+        result: normalizedResult,
+        quizName: item.name || item.quiz_name || data.quiz_name || "Quiz",
+      });
+    } catch (err) {
+      console.error("Failed to fetch quiz result:", err);
+      // Fallback: build result from what we already have in the tests array
+      setSelectedQuizResult({
+        result: {
+          score: {
+            percentage: item.score || 0,
+            points: 0,
+            available: 0,
+            grade: item.grade || "",
+          },
+          topic_breakdown: {},
+          is_writing: (item.subject || "").toLowerCase() === "writing",
+          attempt_id: rid,
+          response_id: rid,
+          subject: item.subject || "",
+        },
+        quizName: item.name || item.quiz_name || "Quiz",
+      });
+    } finally {
+      setResultLoading(false);
+    }
+  }, [activeToken]);
   
 
   const handleQuizClose = () => {
@@ -521,6 +569,52 @@ export default function ChildDashboard() {
   const timeGreeting = getTimeGreeting();
 
   if (activeQuiz) return <NativeQuizPlayer quiz={activeQuiz} onClose={handleQuizClose} />;
+  if (resultLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-slate-500">Loading quiz results...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedQuizResult) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-slate-50">
+        {/* Sticky navigation bar */}
+        <div className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3">
+          <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
+            
+            {/* ✅ BACK ICON BUTTON GOES RIGHT HERE */}
+            <button
+              onClick={() => setSelectedQuizResult(null)}
+              className="inline-flex items-center justify-center w-9 h-9 rounded-xl
+                         text-slate-700 bg-white border border-slate-200 shadow-sm
+                         hover:bg-slate-50 hover:border-slate-300 transition-all"
+              aria-label="Back to Dashboard"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+
+            <span className="text-sm text-slate-500 hidden sm:inline">
+              {selectedQuizResult.quizName}
+            </span>
+          </div>
+        </div>
+
+        {/* Render the QuizResult component inline */}
+        <QuizResult
+          result={selectedQuizResult.result}
+          quizName={selectedQuizResult.quizName}
+          onClose={() => setSelectedQuizResult(null)}
+        />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
