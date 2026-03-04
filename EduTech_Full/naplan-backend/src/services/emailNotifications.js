@@ -56,7 +56,7 @@ function emailWrapper(title, bodyContent) {
         You're receiving this because you enabled email notifications for your child's account.
       </p>
       <p style="margin:0 0 8px;color:#6b7280;font-size:12px;">
-        <a href="${DASHBOARD_URL}/parent-dashboard" style="color:${BRAND_COLOR};text-decoration:underline;">
+        <a href="${DASHBOARD_URL}parent-dashboard" style="color:${BRAND_COLOR};text-decoration:underline;">
           Manage notification preferences
         </a>
       </p>

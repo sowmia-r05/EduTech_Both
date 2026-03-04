@@ -654,7 +654,7 @@ function ChildCard({
             }}
             className="flex-1 px-3 py-2 rounded-lg border border-indigo-300 text-indigo-700 text-xs font-semibold hover:bg-indigo-50"
           >
-            🎯 Free Sample Test
+             Free Sample Test
           </button>
         )}
 
