@@ -5,9 +5,10 @@
 //   ✅ onSubmit stores redirect intent in localStorage ("parent_signup_redirect")
 //   ✅ "Login" button preserves redirect param when navigating to /parent-login
 //   ✅ Added a contextual banner when arriving from free-trial flow
+//   ✅ Added Google Sign-In button with Terms & Privacy note
 //   Everything else is IDENTICAL to the original.
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
@@ -20,6 +21,8 @@ import { AlertCircle, Loader2, ArrowLeft, LogIn, X } from "lucide-react";
 import TermsAndConditions from "@/app/components/TermsAndConditions";
 import PrivacyPolicy from "@/app/components/PrivacyPolicy";
 import { createParentAccount, normalizeEmail } from "@/app/utils/api";
+import { useAuth } from "@/app/context/AuthContext";
+import GoogleSignInButton from "@/app/components/auth/GoogleSignInButton";
 
 /**
  * Email format validation only
@@ -66,6 +69,7 @@ function Modal({ title, children, onClose }) {
 export default function ParentCreatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { loginParent } = useAuth();
 
   // ✅ NEW: Read the redirect intent from the URL (e.g. ?redirect=free-trial)
   const redirectIntent = searchParams.get("redirect") || "";
@@ -89,6 +93,20 @@ export default function ParentCreatePage() {
     Boolean(formData.lastName.trim()) &&
     looksLikeEmail(normalizedEmail) &&
     acceptedTerms;
+
+  /* ── Google Sign-In handler ── */
+  const handleGoogleSuccess = useCallback((data) => {
+    loginParent(data.parent_token, data.parent);
+    if (redirectIntent === "free-trial") {
+      navigate("/parent-dashboard?onboarding=free-trial", { replace: true });
+    } else {
+      navigate("/parent-dashboard", { replace: true });
+    }
+  }, [loginParent, navigate, redirectIntent]);
+
+  const handleGoogleError = useCallback((message) => {
+    setError(message || "Google Sign-In failed. Please try again.");
+  }, []);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -197,7 +215,48 @@ export default function ParentCreatePage() {
             <CardTitle className="text-2xl text-center">Create Parent Account</CardTitle>
           </CardHeader>
 
-          <CardContent>
+
+           <CardContent>
+            {/* ── Google Sign-In ── */}
+            <div className="mb-2">
+              <GoogleSignInButton
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                disabled={loading || !acceptedTerms}
+              />
+            </div>
+
+            {/* ── Terms checkbox (enables Google Sign-In) ── */}
+            <div className="flex items-center space-x-2 mb-4">
+              <input
+                id="accept-google-terms"
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <label htmlFor="accept-google-terms" className="text-xs text-gray-500 leading-snug">
+                I agree to the{" "}
+                <button type="button" onClick={() => setModalContent("terms")} className="text-xs text-indigo-600 underline hover:text-indigo-700">
+                  Terms &amp; Conditions
+                </button>{" "}
+                and{" "}
+                <button type="button" onClick={() => setModalContent("privacy")} className="text-xs text-indigo-600 underline hover:text-indigo-700">
+                  Privacy Policy
+                </button>
+              </label>
+            </div>
+
+            {/* ── Divider ── */}
+            <div className="relative mb-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="bg-white px-4 text-slate-400">or sign up with email</span>
+              </div>
+            </div>
+
             <form onSubmit={onSubmit} className="space-y-5">
               {error && (
                 <Alert variant="destructive">
@@ -240,29 +299,22 @@ export default function ParentCreatePage() {
                 />
               </div>
 
+              {/* ── Terms checkbox (synced with top checkbox) ── */}
               <div className="flex items-start space-x-2 text-xs">
                 <input
-                  id="accept-parent-terms"
+                  id="accept-parent-terms-form"
                   type="checkbox"
                   checked={acceptedTerms}
                   onChange={(e) => setAcceptedTerms(e.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-gray-300"
                 />
-                <label htmlFor="accept-parent-terms" className="text-gray-600 leading-snug">
+                <label htmlFor="accept-parent-terms-form" className="text-xs text-gray-600 leading-snug">
                   I agree to the{" "}
-                  <button
-                    type="button"
-                    onClick={() => setModalContent("terms")}
-                    className="text-indigo-600 underline hover:text-indigo-700"
-                  >
+                  <button type="button" onClick={() => setModalContent("terms")} className="text-xs text-indigo-600 underline hover:text-indigo-700">
                     Terms &amp; Conditions
                   </button>{" "}
                   and{" "}
-                  <button
-                    type="button"
-                    onClick={() => setModalContent("privacy")}
-                    className="text-indigo-600 underline hover:text-indigo-700"
-                  >
+                  <button type="button" onClick={() => setModalContent("privacy")} className="text-xs text-indigo-600 underline hover:text-indigo-700">
                     Privacy Policy
                   </button>
                 </label>

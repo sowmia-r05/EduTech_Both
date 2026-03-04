@@ -33,6 +33,8 @@ const availableQuizzesRoute = require("./routes/availableQuizzesRoute"); // ✅ 
 const flashcardsRoute = require("./routes/flashcardsRoute");             // ✅ ADDED
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const healthRoutes = require("./routes/healthRoutes");
+// After: const parentAuthRoutes = require("./routes/parentAuthRoutes");
+const googleAuthRoutes = require("./routes/googleAuthRoutes");
 
 // ✅ Issue #6: Legacy route auth middleware
 const { secureLegacyResults, secureLegacyWriting } = require("./middleware/legacyRouteAuth");
@@ -160,6 +162,7 @@ try {
   console.warn("⚠️ Could not start bundle expiry cleanup cron:", err.message);
 }
 app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
-
+// After: app.use("/api/parents/auth", parentAuthRoutes);
+app.use("/api/parents/auth", googleAuthRoutes);
 
 module.exports = app;

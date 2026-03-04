@@ -26,10 +26,11 @@ const ParentSchema = new mongoose.Schema(
     password_hash: { type: String, default: null },
 
     auth_provider: {
-      type: String,
-      enum: ["local", "otp", "auth0"],
-      default: "otp",
-    },
+  type: String,
+  enum: ["local", "otp", "auth0", "google"],
+  default: "otp",
+  },
+  
     auth0_sub: { type: String, default: null },
 
     email_verified: { type: Boolean, default: false },
