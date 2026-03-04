@@ -19,6 +19,7 @@ const flexiQuizRoutes = require("./routes/flexiQuizRoutes");
 const otpAuth = require("./routes/otpAuth");
 const flexiquizSso = require("./routes/flexiquizSso");
 const parentRoutes = require("./routes/parentRoutes");
+const googleAuthRoutes = require("./routes/googleAuthRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
 const path = require("path");
 const regenerateAiRoute = require("./routes/regenerateAiRoute");
@@ -34,7 +35,7 @@ const flashcardsRoute = require("./routes/flashcardsRoute");             // ✅ 
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const healthRoutes = require("./routes/healthRoutes");
 // After: const parentAuthRoutes = require("./routes/parentAuthRoutes");
-const googleAuthRoutes = require("./routes/googleAuthRoutes");
+
 
 // ✅ Issue #6: Legacy route auth middleware
 const { secureLegacyResults, secureLegacyWriting } = require("./middleware/legacyRouteAuth");
