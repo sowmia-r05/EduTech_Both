@@ -1,13 +1,11 @@
 /**
  * routes/childRoutes.js
  *
- * FULL REPLACEMENT FILE — drop into naplan-backend/src/routes/childRoutes.js
- *
- * CHANGES FROM ORIGINAL:
- *   ✅ Added QuizAttempt import
- *   ✅ Updated aggregateChildStats() to include native QuizAttempt data
- *   ✅ Updated GET /:childId/results to merge Result + QuizAttempt docs
- *   Everything else is IDENTICAL to the original.
+ * ✅ CLEANED: Removed all FlexiQuiz dependencies.
+ *    - No more registerRespondent / fqDeleteUser / encryptPassword
+ *    - No more legacy User model upsert
+ *    - Child create & delete are now purely local (MongoDB only)
+ *    - All other logic (aggregateChildStats, results merge, etc.) preserved as-is
  */
 
 const router = require("express").Router();
@@ -16,10 +14,8 @@ const Child = require("../models/child");
 const Result = require("../models/result");
 const Writing = require("../models/writing");
 const Parent = require("../models/parent");
-const QuizAttempt = require("../models/quizAttempt"); // ✅ NEW
-const Quiz = require("../models/quiz"); // ✅ KPI FIX: needed for trial filtering
-const { registerRespondent, fqDeleteUser } = require("../services/flexiQuizUsersService");
-const { encryptPassword } = require("../utils/flexiquizCrypto");
+const QuizAttempt = require("../models/quizAttempt");
+const Quiz = require("../models/quiz");
 
 const {
   verifyToken,
@@ -27,13 +23,6 @@ const {
   requireAuth,
 } = require("../middleware/auth");
 
-// Try to load legacy User model (may not exist in all setups)
-let User;
-try {
-  User = require("../models/user");
-} catch (e) {
-  User = null;
-}
 
 // All routes in this file are mounted at /api/children
 // verifyToken is applied at the app.js level for /api/children
@@ -87,7 +76,7 @@ async function aggregateChildStats(child) {
     if (writingStats?.lastWriting) writingDates.push(writingStats.lastWriting);
   }
 
-  // ── Native QuizAttempt stats ── ✅ NEW
+  // ── Native QuizAttempt stats ──
   const [nativeStats] = await QuizAttempt.aggregate([
     {
       $match: {
@@ -109,7 +98,7 @@ async function aggregateChildStats(child) {
   const nativeAvg = nativeStats?.avgScore || 0;
   const nativeLast = nativeStats?.lastActivity || null;
 
-  // ── ✅ KPI FIX: If child is on trial, only count results from trial quizzes ──
+  // ── KPI FIX: If child is on trial, only count results from trial quizzes ──
   const childStatus = (child.status || "trial").toLowerCase();
   if (childStatus === "trial") {
     // Get list of trial quizzes for this child's year level
@@ -268,7 +257,6 @@ router.get("/summaries", verifyToken, requireParent, async (req, res) => {
           username: child.username,
           year_level: child.year_level,
           status: child.status,
-          flexiquiz_user_id: child.flexiquiz_user_id || null,
           createdAt: child.createdAt,
           updatedAt: child.updatedAt,
           // Aggregated stats
@@ -296,7 +284,7 @@ router.get("/", verifyToken, requireParent, async (req, res) => {
   try {
     const parentId = req.user.parentId || req.user.parent_id;
     const children = await Child.find({ parent_id: parentId })
-      .select("-pin_hash -flexiquiz_password_enc")
+      .select("-pin_hash")
       .lean();
     return res.json(children);
   } catch (err) {
@@ -309,6 +297,7 @@ router.get("/", verifyToken, requireParent, async (req, res) => {
 // POST /api/children
 // Create a new child profile
 // Body: { display_name, username, year_level, pin }
+// ✅ CLEANED: No FlexiQuiz — purely local creation
 // ────────────────────────────────────────────
 router.post("/", verifyToken, requireParent, async (req, res) => {
   try {
@@ -338,9 +327,17 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
         .status(400)
         .json({ error: "Year level must be 3, 5, 7, or 9" });
     }
-    if (!pin || !/^\d{4,6}$/.test(pin)) {
-      return res.status(400).json({ error: "PIN must be 4–6 digits" });
+    if (!pin || !/^\d{6}$/.test(pin)) {
+      return res.status(400).json({ error: "PIN must be exactly 6 digits" });
     }
+    // ── Parental consent (required) ──
+    const parental_consent = req.body.parental_consent === true;
+    if (!parental_consent) {
+      return res.status(400).json({ error: "Parental consent is required to create a child profile" });
+    }
+
+    // ── Email notifications (optional) ──
+    const email_notifications = req.body.email_notifications === true;
 
     // Check username uniqueness
     const existing = await Child.exists({ username });
@@ -348,62 +345,16 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       return res.status(409).json({ error: "Username is already taken" });
     }
 
-    // ── 3. Fetch parent email for FlexiQuiz ──
-    const parent = await Parent.findById(parentId).lean();
-    const parentEmail = parent?.email || req.user?.email || "";
-    const parentLastName = parent?.lastName || "";
-
-    // ── 4. Create FlexiQuiz respondent ──
-    let fqResult;
-    try {
-      fqResult = await registerRespondent({
-        firstName: display_name,
-        lastName: parentLastName,
-        yearLevel: year_level,
-        email: parentEmail,
-        username,
-        userType: "respondent",
-        sendWelcomeEmail: false,
-        suspended: false,
-        manageUsers: false,
-        manageGroups: false,
-        editQuizzes: false,
-      });
-    } catch (fqErr) {
-      console.error("FlexiQuiz user creation failed:", fqErr?.response?.data || fqErr?.message || fqErr);
-      return res.status(502).json({
-        error: "Failed to create account on quiz platform. Please try again.",
-        detail: fqErr?.response?.data?.message || fqErr?.message || "FlexiQuiz API error",
-      });
-    }
-
-    if (!fqResult?.user_id) {
-      console.error("FlexiQuiz returned no user_id:", fqResult);
-      return res.status(502).json({
-        error: "Quiz platform did not return a valid user ID. Please try again.",
-      });
-    }
-
-    // ── 5. Encrypt the auto-generated FlexiQuiz password ──
-    let encryptedPassword = null;
-    try {
-      if (fqResult.password) {
-        encryptedPassword = encryptPassword(fqResult.password);
-      }
-    } catch (encErr) {
-      console.error("Password encryption failed:", encErr.message);
-    }
-
-    // Create child instance
+    // ── Create child (local only) ──
     const child = new Child({
       parent_id: parentId,
       display_name,
       username,
       year_level,
       pin_hash: pin, // pre-save hook will hash this
-      flexiquiz_user_id: fqResult.user_id,
-      flexiquiz_password_enc: encryptedPassword,
-      flexiquiz_provisioned_at: new Date(),
+       parental_consent,
+      parental_consent_at: new Date(),
+      email_notifications,
     });
 
     try {
@@ -417,31 +368,6 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
         .json({ error: "Failed to create child", detail: saveErr.message });
     }
 
-    // ── 7. Upsert into legacy User collection (for webhook matching) ──
-    try {
-      if (User) {
-        await User.updateOne(
-          { user_id: fqResult.user_id },
-          {
-            $set: {
-              user_id: fqResult.user_id,
-              user_name: fqResult.user_name,
-              first_name: display_name,
-              last_name: parentLastName,
-              email_address: parentEmail,
-              year_level: String(year_level),
-              deleted: false,
-              updatedAt: new Date(),
-            },
-            $setOnInsert: { createdAt: new Date() },
-          },
-          { upsert: true }
-        );
-      }
-    } catch (userErr) {
-      console.error("User upsert warning (non-fatal):", userErr.message);
-    }
-
     return res.status(201).json({
       _id: child._id,
       parent_id: child.parent_id,
@@ -449,9 +375,7 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       username: child.username,
       year_level: child.year_level,
       status: child.status,
-      flexiquiz_user_id: child.flexiquiz_user_id,
-      flexiquiz_user_name: fqResult.user_name,
-      flexiquiz_provisioned_at: child.flexiquiz_provisioned_at,
+      email_notifications: child.email_notifications,
       createdAt: child.createdAt,
     });
   } catch (err) {
@@ -501,10 +425,13 @@ router.put("/:childId", verifyToken, requireParent, async (req, res) => {
 
     if (req.body.pin !== undefined) {
       const pin = String(req.body.pin).trim();
-      if (!/^\d{4,6}$/.test(pin)) {
-        return res.status(400).json({ error: "PIN must be 4–6 digits" });
+      if (!/^\d{6}$/.test(pin)) {
+        return res.status(400).json({ error: "PIN must be exactly 6 digits" });
       }
       updates.pin_hash = await Child.hashPin(pin);
+    }
+    if (req.body.email_notifications !== undefined) {
+      updates.email_notifications = req.body.email_notifications === true;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -516,7 +443,7 @@ router.put("/:childId", verifyToken, requireParent, async (req, res) => {
       { $set: updates },
       { new: true },
     )
-      .select("-pin_hash -flexiquiz_password_enc")
+      .select("-pin_hash")
       .lean();
 
     return res.json(updated);
@@ -528,7 +455,7 @@ router.put("/:childId", verifyToken, requireParent, async (req, res) => {
 
 // ────────────────────────────────────────────
 // DELETE /api/children/:childId
-// Also deletes the user from FlexiQuiz if they have an account
+// ✅ CLEANED: No FlexiQuiz — local delete only
 // ────────────────────────────────────────────
 router.delete("/:childId", verifyToken, requireParent, async (req, res) => {
   try {
@@ -547,30 +474,15 @@ router.delete("/:childId", verifyToken, requireParent, async (req, res) => {
       return res.status(404).json({ error: "Child not found" });
     }
 
-    // If child has a FlexiQuiz account, delete from FlexiQuiz
-    let flexiquizDeleted = false;
-    if (child.flexiquiz_user_id) {
-      try {
-        await fqDeleteUser(child.flexiquiz_user_id);
-        flexiquizDeleted = true;
-        console.log(
-          `✅ Deleted FlexiQuiz user ${child.flexiquiz_user_id} for child ${childId}`
-        );
-      } catch (fqErr) {
-        console.error(
-          `⚠️ Failed to delete FlexiQuiz user ${child.flexiquiz_user_id}:`,
-          fqErr.response?.data || fqErr.message
-        );
-      }
-    }
-
     // Delete from MongoDB
     await Child.findByIdAndDelete(childId);
+
+    // Also clean up any quiz attempts for this child
+    await QuizAttempt.deleteMany({ child_id: childId });
 
     return res.json({
       ok: true,
       deleted: child._id,
-      flexiquizDeleted,
     });
   } catch (err) {
     console.error("DELETE /children/:childId error:", err);
@@ -609,7 +521,7 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // ── 1. Legacy FlexiQuiz results (Result collection) ──
+    // ── 1. Legacy results (Result collection — old FlexiQuiz data if any) ──
     const matchQuery = child.flexiquiz_user_id
       ? { "user.user_id": child.flexiquiz_user_id }
       : { "user.user_name": child.username };
@@ -618,7 +530,7 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
       .sort({ date_submitted: -1, createdAt: -1 })
       .lean();
 
-    // ── 2. Native QuizAttempt results (completed ones) ── ✅ NEW
+    // ── 2. Native QuizAttempt results (completed ones) ──
     const nativeAttempts = await QuizAttempt.find({
       child_id: childId,
       status: { $in: ["scored", "ai_done", "submitted"] },
@@ -640,7 +552,7 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
                 }
               }
 
-              // ✅ FIX: Check if ai_feedback has REAL content (not just empty Mongoose defaults)
+              // Check if ai_feedback has REAL content (not just empty Mongoose defaults)
               const fb = a.ai_feedback;
               const hasFeedback =
                 fb &&
@@ -653,7 +565,7 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
                   (Array.isArray(fb.topic_wise_tips) &&
                     fb.topic_wise_tips.length > 0));
 
-              // ✅ FIX: Map ai_feedback_meta.status → synthetic `ai` field for Dashboard compat
+              // Map ai_feedback_meta.status → synthetic `ai` field for Dashboard compat
               const metaStatus = String(
                 a.ai_feedback_meta?.status || "pending",
               ).toLowerCase();
@@ -680,12 +592,12 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
                 topicBreakdown: tb,
                 answers: a.answers || [],
 
-                // ✅ Only include ai_feedback if it has real content
+                // Only include ai_feedback if it has real content
                 ai_feedback: hasFeedback ? fb : null,
                 ai_feedback_meta: a.ai_feedback_meta || null,
                 performance_analysis: a.performance_analysis || null,
 
-                // ✅ Synthetic `ai` field for Dashboard.jsx compatibility
+                // Synthetic `ai` field for Dashboard.jsx compatibility
                 ai: {
                   status: metaStatus === "done" ? "done" : metaStatus,
                   message:
