@@ -21,6 +21,7 @@ import { useAuth } from "@/app/context/AuthContext";
 import { normalizeEmail } from "@/app/utils/api";
 import useOtpCountdown from "@/app/hooks/useOtpCountdown";
 import OtpExpiredModal from "@/app/components/auth/OtpExpiredModal";
+import GoogleSignInButton from "@/app/components/auth/GoogleSignInButton";
 
 /* ── Helpers ────────────────────────────────────── */
 
@@ -110,6 +111,17 @@ export default function ParentLoginPage() {
       onExpire: handleOtpExpire,
       enabled: step === "otp" && !showExpiredModal,
     });
+
+    /* ── Google Sign-In handler ── */
+  const handleGoogleSuccess = useCallback((data) => {
+    loginParent(data.parent_token, data.parent);
+    const destination = resolvePostLoginRedirect(redirectIntent);
+    navigate(destination, { replace: true });
+  }, [loginParent, navigate, redirectIntent]);
+
+  const handleGoogleError = useCallback((message) => {
+    setError(message || "Google Sign-In failed. Please try again.");
+  }, []);
 
   /* ── Step 1: Request OTP ──────────────────────── */
   const handleRequestOtp = async (e) => {
@@ -272,6 +284,22 @@ export default function ParentLoginPage() {
           </CardHeader>
 
           <CardContent>
+            {/* ── Google Sign-In ── */}
+              <GoogleSignInButton
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                disabled={loading}
+              />
+
+              {/* ── Divider ── */}
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="bg-white px-4 text-slate-400">or continue with email</span>
+                </div>
+              </div>
             {/* ── Error / Info Alerts ─── */}
             {error && (
               <Alert variant="destructive" className="mb-4">
