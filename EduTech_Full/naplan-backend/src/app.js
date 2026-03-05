@@ -30,7 +30,6 @@ const availableQuizzesRoute = require("./routes/availableQuizzesRoute");
 const flashcardsRoute = require("./routes/flashcardsRoute");
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const healthRoutes = require("./routes/healthRoutes");
-const googleAuthRoutes = require("./routes/googleAuthRoutes");
 
 // ✅ Legacy route auth middleware (requires JWT for all methods now)
 const { secureLegacyResults, secureLegacyWriting } = require("./middleware/legacyRouteAuth");
