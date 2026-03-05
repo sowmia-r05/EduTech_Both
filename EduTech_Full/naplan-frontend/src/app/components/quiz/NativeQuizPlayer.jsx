@@ -102,7 +102,7 @@ function QuizMediaPanel({ voiceUrl, videoUrl }) {
 /* ═══════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════ */
-export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
+export default function NativeQuizPlayer({ quiz, onClose, proctored = true, childId })  {
   const { activeToken } = useAuth();
 
   const [phase, setPhase] = useState("proctoring");
@@ -156,7 +156,10 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
 
     (async () => {
       try {
-        const startRes = await apiFetch(`/api/quizzes/${quiz.quiz_id}/start`, { method: "POST" });
+        const startRes = await apiFetch(`/api/quizzes/${quiz.quiz_id}/start`, {
+        method: "POST",
+        body: JSON.stringify({ childId: childId || undefined }),
+      });
         if (!startRes.ok) {
           const d = await startRes.json();
           throw new Error(d.error || "Failed to start quiz");
@@ -180,7 +183,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true }) {
         if (startData.resumed) {
           console.log("🔄 Resuming in-progress quiz attempt...");
           try {
-            const resumeRes = await apiFetch(`/api/quizzes/${quiz.quiz_id}/resume`);
+            const resumeRes = await apiFetch(`/api/quizzes/${quiz.quiz_id}/resume${childId ? `?childId=${childId}` : ""}`);
             if (resumeRes.ok) {
               const resumeData = await resumeRes.json();
               if (resumeData.saved_answers?.length > 0) {

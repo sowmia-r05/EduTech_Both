@@ -568,7 +568,7 @@ export default function ChildDashboard() {
   const motivation = getDailyMotivation();
   const timeGreeting = getTimeGreeting();
 
-  if (activeQuiz) return <NativeQuizPlayer quiz={activeQuiz} onClose={handleQuizClose} />;
+  if (activeQuiz) return <NativeQuizPlayer quiz={activeQuiz} onClose={handleQuizClose} childId={childId} />;
   if (resultLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white flex items-center justify-center">

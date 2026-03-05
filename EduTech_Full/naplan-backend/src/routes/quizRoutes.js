@@ -66,8 +66,22 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
   try {
     await connectDB(); // ✅ Gap 3
 
-    const { childId, parentId } = req.user;
+    const { childId: tokenChildId, parentId, role } = req.user;
+
+    // ✅ Allow parent to take quiz on behalf of a child
+    let childId = tokenChildId;
+    if (!childId && role === "parent") {
+      childId = req.body.childId;
+    }
     if (!childId) return res.status(403).json({ error: "Child login required to take quizzes" });
+
+    // ✅ If parent, verify this child belongs to them
+    if (role === "parent" && !tokenChildId) {
+      const ownerCheck = await Child.findById(childId).lean();
+      if (!ownerCheck || String(ownerCheck.parent_id) !== String(parentId)) {
+        return res.status(403).json({ error: "Access denied — not your child" });
+      }
+    }
 
     const quiz = await Quiz.findOne({ quiz_id: req.params.quizId, is_active: true }).lean();
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
@@ -295,8 +309,12 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
 router.get("/quizzes/:quizId/resume", async (req, res) => {
   try {
     await connectDB();
-    const { childId } = req.user;
-    if (!childId) return res.status(403).json({ error: "Child login required" });
+    const { childId: tokenChildId, parentId, role } = req.user;
+        let childId = tokenChildId;
+        if (!childId && role === "parent") {
+          childId = req.query.childId;
+        }
+        if (!childId) return res.status(403).json({ error: "Child login required" });
 
     const attempt = await QuizAttempt.findOne({
       child_id: childId,
@@ -356,9 +374,11 @@ router.patch("/attempts/:attemptId/autosave", async (req, res) => {
     await connectDB(); // ✅ Gap 3
     const attempt = await QuizAttempt.findOne({ attempt_id: req.params.attemptId });
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
-    if (String(attempt.child_id) !== String(req.user.childId)) {
-      return res.status(403).json({ error: "Not your attempt" });
-    }
+    const isChildOwner = String(attempt.child_id) === String(req.user.childId);
+    const isParentOwner = req.user.role === "parent" && String(attempt.parent_id) === String(req.user.parentId);
+    if (!isChildOwner && !isParentOwner) {
+        return res.status(403).json({ error: "Not your attempt" });
+      }
     if (attempt.status !== "in_progress") {
       return res.status(400).json({ error: "Attempt already submitted" });
     }
@@ -398,9 +418,11 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
 
     const attempt = await QuizAttempt.findOne({ attempt_id: req.params.attemptId });
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
-    if (String(attempt.child_id) !== String(req.user.childId)) {
+   const isChildOwner = String(attempt.child_id) === String(req.user.childId);
+    const isParentOwner = req.user.role === "parent" && String(attempt.parent_id) === String(req.user.parentId);
+    if (!isChildOwner && !isParentOwner) {
       return res.status(403).json({ error: "Not your attempt" });
-    }
+   }
     if (attempt.status !== "in_progress") {
       return res.status(400).json({ error: "Already submitted" });
     }

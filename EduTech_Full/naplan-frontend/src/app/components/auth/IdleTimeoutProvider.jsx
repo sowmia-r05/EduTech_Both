@@ -32,7 +32,7 @@ export default function IdleTimeoutProvider({ children, idleMinutes, warningSeco
     idleMinutes: idleMinutes ?? IDLE_MINUTES,
     warningSeconds: warningSeconds ?? WARNING_SECONDS,
     onLogout: handleIdleLogout,
-    enabled: isParent,
+    enabled: false,
   });
 
   return (
