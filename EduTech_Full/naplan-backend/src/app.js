@@ -16,6 +16,7 @@ const catalogRoutes = require("./routes/catalogRoutes");
 const userRoutes = require("./routes/userRoutes");
 const otpAuth = require("./routes/otpAuth");
 const parentRoutes = require("./routes/parentRoutes");
+const googleAuthRoutes = require("./routes/googleAuthRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
 const path = require("path");
 const regenerateAiRoute = require("./routes/regenerateAiRoute");
