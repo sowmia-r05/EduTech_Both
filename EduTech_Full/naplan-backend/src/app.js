@@ -13,7 +13,6 @@ const studentRoutes = require("./routes/studentRoutes");
 const resultsRoutes = require("./routes/resultRoutes");
 const writingRoutes = require("./routes/writingRoutes");
 const catalogRoutes = require("./routes/catalogRoutes");
-const userRoutes = require("./routes/userRoutes");
 const otpAuth = require("./routes/otpAuth");
 const parentRoutes = require("./routes/parentRoutes");
 const googleAuthRoutes = require("./routes/googleAuthRoutes");
@@ -94,7 +93,6 @@ app.use("/api/writing", secureLegacyWriting, writingRoutes);
 
 // ✅ Routes — Catalog (public)
 app.use("/api/catalog", catalogRoutes);
-app.use("/api/users", userRoutes);
 
 // ✅ Routes — Legacy stubs
 app.use("/api/exams", examRoutes);

@@ -352,7 +352,7 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       username,
       year_level,
       pin_hash: pin, // pre-save hook will hash this
-       parental_consent,
+      parental_consent,
       parental_consent_at: new Date(),
       email_notifications,
     });
@@ -540,79 +540,79 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
 
     // ── 3. Normalize native attempts to match legacy result format ──
     const normalizedNative = nativeAttempts.map((a) => {
-              // Convert topic_breakdown Map to plain Object for JSON serialization
-              const tb = {};
-              if (a.topic_breakdown) {
-                const entries =
-                  a.topic_breakdown instanceof Map
-                    ? a.topic_breakdown.entries()
-                    : Object.entries(a.topic_breakdown);
-                for (const [k, v] of entries) {
-                  tb[k] = { scored: v.scored || 0, total: v.total || 0 };
-                }
-              }
+      // Convert topic_breakdown Map to plain Object for JSON serialization
+      const tb = {};
+      if (a.topic_breakdown) {
+        const entries =
+          a.topic_breakdown instanceof Map
+            ? a.topic_breakdown.entries()
+            : Object.entries(a.topic_breakdown);
+        for (const [k, v] of entries) {
+          tb[k] = { scored: v.scored || 0, total: v.total || 0 };
+        }
+      }
 
-              // Check if ai_feedback has REAL content (not just empty Mongoose defaults)
-              const fb = a.ai_feedback;
-              const hasFeedback =
-                fb &&
-                ((fb.overall_feedback &&
-                  String(fb.overall_feedback).trim().length > 0) ||
-                  (Array.isArray(fb.strengths) && fb.strengths.length > 0) ||
-                  (Array.isArray(fb.weaknesses) && fb.weaknesses.length > 0) ||
-                  (Array.isArray(fb.coach) && fb.coach.length > 0) ||
-                  (Array.isArray(fb.study_tips) && fb.study_tips.length > 0) ||
-                  (Array.isArray(fb.topic_wise_tips) &&
-                    fb.topic_wise_tips.length > 0));
+      // Check if ai_feedback has REAL content (not just empty Mongoose defaults)
+      const fb = a.ai_feedback;
+      const hasFeedback =
+        fb &&
+        ((fb.overall_feedback &&
+          String(fb.overall_feedback).trim().length > 0) ||
+          (Array.isArray(fb.strengths) && fb.strengths.length > 0) ||
+          (Array.isArray(fb.weaknesses) && fb.weaknesses.length > 0) ||
+          (Array.isArray(fb.coach) && fb.coach.length > 0) ||
+          (Array.isArray(fb.study_tips) && fb.study_tips.length > 0) ||
+          (Array.isArray(fb.topic_wise_tips) &&
+            fb.topic_wise_tips.length > 0));
 
-              // Map ai_feedback_meta.status → synthetic `ai` field for Dashboard compat
-              const metaStatus = String(
-                a.ai_feedback_meta?.status || "pending",
-              ).toLowerCase();
+      // Map ai_feedback_meta.status → synthetic `ai` field for Dashboard compat
+      const metaStatus = String(
+        a.ai_feedback_meta?.status || "pending",
+      ).toLowerCase();
 
-              return {
-                _id: a._id,
-                response_id: a.attempt_id,
-                quiz_name: a.quiz_name,
-                score: {
-                  points: a.score?.points || 0,
-                  available: a.score?.available || 0,
-                  percentage: a.score?.percentage || 0,
-                  grade: a.score?.grade || "",
-                  correct: a.score?.points || 0,
-                  total: a.score?.available || 0,
-                  pass: (a.score?.percentage || 0) >= 50,
-                },
-                date_submitted: a.submitted_at || a.createdAt,
-                createdAt: a.createdAt,
-                duration: a.duration_sec || 0,
-                subject: a.subject,
-                year_level: a.year_level,
-                source: "native",
-                topicBreakdown: tb,
-                answers: a.answers || [],
+      return {
+        _id: a._id,
+        response_id: a.attempt_id,
+        quiz_name: a.quiz_name,
+        score: {
+          points: a.score?.points || 0,
+          available: a.score?.available || 0,
+          percentage: a.score?.percentage || 0,
+          grade: a.score?.grade || "",
+          correct: a.score?.points || 0,
+          total: a.score?.available || 0,
+          pass: (a.score?.percentage || 0) >= 50,
+        },
+        date_submitted: a.submitted_at || a.createdAt,
+        createdAt: a.createdAt,
+        duration: a.duration_sec || 0,
+        subject: a.subject,
+        year_level: a.year_level,
+        source: "native",
+        topicBreakdown: tb,
+        answers: a.answers || [],
 
-                // Only include ai_feedback if it has real content
-                ai_feedback: hasFeedback ? fb : null,
-                ai_feedback_meta: a.ai_feedback_meta || null,
-                performance_analysis: a.performance_analysis || null,
+        // Only include ai_feedback if it has real content
+        ai_feedback: hasFeedback ? fb : null,
+        ai_feedback_meta: a.ai_feedback_meta || null,
+        performance_analysis: a.performance_analysis || null,
 
-                // Synthetic `ai` field for Dashboard.jsx compatibility
-                ai: {
-                  status: metaStatus === "done" ? "done" : metaStatus,
-                  message:
-                    a.ai_feedback_meta?.status_message ||
-                    (metaStatus === "done"
-                      ? "Feedback ready"
-                      : "Generating AI feedback..."),
-                  error:
-                    metaStatus === "error"
-                      ? "AI feedback generation failed"
-                      : null,
-                  evaluated_at: a.ai_feedback_meta?.generated_at || null,
-                },
-              };
-            });
+        // Synthetic `ai` field for Dashboard.jsx compatibility
+        ai: {
+          status: metaStatus === "done" ? "done" : metaStatus,
+          message:
+            a.ai_feedback_meta?.status_message ||
+            (metaStatus === "done"
+              ? "Feedback ready"
+              : "Generating AI feedback..."),
+          error:
+            metaStatus === "error"
+              ? "AI feedback generation failed"
+              : null,
+          evaluated_at: a.ai_feedback_meta?.generated_at || null,
+        },
+      };
+    });
 
     // ── 4. Tag legacy results ──
     const normalizedLegacy = legacyResults.map((r) => ({
@@ -637,6 +637,7 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
 // ────────────────────────────────────────────
 // GET /api/children/:childId/writing
 // Returns all Writing docs linked to this child
+// ✅ UPDATED: Now queries by child_id (native) OR username/user_id (legacy FlexiQuiz)
 // ────────────────────────────────────────────
 router.get("/:childId/writing", verifyToken, requireAuth, async (req, res) => {
   try {
@@ -664,11 +665,17 @@ router.get("/:childId/writing", verifyToken, requireAuth, async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    const matchQuery = child.flexiquiz_user_id
-      ? { "user.user_id": child.flexiquiz_user_id }
-      : { "user.user_name": child.username };
+    // ✅ Query by child_id (native web app submissions) OR legacy username/user_id fields
+    // This ensures both new submissions and any old FlexiQuiz data are returned
+    const orConditions = [
+      { child_id: child._id },
+      { "user.user_name": child.username },
+    ];
+    if (child.flexiquiz_user_id) {
+      orConditions.push({ "user.user_id": child.flexiquiz_user_id });
+    }
 
-    const docs = await Writing.find(matchQuery)
+    const docs = await Writing.find({ $or: orConditions })
       .sort({ submitted_at: -1, date_created: -1, createdAt: -1 })
       .lean();
 
