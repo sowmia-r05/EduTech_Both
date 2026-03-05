@@ -1,16 +1,13 @@
 /**
  * services/aiFeedbackService.js
  *
- * ✅ Gap 2 + Gap 4: AI Feedback Bridge
+ * AI Feedback Bridge — native QuizAttempt → Gemini pipelines
  *
- * Connects native quiz attempts (QuizAttempt model) to the existing
- * Gemini feedback pipelines:
- *   - MCQ subjects: gemini_subject_feedback.py (Python subprocess)
- *   - Writing: gemini_writing_evaluator.py (Python subprocess)
+ * - MCQ subjects  : gemini_subject_feedback.py
+ * - Writing       : gemini_writing_evaluator.py
  *
- * This runs ASYNC (non-blocking) after quiz submission.
- * The frontend polls GET /api/attempts/:attemptId/result until
- * ai_feedback_meta.status === "done" (or "error").
+ * After writing AI completes, the attempt is also mirrored into the
+ * Writing collection so the writing-feedback UI still works.
  *
  * Status lifecycle: queued → generating → done | error
  */
@@ -18,19 +15,26 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const QuizAttempt = require("../models/quizAttempt");
+const Writing = require("../models/writing");       // ✅ NEW
+const Child = require("../models/child");           // ✅ NEW
+const Question = require("../models/question");     // ✅ NEW
 
 // ─── Config ───
-const SUBJECT_FEEDBACK_SCRIPT = path.resolve(__dirname, "../../subject_feedback/gemini_subject_feedback.py")
-
-const WRITING_FEEDBACK_SCRIPT = path.resolve(__dirname, "../../writing_feedback/gemini_writing_evaluator.py")
-
-const PYTHON_BIN = process.env.PYTHON_BIN
-  || (process.platform === "win32" ? "py" : "python3");
+const SUBJECT_FEEDBACK_SCRIPT = path.resolve(
+  __dirname,
+  "../../subject_feedback/gemini_subject_feedback.py"
+);
+const WRITING_FEEDBACK_SCRIPT = path.resolve(
+  __dirname,
+  "../../writing_feedback/gemini_writing_evaluator.py"
+);
+const PYTHON_BIN =
+  process.env.PYTHON_BIN || (process.platform === "win32" ? "py" : "python3");
 const FEEDBACK_TIMEOUT_MS = 60000; // 60s max for AI generation
 
-/**
- * Run a Python script with JSON on stdin, return parsed JSON from stdout.
- */
+// ─────────────────────────────────────────────────────────────
+// Python runner
+// ─────────────────────────────────────────────────────────────
 function runPythonScript(scriptPath, inputData, timeoutMs = FEEDBACK_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const child = spawn(PYTHON_BIN, [scriptPath], {
@@ -41,20 +45,15 @@ function runPythonScript(scriptPath, inputData, timeoutMs = FEEDBACK_TIMEOUT_MS)
     let stdout = "";
     let stderr = "";
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
 
     child.on("close", (code) => {
       if (code !== 0) {
         return reject(new Error(`Python exited with code ${code}: ${stderr || stdout}`));
       }
       try {
-        const result = JSON.parse(stdout);
-        resolve(result);
+        resolve(JSON.parse(stdout));
       } catch (e) {
         reject(new Error(`Failed to parse Python output: ${e.message}\nOutput: ${stdout.slice(0, 500)}`));
       }
@@ -64,16 +63,14 @@ function runPythonScript(scriptPath, inputData, timeoutMs = FEEDBACK_TIMEOUT_MS)
       reject(new Error(`Failed to spawn Python: ${err.message}`));
     });
 
-    // Write input and close stdin
     child.stdin.write(JSON.stringify(inputData));
     child.stdin.end();
   });
 }
 
-/**
- * Build the payload format that gemini_subject_feedback.py expects.
- * Maps from QuizAttempt fields → the legacy "doc" format.
- */
+// ─────────────────────────────────────────────────────────────
+// Payload builders
+// ─────────────────────────────────────────────────────────────
 function buildSubjectFeedbackPayload({
   attemptId,
   quizName,
@@ -84,7 +81,6 @@ function buildSubjectFeedbackPayload({
   duration,
   scoredAnswers,
 }) {
-  // Convert topicBreakdown from Map/Object to the format expected
   const tb = {};
   if (topicBreakdown instanceof Map) {
     for (const [key, val] of topicBreakdown) {
@@ -98,41 +94,27 @@ function buildSubjectFeedbackPayload({
 
   return {
     doc: {
-      response_id: attemptId, // Use attempt_id as the response identifier
+      response_id: attemptId,
       quiz_name: quizName,
       score: score || {},
       topicBreakdown: tb,
       duration: duration || 0,
       year_level: yearLevel,
-      subject: subject,
-      // Include per-question data for detailed analysis
+      subject,
       questions: (scoredAnswers || []).map((a) => ({
         question_id: a.question_id,
         points_scored: a.points_scored || 0,
         points_available: a.points_available || 0,
-        categories: [], // Categories are already aggregated in topicBreakdown
+        categories: [],
       })),
     },
   };
 }
 
-/**
- * Build the payload for writing evaluation.
- * Writing quizzes have free_text answers that need AI evaluation.
- */
-function buildWritingFeedbackPayload({
-  attemptId,
-  quizName,
-  yearLevel,
-  scoredAnswers,
-}) {
-  // Extract all text answers (writing responses)
+function buildWritingFeedbackPayload({ attemptId, quizName, yearLevel, scoredAnswers }) {
   const writingResponses = (scoredAnswers || [])
     .filter((a) => a.text_answer && a.text_answer.trim())
-    .map((a) => ({
-      question_id: a.question_id,
-      answer_text: a.text_answer,
-    }));
+    .map((a) => ({ question_id: a.question_id, answer_text: a.text_answer }));
 
   return {
     doc: {
@@ -140,20 +122,18 @@ function buildWritingFeedbackPayload({
       quiz_name: quizName,
       year_level: yearLevel,
       writing_responses: writingResponses,
-      // Concatenate all text for the main writing sample
       writing_text: writingResponses.map((r) => r.answer_text).join("\n\n"),
     },
   };
 }
 
-/**
- * Update the QuizAttempt with AI feedback results.
- */
+// ─────────────────────────────────────────────────────────────
+// Save AI result back to QuizAttempt
+// ─────────────────────────────────────────────────────────────
 async function updateAttemptWithFeedback(attemptId, feedbackResult, isWriting) {
   const update = {};
 
   if (feedbackResult.success === true) {
-    // ─── Success: Save feedback ───
     const generatedAt = feedbackResult.ai_feedback_meta?.generated_at
       ? new Date(feedbackResult.ai_feedback_meta.generated_at)
       : new Date();
@@ -166,9 +146,7 @@ async function updateAttemptWithFeedback(attemptId, feedbackResult, isWriting) {
       status_message: "Feedback ready",
     };
 
-    // ✅ Gap 4: Transition status for writing quizzes
     if (isWriting) {
-      // Writing: score from AI evaluation
       if (feedbackResult.performance_analysis) {
         const perf = feedbackResult.performance_analysis;
         update.score = {
@@ -179,27 +157,21 @@ async function updateAttemptWithFeedback(attemptId, feedbackResult, isWriting) {
           pass: (perf.overall_percentage || 0) >= 50,
         };
       }
-      update.status = "ai_done"; // ✅ Writing: submitted → ai_done
+      update.status = "ai_done";
     } else {
-      // MCQ: already scored, just mark AI as done
-      update.status = "ai_done"; // scored → ai_done
+      update.status = "ai_done";
     }
 
-    // Save performance analysis if present
     if (feedbackResult.performance_analysis) {
       update.performance_analysis = feedbackResult.performance_analysis;
     }
   } else {
-    // ─── Error: Save error state ───
     const errMsg = feedbackResult.error || "AI feedback generation failed";
     update.ai_feedback_meta = {
       status: "error",
       status_message: errMsg,
       generated_at: new Date(),
     };
-
-    // ✅ Gap 4: Even on AI error, writing quizzes should transition
-    // Mark as "scored" without AI so child can at least see their submission
     if (isWriting) {
       update.status = "scored";
     }
@@ -208,28 +180,96 @@ async function updateAttemptWithFeedback(attemptId, feedbackResult, isWriting) {
   await QuizAttempt.updateOne({ attempt_id: attemptId }, { $set: update });
 }
 
-/**
- * Main entry point: trigger AI feedback generation.
- * Called async (non-blocking) from the submit route.
- *
- * @param {Object} params
- * @param {string} params.attemptId
- * @param {string} params.quizId
- * @param {string} params.subject
- * @param {boolean} params.isWriting
- * @param {Array} params.scoredAnswers
- * @param {Object} params.topicBreakdown
- * @param {Object} params.score
- * @param {number} params.yearLevel
- * @param {string} params.quizName
- * @param {string} params.childId
- * @param {number} params.duration
- */
+// ─────────────────────────────────────────────────────────────
+// ✅ NEW: Mirror completed writing attempt → Writing collection
+// Keeps the /writing-feedback/result UI working without FlexiQuiz
+// ─────────────────────────────────────────────────────────────
+async function syncWritingAttempt({
+  attemptId,
+  quizId,
+  quizName,
+  yearLevel,
+  childId,
+  scoredAnswers,
+}) {
+  try {
+    // Fetch the latest attempt state (has AI feedback already saved)
+    const attempt = await QuizAttempt.findOne({ attempt_id: attemptId }).lean();
+    if (!attempt) {
+      console.warn(`⚠️ syncWritingAttempt: attempt ${attemptId} not found`);
+      return;
+    }
+
+    // Fetch child info for user fields
+    const child = await Child.findById(childId).lean();
+
+    // Enrich qna with question text from Question collection
+    const questionIds = (scoredAnswers || [])
+      .map((a) => a.question_id)
+      .filter(Boolean);
+
+    const questions = questionIds.length
+      ? await Question.find({ question_id: { $in: questionIds } }).lean()
+      : [];
+    const qMap = Object.fromEntries(questions.map((q) => [q.question_id, q]));
+
+    const qna = (scoredAnswers || []).map((a) => ({
+      question_id: a.question_id,
+      type: "free_text",
+      question_text: qMap[a.question_id]?.text || "",
+      answer_text: a.text_answer || "",
+    }));
+
+    const aiMeta = attempt.ai_feedback_meta || {};
+    const aiStatus = aiMeta.status === "done" ? "done" : aiMeta.status === "error" ? "error" : "pending";
+
+    await Writing.findOneAndUpdate(
+      { response_id: attemptId },
+      {
+        $set: {
+          response_id: attemptId,
+          quiz_id: quizId,
+          quiz_name: quizName,
+          child_id: childId,
+          subject: "Writing",
+          year_level: yearLevel,
+          submitted_at: attempt.submitted_at,
+          status: "submitted",
+          duration_sec: attempt.duration_sec,
+          attempt: attempt.attempt_number,
+          qna,
+          // Keep user fields for legacy UI compatibility
+          user: {
+            user_name: child?.username || null,
+            first_name: child?.display_name || "",
+            last_name: "",
+            email_address: "",
+          },
+          ai: {
+            status: aiStatus,
+            message: aiMeta.status_message || "",
+            evaluated_at: aiMeta.generated_at || null,
+            feedback: attempt.ai_feedback || null,
+            error: aiStatus === "error" ? (aiMeta.status_message || "AI failed") : null,
+          },
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    console.log(`✅ Writing synced for attempt ${attemptId}`);
+  } catch (err) {
+    console.error(`❌ syncWritingAttempt failed for ${attemptId}:`, err.message);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Main entry point — called non-blocking from quizRoutes submit
+// ─────────────────────────────────────────────────────────────
 async function triggerAiFeedback(params) {
   const { attemptId, isWriting } = params;
 
   try {
-    // Mark as generating
     await QuizAttempt.updateOne(
       { attempt_id: attemptId },
       {
@@ -243,38 +283,32 @@ async function triggerAiFeedback(params) {
     let result;
 
     if (isWriting) {
-      // ─── Writing evaluation ───
       const payload = buildWritingFeedbackPayload(params);
       console.log(`🤖 Triggering writing AI feedback for attempt ${attemptId}`);
-
       try {
         result = await runPythonScript(WRITING_FEEDBACK_SCRIPT, payload);
       } catch (pythonErr) {
         console.warn(`⚠️ Writing Python script failed: ${pythonErr.message}`);
-        // Fallback: mark as error but keep the submission
-        result = {
-          success: false,
-          error: `Writing evaluation failed: ${pythonErr.message}`,
-        };
+        result = { success: false, error: `Writing evaluation failed: ${pythonErr.message}` };
       }
     } else {
-      // ─── MCQ subject feedback ───
       const payload = buildSubjectFeedbackPayload(params);
       console.log(`🤖 Triggering subject AI feedback for attempt ${attemptId}`);
-
       try {
         result = await runPythonScript(SUBJECT_FEEDBACK_SCRIPT, payload);
       } catch (pythonErr) {
         console.warn(`⚠️ Subject feedback Python script failed: ${pythonErr.message}`);
-        result = {
-          success: false,
-          error: `Subject feedback failed: ${pythonErr.message}`,
-        };
+        result = { success: false, error: `Subject feedback failed: ${pythonErr.message}` };
       }
     }
 
-    // Save results back to the attempt
+    // Save AI result to QuizAttempt
     await updateAttemptWithFeedback(attemptId, result, isWriting);
+
+    // ✅ NEW: Mirror writing attempt → Writing collection (non-blocking)
+    if (isWriting) {
+      setImmediate(() => syncWritingAttempt(params).catch(console.error));
+    }
 
     if (result.success) {
       console.log(`✅ AI feedback saved for attempt ${attemptId}`);
@@ -284,7 +318,6 @@ async function triggerAiFeedback(params) {
   } catch (err) {
     console.error(`❌ AI feedback failed for attempt ${attemptId}:`, err.message);
 
-    // Ensure attempt doesn't stay stuck in "generating" forever
     await QuizAttempt.updateOne(
       { attempt_id: attemptId },
       {
@@ -292,7 +325,6 @@ async function triggerAiFeedback(params) {
           "ai_feedback_meta.status": "error",
           "ai_feedback_meta.status_message": `Feedback generation error: ${err.message}`,
           "ai_feedback_meta.generated_at": new Date(),
-          // ✅ Gap 4: Still transition writing status on error
           ...(params.isWriting ? { status: "scored" } : {}),
         },
       }
@@ -300,4 +332,4 @@ async function triggerAiFeedback(params) {
   }
 }
 
-module.exports = { triggerAiFeedback };
+module.exports = { triggerAiFeedback, syncWritingAttempt };
