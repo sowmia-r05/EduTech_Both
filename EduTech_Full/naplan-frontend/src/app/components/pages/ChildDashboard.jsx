@@ -711,7 +711,7 @@ export default function ChildDashboard() {
               Overall Analytics
             </button>
 
-            {isParentViewing && (
+            {!!parentToken  && (
               <>
                 <button
                   onClick={() => navigate("/parent-dashboard")}
