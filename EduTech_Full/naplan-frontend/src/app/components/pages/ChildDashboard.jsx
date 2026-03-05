@@ -626,78 +626,7 @@ export default function ChildDashboard() {
           <AnimatedProgressRing percent={overallAverage} />
         </section>
 
-        {/* ── RECENT ACTIVITY ── */}
-        <section>
-          <h2 className="text-xl font-semibold mb-4">Recent Activity</h2>
-          {hasTests ? (
-            <div className="grid md:grid-cols-4 gap-4">
-              {recentActivity.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => handleViewResult(t)}
-                  className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition cursor-pointer"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <SubjectIcon subject={t.subject} />
-                    <span className="text-xs text-slate-500">{t.subject}</span>
-                  </div>
-                  <p className="text-sm font-medium text-slate-800 truncate">{t.name}</p>
-                  <div className="flex items-center justify-between mt-3">
-                    <span className="text-lg font-bold text-indigo-600">{t.score}%</span>
-                    <span className="text-xs text-slate-400">{new Date(t.date).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-4 gap-4">
-              {SUBJECTS.map((subj, i) => (
-                <div
-                  key={subj}
-                  className="bg-white border border-dashed border-slate-300 rounded-xl p-4 flex flex-col items-center justify-center text-center py-8"
-                >
-                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-3">
-                    <span className="text-slate-400 text-lg">{["📖", "✍️", "🔢", "📝"][i]}</span>
-                  </div>
-                  <p className="text-xs text-slate-400 font-medium">{subj}</p>
-                  <p className="text-xs text-slate-300 mt-1">No results yet</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* ── SUBJECT BREAKDOWN ── */}
-        <section>
-          <h2 className="text-xl font-semibold mb-4">Subject Breakdown</h2>
-          <div className="grid md:grid-cols-4 gap-4">
-            {subjectBreakdown.map((s) => {
-              const barColor =
-                s.average >= 85 ? "bg-emerald-500" :
-                s.average >= 70 ? "bg-amber-500" :
-                s.average > 0   ? "bg-rose-500" : "bg-slate-200";
-              return (
-                <div key={s.subject} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                  <div className="flex items-center gap-2 mb-3">
-                    <SubjectIcon subject={s.subject} />
-                    <span className="text-sm font-medium text-slate-700">{s.subject}</span>
-                  </div>
-                  <p className={`text-2xl font-bold ${s.count > 0 ? "text-slate-900" : "text-slate-300"}`}>
-                    {s.count > 0 ? `${s.average}%` : "—"}
-                  </p>
-                  <div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div className={`h-full ${barColor} transition-all duration-700`} style={{ width: `${s.average}%` }} />
-                  </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    {s.count} of {s.total} quiz{s.total !== 1 ? "zes" : ""} completed
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ── MY QUIZZES ── */}
+         {/* ── MY QUIZZES ── */}
         <section>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-4">
@@ -889,20 +818,6 @@ export default function ChildDashboard() {
                             <span className="text-slate-300">—</span>
                           )}
                         </td>
-
-                        {/* Analytics icon */}
-                        <td className="px-5 py-4">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setShowAnalytics(true); }}
-                            className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition"
-                            title="Overall Analytics"
-                            aria-label="Overall Analytics"
-                          >
-                            <svg className="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-                            </svg>
-                          </button>
-                        </td>
                       </tr>
                     );
                   })
@@ -956,6 +871,77 @@ export default function ChildDashboard() {
                 </div>
               </div>
             )}
+          </div>
+        </section>
+
+        {/* ── RECENT ACTIVITY ── */}
+        <section>
+          <h2 className="text-xl font-semibold mb-4">Recent Activity</h2>
+          {hasTests ? (
+            <div className="grid md:grid-cols-4 gap-4">
+              {recentActivity.map((t) => (
+                <div
+                  key={t.id}
+                  onClick={() => handleViewResult(t)}
+                  className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <SubjectIcon subject={t.subject} />
+                    <span className="text-xs text-slate-500">{t.subject}</span>
+                  </div>
+                  <p className="text-sm font-medium text-slate-800 truncate">{t.name}</p>
+                  <div className="flex items-center justify-between mt-3">
+                    <span className="text-lg font-bold text-indigo-600">{t.score}%</span>
+                    <span className="text-xs text-slate-400">{new Date(t.date).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-4 gap-4">
+              {SUBJECTS.map((subj, i) => (
+                <div
+                  key={subj}
+                  className="bg-white border border-dashed border-slate-300 rounded-xl p-4 flex flex-col items-center justify-center text-center py-8"
+                >
+                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                    <span className="text-slate-400 text-lg">{["📖", "✍️", "🔢", "📝"][i]}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 font-medium">{subj}</p>
+                  <p className="text-xs text-slate-300 mt-1">No results yet</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* ── SUBJECT BREAKDOWN ── */}
+        <section>
+          <h2 className="text-xl font-semibold mb-4">Subject Breakdown</h2>
+          <div className="grid md:grid-cols-4 gap-4">
+            {subjectBreakdown.map((s) => {
+              const barColor =
+                s.average >= 85 ? "bg-emerald-500" :
+                s.average >= 70 ? "bg-amber-500" :
+                s.average > 0   ? "bg-rose-500" : "bg-slate-200";
+              return (
+                <div key={s.subject} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <SubjectIcon subject={s.subject} />
+                    <span className="text-sm font-medium text-slate-700">{s.subject}</span>
+                  </div>
+                  <p className={`text-2xl font-bold ${s.count > 0 ? "text-slate-900" : "text-slate-300"}`}>
+                    {s.count > 0 ? `${s.average}%` : "—"}
+                  </p>
+                  <div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full ${barColor} transition-all duration-700`} style={{ width: `${s.average}%` }} />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2">
+                    {s.count} of {s.total} quiz{s.total !== 1 ? "zes" : ""} completed
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </section>
       </div>
