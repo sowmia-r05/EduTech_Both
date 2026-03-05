@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 
 const AuthContext = createContext(null);
 
@@ -29,6 +29,13 @@ export function AuthProvider({ children }) {
   );
   const [childProfile, setChildProfile] = useState(() => safeJsonParse("child_profile"));
 
+  // ─── Initializing guard (prevents flash redirect on tab reopen) ───
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  useEffect(() => {
+    setIsInitializing(false);
+  }, []);
+
   // ─── Derived ───
   const activeRole = childToken ? "child" : parentToken ? "parent" : null;
   const activeToken = childToken || parentToken || null;
@@ -42,6 +49,12 @@ export function AuthProvider({ children }) {
   }, []);
 
   const loginChild = useCallback((token, profile) => {
+    // Clear parent session when child logs in directly
+    localStorage.removeItem("parent_token");
+    localStorage.removeItem("parent_profile");
+    setParentToken(null);
+    setParentProfile(null);
+
     localStorage.setItem("child_token", token);
     if (profile) localStorage.setItem("child_profile", JSON.stringify(profile));
     setChildToken(token);
@@ -72,9 +85,7 @@ export function AuthProvider({ children }) {
     return { Authorization: `Bearer ${activeToken}` };
   }, [activeToken]);
 
-  // ─── ✅ FIX: apiFetch helper — used by AnswersModal, FlashcardReview, etc. ───
-  // Previously missing, causing "i is not a function" error when AnswersModal
-  // destructured { apiFetch } from useAuth() and got undefined.
+  // ─── apiFetch helper ───
   const apiFetch = useCallback(
     (url, opts = {}) => {
       return fetch(`${API_BASE}${url}`, {
@@ -102,16 +113,18 @@ export function AuthProvider({ children }) {
       logout,
       logoutChild,
       authHeaders,
-      apiFetch,             // ✅ FIX: Now exposed in context
+      apiFetch,
       isAuthenticated: !!activeToken,
       isParent: activeRole === "parent",
       isChild: activeRole === "child",
+      isInitializing, // ✅ NEW
     }),
     [
       parentToken, childToken, parentProfile, childProfile,
       activeRole, activeToken,
       loginParent, loginChild, logout, logoutChild, authHeaders,
-      apiFetch,             // ✅ FIX: Added to deps
+      apiFetch,
+      isInitializing, // ✅ NEW
     ]
   );
 

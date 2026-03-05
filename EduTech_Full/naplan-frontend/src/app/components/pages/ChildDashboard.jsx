@@ -16,10 +16,8 @@ import QuizResult from "@/app/components/quiz/QuizResult";
 function inferSubject(quizName) {
   const q = (quizName || "").toLowerCase();
   if (q.includes("numeracy") && q.includes("calculator")) return "Numeracy";
-  if (q.includes("numeracy") || q.includes("number and algebra"))
-    return "Numeracy";
-  if (q.includes("language") || q.includes("convention") || q.includes("grammar"))
-    return "Language";
+  if (q.includes("numeracy") || q.includes("number and algebra")) return "Numeracy";
+  if (q.includes("language") || q.includes("convention") || q.includes("grammar")) return "Language";
   if (q.includes("reading")) return "Reading";
   if (q.includes("writing")) return "Writing";
   return "Other";
@@ -28,28 +26,14 @@ function inferSubject(quizName) {
 function normalizeSubject(subject) {
   if (!subject) return "Other";
   const s = subject.toLowerCase().trim();
-  if (
-    s === "maths" ||
-    s === "math" ||
-    s === "mathematics" ||
-    s.includes("numeracy") ||
-    s.includes("number")
-  )
+  if (s === "maths" || s === "math" || s === "mathematics" || s.includes("numeracy") || s.includes("number"))
     return "Numeracy";
-  if (
-    s === "conventions" ||
-    s.includes("convention") ||
-    s.includes("grammar") ||
-    s.includes("punctuation") ||
-    s.includes("spelling") ||
-    s === "language_convention"
-  )
+  if (s === "conventions" || s.includes("convention") || s.includes("grammar") || s.includes("punctuation") || s.includes("spelling") || s === "language_convention")
     return "Language";
   if (s === "language") return "Language";
   if (s.includes("reading")) return "Reading";
   if (s.includes("writing")) return "Writing";
-  if (["Reading", "Writing", "Numeracy", "Language"].includes(subject))
-    return subject;
+  if (["Reading", "Writing", "Numeracy", "Language"].includes(subject)) return subject;
   return "Other";
 }
 
@@ -66,10 +50,7 @@ function getTimeGreeting() {
 
 /* ─── Motivational messages — rotates daily ─── */
 const MOTIVATIONAL_MESSAGES = [
-  {
-    emoji: "🌟",
-    text: "Every expert was once a beginner. Keep going — you're building something amazing!",
-  },
+  { emoji: "🌟", text: "Every expert was once a beginner. Keep going — you're building something amazing!" },
   { emoji: "🚀", text: "Your brain gets stronger every time you try. Let's make today count!" },
   { emoji: "💪", text: "Mistakes are proof you're trying. Each quiz makes you smarter!" },
   { emoji: "🎯", text: "Small steps every day lead to big results. You've got this!" },
@@ -82,10 +63,7 @@ const MOTIVATIONAL_MESSAGES = [
 ];
 
 function getDailyMotivation() {
-  const dayOfYear = Math.floor(
-    (Date.now() - new Date(new Date().getFullYear(), 0, 0)) /
-      (1000 * 60 * 60 * 24)
-  );
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
   return MOTIVATIONAL_MESSAGES[dayOfYear % MOTIVATIONAL_MESSAGES.length];
 }
 
@@ -98,60 +76,28 @@ const PARENT_MESSAGES = [
 ];
 
 function getDailyParentMessage() {
-  const dayOfYear = Math.floor(
-    (Date.now() - new Date(new Date().getFullYear(), 0, 0)) /
-      (1000 * 60 * 60 * 24)
-  );
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
   return PARENT_MESSAGES[dayOfYear % PARENT_MESSAGES.length];
 }
 
 /* ─── Subject styling ─── */
 const SUBJECT_STYLE = {
-  Reading: {
-    icon: "📖",
-    bg: "bg-blue-50",
-    text: "text-blue-700",
-    badge: "bg-blue-100 text-blue-700",
-  },
-  Writing: {
-    icon: "✍️",
-    bg: "bg-purple-50",
-    text: "text-purple-700",
-    badge: "bg-purple-100 text-purple-700",
-  },
-  Numeracy: {
-    icon: "🔢",
-    bg: "bg-amber-50",
-    text: "text-amber-700",
-    badge: "bg-amber-100 text-amber-700",
-  },
-  Language: {
-    icon: "📝",
-    bg: "bg-emerald-50",
-    text: "text-emerald-700",
-    badge: "bg-emerald-100 text-emerald-700",
-  },
-  Other: {
-    icon: "📚",
-    bg: "bg-slate-50",
-    text: "text-slate-700",
-    badge: "bg-slate-100 text-slate-700",
-  },
+  Reading:  { icon: "📖", bg: "bg-blue-50",    text: "text-blue-700",    badge: "bg-blue-100 text-blue-700" },
+  Writing:  { icon: "✍️", bg: "bg-purple-50",  text: "text-purple-700",  badge: "bg-purple-100 text-purple-700" },
+  Numeracy: { icon: "🔢", bg: "bg-amber-50",   text: "text-amber-700",   badge: "bg-amber-100 text-amber-700" },
+  Language: { icon: "📝", bg: "bg-emerald-50", text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" },
+  Other:    { icon: "📚", bg: "bg-slate-50",   text: "text-slate-700",   badge: "bg-slate-100 text-slate-700" },
 };
 
 /* ─── Difficulty Badge ─── */
 function DifficultyBadge({ difficulty }) {
   const styles = {
     Standard: "bg-slate-100 text-slate-600",
-    Medium: "bg-amber-100 text-amber-700",
-    Hard: "bg-rose-100 text-rose-700",
+    Medium:   "bg-amber-100 text-amber-700",
+    Hard:     "bg-rose-100 text-rose-700",
   };
   return (
-    <span
-      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-        styles[difficulty] || styles.Standard
-      }`}
-    >
+    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${styles[difficulty] || styles.Standard}`}>
       {difficulty || "Standard"}
     </span>
   );
@@ -163,8 +109,7 @@ function DifficultyBadge({ difficulty }) {
 export default function ChildDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { childToken, childProfile, parentToken, logoutChild, logout } =
-    useAuth();
+  const { childToken, childProfile, parentToken, logoutChild, logout } = useAuth();
 
   const childId = searchParams.get("childId") || childProfile?.childId;
   const activeToken = childToken || parentToken;
@@ -172,9 +117,7 @@ export default function ChildDashboard() {
 
   /* ─── STATE ─── */
   const [tests, setTests] = useState([]);
-  const [childStatus, setChildStatus] = useState(
-    () => childProfile?.status || "trial"
-  );
+  const [childStatus, setChildStatus] = useState(() => childProfile?.status || "trial");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -186,14 +129,12 @@ export default function ChildDashboard() {
   const [childInfo, setChildInfo] = useState(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [activeQuiz, setActiveQuiz] = useState(null);
-  // ✅ NEW: Inline QuizResult view state
-  const [selectedQuizResult, setSelectedQuizResult] = useState(null); // { result, quizName }
+  const [selectedQuizResult, setSelectedQuizResult] = useState(null);
   const [resultLoading, setResultLoading] = useState(false);
   const [viewMode, setViewMode] = useState("all");
 
   const [childEntitledQuizIds, setChildEntitledQuizIds] = useState(null);
 
-  // Dynamic quizzes from backend
   const [availableQuizzes, setAvailableQuizzes] = useState([]);
   const [quizzesLoading, setQuizzesLoading] = useState(true);
 
@@ -245,64 +186,44 @@ export default function ChildDashboard() {
     }
   }, [searchParams, childProfile, parentToken, childId]);
 
-  useEffect(() => {
-    resolveChildInfo();
-  }, [resolveChildInfo]);
+  useEffect(() => { resolveChildInfo(); }, [resolveChildInfo]);
 
   /* ─── FETCH AVAILABLE QUIZZES FROM BACKEND ─── */
   useEffect(() => {
-    if (!activeToken || !childId) {
-      setQuizzesLoading(false);
-      return;
-    }
+    if (!activeToken || !childId) { setQuizzesLoading(false); return; }
     setQuizzesLoading(true);
-
     fetchAvailableQuizzes(activeToken, childId)
       .then((data) => {
         const quizList = Array.isArray(data) ? data : data?.quizzes || [];
-        setAvailableQuizzes(
-          quizList.map((q) => ({ ...q, subject: normalizeSubject(q.subject) }))
-        );
+        setAvailableQuizzes(quizList.map((q) => ({ ...q, subject: normalizeSubject(q.subject) })));
         if (data?.child_status) setChildStatus(data.child_status);
       })
-      .catch((err) => {
-        console.error("Failed to fetch available quizzes:", err);
-        setAvailableQuizzes([]);
-      })
+      .catch((err) => { console.error("Failed to fetch available quizzes:", err); setAvailableQuizzes([]); })
       .finally(() => setQuizzesLoading(false));
   }, [activeToken, childId]);
 
   /* ─── FETCH CHILD RESULTS ─── */
   useEffect(() => {
-    if (!activeToken || !childId) {
-      setLoading(false);
-      return;
-    }
+    if (!activeToken || !childId) { setLoading(false); return; }
     setLoading(true);
-
     fetchChildResults(activeToken, childId)
       .then((results) => {
-        setTests(
-          results.map((r) => ({
-            id: r._id,
-            response_id: r.response_id,
-            quiz_id: r.quiz_id,
-            subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
-            name: r.quiz_name || "Untitled Quiz",
-            score: Math.round(r.score?.percentage || 0),
-            date: r.date_submitted || r.createdAt,
-            quiz_name: r.quiz_name,
-            grade: r.score?.grade || "",
-            duration: r.duration || 0,
-            source: r.source || "flexiquiz",
-          }))
-        );
+        setTests(results.map((r) => ({
+          id: r._id,
+          response_id: r.response_id,
+          quiz_id: r.quiz_id,
+          subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
+          name: r.quiz_name || "Untitled Quiz",
+          score: Math.round(r.score?.percentage || 0),
+          date: r.date_submitted || r.createdAt,
+          quiz_name: r.quiz_name,
+          grade: r.score?.grade || "",
+          duration: r.duration || 0,
+          source: r.source || "flexiquiz",
+        })));
         setError(null);
       })
-      .catch((err) => {
-        console.error("Failed to load child results:", err);
-        setError(err.message);
-      })
+      .catch((err) => { console.error("Failed to load child results:", err); setError(err.message); })
       .finally(() => setLoading(false));
   }, [activeToken, childId]);
 
@@ -314,16 +235,10 @@ export default function ChildDashboard() {
     if (childStatus === "active") return tests;
     if (quizzesLoading) return [];
     if (entitledCatalog.length === 0) return [];
-
-    const entitledNames = new Set(
-      entitledCatalog.map((q) => (q.quiz_name || q.name || "").toLowerCase().trim())
-    );
-
+    const entitledNames = new Set(entitledCatalog.map((q) => (q.quiz_name || q.name || "").toLowerCase().trim()));
     return tests.filter((t) => {
       const testName = (t.name || t.quiz_name || "").toLowerCase().trim();
-      return [...entitledNames].some(
-        (qName) => testName === qName || testName.includes(qName) || qName.includes(testName)
-      );
+      return [...entitledNames].some((qName) => testName === qName || testName.includes(qName) || qName.includes(testName));
     });
   }, [tests, entitledCatalog, quizzesLoading, childStatus]);
 
@@ -332,30 +247,19 @@ export default function ChildDashboard() {
   /* ─── Calculations ─── */
   const overallAverage = useMemo(() => {
     if (!entitledTests.length) return 0;
-    return Math.round(
-      entitledTests.reduce((s, t) => s + t.score, 0) / entitledTests.length
-    );
+    return Math.round(entitledTests.reduce((s, t) => s + t.score, 0) / entitledTests.length);
   }, [entitledTests]);
 
-  const totalXP = useMemo(() => entitledTests.reduce((s, t) => s + t.score * 10, 0), [
-    entitledTests,
-  ]);
-
+  const totalXP = useMemo(() => entitledTests.reduce((s, t) => s + t.score * 10, 0), [entitledTests]);
   const level = useMemo(() => Math.max(1, Math.floor(totalXP / 500) + 1), [totalXP]);
-
   const xpProgress = useMemo(() => ((totalXP % 500) / 500) * 100, [totalXP]);
 
   const streak = useMemo(() => {
     if (!entitledTests.length) return 0;
-    const sorted = [...entitledTests].sort(
-      (a, b) => new Date(b.date) - new Date(a.date)
-    );
+    const sorted = [...entitledTests].sort((a, b) => new Date(b.date) - new Date(a.date));
     let count = 1;
     for (let i = 1; i < sorted.length; i++) {
-      const diffDays = Math.floor(
-        (new Date(sorted[i - 1].date) - new Date(sorted[i].date)) /
-          (1000 * 60 * 60 * 24)
-      );
+      const diffDays = Math.floor((new Date(sorted[i - 1].date) - new Date(sorted[i].date)) / (1000 * 60 * 60 * 24));
       if (diffDays <= 1) count++;
       else break;
     }
@@ -366,9 +270,7 @@ export default function ChildDashboard() {
     return SUBJECTS.map((subj) => {
       const subjectTests = entitledTests.filter((t) => t.subject === subj);
       const subjectQuizTotal = entitledCatalog.filter((q) => q.subject === subj).length;
-      const avg = subjectTests.length
-        ? Math.round(subjectTests.reduce((s, t) => s + t.score, 0) / subjectTests.length)
-        : 0;
+      const avg = subjectTests.length ? Math.round(subjectTests.reduce((s, t) => s + t.score, 0) / subjectTests.length) : 0;
       return { subject: subj, average: avg, count: subjectTests.length, total: subjectQuizTotal };
     });
   }, [entitledTests, entitledCatalog]);
@@ -382,7 +284,6 @@ export default function ChildDashboard() {
         const qName = (quiz.quiz_name || "").toLowerCase().trim();
         return tName === qName;
       });
-
       return {
         id: quiz.quiz_id,
         quiz_id: quiz.quiz_id,
@@ -394,7 +295,6 @@ export default function ChildDashboard() {
         question_count: quiz.question_count,
         is_trial: quiz.is_trial,
         is_entitled: quiz.is_entitled,
-
         status: matched ? "completed" : "not_started",
         score: matched ? matched.score : null,
         grade: matched ? matched.grade : null,
@@ -415,9 +315,7 @@ export default function ChildDashboard() {
     if (subjectFilter !== "All") list = list.filter((q) => q.subject === subjectFilter);
     if (search.trim()) {
       const s = search.toLowerCase();
-      list = list.filter(
-        (q) => q.name.toLowerCase().includes(s) || q.subject.toLowerCase().includes(s)
-      );
+      list = list.filter((q) => q.name.toLowerCase().includes(s) || q.subject.toLowerCase().includes(s));
     }
     return list;
   }, [mergedQuizzes, viewMode, subjectFilter, search]);
@@ -429,43 +327,29 @@ export default function ChildDashboard() {
       if (sortConfig.key === "subject") cmp = a.subject.localeCompare(b.subject);
       else if (sortConfig.key === "name") cmp = a.name.localeCompare(b.name);
       else if (sortConfig.key === "score") cmp = (a.score || 0) - (b.score || 0);
-      else if (sortConfig.key === "status")
-        cmp = (a.status === "completed" ? 1 : 0) - (b.status === "completed" ? 1 : 0);
+      else if (sortConfig.key === "status") cmp = (a.status === "completed" ? 1 : 0) - (b.status === "completed" ? 1 : 0);
       return sortConfig.direction === "asc" ? cmp : -cmp;
     });
     return sorted;
   }, [filteredQuizzes, sortConfig]);
 
   const totalPages = Math.max(1, Math.ceil(sortedQuizzes.length / testsPerPage));
-  const paginatedQuizzes = sortedQuizzes.slice(
-    (currentPage - 1) * testsPerPage,
-    currentPage * testsPerPage
-  );
+  const paginatedQuizzes = sortedQuizzes.slice((currentPage - 1) * testsPerPage, currentPage * testsPerPage);
 
   const recentActivity = useMemo(
-    () =>
-      [...entitledTests]
-        .sort((a, b) => new Date(b.date) - new Date(a.date))
-        .slice(0, 4),
+    () => [...entitledTests].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4),
     [entitledTests]
   );
 
   const handleSort = (key) => {
-    setSortConfig((prev) =>
-      prev.key === key
-        ? { key, direction: prev.direction === "asc" ? "desc" : "asc" }
-        : { key, direction: "asc" }
-    );
+    setSortConfig((prev) => prev.key === key ? { key, direction: prev.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" });
   };
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [subjectFilter, search, viewMode]);
+  useEffect(() => { setCurrentPage(1); }, [subjectFilter, search, viewMode]);
 
   const handleViewResult = useCallback(async (item) => {
     const rid = item.response_id;
     if (!rid) return;
-
     setResultLoading(true);
     try {
       const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
@@ -477,42 +361,26 @@ export default function ChildDashboard() {
         },
         cache: "no-store",
       });
-
       if (!res.ok) throw new Error("Failed to fetch result");
       const data = await res.json();
       if (!data) throw new Error("Result not found");
-
-      // Normalize into the shape QuizResult expects
-      const normalizedResult = {
-        score: data.score || {
-          percentage: item.score || 0,
-          points: 0,
-          available: 0,
-          grade: item.grade || "",
-        },
-        topic_breakdown: data.topicBreakdown || data.topic_breakdown || {},
-        is_writing: (item.subject || "").toLowerCase() === "writing",
-        ai_status: data.ai?.status || data.ai_feedback_meta?.status || null,
-        attempt_id: data.response_id || data.responseId || data.attempt_id || rid,
-        response_id: rid,
-        subject: item.subject || data.subject || "",
-      };
-
       setSelectedQuizResult({
-        result: normalizedResult,
+        result: {
+          score: data.score || { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" },
+          topic_breakdown: data.topicBreakdown || data.topic_breakdown || {},
+          is_writing: (item.subject || "").toLowerCase() === "writing",
+          ai_status: data.ai?.status || data.ai_feedback_meta?.status || null,
+          attempt_id: data.response_id || data.responseId || data.attempt_id || rid,
+          response_id: rid,
+          subject: item.subject || data.subject || "",
+        },
         quizName: item.name || item.quiz_name || data.quiz_name || "Quiz",
       });
     } catch (err) {
       console.error("Failed to fetch quiz result:", err);
-      // Fallback: build result from what we already have in the tests array
       setSelectedQuizResult({
         result: {
-          score: {
-            percentage: item.score || 0,
-            points: 0,
-            available: 0,
-            grade: item.grade || "",
-          },
+          score: { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" },
           topic_breakdown: {},
           is_writing: (item.subject || "").toLowerCase() === "writing",
           attempt_id: rid,
@@ -525,38 +393,31 @@ export default function ChildDashboard() {
       setResultLoading(false);
     }
   }, [activeToken]);
-  
 
   const handleQuizClose = () => {
     setActiveQuiz(null);
-
     if (activeToken && childId) {
       fetchChildResults(activeToken, childId)
         .then((results) => {
-          setTests(
-            results.map((r) => ({
-              id: r._id,
-              response_id: r.response_id,
-              quiz_id: r.quiz_id,
-              subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
-              name: r.quiz_name || "Untitled Quiz",
-              score: Math.round(r.score?.percentage || 0),
-              date: r.date_submitted || r.createdAt,
-              quiz_name: r.quiz_name,
-              grade: r.score?.grade || "",
-              duration: r.duration || 0,
-              source: r.source || "flexiquiz",
-            }))
-          );
+          setTests(results.map((r) => ({
+            id: r._id,
+            response_id: r.response_id,
+            quiz_id: r.quiz_id,
+            subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
+            name: r.quiz_name || "Untitled Quiz",
+            score: Math.round(r.score?.percentage || 0),
+            date: r.date_submitted || r.createdAt,
+            quiz_name: r.quiz_name,
+            grade: r.score?.grade || "",
+            duration: r.duration || 0,
+            source: r.source || "flexiquiz",
+          })));
         })
         .catch(() => {});
-
       fetchAvailableQuizzes(activeToken, childId)
         .then((data) => {
           const quizList = Array.isArray(data) ? data : data?.quizzes || [];
-          setAvailableQuizzes(
-            quizList.map((q) => ({ ...q, subject: normalizeSubject(q.subject) }))
-          );
+          setAvailableQuizzes(quizList.map((q) => ({ ...q, subject: normalizeSubject(q.subject) })));
           if (data?.child_status) setChildStatus(data.child_status);
         })
         .catch(() => {});
@@ -568,7 +429,9 @@ export default function ChildDashboard() {
   const motivation = getDailyMotivation();
   const timeGreeting = getTimeGreeting();
 
+  /* ─── Early returns ─── */
   if (activeQuiz) return <NativeQuizPlayer quiz={activeQuiz} onClose={handleQuizClose} childId={childId} />;
+
   if (resultLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white flex items-center justify-center">
@@ -583,11 +446,8 @@ export default function ChildDashboard() {
   if (selectedQuizResult) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-slate-50">
-        {/* Sticky navigation bar */}
         <div className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3">
           <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
-            
-            {/* ✅ BACK ICON BUTTON GOES RIGHT HERE */}
             <button
               onClick={() => setSelectedQuizResult(null)}
               className="inline-flex items-center justify-center w-9 h-9 rounded-xl
@@ -599,14 +459,9 @@ export default function ChildDashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-
-            <span className="text-sm text-slate-500 hidden sm:inline">
-              {selectedQuizResult.quizName}
-            </span>
+            <span className="text-sm text-slate-500 hidden sm:inline">{selectedQuizResult.quizName}</span>
           </div>
         </div>
-
-        {/* Render the QuizResult component inline */}
         <QuizResult
           result={selectedQuizResult.result}
           quizName={selectedQuizResult.quizName}
@@ -629,7 +484,6 @@ export default function ChildDashboard() {
 
   if (showAnalytics) {
     const viewerType = childToken && !isParentViewing ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
-
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
         <div className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3">
@@ -645,13 +499,9 @@ export default function ChildDashboard() {
               </svg>
               Back to Dashboard
             </button>
-
-            <span className="text-sm text-slate-500 hidden sm:inline">
-              {displayName}'s Analytics
-            </span>
+            <span className="text-sm text-slate-500 hidden sm:inline">{displayName}'s Analytics</span>
           </div>
         </div>
-
         <TrialGateOverlay
           isTrialUser={childStatus === "trial"}
           preset="analytics"
@@ -676,10 +526,12 @@ export default function ChildDashboard() {
     );
   }
 
+  /* ─── MAIN DASHBOARD ─── */
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white px-4 py-8 md:px-8">
       <div className="max-w-6xl mx-auto space-y-8">
-        {/* Top header */}
+
+        {/* ── TOP HEADER ── */}
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <h1 className="text-3xl font-bold text-indigo-600">
@@ -687,17 +539,17 @@ export default function ChildDashboard() {
                 ? `Hi ${displayName}! ${motivation.emoji}`
                 : `${timeGreeting}, ${displayName}! ${motivation.emoji}`}
             </h1>
-
             {yearLevel && (
               <p className="text-sm text-indigo-400 font-medium">Year {yearLevel} Explorer</p>
             )}
-
             <p className="text-slate-500 text-sm mt-2 max-w-lg leading-relaxed">
               {isParentViewing ? getDailyParentMessage() : motivation.text}
             </p>
           </div>
 
+          {/* ── ACTION BUTTONS — single logout guaranteed by ternary ── */}
           <div className="flex gap-2 flex-shrink-0">
+            {/* Overall Analytics — always visible */}
             <button
               onClick={() => setShowAnalytics(true)}
               className="group inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold
@@ -711,7 +563,8 @@ export default function ChildDashboard() {
               Overall Analytics
             </button>
 
-            {!!parentToken  && (
+            {/* Ternary: parent view gets Back + Logout, child view gets just Logout */}
+            {isParentViewing ? (
               <>
                 <button
                   onClick={() => navigate("/parent-dashboard")}
@@ -720,23 +573,15 @@ export default function ChildDashboard() {
                   Back to Parent Dashboard
                 </button>
                 <button
-                  onClick={() => {
-                    logout();
-                    navigate("/");
-                  }}
+                  onClick={() => { logout(); navigate("/"); }}
                   className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700"
                 >
                   Logout
                 </button>
               </>
-            )}
-
-            {childToken && !isParentViewing && (
+            ) : (
               <button
-                onClick={() => {
-                  logoutChild();
-                  navigate("/");
-                }}
+                onClick={() => { logoutChild(); navigate("/"); }}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700"
               >
                 Logout
@@ -751,7 +596,7 @@ export default function ChildDashboard() {
           </div>
         )}
 
-        {/* KPI cards */}
+        {/* ── KPI CARDS ── */}
         <section className="grid md:grid-cols-4 gap-6 bg-white rounded-2xl p-6 border shadow">
           <div>
             <p className="text-xs text-slate-500 uppercase tracking-wide">Level</p>
@@ -759,7 +604,6 @@ export default function ChildDashboard() {
               {hasTests ? level : 1}
             </p>
           </div>
-
           <div>
             <p className="text-xs text-slate-500 uppercase tracking-wide">Total XP</p>
             <p className={`text-3xl font-bold ${hasTests ? "text-slate-900" : "text-slate-300"}`}>
@@ -773,18 +617,16 @@ export default function ChildDashboard() {
             </div>
             <p className="text-xs text-slate-500 mt-1">XP Progress</p>
           </div>
-
           <div>
             <p className="text-xs text-slate-500 uppercase tracking-wide">Streak</p>
             <p className={`text-3xl font-bold ${hasTests ? "text-amber-500" : "text-slate-300"}`}>
               {hasTests ? streak : 0} days
             </p>
           </div>
-
           <AnimatedProgressRing percent={overallAverage} />
         </section>
 
-        {/* Recent activity */}
+        {/* ── RECENT ACTIVITY ── */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Recent Activity</h2>
           {hasTests ? (
@@ -802,9 +644,7 @@ export default function ChildDashboard() {
                   <p className="text-sm font-medium text-slate-800 truncate">{t.name}</p>
                   <div className="flex items-center justify-between mt-3">
                     <span className="text-lg font-bold text-indigo-600">{t.score}%</span>
-                    <span className="text-xs text-slate-400">
-                      {new Date(t.date).toLocaleDateString()}
-                    </span>
+                    <span className="text-xs text-slate-400">{new Date(t.date).toLocaleDateString()}</span>
                   </div>
                 </div>
               ))}
@@ -827,20 +667,15 @@ export default function ChildDashboard() {
           )}
         </section>
 
-        {/* Subject breakdown */}
+        {/* ── SUBJECT BREAKDOWN ── */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Subject Breakdown</h2>
           <div className="grid md:grid-cols-4 gap-4">
             {subjectBreakdown.map((s) => {
               const barColor =
-                s.average >= 85
-                  ? "bg-emerald-500"
-                  : s.average >= 70
-                  ? "bg-amber-500"
-                  : s.average > 0
-                  ? "bg-rose-500"
-                  : "bg-slate-200";
-
+                s.average >= 85 ? "bg-emerald-500" :
+                s.average >= 70 ? "bg-amber-500" :
+                s.average > 0   ? "bg-rose-500" : "bg-slate-200";
               return (
                 <div key={s.subject} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                   <div className="flex items-center gap-2 mb-3">
@@ -862,20 +697,17 @@ export default function ChildDashboard() {
           </div>
         </section>
 
-        {/* ✅ My Quizzes (Corrected alignment) */}
+        {/* ── MY QUIZZES ── */}
         <section>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-4">
               <div>
                 <h2 className="text-xl font-semibold">My Quizzes</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Live quiz data is synced from the backend.
-                </p>
+                <p className="text-xs text-slate-500 mt-1">Live quiz data is synced from the backend.</p>
               </div>
-
               <div className="flex bg-slate-100 rounded-lg p-0.5">
                 {[
-                  { key: "all", label: "All", count: entitledCatalog.length },
+                  { key: "all",       label: "All",       count: entitledCatalog.length },
                   { key: "available", label: "Available", count: availableCount },
                   { key: "completed", label: "Completed", count: completedCount },
                 ].map((tab) => (
@@ -883,9 +715,7 @@ export default function ChildDashboard() {
                     key={tab.key}
                     onClick={() => setViewMode(tab.key)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
-                      viewMode === tab.key
-                        ? "bg-white text-slate-900 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
+                      viewMode === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
                     }`}
                   >
                     {tab.label} <span className="text-slate-400">({tab.count})</span>
@@ -893,7 +723,6 @@ export default function ChildDashboard() {
                 ))}
               </div>
             </div>
-
             <div className="flex gap-3">
               <input
                 type="text"
@@ -902,18 +731,13 @@ export default function ChildDashboard() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
               />
-
               <select
                 value={subjectFilter}
                 onChange={(e) => setSubjectFilter(e.target.value)}
                 className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
               >
                 <option value="All">All Subjects</option>
-                {SUBJECTS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
+                {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
@@ -924,13 +748,13 @@ export default function ChildDashboard() {
                 <tr>
                   {[
                     { key: "subject", label: "Subject" },
-                    { key: "name", label: "Quiz Name" },
-                    { key: "status", label: "Status" },
-                    { key: "score", label: "Score" },     // numeric only
-                    { key: null, label: "Action" }, 
-                    { key: null, label: "Quiz Result" },  // result page button      // start/retake
-                    { key: null, label: "AI Feedback" },  // button
-                    { key: null, label: "" },             // icon column
+                    { key: "name",    label: "Quiz Name" },
+                    { key: "status",  label: "Status" },
+                    { key: "score",   label: "Score" },
+                    { key: null,      label: "Action" },
+                    { key: null,      label: "Quiz Result" },
+                    { key: null,      label: "AI Feedback" },
+                    { key: null,      label: "" },
                   ].map((col, idx) => (
                     <th
                       key={`${col.label}-${idx}`}
@@ -943,9 +767,7 @@ export default function ChildDashboard() {
                         <span className="flex items-center gap-1">
                           {col.label}
                           {col.key && sortConfig.key === col.key && (
-                            <span className="text-indigo-500">
-                              {sortConfig.direction === "asc" ? "↑" : "↓"}
-                            </span>
+                            <span className="text-indigo-500">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>
                           )}
                         </span>
                       ) : null}
@@ -960,7 +782,6 @@ export default function ChildDashboard() {
                     const style = SUBJECT_STYLE[quiz.subject] || SUBJECT_STYLE.Other;
                     const isCompleted = quiz.status === "completed";
                     const canOpenResult = Boolean(quiz.response_id);
-
                     return (
                       <tr
                         key={quiz.id}
@@ -973,9 +794,7 @@ export default function ChildDashboard() {
                             <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${style.bg}`}>
                               {style.icon}
                             </span>
-                            <span className={`font-medium text-sm ${style.text}`}>
-                              {quiz.subject}
-                            </span>
+                            <span className={`font-medium text-sm ${style.text}`}>{quiz.subject}</span>
                           </div>
                         </td>
 
@@ -1004,18 +823,10 @@ export default function ChildDashboard() {
                           )}
                         </td>
 
-                        {/* ✅ Score (numeric only) */}
+                        {/* Score */}
                         <td className="px-5 py-4">
                           {isCompleted ? (
-                            <span
-                              className={`font-bold ${
-                                quiz.score >= 85
-                                  ? "text-emerald-600"
-                                  : quiz.score >= 70
-                                  ? "text-amber-600"
-                                  : "text-rose-600"
-                              }`}
-                            >
+                            <span className={`font-bold ${quiz.score >= 85 ? "text-emerald-600" : quiz.score >= 70 ? "text-amber-600" : "text-rose-600"}`}>
                               {quiz.score}%
                             </span>
                           ) : (
@@ -1023,14 +834,11 @@ export default function ChildDashboard() {
                           )}
                         </td>
 
-                        {/* ✅ Action */}
+                        {/* Action */}
                         <td className="px-5 py-4">
                           {isCompleted ? (
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveQuiz(quiz);
-                              }}
+                              onClick={(e) => { e.stopPropagation(); setActiveQuiz(quiz); }}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-lg hover:bg-amber-600 transition"
                               title="Retake Exam"
                               aria-label={`Retake ${quiz.name}`}
@@ -1042,10 +850,7 @@ export default function ChildDashboard() {
                             </button>
                           ) : (
                             <button
-                             onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveQuiz(quiz);
-                              }}
+                              onClick={(e) => { e.stopPropagation(); setActiveQuiz(quiz); }}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 transition"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1056,16 +861,26 @@ export default function ChildDashboard() {
                             </button>
                           )}
                         </td>
-                      
 
-                        {/* ✅ AI Feedback column */}
+                        {/* Quiz Result */}
                         <td className="px-5 py-4">
                           {quiz.response_id ? (
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleViewResult(quiz);
-                              }}
+                              onClick={(e) => { e.stopPropagation(); handleViewResult(quiz); }}
+                              className="px-3 py-1.5 bg-slate-600 text-white text-xs font-medium rounded-lg hover:bg-slate-700 transition"
+                            >
+                              View Result
+                            </button>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+
+                        {/* AI Feedback */}
+                        <td className="px-5 py-4">
+                          {quiz.response_id ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleViewResult(quiz); }}
                               className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition"
                             >
                               AI Feedback
@@ -1075,7 +890,7 @@ export default function ChildDashboard() {
                           )}
                         </td>
 
-                        {/* ✅ Analytics icon far right */}
+                        {/* Analytics icon */}
                         <td className="px-5 py-4">
                           <button
                             onClick={(e) => { e.stopPropagation(); setShowAnalytics(true); }}
@@ -1096,11 +911,7 @@ export default function ChildDashboard() {
                     <td colSpan={8} className="px-5 py-12 text-center">
                       <p className="text-slate-400 text-sm">No quizzes match your filters.</p>
                       <button
-                        onClick={() => {
-                          setSearch("");
-                          setSubjectFilter("All");
-                          setViewMode("all");
-                        }}
+                        onClick={() => { setSearch(""); setSubjectFilter("All"); setViewMode("all"); }}
                         className="text-indigo-600 text-sm font-medium mt-2 hover:underline"
                       >
                         Clear filters
@@ -1114,8 +925,7 @@ export default function ChildDashboard() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50">
                 <p className="text-xs text-slate-500">
-                  Showing {(currentPage - 1) * testsPerPage + 1}–{Math.min(currentPage * testsPerPage, sortedQuizzes.length)} of{" "}
-                  {sortedQuizzes.length}
+                  Showing {(currentPage - 1) * testsPerPage + 1}–{Math.min(currentPage * testsPerPage, sortedQuizzes.length)} of {sortedQuizzes.length}
                 </p>
                 <div className="flex gap-1">
                   <button
@@ -1130,9 +940,7 @@ export default function ChildDashboard() {
                       key={pg}
                       onClick={() => setCurrentPage(pg)}
                       className={`px-3 py-1 text-xs rounded border ${
-                        pg === currentPage
-                          ? "bg-indigo-600 text-white border-indigo-600"
-                          : "border-slate-200 hover:bg-slate-100"
+                        pg === currentPage ? "bg-indigo-600 text-white border-indigo-600" : "border-slate-200 hover:bg-slate-100"
                       }`}
                     >
                       {pg}
@@ -1171,15 +979,12 @@ function AnimatedProgressRing({ percent }) {
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percent / 100) * circumference;
   const hasData = percent > 0;
-
   return (
     <div className="flex flex-col items-center justify-center">
       <svg width="90" height="90" viewBox="0 0 90 90">
         <circle cx="45" cy="45" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="8" />
         <circle
-          cx="45"
-          cy="45"
-          r={radius}
+          cx="45" cy="45" r={radius}
           fill="none"
           stroke={hasData ? "#6366f1" : "#e2e8f0"}
           strokeWidth="8"
@@ -1190,8 +995,7 @@ function AnimatedProgressRing({ percent }) {
           style={{ transition: "stroke-dashoffset 1s ease" }}
         />
         <text
-          x="45"
-          y="45"
+          x="45" y="45"
           textAnchor="middle"
           dominantBaseline="central"
           className={`text-lg font-bold ${hasData ? "fill-indigo-600" : "fill-slate-300"}`}
