@@ -15,6 +15,7 @@
  *   ✅ NEW: Voice/video media URLs returned with questions
  *   ✅ FIX: Closed missing try-catch block on GET /questions route
  *   ✅ FIX: Entitlement check now uses BUNDLE-BASED LOOKUP (no more entitled_quiz_ids)
+ *   ✅ FIX: Writing submissions now immediately stored in Writing collection on submit
  *
  * Mount in app.js:
  *   const quizRoutes = require("./routes/quizRoutes");
@@ -28,7 +29,7 @@ const Quiz = require("../models/quiz");
 const Question = require("../models/question");
 const QuizAttempt = require("../models/quizAttempt");
 const Child = require("../models/child");
-const { triggerAiFeedback } = require("../services/aiFeedbackService"); // ✅ Gap 2
+const { triggerAiFeedback, syncWritingAttempt } = require("../services/aiFeedbackService"); // ✅ Gap 2 + Writing sync
 const { sendQuizCompletionEmail, checkNotificationEligibility } = require("../services/emailNotifications");
 const QuizCatalog = require("../models/quizCatalog"); // ✅ For bundle-based entitlement
 
@@ -310,11 +311,11 @@ router.get("/quizzes/:quizId/resume", async (req, res) => {
   try {
     await connectDB();
     const { childId: tokenChildId, parentId, role } = req.user;
-        let childId = tokenChildId;
-        if (!childId && role === "parent") {
-          childId = req.query.childId;
-        }
-        if (!childId) return res.status(403).json({ error: "Child login required" });
+    let childId = tokenChildId;
+    if (!childId && role === "parent") {
+      childId = req.query.childId;
+    }
+    if (!childId) return res.status(403).json({ error: "Child login required" });
 
     const attempt = await QuizAttempt.findOne({
       child_id: childId,
@@ -377,8 +378,8 @@ router.patch("/attempts/:attemptId/autosave", async (req, res) => {
     const isChildOwner = String(attempt.child_id) === String(req.user.childId);
     const isParentOwner = req.user.role === "parent" && String(attempt.parent_id) === String(req.user.parentId);
     if (!isChildOwner && !isParentOwner) {
-        return res.status(403).json({ error: "Not your attempt" });
-      }
+      return res.status(403).json({ error: "Not your attempt" });
+    }
     if (attempt.status !== "in_progress") {
       return res.status(400).json({ error: "Attempt already submitted" });
     }
@@ -418,11 +419,11 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
 
     const attempt = await QuizAttempt.findOne({ attempt_id: req.params.attemptId });
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
-   const isChildOwner = String(attempt.child_id) === String(req.user.childId);
+    const isChildOwner = String(attempt.child_id) === String(req.user.childId);
     const isParentOwner = req.user.role === "parent" && String(attempt.parent_id) === String(req.user.parentId);
     if (!isChildOwner && !isParentOwner) {
       return res.status(403).json({ error: "Not your attempt" });
-   }
+    }
     if (attempt.status !== "in_progress") {
       return res.status(400).json({ error: "Already submitted" });
     }
@@ -435,8 +436,6 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     let timerExpired = false;
     if (attempt.expires_at && new Date() > new Date(attempt.expires_at)) {
       timerExpired = true;
-      // Still allow submission — the answers they had are valid
-      // Just note it was a forced/late submission
       console.log(`⏰ Late submission: attempt=${attempt.attempt_id} (expired at ${attempt.expires_at})`);
     }
 
@@ -469,7 +468,6 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
           text_answer: "",
           points_scored: 0,
           points_available: 0,
-          is_correct: pointsScored > 0,
         };
       }
 
@@ -554,6 +552,24 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     console.log(
       `✅ Quiz submitted: attempt=${attempt.attempt_id}, score=${percentage}%, grade=${grade}${timerExpired ? " (timer expired)" : ""}`
     );
+
+    // ═══════════════════════════════════════
+    // ✅ NEW: Immediately mirror writing submission → Writing collection
+    // Stores the record right away with ai.status = "pending".
+    // triggerAiFeedback will upsert it again later with full AI feedback.
+    // ═══════════════════════════════════════
+    if (isWriting) {
+      setImmediate(() =>
+        syncWritingAttempt({
+          attemptId: attempt.attempt_id,
+          quizId: attempt.quiz_id,
+          quizName: attempt.quiz_name,
+          yearLevel: attempt.year_level,
+          childId: attempt.child_id,
+          scoredAnswers,
+        }).catch((err) => console.error("❌ early syncWritingAttempt failed:", err.message))
+      );
+    }
 
     // ═══════════════════════════════════════
     // ✅ Gap 2 + Gap 4: TRIGGER AI FEEDBACK (non-blocking)
