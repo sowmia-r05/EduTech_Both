@@ -74,26 +74,39 @@ function TopicBar({ name, scored, total }) {
    ═══════════════════════════════════════ */
 export default function QuizResult({ result, quizName, violations = 0, onClose }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  // ✅ FIX: Added childProfile so we can read the live status for navigation
+  const { user, childProfile } = useAuth();
   const score = result?.score || {};
   const topics = result?.topic_breakdown || {};
   const isWriting = result?.is_writing;
   const aiStatus = result?.ai_status;
 
-  // ─── NEW: Answers modal state ───
+  // ─── Answers modal state ───
   const [showAnswers, setShowAnswers] = useState(false);
 
   // Resolve the attempt ID (native quiz attempts use attempt_id; legacy uses response_id)
   const attemptId = result?.attempt_id || result?.response_id || result?.responseId || null;
-   const handleViewAIFeedback = useCallback(() => {
+
+  const handleViewAIFeedback = useCallback(() => {
     if (!attemptId) return;
     const params = new URLSearchParams({ r: attemptId });
+
     if (user?.username) params.set("username", user.username);
     if (result?.subject) params.set("subject", result.subject);
     if (quizName) params.set("quiz_name", quizName);
 
-    navigate(isWriting ? `/writing-feedback/result?${params}` : `/NonWritingLookupQuizResults/results?${params}`);
-  }, [attemptId, user?.username, result?.subject, quizName, navigate, isWriting]);
+    // ✅ FIX: Pass live status so result pages don't show TrialGateOverlay
+    // after a bundle purchase. childProfile from JWT can be stale post-purchase,
+    // but the destination pages (Dashboard.jsx / ResultPage.jsx) read this param
+    // via searchParams.get("status") to override the stale JWT value.
+    params.set("status", childProfile?.status || "trial");
+
+    navigate(
+      isWriting
+        ? `/writing-feedback/result?${params}`
+        : `/NonWritingLookupQuizResults/results?${params}`
+    );
+  }, [attemptId, user?.username, childProfile?.status, result?.subject, quizName, navigate, isWriting]);
 
   const handleViewAnalytics = useCallback(() => {
     navigate("/student-analytics");
@@ -216,7 +229,7 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
 
         {/* ═══ Actions ═══ */}
         <div className="flex flex-col gap-3">
-          {/* NEW: View Answers Button */}
+          {/* View Answers Button */}
           {attemptId && !isWriting && (
             <button
               onClick={() => setShowAnswers(true)}
@@ -228,6 +241,7 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
               View Answers
             </button>
           )}
+
           {attemptId && (
             <button
               onClick={handleViewAIFeedback}
@@ -243,7 +257,6 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
           >
             📊 View Analytics
           </button>
-
         </div>
       </div>
 

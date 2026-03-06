@@ -113,7 +113,7 @@ export default function ResultPage() {
   : {};
 
 const isParentViewing = !childToken && !!parentToken;
-const childStatus = childProfile?.status || "trial";
+const childStatus = searchParams.get("status") || childProfile?.status || "trial";
 const yearLevel = childProfile?.yearLevel || null;
 
 

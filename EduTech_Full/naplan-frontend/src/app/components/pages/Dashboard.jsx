@@ -190,7 +190,9 @@ export default function Dashboard() {
   const [aiPending, setAiPending] = useState(false);
   const { childToken, childProfile, parentToken } = useAuth();
 const isParentViewing = !childToken && !!parentToken;
-const childStatus = childProfile?.status || "trial";
+// ✅ FIX: Prefer status passed via URL (from ChildDashboard which fetches live DB value)
+// Fallback to JWT token value — but JWT can be stale after a purchase
+const childStatus = searchParams.get("status") || childProfile?.status || "trial";
 const yearLevel = childProfile?.yearLevel || null;
 
 const viewerType = childToken && !isParentViewing
