@@ -30,6 +30,7 @@ const availableQuizzesRoute = require("./routes/availableQuizzesRoute");
 const flashcardsRoute = require("./routes/flashcardsRoute");
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const healthRoutes = require("./routes/healthRoutes");
+const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes"); // ✅ NEW
 
 // ✅ Legacy route auth middleware (requires JWT for all methods now)
 const { secureLegacyResults, secureLegacyWriting } = require("./middleware/legacyRouteAuth");
@@ -85,6 +86,7 @@ app.use("/api/parents/auth", googleAuthRoutes);
 
 // ✅ Routes — Children
 app.use("/api/children", childRoutes);
+app.use("/api/children/:childId/cumulative-feedback", cumulativeFeedbackRoutes); // ✅ NEW
 
 // ✅ Routes — Data (SECURED)
 app.use("/api/results", secureLegacyResults, resultsRoutes);
@@ -112,6 +114,7 @@ app.use("/api/payments", paymentRoutes);
 
 // ✅ Static uploads
 app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
+
 
 // ═══════════════════════════════════════
 // CRON JOBS

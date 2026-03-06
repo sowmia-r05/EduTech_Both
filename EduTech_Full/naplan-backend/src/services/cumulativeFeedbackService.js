@@ -11,6 +11,24 @@
  * Storage:
  *   - CumulativeFeedback collection: one doc per (child_id × subject)
  *   - Subjects: "Overall", "Reading", "Writing", "Numeracy", "Language"
+ *
+ * ═══════════════════════════════════════════════════════
+ * FIXES:
+ *   BUG 1 — Writing collection was NEVER queried. Writing attempts are
+ *            deleted from QuizAttempt and stored in the Writing collection,
+ *            so they were 100% invisible to cumulative feedback.
+ *
+ *   BUG 2 — QuizAttempt status filter used non-existent statuses
+ *            ("scored", "ai_done") — only "submitted" exists in the schema.
+ *
+ *   BUG 3 — Legacy Result subject field is often null/empty. If
+ *            inferSubjectFromQuizName() returned "Other", all legacy tests
+ *            were silently skipped → tests array empty → no feedback generated.
+ *
+ *   BUG 4 — Writing has no score.percentage. Now derives a percentage from
+ *            ai.feedback.overall.total_score / max_score, and builds a
+ *            topic_breakdown from writing criteria scores.
+ * ═══════════════════════════════════════════════════════
  */
 
 const { spawn } = require("child_process");
@@ -19,6 +37,7 @@ const mongoose = require("mongoose");
 
 const CumulativeFeedback = require("../models/cumulativeFeedback");
 const QuizAttempt = require("../models/quizAttempt");
+const Writing = require("../models/writing");       // ✅ BUG 1 FIX: import Writing
 const Result = require("../models/result");
 const Child = require("../models/child");
 
@@ -57,31 +76,66 @@ function normalizeSubject(subject) {
 function inferSubjectFromQuizName(quizName) {
   const q = (quizName || "").toLowerCase();
   if (q.includes("numeracy") || q.includes("number") || q.includes("math")) return "Numeracy";
-  if (q.includes("language") || q.includes("convention") || q.includes("grammar")) return "Language";
+  if (q.includes("language") || q.includes("convention") || q.includes("grammar") || q.includes("spelling")) return "Language";
   if (q.includes("reading")) return "Reading";
   if (q.includes("writing")) return "Writing";
   return "Other";
 }
 
 // ─────────────────────────────────────────────────────────────
-// Fetch all quiz data for a child (both native + legacy)
+// ✅ BUG 4 FIX: Derive a writing score percentage from AI feedback
+// Writing has no score.percentage — use total_score / max_score from criteria
+// ─────────────────────────────────────────────────────────────
+function writingScorePercent(writingDoc) {
+  const overall = writingDoc?.ai?.feedback?.overall;
+  if (!overall) return 0;
+  const total = overall.total_score || 0;
+  const max = overall.max_score || 0;
+  if (max <= 0) return 0;
+  return Math.round((total / max) * 100);
+}
+
+// ✅ BUG 4 FIX: Build topic_breakdown from writing criteria scores
+// Maps each NAPLAN writing criterion → { scored, total }
+function writingTopicBreakdown(writingDoc) {
+  const criteria = writingDoc?.ai?.feedback?.criteria;
+  if (!Array.isArray(criteria) || criteria.length === 0) return {};
+  const tb = {};
+  for (const c of criteria) {
+    if (!c?.name) continue;
+    const scored = typeof c.score === "number" ? c.score : 0;
+    const total = typeof c.max === "number" ? c.max : 0;
+    if (total > 0) {
+      tb[c.name] = { scored, total };
+    }
+  }
+  return tb;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Fetch all quiz data for a child (native MCQ + Writing + legacy)
 // ─────────────────────────────────────────────────────────────
 async function fetchAllTestsForChild(childId, child) {
   const tests = [];
 
-  // ── Native QuizAttempts ──
+  // ── ✅ BUG 2 FIX: Native MCQ QuizAttempts ─────────────────────
+  // Removed non-existent statuses "scored" and "ai_done".
+  // QuizAttempt schema only has: "in_progress" | "submitted" | "expired"
+  // Writing attempts are NOT here — they're in the Writing collection (see below)
   const attempts = await QuizAttempt.find({
     child_id: childId,
-    status: { $in: ["scored", "ai_done", "submitted"] },
+    status: "submitted",
+    // Exclude writing attempts that were synced to Writing collection
+    subject: { $not: /writing/i },
   })
-    .select("quiz_name subject score submitted_at duration_sec topic_breakdown")
+    .select("quiz_name subject score submitted_at createdAt duration_sec topic_breakdown")
     .lean();
 
   for (const a of attempts) {
     const subj = normalizeSubject(a.subject || inferSubjectFromQuizName(a.quiz_name));
-    if (subj === "Other") continue;
+    if (subj === "Other" || subj === "Writing") continue; // Writing handled separately
 
-    // Convert topic_breakdown (may be Map)
+    // Convert topic_breakdown (may be Map or plain object)
     const tb = {};
     if (a.topic_breakdown) {
       const entries =
@@ -89,33 +143,74 @@ async function fetchAllTestsForChild(childId, child) {
           ? a.topic_breakdown.entries()
           : Object.entries(a.topic_breakdown);
       for (const [k, v] of entries) {
-        tb[k] = { scored: v.scored || 0, total: v.total || 0 };
+        if (v && typeof v === "object") {
+          tb[k] = { scored: v.scored || 0, total: v.total || 0 };
+        }
       }
     }
+
+    const score = Math.round(a.score?.percentage || 0);
 
     tests.push({
       quiz_name: a.quiz_name || "Quiz",
       subject: subj,
-      score: Math.round(a.score?.percentage || 0),
+      score,
       date: a.submitted_at || a.createdAt,
       duration_sec: a.duration_sec || 0,
       topic_breakdown: tb,
     });
   }
 
-  // ── Legacy Results (FlexiQuiz) ──
+  // ── ✅ BUG 1 FIX: Native Writing attempts ─────────────────────
+  // Writing attempts are deleted from QuizAttempt and stored here.
+  // This collection was COMPLETELY MISSING before — root cause of no Writing data.
+  const writingDocs = await Writing.find({
+    child_id: childId,
+    "ai.status": "done",            // only include fully evaluated writing
+  })
+    .select("quiz_name subject submitted_at createdAt duration_sec ai")
+    .lean();
+
+  for (const w of writingDocs) {
+    const score = writingScorePercent(w);
+    const tb = writingTopicBreakdown(w);
+
+    tests.push({
+      quiz_name: w.quiz_name || "Writing Quiz",
+      subject: "Writing",
+      score,
+      date: w.submitted_at || w.createdAt,
+      duration_sec: w.duration_sec || 0,
+      topic_breakdown: tb,
+    });
+  }
+
+  // ── ✅ BUG 3 FIX: Legacy Results (FlexiQuiz) ─────────────────
+  // Previously: if r.subject was null AND quiz name didn't match keywords,
+  // inferSubjectFromQuizName returned "Other" → test was silently skipped.
+  // Fix: try harder with the quiz name, and log skipped legacy results.
   if (child?.flexiquiz_user_id || child?.username) {
     const matchQuery = child.flexiquiz_user_id
       ? { "user.user_id": child.flexiquiz_user_id }
       : { "user.user_name": child.username };
 
     const legacyResults = await Result.find(matchQuery)
-      .select("quiz_name subject score date_submitted duration topicBreakdown")
+      .select("quiz_name subject score date_submitted createdAt duration topicBreakdown")
       .lean();
 
+    let legacySkipped = 0;
+
     for (const r of legacyResults) {
-      const subj = normalizeSubject(r.subject || inferSubjectFromQuizName(r.quiz_name));
-      if (subj === "Other") continue;
+      // Try subject field first, then infer from quiz name
+      const subj = normalizeSubject(
+        r.subject || inferSubjectFromQuizName(r.quiz_name)
+      );
+
+      if (subj === "Other") {
+        legacySkipped++;
+        continue;
+      }
+
       tests.push({
         quiz_name: r.quiz_name || "Quiz",
         subject: subj,
@@ -124,6 +219,14 @@ async function fetchAllTestsForChild(childId, child) {
         duration_sec: r.duration || 0,
         topic_breakdown: r.topicBreakdown || {},
       });
+    }
+
+    if (legacySkipped > 0) {
+      console.warn(
+        `⚠️ fetchAllTestsForChild: skipped ${legacySkipped} legacy results for child ${childId} ` +
+        `because subject could not be inferred from quiz name. ` +
+        `Fix: ensure legacy results have a 'subject' field, or update quiz names to include subject keywords.`
+      );
     }
   }
 
@@ -282,7 +385,7 @@ async function triggerCumulativeFeedback(childId) {
     const displayName = child.display_name || child.username || "Student";
     const yearLevel = child.year_level || null;
 
-    // Fetch all tests (both native + legacy)
+    // Fetch all tests (MCQ native + Writing native + legacy)
     const allTests = await fetchAllTestsForChild(childId, child);
 
     if (!allTests.length) {
@@ -290,9 +393,19 @@ async function triggerCumulativeFeedback(childId) {
       return;
     }
 
+    console.log(
+      `📊 Tests found for child ${childIdStr}: ` +
+      `total=${allTests.length} | ` +
+      Object.entries(
+        allTests.reduce((acc, t) => { acc[t.subject] = (acc[t.subject] || 0) + 1; return acc; }, {})
+      ).map(([s, n]) => `${s}=${n}`).join(", ")
+    );
+
     // Determine which subjects actually have data
     const activeSubjects = new Set(allTests.map((t) => t.subject));
     const subjectsToGenerate = ["Overall", ...SUBJECTS.slice(1).filter((s) => activeSubjects.has(s))];
+
+    console.log(`📋 Subjects to generate for child ${childIdStr}: ${subjectsToGenerate.join(", ")}`);
 
     // Generate sequentially to avoid hammering Gemini rate limits
     for (const subject of subjectsToGenerate) {
@@ -333,6 +446,6 @@ async function getCumulativeFeedback(childId) {
 module.exports = {
   triggerCumulativeFeedback,
   getCumulativeFeedback,
-  generateForSubject,       // exported for admin re-gen endpoints
-  fetchAllTestsForChild,    // exported for routes
+  generateForSubject,        // exported for admin re-gen endpoints
+  fetchAllTestsForChild,     // exported for routes
 };
