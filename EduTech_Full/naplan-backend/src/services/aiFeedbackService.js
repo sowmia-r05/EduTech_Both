@@ -24,6 +24,9 @@ const Writing = require("../models/writing");
 const Child = require("../models/child");
 const Question = require("../models/question");
 
+// ✅ Cumulative feedback — triggered after every quiz AI completes
+const { triggerCumulativeFeedback } = require("./cumulativeFeedbackService");
+
 // ─── Config ───
 const BACKEND_ROOT = path.resolve(__dirname, "../..");
 
@@ -410,6 +413,16 @@ async function triggerAiFeedback(params) {
       console.log(`✅ AI feedback done for attempt ${attemptId}`);
     } else {
       console.warn(`⚠️ AI feedback issues for attempt ${attemptId}: ${result.error}`);
+    }
+
+    // ✅ Trigger cumulative feedback regeneration after every successful quiz AI
+    // Runs async (fire-and-forget) so it never blocks or slows down quiz submission
+    if (result.success && params.childId) {
+      setImmediate(() => {
+        triggerCumulativeFeedback(params.childId).catch((e) =>
+          console.warn(`⚠️ Cumulative feedback failed for child ${params.childId}:`, e.message)
+        );
+      });
     }
 
   } catch (err) {
