@@ -5,6 +5,7 @@ import {
   fetchChildResults,
   fetchChildrenSummaries,
   fetchAvailableQuizzes,
+  fetchChildWriting,
 } from "@/app/utils/api-children";
 
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
@@ -203,29 +204,58 @@ export default function ChildDashboard() {
   }, [activeToken, childId]);
 
   /* ─── FETCH CHILD RESULTS ─── */
-  useEffect(() => {
-    if (!activeToken || !childId) { setLoading(false); return; }
-    setLoading(true);
-    fetchChildResults(activeToken, childId)
-      .then((results) => {
-        setTests(results.map((r) => ({
-          id: r._id,
-          response_id: r.response_id,
-          quiz_id: r.quiz_id,
-          subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
-          name: r.quiz_name || "Untitled Quiz",
-          score: Math.round(r.score?.percentage || 0),
-          date: r.date_submitted || r.createdAt,
-          quiz_name: r.quiz_name,
-          grade: r.score?.grade || "",
-          duration: r.duration || 0,
-          source: r.source || "flexiquiz",
-        })));
-        setError(null);
-      })
-      .catch((err) => { console.error("Failed to load child results:", err); setError(err.message); })
-      .finally(() => setLoading(false));
-  }, [activeToken, childId]);
+useEffect(() => {
+  if (!activeToken || !childId) { setLoading(false); return; }
+  setLoading(true);
+
+  Promise.all([
+    fetchChildResults(activeToken, childId),
+    fetchChildWriting(activeToken, childId),   // ✅ also fetch writing
+  ])
+    .then(([results, writingDocs]) => {
+
+      // Map non-writing results
+      const nonWriting = results.map((r) => ({
+        id: r._id,
+        response_id: r.response_id,
+        quiz_id: r.quiz_id,
+        subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
+        name: r.quiz_name || "Untitled Quiz",
+        score: Math.round(r.score?.percentage || 0),
+        date: r.date_submitted || r.createdAt,
+        quiz_name: r.quiz_name,
+        grade: r.score?.grade || "",
+        duration: r.duration || 0,
+        source: r.source || "flexiquiz",
+      }));
+
+      // ✅ Map writing docs — response_id is the key that links to Writing collection
+      const writing = (writingDocs || []).map((w) => ({
+        id: w._id,
+        response_id: w.response_id,          // ← this is what was missing
+        quiz_id: w.quiz_id,
+        subject: "Writing",
+        name: w.quiz_name || "Untitled Quiz",
+        score: (() => {
+          const overall = w?.ai?.feedback?.overall;
+          if (!overall) return 0;
+          const total = overall.total_score || 0;
+          const max = overall.max_score || 0;
+          return max > 0 ? Math.round((total / max) * 100) : 0;
+        })(),
+        date: w.submitted_at || w.createdAt,
+        quiz_name: w.quiz_name,
+        grade: "",
+        duration: w.duration_sec || 0,
+        source: "writing",
+      }));
+
+      setTests([...nonWriting, ...writing]);
+      setError(null);
+    })
+    .catch((err) => { console.error("Failed to load child results:", err); setError(err.message); })
+    .finally(() => setLoading(false));
+}, [activeToken, childId]);
 
   /* ─── Quiz catalog ─── */
   const entitledCatalog = useMemo(() => availableQuizzes, [availableQuizzes]);
@@ -276,33 +306,49 @@ export default function ChildDashboard() {
   }, [entitledTests, entitledCatalog]);
 
   /* ─── Merge quizzes with completed results ─── */
-  const mergedQuizzes = useMemo(() => {
-    return entitledCatalog.map((quiz) => {
-      const matched = tests.find((t) => {
-        if (quiz.quiz_id && t.quiz_id && quiz.quiz_id === t.quiz_id) return true;
-        const tName = (t.name || "").toLowerCase().trim();
-        const qName = (quiz.quiz_name || "").toLowerCase().trim();
-        return tName === qName;
-      });
-      return {
-        id: quiz.quiz_id,
-        quiz_id: quiz.quiz_id,
-        name: quiz.quiz_name,
-        subject: quiz.subject,
-        year_level: quiz.year_level,
-        difficulty: quiz.difficulty || "Standard",
-        time_limit_minutes: quiz.time_limit_minutes,
-        question_count: quiz.question_count,
-        is_trial: quiz.is_trial,
-        is_entitled: quiz.is_entitled,
-        status: matched ? "completed" : "not_started",
-        score: matched ? matched.score : null,
-        grade: matched ? matched.grade : null,
-        date_completed: matched ? matched.date : null,
-        response_id: matched ? matched.response_id : null,
-      };
+  /* ─── Merge quizzes with completed results ─── */
+const mergedQuizzes = useMemo(() => {
+  return entitledCatalog.map((quiz) => {
+    // Find ALL matches, filtering by subject first to prevent cross-subject collisions
+    const matches = tests.filter((t) => {
+      // Subject guard — Writing must only match Writing, and vice versa
+      const quizIsWriting = quiz.subject === "Writing";
+      const testIsWriting = t.subject === "Writing";
+      if (quizIsWriting !== testIsWriting) return false;
+
+      // Primary: match by quiz_id (most reliable)
+      if (quiz.quiz_id && t.quiz_id && quiz.quiz_id === t.quiz_id) return true;
+
+      // Fallback: match by name
+      const tName = (t.name || t.quiz_name || "").toLowerCase().trim();
+      const qName = (quiz.quiz_name || "").toLowerCase().trim();
+      return tName === qName;
     });
-  }, [tests, entitledCatalog]);
+
+    // Pick the MOST RECENT match so retakes always show the latest response_id
+    const matched = matches.length
+      ? matches.sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+      : null;
+
+    return {
+      id: quiz.quiz_id,
+      quiz_id: quiz.quiz_id,
+      name: quiz.quiz_name,
+      subject: quiz.subject,
+      year_level: quiz.year_level,
+      difficulty: quiz.difficulty || "Standard",
+      time_limit_minutes: quiz.time_limit_minutes,
+      question_count: quiz.question_count,
+      is_trial: quiz.is_trial,
+      is_entitled: quiz.is_entitled,
+      status: matched ? "completed" : "not_started",
+      score: matched ? matched.score : null,
+      grade: matched ? matched.grade : null,
+      date_completed: matched ? matched.date : null,
+      response_id: matched ? matched.response_id : null,
+    };
+  });
+}, [tests, entitledCatalog]);
 
   const completedCount = mergedQuizzes.filter((q) => q.status === "completed").length;
   const availableCount = mergedQuizzes.filter((q) => q.status === "not_started").length;
@@ -393,6 +439,39 @@ export default function ChildDashboard() {
       setResultLoading(false);
     }
   }, [activeToken]);
+
+  const handleAiFeedback = useCallback((item) => {
+  const rid = item.response_id;
+  if (!rid) return;
+
+  const isWriting = (item.subject || "").toLowerCase() === "writing";
+
+  const params = new URLSearchParams({ r: rid });
+
+  // Pass the child's username so the result page filters correctly (sibling-safe)
+  const username =
+    childInfo?.username ||
+    childProfile?.username ||
+    searchParams.get("username") ||
+    null;
+  if (username) params.set("username", username);
+
+  // Pass subject so the dashboard pre-selects the right subject tab
+  if (item.subject) params.set("subject", item.subject);
+
+  // Pass quiz_name for writing result page header
+  if (item.quiz_name || item.name) {
+    params.set("quiz_name", item.quiz_name || item.name);
+  }
+
+  if (isWriting) {
+    // → Writing AI evaluation page
+    navigate(`/writing-feedback/result?${params.toString()}`);
+  } else {
+    // → Non-writing results dashboard (Reading / Numeracy / Language)
+    navigate(`/NonWritingLookupQuizResults/results?${params.toString()}`);
+  }
+}, [navigate, childInfo, childProfile, searchParams]);
 
   const handleQuizClose = () => {
     setActiveQuiz(null);
@@ -681,7 +760,6 @@ export default function ChildDashboard() {
                     { key: "status",  label: "Status" },
                     { key: "score",   label: "Score" },
                     { key: null,      label: "Action" },
-                    { key: null,      label: "Quiz Result" },
                     { key: null,      label: "AI Feedback" },
                     { key: null,      label: "" },
                   ].map((col, idx) => (
@@ -791,34 +869,25 @@ export default function ChildDashboard() {
                           )}
                         </td>
 
-                        {/* Quiz Result */}
-                        <td className="px-5 py-4">
-                          {quiz.response_id ? (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleViewResult(quiz); }}
-                              className="px-3 py-1.5 bg-slate-600 text-white text-xs font-medium rounded-lg hover:bg-slate-700 transition"
-                            >
-                              View Result
-                            </button>
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
-                        </td>
-
+        
                         {/* AI Feedback */}
                         <td className="px-5 py-4">
                           {quiz.response_id ? (
                             <button
-                              onClick={(e) => { e.stopPropagation(); handleViewResult(quiz); }}
-                              className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition"
+                              onClick={(e) => { e.stopPropagation(); handleAiFeedback(quiz); }}
+                              className={`px-3 py-1.5 text-white text-xs font-medium rounded-lg transition
+                                ${(quiz.subject || "").toLowerCase() === "writing"
+                                  ? "bg-purple-600 hover:bg-purple-700"
+                                  : "bg-indigo-600 hover:bg-indigo-700"
+                                }`}
                             >
-                              AI Feedback
+                              {(quiz.subject || "").toLowerCase() === "writing" ? "AI Feedback" : "AI Feedback"}
                             </button>
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
                         </td>
-                      </tr>
+                    </tr>
                     );
                   })
                 ) : (
