@@ -445,34 +445,26 @@ const mergedQuizzes = useMemo(() => {
   if (!rid) return;
 
   const isWriting = (item.subject || "").toLowerCase() === "writing";
-
   const params = new URLSearchParams({ r: rid });
 
-  // Pass the child's username so the result page filters correctly (sibling-safe)
   const username =
     childInfo?.username ||
     childProfile?.username ||
     searchParams.get("username") ||
     null;
   if (username) params.set("username", username);
-
-  // Pass subject so the dashboard pre-selects the right subject tab
   if (item.subject) params.set("subject", item.subject);
+  if (item.quiz_name || item.name) params.set("quiz_name", item.quiz_name || item.name);
 
-  // Pass quiz_name for writing result page header
-  if (item.quiz_name || item.name) {
-    params.set("quiz_name", item.quiz_name || item.name);
-  }
+  // ✅ FIX: Pass the live childStatus so result pages don't default to "trial"
+  params.set("status", childStatus);
 
   if (isWriting) {
-    // → Writing AI evaluation page
     navigate(`/writing-feedback/result?${params.toString()}`);
   } else {
-    // → Non-writing results dashboard (Reading / Numeracy / Language)
     navigate(`/NonWritingLookupQuizResults/results?${params.toString()}`);
   }
-}, [navigate, childInfo, childProfile, searchParams]);
-
+}, [navigate, childInfo, childProfile, searchParams, childStatus]); // ← add childStatus to deps
   const handleQuizClose = () => {
     setActiveQuiz(null);
     if (activeToken && childId) {
