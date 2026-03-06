@@ -363,7 +363,7 @@ async function sendWeeklyProgressEmail(opts) {
   await sendBrevoEmail({
     toEmail: parentEmail,
     subject: `${childName}'s Weekly Progress: ${quizzesCompleted} quiz${quizzesCompleted !== 1 ? "zes" : ""}, ${averageScore}% avg`,
-    text: `${childName}'s weekly progress: ${quizzesCompleted} quizzes completed, ${averageScore}% average score. View at ${DASHBOARD_URL}/parent-dashboard`,
+    text: `${childName}'s weekly progress: ${quizzesCompleted} quizzes completed, ${averageScore}% average score. View at ${DASHBOARD_URL}parent-dashboard`,
     html,
   });
 }
