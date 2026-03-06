@@ -1,17 +1,9 @@
 /**
  * QuizResult.jsx
- *
- * Post-submission result screen. Shows:
- *   - Score & grade (instant for MCQ)
- *   - Topic breakdown
- *   - "Generating AI feedback..." polling for writing quizzes
- *   - "View Answers" button → opens AnswersModal with PDF download
- *   - Link back to dashboard
- *
  * Place in: src/app/components/quiz/QuizResult.jsx
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import AnswersModal from "./AnswersModal";
@@ -21,21 +13,18 @@ function ScoreRing({ percentage }) {
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percentage / 100) * circumference;
-
   const color =
-    percentage >= 85 ? "#059669" : percentage >= 70 ? "#d97706" : percentage >= 50 ? "#2563eb" : "#dc2626";
+    percentage >= 85 ? "#059669" :
+    percentage >= 70 ? "#d97706" :
+    percentage >= 50 ? "#2563eb" : "#dc2626";
 
   return (
     <div className="relative w-32 h-32">
       <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
         <circle cx="60" cy="60" r={radius} fill="none" stroke="#f1f5f9" strokeWidth="8" />
         <circle
-          cx="60"
-          cy="60"
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth="8"
+          cx="60" cy="60" r={radius}
+          fill="none" stroke={color} strokeWidth="8"
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
@@ -53,14 +42,11 @@ function ScoreRing({ percentage }) {
 function TopicBar({ name, scored, total }) {
   const pct = total > 0 ? Math.round((scored / total) * 100) : 0;
   const color = pct >= 80 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-500" : "bg-red-500";
-
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-sm">
         <span className="text-slate-700 font-medium truncate">{name}</span>
-        <span className="text-slate-500 text-xs flex-shrink-0 ml-2">
-          {scored}/{total} ({pct}%)
-        </span>
+        <span className="text-slate-500 text-xs flex-shrink-0 ml-2">{scored}/{total} ({pct}%)</span>
       </div>
       <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-700 ease-out ${color}`} style={{ width: `${pct}%` }} />
@@ -72,41 +58,77 @@ function TopicBar({ name, scored, total }) {
 /* ═══════════════════════════════════════
    MAIN: QuizResult
    ═══════════════════════════════════════ */
-export default function QuizResult({ result, quizName, violations = 0, onClose }) {
+export default function QuizResult({ result, quizName, violations = 0, onClose, childStatus: childStatusProp }) {
   const navigate = useNavigate();
-  // ✅ FIX: Added childProfile so we can read the live status for navigation
+  // childStatusProp is passed from ChildDashboard which fetches the LIVE DB value.
+  // childProfile.status from localStorage is stale if they logged in before an upgrade.
+  // JWT token has NO status field at all — so u?.status is always undefined.
   const { user, childProfile } = useAuth();
-  const score = result?.score || {};
-  const topics = result?.topic_breakdown || {};
-  const isWriting = result?.is_writing;
-  const aiStatus = result?.ai_status;
 
-  // ─── Answers modal state ───
+  const score     = result?.score || {};
+  const topics    = result?.topic_breakdown || {};
+  const isWriting = result?.is_writing;
+  const aiStatus  = result?.ai_status;
+
   const [showAnswers, setShowAnswers] = useState(false);
 
-  // Resolve the attempt ID (native quiz attempts use attempt_id; legacy uses response_id)
   const attemptId = result?.attempt_id || result?.response_id || result?.responseId || null;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Keep a ref that always points to the LATEST childProfile & user so that
+  // the callback never captures a stale null value from the first render.
+  // ─────────────────────────────────────────────────────────────────────────
+  const authRef = useRef({ user, childProfile });
+  useEffect(() => {
+    authRef.current = { user, childProfile };
+  }); // intentionally no deps — runs every render to stay fresh
 
   const handleViewAIFeedback = useCallback(() => {
     if (!attemptId) return;
+
+    // Always read latest values via ref — never stale
+    const { childProfile: cp, user: u } = authRef.current;
+
+    // ✅ FIX: Resolve status with correct priority order:
+    //    1. childStatusProp — live DB value fetched by ChildDashboard (most accurate)
+    //    2. cp?.status      — localStorage childProfile (stale after a purchase)
+    //    3. "trial"         — safe fallback
+    //    NOTE: u?.status (JWT) is NEVER set — the child JWT doesn't include status.
+    const resolvedStatus = childStatusProp || cp?.status || "trial";
+
+    // ✅ FIX: Resolve child_id — try all common field names.
+    const resolvedChildId =
+      cp?.child_id  ||
+      cp?.id        ||
+      cp?.childId   ||
+      u?.child_id   ||
+      u?.childId    ||
+      null;
+
     const params = new URLSearchParams({ r: attemptId });
 
-    if (user?.username) params.set("username", user.username);
-    if (result?.subject) params.set("subject", result.subject);
-    if (quizName) params.set("quiz_name", quizName);
+    if (u?.username)     params.set("username",  u.username);
+    if (result?.subject) params.set("subject",   result.subject);
+    if (quizName)        params.set("quiz_name", quizName);
 
-    // ✅ FIX: Pass live status so result pages don't show TrialGateOverlay
-    // after a bundle purchase. childProfile from JWT can be stale post-purchase,
-    // but the destination pages (Dashboard.jsx / ResultPage.jsx) read this param
-    // via searchParams.get("status") to override the stale JWT value.
-    params.set("status", childProfile?.status || "trial");
+    // Always send status — guaranteed non-null
+    params.set("status", resolvedStatus);
 
-    navigate(
-      isWriting
-        ? `/writing-feedback/result?${params}`
-        : `/NonWritingLookupQuizResults/results?${params}`
-    );
-  }, [attemptId, user?.username, childProfile?.status, result?.subject, quizName, navigate, isWriting]);
+    // Send child_id when available — required by writing-feedback page
+    if (resolvedChildId) params.set("child_id", String(resolvedChildId));
+
+    // ✅ FIX: Use hash-based URL format (/#/path?params) to match the
+    //    HashRouter deployment at https://edu-tech-both.vercel.app
+    //    navigate() omits the leading '#/' prefix — window.location.href
+    //    constructs the full hash URL correctly, e.g.:
+    //    https://edu-tech-both.vercel.app/#/NonWritingLookupQuizResults/results?r=...
+    const hashPath = isWriting
+      ? `writing-feedback/result`
+      : `NonWritingLookupQuizResults/results`;
+
+    window.location.href = `${window.location.origin}/#/${hashPath}?${params}`;
+  }, [attemptId, result?.subject, quizName, isWriting, childStatusProp]);
+  // ↑ childProfile/user intentionally excluded — read via authRef at call time
 
   const handleViewAnalytics = useCallback(() => {
     navigate("/student-analytics");
@@ -114,22 +136,23 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
 
   const gradeEmoji = useMemo(() => {
     const p = score.percentage || 0;
-    if (p >= 90) return { emoji: "\u{1F31F}", label: "Outstanding!" };
-    if (p >= 80) return { emoji: "\u{1F389}", label: "Great job!" };
-    if (p >= 70) return { emoji: "\u{1F44D}", label: "Good work!" };
-    if (p >= 50) return { emoji: "\u{1F4AA}", label: "Keep practicing!" };
-    return { emoji: "\u{1F4DA}", label: "More practice needed" };
+    if (p >= 90) return { emoji: "🌟", label: "Outstanding!" };
+    if (p >= 80) return { emoji: "🎉", label: "Great job!" };
+    if (p >= 70) return { emoji: "👍", label: "Good work!" };
+    if (p >= 50) return { emoji: "💪", label: "Keep practicing!" };
+    return { emoji: "📚", label: "More practice needed" };
   }, [score.percentage]);
 
   const topicEntries = Object.entries(topics).sort((a, b) => {
     const pA = a[1].total > 0 ? a[1].scored / a[1].total : 0;
     const pB = b[1].total > 0 ? b[1].scored / b[1].total : 0;
-    return pA - pB; // Weakest first
+    return pA - pB;
   });
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-slate-50 px-4 py-8">
       <div className="max-w-xl mx-auto space-y-8">
+
         {/* Header */}
         <div className="text-center space-y-2">
           <p className="text-sm font-medium text-slate-500 uppercase tracking-wider">Quiz Complete</p>
@@ -229,7 +252,6 @@ export default function QuizResult({ result, quizName, violations = 0, onClose }
 
         {/* ═══ Actions ═══ */}
         <div className="flex flex-col gap-3">
-          {/* View Answers Button */}
           {attemptId && !isWriting && (
             <button
               onClick={() => setShowAnswers(true)}
