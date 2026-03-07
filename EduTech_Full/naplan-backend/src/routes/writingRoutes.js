@@ -134,6 +134,24 @@ router.get("/", async (req, res) => {
   res.json(results);
 });
 
+// ✅ NEW: Get all writing submissions by child_id
+router.get("/by-child-id", async (req, res) => {
+  try {
+    const childId = String(req.query.child_id || "").trim();
+    if (!childId) return res.status(400).json({ error: "child_id required" });
+
+    const results = await Writing.find({ child_id: childId }).sort({
+      submitted_at: -1,
+      createdAt: -1,
+    });
+
+    return res.json(results || []);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to fetch writing by child_id" });
+  }
+});
+
 // ✅ Get latest writing submission by response_id (latest attempt)
 router.get("/:responseId", async (req, res) => {
   const id = String(req.params.responseId || "").trim();

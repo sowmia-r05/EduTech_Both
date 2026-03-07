@@ -224,8 +224,8 @@ async function updateAttemptWithFeedback(attemptId, feedbackResult) {
 async function saveWritingToCollection({
   attemptId, quizId, quizName, yearLevel, childId,
   feedbackResult,
-  attemptSnapshot,   // ✅ pre-fetched QuizAttempt data
-  enrichedQna,       // ✅ pre-built qna with question_text + answer_text
+  attemptSnapshot,
+  enrichedQna,
 }) {
   try {
     if (!attemptSnapshot) {
@@ -244,38 +244,61 @@ async function saveWritingToCollection({
       { response_id: attemptId },
       {
         $set: {
+          // ─── Identifiers ───
           response_id: attemptId,
-          quiz_id: quizId,
-          quiz_name: quizName,
-          child_id: childId,
-          subject: "Writing",
+          attempt_id:  attemptId,           // ✅ NEW: mirror field
+
+          // ─── Quiz ───
+          quiz_id:    quizId,
+          quiz_name:  quizName,
+          subject:    "Writing",
           year_level: yearLevel,
-          submitted_at: attemptSnapshot.submitted_at,
-          status: "submitted",
-          duration_sec: attemptSnapshot.duration_sec,
+
+          // ─── Ownership ───
+          child_id:  childId,
+          parent_id: attemptSnapshot.parent_id || null, // ✅ NEW
+
+          // ─── Timing ───
+          started_at:    attemptSnapshot.started_at   || null, // ✅ NEW
+          submitted_at:  attemptSnapshot.submitted_at,
+          expires_at:    attemptSnapshot.expires_at   || null, // ✅ NEW
+          duration_sec:  attemptSnapshot.duration_sec,
+          timer_expired: attemptSnapshot.timer_expired || false, // ✅ NEW
+
+          // ─── Attempt tracking ───
+          status:  "submitted",
           attempt: attemptSnapshot.attempt_number,
-          qna: enrichedQna,   // ✅ has question_text + answer_text
+
+          // ─── Proctoring ───
+          proctoring: attemptSnapshot.proctoring || null, // ✅ NEW
+
+          // ─── Content ───
+          qna: enrichedQna,
+
+          // ─── User ───
           user: {
-            user_name: child?.username || null,
-            first_name: child?.display_name || "",
-            last_name: "",
+            user_name:     child?.username || null,
+            first_name:    child?.display_name || "",
+            last_name:     "",
             email_address: "",
           },
+
+          // ─── AI ───
           ai: {
-            status: aiStatus,
-            message: aiSuccess ? "Feedback ready" : "AI evaluation failed",
-            evaluated_at: new Date(),
-            feedback: aiFeedback,
-            error: aiError,
+            status:       aiStatus,
+            message:      aiSuccess ? "Evaluation complete" : aiError,
+            evaluated_at: aiSuccess ? new Date() : null,
+            feedback:     aiFeedback,
+            error:        aiError,
           },
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    console.log(`✅ Writing saved to Writing collection for attempt ${attemptId} — AI: ${aiStatus}`);
+    console.log(`✅ Writing saved for attempt ${attemptId} — AI: ${aiStatus}`);
 
-    // Delete QuizAttempt — writing data lives only in Writing collection
+    // Delete QuizAttempt — writing data now fully lives in Writing collection
     await QuizAttempt.deleteOne({ attempt_id: attemptId });
     console.log(`🗑️ QuizAttempt deleted for writing attempt ${attemptId}`);
 
