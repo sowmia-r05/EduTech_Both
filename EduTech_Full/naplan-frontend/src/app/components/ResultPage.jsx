@@ -31,6 +31,7 @@ import {
   fetchLatestWritingByEmailAndQuiz,
   fetchWritingByResponseId,
   fetchWritingsByUsername,
+  fetchWritingsByChildId, // ✅ ADD THIS
   normalizeEmail,
 } from "@/app/utils/api";
 
@@ -137,10 +138,32 @@ const viewerType = childToken && !isParentViewing
         if (cancelled) return;
         if (!data) { setError("No writing document found."); setLoading(false); return; }
         setDoc(data);
-        const effectiveUsername = usernameParam || data?.user?.user_name || "";
-        if (effectiveUsername) {
-          try { const all = await fetchWritingsByUsername(effectiveUsername, authOpts); if (!cancelled) setWritingsList(all || []); }
-          catch { if (!cancelled) setWritingsList([]); }
+      const effectiveUsername = usernameParam || data?.user?.user_name || "";
+          if (effectiveUsername) {
+            try {
+              const all = await fetchWritingsByUsername(effectiveUsername, authOpts);
+              if (!cancelled) setWritingsList(all || []);
+            } catch {
+              if (!cancelled) setWritingsList([]);
+            }
+          } else if (data?.child_id) {
+            // ✅ Fallback for native quiz children with null user.user_name
+            try {
+              const all = await fetchWritingsByChildId(String(data.child_id), authOpts);
+              if (!cancelled) setWritingsList(all || []);
+            } catch {
+              if (!cancelled) setWritingsList([]);
+            }
+          }
+          else if (data?.child_id) {
+          // ✅ Fallback: native quiz children may have null user.user_name
+          // Fetch all writing for this child using child_id
+          try {
+            const all = await fetchWritingsByChildId(String(data.child_id), authOpts);
+            if (!cancelled) setWritingsList(all || []);
+          } catch {
+            if (!cancelled) setWritingsList([]);
+          }
         }
         setLoading(false);
       } catch (err) { if (!cancelled) { setError(err?.message || "Failed to load writing evaluation."); setLoading(false); } }

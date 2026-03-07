@@ -32,7 +32,7 @@ const Child = require("../models/child");
 const { triggerAiFeedback, syncWritingAttempt } = require("../services/aiFeedbackService"); // ✅ Gap 2 + Writing sync
 const { sendQuizCompletionEmail, checkNotificationEligibility } = require("../services/emailNotifications");
 const QuizCatalog = require("../models/quizCatalog"); // ✅ For bundle-based entitlement
-
+const Writing = require("../models/writing"); // ✅ ADD THIS
 const router = express.Router();
 
 // ─── Constants ───
@@ -126,12 +126,30 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
     // ═══════════════════════════════════════
     // ✅ Gap 5: MAX ATTEMPTS CHECK
     // ═══════════════════════════════════════
-    const maxAttempts = quiz.max_attempts || MAX_ATTEMPTS_DEFAULT;
-    const completedAttempts = await QuizAttempt.countDocuments({
-      child_id: childId,
-      quiz_id: quiz.quiz_id,
-      status: { $in: ["scored", "ai_done", "submitted"] },
-    });
+    // ✅ FIX: attempts_enabled=true + max_attempts=null means UNLIMITED
+      if (!quiz.attempts_enabled) {
+        // Retakes disabled — skip the rest of the attempts check, enforce 1 attempt below
+      } 
+
+      const maxAttempts = quiz.attempts_enabled
+        ? (quiz.max_attempts !== null ? quiz.max_attempts : Infinity)
+        : 1;
+    // ✅ FIX: Count completed attempts from BOTH collections
+// Writing attempts are deleted from QuizAttempt after AI eval → live in Writing collection
+      const isWritingQuizCheck = /writing/i.test(quiz.subject || quiz.quiz_name || "");
+
+      const [mcqCompleted, writingCompleted] = await Promise.all([
+        QuizAttempt.countDocuments({
+          child_id: childId,
+          quiz_id: quiz.quiz_id,
+          status: { $in: ["scored", "ai_done", "submitted"] },
+        }),
+        isWritingQuizCheck
+          ? Writing.countDocuments({ child_id: childId, quiz_id: quiz.quiz_id })
+          : Promise.resolve(0),
+      ]);
+
+    const completedAttempts = mcqCompleted + writingCompleted;
 
     if (completedAttempts >= maxAttempts) {
       return res.status(403).json({
@@ -186,10 +204,20 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
     }
 
     // Count ALL previous attempts (including expired) for attempt_number
-    const prevAttempts = await QuizAttempt.countDocuments({
-      child_id: childId,
-      quiz_id: quiz.quiz_id,
-    });
+   // Count ALL previous attempts (including expired) for attempt_number
+// ✅ FIX: For writing quizzes, QuizAttempts are deleted after AI evaluation
+// and moved to the Writing collection — so we must count both to get the
+// true attempt number, otherwise the counter resets to 1 every time.
+      const isWritingQuiz = /writing/i.test(quiz.subject || quiz.quiz_name || "");
+
+      const [prevQuizAttempts, prevWritingAttempts] = await Promise.all([
+        QuizAttempt.countDocuments({ child_id: childId, quiz_id: quiz.quiz_id }),
+        isWritingQuiz
+          ? Writing.countDocuments({ child_id: childId, quiz_id: quiz.quiz_id })
+          : Promise.resolve(0),
+      ]);
+
+      const prevAttempts = prevQuizAttempts + prevWritingAttempts;
 
     // ═══════════════════════════════════════
     // ✅ Gap 6: SERVER-SIDE TIMER (expires_at)
