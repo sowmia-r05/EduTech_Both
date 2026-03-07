@@ -24,7 +24,7 @@ const getWritingDate = (w) =>
   unwrapDate(w?.submitted_at || w?.date_submitted || w?.date_created || w?.createdAt);
 
 /* ═══════════════════════ WRITING ATTEMPT PICKER MODAL ═══════════════════════ */
-function WritingAttemptPickerModal({ isOpen, onClose, attempts, onSelect, dateLabel }) {
+function WritingAttemptPickerModal({ isOpen, onClose, attempts, onSelect, dateLabel, allAttempts = [] }) {
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = "hidden";
@@ -39,6 +39,13 @@ function WritingAttemptPickerModal({ isOpen, onClose, attempts, onSelect, dateLa
   }, [isOpen, onClose]);
 
   if (!isOpen || !attempts?.length) return null;
+
+  // ✅ Pre-sort ALL attempts globally once (chronological)
+  const sortedAll = [...allAttempts].sort((a, b) => {
+    const da = new Date(getWritingDate(a) || 0);
+    const db = new Date(getWritingDate(b) || 0);
+    return da - db;
+  });
 
   return createPortal(
     <div
@@ -72,7 +79,15 @@ function WritingAttemptPickerModal({ isOpen, onClose, attempts, onSelect, dateLa
             const raw = getWritingDate(attempt);
             const time = raw ? formatTime(raw) : "—";
 
-            // ✅ Writing-specific: show band + total score instead of generic percentage
+            // ✅ Find global position across ALL attempts (not just this day)
+            const globalIdx = sortedAll.findIndex(
+              (w) =>
+                (w._id && String(w._id) === String(attempt._id)) ||
+                (w.response_id && w.response_id === attempt.response_id)
+            );
+            const attemptNumber = globalIdx >= 0 ? globalIdx + 1 : idx + 1;
+
+            // Writing-specific: show band + total score
             const feedback = attempt?.ai?.feedback;
             const totalScore = feedback?.overall?.total_score;
             const maxScore = feedback?.overall?.max_score;
@@ -80,13 +95,11 @@ function WritingAttemptPickerModal({ isOpen, onClose, attempts, onSelect, dateLa
             const wordCount = feedback?.meta?.word_count ?? feedback?.word_count;
             const quizName = attempt?.quiz_name || "Writing";
 
-            // Score display — prefer "12/55" style for writing
             const scoreDisplay =
               totalScore != null && maxScore != null
                 ? `${totalScore}/${maxScore}`
                 : "—";
 
-            // Band-based status label (matches NonWriting style)
             const statusLabel = band?.includes("Above")
               ? "Above Standard"
               : band?.includes("Below")
@@ -102,8 +115,9 @@ function WritingAttemptPickerModal({ isOpen, onClose, attempts, onSelect, dateLa
                 className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:border-teal-300 hover:bg-teal-50/50 transition group text-left"
               >
                 <div className="flex-1 min-w-0">
+                  {/* ✅ Uses global attemptNumber instead of idx + 1 */}
                   <p className="text-sm font-medium text-gray-800 truncate">
-                    Attempt {idx + 1} — {quizName}
+                    Attempt {attemptNumber} — {quizName}
                   </p>
                   <p className="text-xs text-gray-500 mt-0.5">
                     {time} • Score: {scoreDisplay} • {statusLabel}
@@ -279,13 +293,14 @@ export default function DateRangeWritingFilter({
         )}
       </div>
 
-      {/* Modal renders via portal to document.body — completely outside header DOM */}
+      {/* ✅ allAttempts passed so modal can compute global attempt numbers */}
       <WritingAttemptPickerModal
         isOpen={pickerOpen}
         onClose={handlePickerClose}
         attempts={pendingAttempts}
         onSelect={handleAttemptPick}
         dateLabel={dateLabel}
+        allAttempts={quizAttempts}
       />
     </>
   );
