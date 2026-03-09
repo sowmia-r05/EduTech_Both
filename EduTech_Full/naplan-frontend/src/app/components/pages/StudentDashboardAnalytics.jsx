@@ -17,11 +17,15 @@ import {
   ReferenceLine,
 } from "recharts";
 
+// ✅ Lucide icons for subjects
+import { BookOpen, PenLine, Hash, Languages, Library, LayoutDashboard, ClipboardList } from "lucide-react";
+
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════════════ */
 
 const SUBJECTS = ["Reading", "Writing", "Numeracy", "Language"];
+
 const SUBJECT_COLORS = {
   Reading: "#6366F1",
   Writing: "#EF4444",
@@ -52,18 +56,28 @@ const SUBJECT_BORDER = {
   Numeracy: "border-emerald-300",
   Language: "border-amber-300",
 };
-const SUBJECT_EMOJI = {
-  Reading: "📖",
-  Writing: "✍️",
-  Numeracy: "🔢",
-  Language: "📝",
+
+// ✅ Lucide icon map — replaces SUBJECT_EMOJI
+const SUBJECT_ICON = {
+  Reading:  BookOpen,
+  Writing:  PenLine,
+  Numeracy: Hash,
+  Language: Languages,
+  Other:    Library,
+  All:      LayoutDashboard,
 };
 
+/* ─── Helper: renders a subject icon safely as JSX ─── */
+function SubjectIconEl({ subject, className = "w-4 h-4" }) {
+  const Icon = SUBJECT_ICON[subject] || Library;
+  return <Icon className={className} />;
+}
+
 const TIME_FILTERS = [
-  { label: "This Week", days: 7 },
-  { label: "This Month", days: 30 },
+  { label: "This Week",     days: 7 },
+  { label: "This Month",    days: 30 },
   { label: "Last 3 Months", days: 90 },
-  { label: "All Time", days: Infinity },
+  { label: "All Time",      days: Infinity },
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -71,7 +85,6 @@ const TIME_FILTERS = [
    ═══════════════════════════════════════════════════════════ */
 
 function buildSubjectTrendData(tests) {
-  // Returns each quiz attempt as a data point (sorted by date)
   return [...tests]
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .map((t, i) => ({
@@ -120,7 +133,6 @@ function buildSubjectComparison(tests) {
 }
 
 function buildTopicBreakdown(tests) {
-  // Group by quiz name as a proxy for "topics" within a subject
   const quizMap = {};
   tests.forEach((t) => {
     const key = t.name || "Unknown Quiz";
@@ -184,7 +196,10 @@ function KPISkeleton() {
 function ChartSkeleton({ message }) {
   return (
     <div className="flex flex-col items-center justify-center h-48 text-center gap-3">
-      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-2xl">📊</div>
+      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
+        {/* ✅ Lucide icon instead of 📊 emoji */}
+        <LayoutDashboard className="w-6 h-6 text-slate-400" />
+      </div>
       <p className="text-sm text-slate-400 max-w-xs">{message}</p>
     </div>
   );
@@ -297,7 +312,6 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing })
 
   return (
     <div className="space-y-5">
-      {/* Trend badge + meta */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <TrendBadge trend={feedback.trend || "new"} />
         {feedbackDoc.attempt_count > 0 && (
@@ -308,12 +322,10 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing })
         )}
       </div>
 
-      {/* Summary */}
       {feedback.summary && (
         <p className="text-sm text-slate-700 leading-relaxed">{feedback.summary}</p>
       )}
 
-      {/* Strengths */}
       {feedback.strengths?.length > 0 && (
         <FeedbackSection icon="✅" title="Strengths" color="text-emerald-700">
           <ul className="space-y-1.5">
@@ -327,7 +339,6 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing })
         </FeedbackSection>
       )}
 
-      {/* Areas for improvement */}
       {feedback.areas_for_improvement?.length > 0 && (
         <FeedbackSection icon="🎯" title="Focus Areas" color="text-amber-700">
           <div className="space-y-2.5">
@@ -341,7 +352,6 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing })
         </FeedbackSection>
       )}
 
-      {/* Study tips */}
       {feedback.study_tips?.length > 0 && (
         <FeedbackSection icon="📚" title="Study Tips" color="text-indigo-700">
           <ol className="space-y-1.5">
@@ -355,7 +365,6 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing })
         </FeedbackSection>
       )}
 
-      {/* Topic highlights */}
       {feedback.topic_highlights?.length > 0 && (
         <FeedbackSection icon="💡" title="Topic Highlights" color="text-violet-700">
           <ul className="space-y-1.5">
@@ -369,7 +378,6 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing })
         </FeedbackSection>
       )}
 
-      {/* Encouragement */}
       {feedback.encouragement && (
         <div className={`rounded-xl p-4 ${subjectBgLight} border ${subjectBorderColor}`}>
           <p className={`text-sm font-medium italic ${subjectColor}`}>
@@ -378,7 +386,6 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing })
         </div>
       )}
 
-      {/* Footer */}
       {feedbackDoc.generated_at && (
         <p className="text-xs text-slate-400 text-right">
           Updated {new Date(feedbackDoc.generated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
@@ -397,11 +404,10 @@ function SubjectDropdown({ selectedSubject, onChange, tests }) {
   const [open, setOpen] = useState(false);
 
   const options = [
-    { value: "All", label: "All Subjects", emoji: "📊", count: tests.length },
+    { value: "All", label: "All Subjects", count: tests.length },
     ...SUBJECTS.map((s) => ({
       value: s,
       label: s,
-      emoji: SUBJECT_EMOJI[s],
       count: tests.filter((t) => t.subject === s).length,
     })),
   ];
@@ -418,7 +424,8 @@ function SubjectDropdown({ selectedSubject, onChange, tests }) {
             : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
           }`}
       >
-        <span className="text-base">{selected.emoji}</span>
+        {/* ✅ Lucide icon */}
+        <SubjectIconEl subject={selected.value} className="w-4 h-4" />
         <span>{selected.label}</span>
         {selected.count > 0 && (
           <span className={`text-xs px-1.5 py-0.5 rounded-full font-normal
@@ -445,7 +452,8 @@ function SubjectDropdown({ selectedSubject, onChange, tests }) {
                 ${opt.value !== "All" && opt.value === selectedSubject ? SUBJECT_TEXT[opt.value] : "text-slate-700"}
               `}
             >
-              <span className="text-base">{opt.emoji}</span>
+              {/* ✅ Lucide icon */}
+              <SubjectIconEl subject={opt.value} className="w-4 h-4 flex-shrink-0" />
               <span className="flex-1">{opt.label}</span>
               <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
                 {opt.count}
@@ -459,13 +467,13 @@ function SubjectDropdown({ selectedSubject, onChange, tests }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SUBJECT TABS (pill row below dropdown for desktop)
+   SUBJECT TABS
    ═══════════════════════════════════════════════════════════ */
 
 function SubjectTabBar({ selectedSubject, onChange, tests }) {
   const options = [
-    { value: "All", label: "All Subjects", emoji: "📊" },
-    ...SUBJECTS.map((s) => ({ value: s, label: s, emoji: SUBJECT_EMOJI[s] })),
+    { value: "All", label: "All Subjects" },
+    ...SUBJECTS.map((s) => ({ value: s, label: s })),
   ];
 
   return (
@@ -487,7 +495,11 @@ function SubjectTabBar({ selectedSubject, onChange, tests }) {
                 : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
               }`}
           >
-            <span>{opt.emoji}</span>
+            {/* ✅ Lucide icon */}
+            <SubjectIconEl
+              subject={opt.value}
+              className={`w-4 h-4 ${isActive ? "text-white" : opt.value !== "All" ? SUBJECT_TEXT[opt.value] : "text-slate-500"}`}
+            />
             <span>{opt.label}</span>
             {count > 0 && (
               <span className={`text-xs px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>
@@ -548,16 +560,14 @@ export default function StudentDashboardAnalytics({
   const navigate = useNavigate();
   const { logout, logoutChild, childToken, parentToken, user } = useAuth();
 
-  const [timeFilter, setTimeFilter] = useState(3); // default "All Time"
+  const [timeFilter, setTimeFilter] = useState(3);
   const [selectedSubject, setSelectedSubject] = useState("All");
 
-  // ─── Cumulative AI Feedback ───
   const [cumulativeFeedback, setCumulativeFeedback] = useState({});
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const pollTimerRef = useRef(null);
 
-  // Extract childId from auth context — works for both parent-viewing-child and direct child login
   const childId = useMemo(() => {
     if (user?.childId) return user.childId;
     if (user?.child_id) return user.child_id;
@@ -571,7 +581,6 @@ export default function StudentDashboardAnalytics({
     try {
       const data = await fetchCumulativeFeedback(activeToken, childId);
       setCumulativeFeedback(data || {});
-      // Check if any are still generating — if so, poll
       const stillGenerating = Object.values(data || {}).some(
         (d) => d.status === "generating" || d.status === "pending"
       );
@@ -586,9 +595,7 @@ export default function StudentDashboardAnalytics({
   useEffect(() => {
     setFeedbackLoading(true);
     loadCumulativeFeedback().finally(() => setFeedbackLoading(false));
-    return () => {
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-    };
+    return () => { if (pollTimerRef.current) clearTimeout(pollTimerRef.current); };
   }, [loadCumulativeFeedback]);
 
   const handleRefreshFeedback = useCallback(async () => {
@@ -596,7 +603,6 @@ export default function StudentDashboardAnalytics({
     setRefreshing(true);
     try {
       await refreshCumulativeFeedback(activeToken, childId);
-      // Start polling
       pollTimerRef.current = setTimeout(loadCumulativeFeedback, 3000);
     } catch (err) {
       console.warn("Refresh failed:", err.message);
@@ -605,13 +611,11 @@ export default function StudentDashboardAnalytics({
     }
   }, [childId, activeToken, refreshing, loadCumulativeFeedback]);
 
-  // ─── Active cumulative feedback doc for the current subject view ───
   const activeFeedbackDoc = useMemo(() => {
     const key = selectedSubject === "All" ? "Overall" : selectedSubject;
     return cumulativeFeedback[key] || null;
   }, [cumulativeFeedback, selectedSubject]);
 
-  /* ─── Fallback handlers ─── */
   const handleBack = onBack || (() => {
     if (childToken) navigate("/child-dashboard");
     else if (parentToken) navigate("/parent-dashboard");
@@ -624,7 +628,6 @@ export default function StudentDashboardAnalytics({
     navigate("/");
   });
 
-  /* ─── Filter by time window ─── */
   const timeFilteredTests = useMemo(() => {
     const { days } = TIME_FILTERS[timeFilter];
     if (days === Infinity) return tests;
@@ -633,7 +636,6 @@ export default function StudentDashboardAnalytics({
     return tests.filter((t) => new Date(t.date) >= cutoff);
   }, [tests, timeFilter]);
 
-  /* ─── Filter by selected subject ─── */
   const subjectTests = useMemo(() => {
     if (selectedSubject === "All") return timeFilteredTests;
     return timeFilteredTests.filter((t) => t.subject === selectedSubject);
@@ -641,7 +643,6 @@ export default function StudentDashboardAnalytics({
 
   const hasData = subjectTests.length > 0;
 
-  /* ─── KPIs ─── */
   const avgScore = useMemo(() => {
     if (!subjectTests.length) return 0;
     return Math.round(subjectTests.reduce((a, t) => a + t.score, 0) / subjectTests.length);
@@ -661,7 +662,6 @@ export default function StudentDashboardAnalytics({
     return Math.round(avgSecond - avgFirst);
   }, [subjectTests]);
 
-  /* ─── "All Subjects" specific analytics ─── */
   const comparisonData = useMemo(() => buildSubjectComparison(timeFilteredTests), [timeFilteredTests]);
 
   const strongest = useMemo(() => {
@@ -676,7 +676,6 @@ export default function StudentDashboardAnalytics({
     return withData.reduce((p, c) => (c.score < p.score ? c : p)).subject;
   }, [comparisonData]);
 
-  /* ─── Subject-specific: trend + topic breakdown ─── */
   const subjectTrendData = useMemo(() => buildSubjectTrendData(subjectTests), [subjectTests]);
   const allSubjectsTrend = useMemo(() => buildAllSubjectsTrendData(timeFilteredTests), [timeFilteredTests]);
   const topicData = useMemo(() => buildTopicBreakdown(subjectTests).slice(0, 8), [subjectTests]);
@@ -695,10 +694,6 @@ export default function StudentDashboardAnalytics({
   const subjectColor = selectedSubject !== "All" ? SUBJECT_COLORS[selectedSubject] : "#6366F1";
   const subjectBg = selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] : "bg-indigo-50";
   const subjectTextClass = selectedSubject !== "All" ? SUBJECT_TEXT[selectedSubject] : "text-indigo-600";
-
-  /* ═══════════════════════════════════════════════════════════
-     RENDER
-     ═══════════════════════════════════════════════════════════ */
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
@@ -728,7 +723,6 @@ export default function StudentDashboardAnalytics({
             </div>
           </div>
 
-          {/* Right: Time filter + Logout */}
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
               {TIME_FILTERS.map((f, i) => (
@@ -736,9 +730,7 @@ export default function StudentDashboardAnalytics({
                   key={f.label}
                   onClick={() => setTimeFilter(i)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    timeFilter === i
-                      ? "bg-slate-800 text-white shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
+                    timeFilter === i ? "bg-slate-800 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
                   }`}
                 >
                   {f.label}
@@ -760,28 +752,21 @@ export default function StudentDashboardAnalytics({
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Filter by Subject</span>
             </div>
-            {/* Tab bar for larger screens */}
             <div className="hidden sm:block">
-              <SubjectTabBar
-                selectedSubject={selectedSubject}
-                onChange={setSelectedSubject}
-                tests={timeFilteredTests}
-              />
+              <SubjectTabBar selectedSubject={selectedSubject} onChange={setSelectedSubject} tests={timeFilteredTests} />
             </div>
-            {/* Dropdown for mobile */}
             <div className="sm:hidden">
-              <SubjectDropdown
-                selectedSubject={selectedSubject}
-                onChange={setSelectedSubject}
-                tests={timeFilteredTests}
-              />
+              <SubjectDropdown selectedSubject={selectedSubject} onChange={setSelectedSubject} tests={timeFilteredTests} />
             </div>
           </div>
 
           {/* Subject context banner */}
           {selectedSubject !== "All" && (
             <div className={`mt-4 flex items-center gap-3 px-5 py-3 rounded-xl ${subjectBg} border ${SUBJECT_BORDER[selectedSubject]}`}>
-              <span className="text-2xl">{SUBJECT_EMOJI[selectedSubject]}</span>
+              {/* ✅ Lucide icon in context banner */}
+              <span className={`${subjectTextClass}`}>
+                <SubjectIconEl subject={selectedSubject} className="w-6 h-6" />
+              </span>
               <div>
                 <p className={`font-bold text-base ${subjectTextClass}`}>{selectedSubject}</p>
                 <p className="text-xs text-slate-500">
@@ -825,32 +810,23 @@ export default function StudentDashboardAnalytics({
                     value={improvement !== null ? `${improvement >= 0 ? "+" : ""}${improvement}%` : "—"}
                     subject={selectedSubject}
                   />
-                  <KPI
-                    title="Tests Taken"
-                    value={String(subjectTests.length)}
-                    subject={selectedSubject}
-                  />
+                  <KPI title="Tests Taken" value={String(subjectTests.length)} subject={selectedSubject} />
                 </>
               )}
             </>
           ) : (
-            <>
-              <KPISkeleton /><KPISkeleton /><KPISkeleton /><KPISkeleton />
-            </>
+            <><KPISkeleton /><KPISkeleton /><KPISkeleton /><KPISkeleton /></>
           )}
         </section>
 
         {/* ──────────── CHARTS ROW ──────────── */}
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-
-          {/* TREND CHART — changes based on subject selection */}
           <Card className="xl:col-span-2">
             <CardTitle>
               {selectedSubject === "All" ? "Performance Trend (All Subjects)" : `${selectedSubject} Score History`}
             </CardTitle>
 
             {selectedSubject === "All" ? (
-              /* All subjects: multi-area monthly chart */
               hasData && allSubjectsTrend.length > 0 ? (
                 <ResponsiveContainer width="100%" height={320}>
                   <AreaChart data={allSubjectsTrend}>
@@ -884,16 +860,9 @@ export default function StudentDashboardAnalytics({
                 <ChartSkeleton message="Take some tests to see your performance trend over time" />
               )
             ) : (
-              /* Single subject: per-attempt line chart */
               hasData && subjectTrendData.length > 1 ? (
                 <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={subjectTrendData}>
-                    <defs>
-                      <linearGradient id={`subj-gradient`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={subjectColor} stopOpacity={0.2} />
-                        <stop offset="100%" stopColor={subjectColor} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="attempt" stroke="#94a3b8" fontSize={12} label={{ value: "Attempt #", position: "insideBottom", offset: -2, fontSize: 11, fill: "#94a3b8" }} />
                     <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={12} />
@@ -920,7 +889,6 @@ export default function StudentDashboardAnalytics({
               )
             )}
 
-            {/* Subject legend for "All" view */}
             {selectedSubject === "All" && hasData && (
               <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-slate-50">
                 {SUBJECTS.map((s) => (
@@ -938,7 +906,6 @@ export default function StudentDashboardAnalytics({
             )}
           </Card>
 
-          {/* RIGHT PANEL — Subject Comparison (All) or Quiz Breakdown (specific) */}
           <Card>
             <CardTitle>
               {selectedSubject === "All" ? "Subject Comparison" : `${selectedSubject} Quiz Scores`}
@@ -970,7 +937,10 @@ export default function StudentDashboardAnalytics({
                         onClick={() => setSelectedSubject(c.subject)}
                         className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition text-left"
                       >
-                        <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.color }} />
+                        {/* ✅ Lucide icon in comparison list */}
+                        <span className={`flex-shrink-0 ${SUBJECT_TEXT[c.subject]}`}>
+                          <SubjectIconEl subject={c.subject} className="w-4 h-4" />
+                        </span>
                         <span className="text-sm text-slate-700 flex-1">{c.subject}</span>
                         <ScoreBadge score={c.score} />
                         <span className="text-xs text-slate-400">{c.count} tests</span>
@@ -982,7 +952,6 @@ export default function StudentDashboardAnalytics({
                 <ChartSkeleton message="Complete tests in different subjects to compare" />
               )
             ) : (
-              /* Per-subject: list of quizzes */
               hasData ? (
                 <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                   {topicData.map((q, i) => (
@@ -993,10 +962,7 @@ export default function StudentDashboardAnalytics({
                       <span className="text-sm text-slate-700 flex-1 truncate" title={q.name}>{q.name}</span>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{ width: `${q.score}%`, background: subjectColor }}
-                          />
+                          <div className="h-full rounded-full" style={{ width: `${q.score}%`, background: subjectColor }} />
                         </div>
                         <ScoreBadge score={q.score} />
                       </div>
@@ -1012,8 +978,6 @@ export default function StudentDashboardAnalytics({
 
         {/* ──────────── SECOND ROW ──────────── */}
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-
-          {/* Academic Summary */}
           <Card>
             <CardTitle>
               {selectedSubject === "All" ? "Academic Summary" : `${selectedSubject} Summary`}
@@ -1021,27 +985,16 @@ export default function StudentDashboardAnalytics({
             {hasData ? (
               <>
                 <div className="space-y-1 text-sm">
-                  <SummaryRow
-                    label={selectedSubject === "All" ? "Overall Average" : "Subject Average"}
-                    value={`${avgScore}%`}
-                  />
+                  <SummaryRow label={selectedSubject === "All" ? "Overall Average" : "Subject Average"} value={`${avgScore}%`} />
                   <SummaryRow label="Best Score" value={`${bestScore}%`} />
                   {improvement !== null && (
-                    <SummaryRow
-                      label="Improvement"
-                      value={`${improvement >= 0 ? "+" : ""}${improvement}%`}
-                      positive={improvement >= 0}
-                    />
+                    <SummaryRow label="Improvement" value={`${improvement >= 0 ? "+" : ""}${improvement}%`} positive={improvement >= 0} />
                   )}
-                  <SummaryRow
-                    label={selectedSubject === "All" ? "Total Tests" : `${selectedSubject} Tests`}
-                    value={String(subjectTests.length)}
-                  />
+                  <SummaryRow label={selectedSubject === "All" ? "Total Tests" : `${selectedSubject} Tests`} value={String(subjectTests.length)} />
                   {selectedSubject === "All" && (
                     <SummaryRow label="Subjects Active" value={String(activeSubjects)} />
                   )}
                 </div>
-
                 <div className="mt-5">
                   <p className="text-xs text-slate-500 mb-2">Progress Toward Target (85%)</p>
                   <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
@@ -1063,15 +1016,14 @@ export default function StudentDashboardAnalytics({
             )}
           </Card>
 
-          {/* Score Distribution */}
           <Card>
             <CardTitle>Score Distribution</CardTitle>
             {hasData ? (
               <div className="space-y-4">
                 {[
-                  { label: "High (80%+)", tests: subjectTests.filter((t) => t.score >= 80), color: "bg-emerald-500" },
-                  { label: "Mid (50–79%)", tests: subjectTests.filter((t) => t.score >= 50 && t.score < 80), color: "bg-amber-500" },
-                  { label: "Needs Work (<50%)", tests: subjectTests.filter((t) => t.score < 50), color: "bg-rose-500" },
+                  { label: "High (80%+)",      tests: subjectTests.filter((t) => t.score >= 80),                      color: "bg-emerald-500" },
+                  { label: "Mid (50–79%)",      tests: subjectTests.filter((t) => t.score >= 50 && t.score < 80),     color: "bg-amber-500" },
+                  { label: "Needs Work (<50%)", tests: subjectTests.filter((t) => t.score < 50),                      color: "bg-rose-500" },
                 ].map((bucket) => {
                   const pct = subjectTests.length ? Math.round((bucket.tests.length / subjectTests.length) * 100) : 0;
                   return (
@@ -1081,10 +1033,7 @@ export default function StudentDashboardAnalytics({
                         <span>{bucket.tests.length} tests ({pct}%)</span>
                       </div>
                       <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-700 ${bucket.color}`}
-                          style={{ width: `${pct}%` }}
-                        />
+                        <div className={`h-full rounded-full transition-all duration-700 ${bucket.color}`} style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   );
@@ -1095,14 +1044,7 @@ export default function StudentDashboardAnalytics({
             )}
           </Card>
 
-          {/* Insights */}
-          <Card
-            className={
-              hasData
-                ? "bg-gradient-to-br from-indigo-600/95 to-purple-600/95 text-white shadow-xl"
-                : ""
-            }
-          >
+          <Card className={hasData ? "bg-gradient-to-br from-indigo-600/95 to-purple-600/95 text-white shadow-xl" : ""}>
             <CardTitle light={hasData}>Performance Insights</CardTitle>
             {hasData ? (
               <ul className="space-y-4 text-sm leading-relaxed">
@@ -1126,9 +1068,7 @@ export default function StudentDashboardAnalytics({
               </ul>
             ) : (
               <p className="text-sm text-slate-400 py-4 text-center">
-                {selectedSubject === "All"
-                  ? "Take some tests to see your insights"
-                  : `Take a ${selectedSubject} test to unlock insights`}
+                {selectedSubject === "All" ? "Take some tests to see your insights" : `Take a ${selectedSubject} test to unlock insights`}
               </p>
             )}
           </Card>
@@ -1137,7 +1077,6 @@ export default function StudentDashboardAnalytics({
         {/* ──────────── AI CUMULATIVE COACH ──────────── */}
         <section>
           <Card className="border-2 border-indigo-100 bg-gradient-to-br from-white to-indigo-50/30">
-            {/* Header */}
             <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-xl">🤖</div>
@@ -1153,7 +1092,7 @@ export default function StudentDashboardAnalytics({
               <div className="flex items-center gap-2">
                 {/* Subject quick-switch pills */}
                 <div className="hidden sm:flex gap-1.5 flex-wrap">
-                  {[{ key: "All", label: "Overall", emoji: "📊" }, ...SUBJECTS.map((s) => ({ key: s, label: s, emoji: SUBJECT_EMOJI[s] }))].map(({ key, label, emoji }) => {
+                  {[{ key: "All", label: "Overall" }, ...SUBJECTS.map((s) => ({ key: s, label: s }))].map(({ key, label }) => {
                     const isActive = (selectedSubject === "All" && key === "All") || selectedSubject === key;
                     const doc = cumulativeFeedback[key === "All" ? "Overall" : key];
                     const isDone = doc?.status === "done";
@@ -1161,24 +1100,24 @@ export default function StudentDashboardAnalytics({
                       <button
                         key={key}
                         onClick={() => setSelectedSubject(key)}
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all
                           ${isActive
                             ? key === "All" ? "bg-indigo-600 text-white border-indigo-600" : `${SUBJECT_BG[key]} text-white border-transparent`
                             : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
                           }`}
                       >
-                        {emoji} {label}
+                        {/* ✅ Lucide icon in AI coach pills */}
+                        <SubjectIconEl subject={key} className={`w-3.5 h-3.5 ${isActive ? "text-white" : key !== "All" ? SUBJECT_TEXT[key] : "text-slate-500"}`} />
+                        {label}
                         {isDone && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5" title="Ready" />}
                       </button>
                     );
                   })}
                 </div>
-                {/* Refresh button */}
                 <button
                   onClick={handleRefreshFeedback}
                   disabled={refreshing || feedbackLoading}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-700 transition-all disabled:opacity-50"
-                  title="Regenerate AI feedback with latest quiz data"
                 >
                   <svg className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1188,7 +1127,6 @@ export default function StudentDashboardAnalytics({
               </div>
             </div>
 
-            {/* Feedback content */}
             <AICumulativeCoachPanel
               feedbackDoc={activeFeedbackDoc}
               subject={selectedSubject}
@@ -1205,11 +1143,11 @@ export default function StudentDashboardAnalytics({
                     const doc = cumulativeFeedback[s];
                     const status = doc?.status || "none";
                     const statusConfig = {
-                      done: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", icon: "✓" },
-                      generating: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", icon: "⏳" },
-                      error: { bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200", icon: "✗" },
-                      none: { bg: "bg-slate-50", text: "text-slate-400", border: "border-slate-200", icon: "○" },
-                      pending: { bg: "bg-slate-50", text: "text-slate-400", border: "border-slate-200", icon: "○" },
+                      done:       { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", icon: "✓" },
+                      generating: { bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-200",   icon: "⏳" },
+                      error:      { bg: "bg-rose-50",    text: "text-rose-700",    border: "border-rose-200",    icon: "✗" },
+                      none:       { bg: "bg-slate-50",   text: "text-slate-400",   border: "border-slate-200",   icon: "○" },
+                      pending:    { bg: "bg-slate-50",   text: "text-slate-400",   border: "border-slate-200",   icon: "○" },
                     }[status] || { bg: "bg-slate-50", text: "text-slate-400", border: "border-slate-200", icon: "○" };
                     return (
                       <button
@@ -1217,7 +1155,8 @@ export default function StudentDashboardAnalytics({
                         onClick={() => setSelectedSubject(s)}
                         className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium transition-all hover:shadow-sm ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border}`}
                       >
-                        <span>{SUBJECT_EMOJI[s]}</span>
+                        {/* ✅ Lucide icon in feedback status pills */}
+                        <SubjectIconEl subject={s} className="w-3.5 h-3.5" />
                         <span>{s}</span>
                         <span className="font-bold">{statusConfig.icon}</span>
                         {doc?.attempt_count > 0 && (
@@ -1257,16 +1196,14 @@ export default function StudentDashboardAnalytics({
                       <td className="py-3 pr-4 text-slate-700 font-medium max-w-xs truncate">{t.name}</td>
                       {selectedSubject === "All" && (
                         <td className="py-3 pr-4">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${SUBJECT_LIGHT_BG[t.subject] || "bg-slate-100"} ${SUBJECT_TEXT[t.subject] || "text-slate-600"}`}
-                          >
-                            {SUBJECT_EMOJI[t.subject]} {t.subject}
+                          {/* ✅ Lucide icon in recent assessments table */}
+                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${SUBJECT_LIGHT_BG[t.subject] || "bg-slate-100"} ${SUBJECT_TEXT[t.subject] || "text-slate-600"}`}>
+                            <SubjectIconEl subject={t.subject} className="w-3 h-3" />
+                            {t.subject}
                           </span>
                         </td>
                       )}
-                      <td className="py-3 pr-4">
-                        <ScoreBadge score={t.score} />
-                      </td>
+                      <td className="py-3 pr-4"><ScoreBadge score={t.score} /></td>
                       <td className="py-3 pr-4 text-slate-500">
                         {new Date(t.date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" })}
                       </td>
@@ -1278,8 +1215,12 @@ export default function StudentDashboardAnalytics({
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
-              <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center text-3xl">
-                {selectedSubject !== "All" ? SUBJECT_EMOJI[selectedSubject] : "📋"}
+              {/* ✅ Lucide icon in empty state */}
+              <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center">
+                <SubjectIconEl
+                  subject={selectedSubject !== "All" ? selectedSubject : "All"}
+                  className="w-7 h-7 text-slate-400"
+                />
               </div>
               <p className="text-slate-500 font-medium">No assessments yet</p>
               <p className="text-sm text-slate-400">
