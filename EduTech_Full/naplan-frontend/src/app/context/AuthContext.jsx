@@ -16,17 +16,42 @@ function safeJsonParse(key) {
   }
 }
 
+// ✅ Checks if a JWT token is expired (without a library)
+function isTokenExpired(token) {
+  if (!token) return true;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.exp * 1000 < Date.now();
+  } catch {
+    return true;
+  }
+}
+
 export function AuthProvider({ children }) {
   // ─── Parent state ───
-  const [parentToken, setParentToken] = useState(
-    () => localStorage.getItem("parent_token") || null
-  );
+  // ✅ FIXED: Clear stale/expired token on app load
+  const [parentToken, setParentToken] = useState(() => {
+    const token = localStorage.getItem("parent_token");
+    if (isTokenExpired(token)) {
+      localStorage.removeItem("parent_token");
+      localStorage.removeItem("parent_profile");
+      return null;
+    }
+    return token;
+  });
   const [parentProfile, setParentProfile] = useState(() => safeJsonParse("parent_profile"));
 
   // ─── Child state ───
-  const [childToken, setChildToken] = useState(
-    () => localStorage.getItem("child_token") || null
-  );
+  // ✅ FIXED: Clear stale/expired token on app load
+  const [childToken, setChildToken] = useState(() => {
+    const token = localStorage.getItem("child_token");
+    if (isTokenExpired(token)) {
+      localStorage.removeItem("child_token");
+      localStorage.removeItem("child_profile");
+      return null;
+    }
+    return token;
+  });
   const [childProfile, setChildProfile] = useState(() => safeJsonParse("child_profile"));
 
   // ─── Initializing guard (prevents flash redirect on tab reopen) ───
@@ -117,14 +142,14 @@ export function AuthProvider({ children }) {
       isAuthenticated: !!activeToken,
       isParent: activeRole === "parent",
       isChild: activeRole === "child",
-      isInitializing, // ✅ NEW
+      isInitializing,
     }),
     [
       parentToken, childToken, parentProfile, childProfile,
       activeRole, activeToken,
       loginParent, loginChild, logout, logoutChild, authHeaders,
       apiFetch,
-      isInitializing, // ✅ NEW
+      isInitializing,
     ]
   );
 
