@@ -1215,7 +1215,7 @@ function ChildCard({
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 3v18h18"/><polyline points="18 9 12 15 9 12 3 18"/>
               </svg>
-              Child Dashboard
+              View Results
             </button>
             <button
               onClick={() => onBuyBundle?.(child)}
