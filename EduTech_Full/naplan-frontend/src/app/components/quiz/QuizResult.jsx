@@ -335,11 +335,11 @@ export default function QuizResult({ result, quizName, violations = 0, onClose, 
               <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover:bg-slate-200 flex items-center justify-center transition-colors text-slate-600">
                 {icons.analytics}
               </span>
-              <span className="text-xs font-semibold text-slate-700">View Analytics</span>
+              <span className="text-xs font-semibold text-slate-700">View Progress</span>
             </button>
           </div>
 
-          {/* View AI Feedback — full-width primary */}
+          {/* View Test Insights — full-width primary */}
           {attemptId && (
             <button
               onClick={handleViewAIFeedback}
@@ -350,7 +350,7 @@ export default function QuizResult({ result, quizName, violations = 0, onClose, 
                   {icons.ai}
                 </span>
                 <span className="text-sm font-semibold text-indigo-800">
-                  View AI Feedback
+                  View Test Insights
                   {/* Show a small "active" badge so we can confirm status is resolved */}
                   {liveStatus && liveStatus !== "trial" && (
                     <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-200 text-indigo-700 uppercase tracking-wide">
