@@ -15,6 +15,8 @@ import PurchaseHistory from "@/app/components/payments/PurchaseHistory";
 import QuickChildLoginModal from "@/app/components/dashboardComponents/QuickChildLoginModal";
 import FreeTrialOnboarding from "@/app/components/dashboardComponents/FreeTrialOnboarding";
 import ChildDataConsentPolicy from "@/app/components/ChildDataConsentPolicy";
+import ParentAvatarMenu from "@/app/components/ui/ParentAvatarMenu";
+import PracticePacksButton from "@/app/components/ui/PracticePacksButton";
 
 const formatAUD = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)} AUD`;
 
@@ -294,14 +296,10 @@ export default function ParentDashboard() {
       {/* TOP NAVIGATION */}
       <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-10">
         <h1 className="text-lg font-semibold text-slate-900">KAI Solutions</h1>
-        <div className="flex gap-3">
-          <button
-            onClick={handleLogout}
-            className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700"
-          >
-            Logout
-          </button>
-        </div>
+        <ParentAvatarMenu
+          onAddChild={() => setIsAddModalOpen(true)}
+          onChildLogin={() => setIsChildLoginModalOpen(true)}
+        />
       </header>
 
       {/* MAIN CONTENT */}
@@ -318,24 +316,9 @@ export default function ParentDashboard() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => navigate("/bundles")}
-              className="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700"
-            >
-              Practice Packs
-            </button>
-             <button
-              onClick={() => setIsChildLoginModalOpen(true)}
-              className="px-3 sm:px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-colors"
-            >
-              🎒 Child Login
-            </button>
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="px-3 sm:px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
-            >
-              + Add Child
-            </button>
+          <button>
+           <PracticePacksButton/>
+          </button>
           </div>
         </section>
 
