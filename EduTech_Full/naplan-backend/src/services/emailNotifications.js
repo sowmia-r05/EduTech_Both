@@ -207,7 +207,7 @@ async function sendQuizCompletionEmail(opts) {
   await sendBrevoEmail({
     toEmail: parentEmail,
     subject: `${gi.emoji} ${childName} scored ${pct}% on ${quizName}`,
-    text: `${childName} completed "${quizName}" and scored ${pct}% (${score?.points || 0}/${score?.available || 0}). View results at ${DASHBOARD_URL}/parent-dashboard`,
+    text: `${childName} completed "${quizName}" and scored ${pct}% (${score?.points || 0}/${score?.available || 0}). View results at ${DASHBOARD_URL}parent-dashboard`,
     html,
   });
 }

@@ -12,6 +12,7 @@ import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAn
 import NativeQuizPlayer from "@/app/components/quiz/NativeQuizPlayer";
 import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
 import QuizResult from "@/app/components/quiz/QuizResult";
+import { BookOpen, PenLine, Hash, Languages, Library } from "lucide-react";
 
 /* ─── Subject inference from quiz name ─── */
 function inferSubject(quizName) {
@@ -51,16 +52,16 @@ function getTimeGreeting() {
 
 /* ─── Motivational messages — rotates daily ─── */
 const MOTIVATIONAL_MESSAGES = [
-  { emoji: "🌟", text: "Every expert was once a beginner. Keep going — you're building something amazing!" },
-  { emoji: "🚀", text: "Your brain gets stronger every time you try. Let's make today count!" },
-  { emoji: "💪", text: "Mistakes are proof you're trying. Each quiz makes you smarter!" },
-  { emoji: "🎯", text: "Small steps every day lead to big results. You've got this!" },
-  { emoji: "⭐", text: "Champions aren't made in a day — they're made one quiz at a time!" },
-  { emoji: "🧠", text: "The more you practise, the easier it gets. Your future self will thank you!" },
-  { emoji: "🏆", text: "You don't have to be perfect, you just have to be better than yesterday!" },
-  { emoji: "🔥", text: "Hard work beats talent when talent doesn't work hard. Keep pushing!" },
-  { emoji: "🌈", text: "Every quiz you finish is a step closer to your goals. Let's do this!" },
-  { emoji: "💡", text: "Curious minds go far. Keep asking questions and exploring!" },
+  { text: "Every expert was once a beginner. Keep going — you're building something amazing!" },
+  { text: "Your brain gets stronger every time you try. Let's make today count!" },
+  { text: "Mistakes are proof you're trying. Each quiz makes you smarter!" },
+  { text: "Small steps every day lead to big results. You've got this!" },
+  { text: "Champions aren't made in a day — they're made one quiz at a time!" },
+  { text: "The more you practise, the easier it gets. Your future self will thank you!" },
+  { text: "You don't have to be perfect, you just have to be better than yesterday!" },
+  { text: "Hard work beats talent when talent doesn't work hard. Keep pushing!" },
+  { text: "Every quiz you finish is a step closer to your goals. Let's do this!" },
+  { text: "Curious minds go far. Keep asking questions and exploring!" },
 ];
 
 function getDailyMotivation() {
@@ -83,11 +84,11 @@ function getDailyParentMessage() {
 
 /* ─── Subject styling ─── */
 const SUBJECT_STYLE = {
-  Reading:  { icon: "📖", bg: "bg-blue-50",    text: "text-blue-700",    badge: "bg-blue-100 text-blue-700" },
-  Writing:  { icon: "✍️", bg: "bg-purple-50",  text: "text-purple-700",  badge: "bg-purple-100 text-purple-700" },
-  Numeracy: { icon: "🔢", bg: "bg-amber-50",   text: "text-amber-700",   badge: "bg-amber-100 text-amber-700" },
-  Language: { icon: "📝", bg: "bg-emerald-50", text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" },
-  Other:    { icon: "📚", bg: "bg-slate-50",   text: "text-slate-700",   badge: "bg-slate-100 text-slate-700" },
+  Reading:  { icon: BookOpen,   bg: "bg-blue-50",    text: "text-blue-700",    badge: "bg-blue-100 text-blue-700" },
+  Writing:  { icon: PenLine,    bg: "bg-purple-50",  text: "text-purple-700",  badge: "bg-purple-100 text-purple-700" },
+  Numeracy: { icon: Hash,       bg: "bg-amber-50",   text: "text-amber-700",   badge: "bg-amber-100 text-amber-700" },
+  Language: { icon: Languages,  bg: "bg-emerald-50", text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" },
+  Other:    { icon: Library,    bg: "bg-slate-50",   text: "text-slate-700",   badge: "bg-slate-100 text-slate-700" },
 };
 
 /* ─── Difficulty Badge ─── */
@@ -204,58 +205,55 @@ export default function ChildDashboard() {
   }, [activeToken, childId]);
 
   /* ─── FETCH CHILD RESULTS ─── */
-useEffect(() => {
-  if (!activeToken || !childId) { setLoading(false); return; }
-  setLoading(true);
+  useEffect(() => {
+    if (!activeToken || !childId) { setLoading(false); return; }
+    setLoading(true);
 
-  Promise.all([
-    fetchChildResults(activeToken, childId),
-    fetchChildWriting(activeToken, childId),   // ✅ also fetch writing
-  ])
-    .then(([results, writingDocs]) => {
+    Promise.all([
+      fetchChildResults(activeToken, childId),
+      fetchChildWriting(activeToken, childId),
+    ])
+      .then(([results, writingDocs]) => {
+        const nonWriting = results.map((r) => ({
+          id: r._id,
+          response_id: r.response_id,
+          quiz_id: r.quiz_id,
+          subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
+          name: r.quiz_name || "Untitled Quiz",
+          score: Math.round(r.score?.percentage || 0),
+          date: r.date_submitted || r.createdAt,
+          quiz_name: r.quiz_name,
+          grade: r.score?.grade || "",
+          duration: r.duration || 0,
+          source: r.source || "flexiquiz",
+        }));
 
-      // Map non-writing results
-      const nonWriting = results.map((r) => ({
-        id: r._id,
-        response_id: r.response_id,
-        quiz_id: r.quiz_id,
-        subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
-        name: r.quiz_name || "Untitled Quiz",
-        score: Math.round(r.score?.percentage || 0),
-        date: r.date_submitted || r.createdAt,
-        quiz_name: r.quiz_name,
-        grade: r.score?.grade || "",
-        duration: r.duration || 0,
-        source: r.source || "flexiquiz",
-      }));
+        const writing = (writingDocs || []).map((w) => ({
+          id: w._id,
+          response_id: w.response_id,
+          quiz_id: w.quiz_id,
+          subject: "Writing",
+          name: w.quiz_name || "Untitled Quiz",
+          score: (() => {
+            const overall = w?.ai?.feedback?.overall;
+            if (!overall) return 0;
+            const total = overall.total_score || 0;
+            const max = overall.max_score || 0;
+            return max > 0 ? Math.round((total / max) * 100) : 0;
+          })(),
+          date: w.submitted_at || w.createdAt,
+          quiz_name: w.quiz_name,
+          grade: "",
+          duration: w.duration_sec || 0,
+          source: "writing",
+        }));
 
-      // ✅ Map writing docs — response_id is the key that links to Writing collection
-      const writing = (writingDocs || []).map((w) => ({
-        id: w._id,
-        response_id: w.response_id,          // ← this is what was missing
-        quiz_id: w.quiz_id,
-        subject: "Writing",
-        name: w.quiz_name || "Untitled Quiz",
-        score: (() => {
-          const overall = w?.ai?.feedback?.overall;
-          if (!overall) return 0;
-          const total = overall.total_score || 0;
-          const max = overall.max_score || 0;
-          return max > 0 ? Math.round((total / max) * 100) : 0;
-        })(),
-        date: w.submitted_at || w.createdAt,
-        quiz_name: w.quiz_name,
-        grade: "",
-        duration: w.duration_sec || 0,
-        source: "writing",
-      }));
-
-      setTests([...nonWriting, ...writing]);
-      setError(null);
-    })
-    .catch((err) => { console.error("Failed to load child results:", err); setError(err.message); })
-    .finally(() => setLoading(false));
-}, [activeToken, childId]);
+        setTests([...nonWriting, ...writing]);
+        setError(null);
+      })
+      .catch((err) => { console.error("Failed to load child results:", err); setError(err.message); })
+      .finally(() => setLoading(false));
+  }, [activeToken, childId]);
 
   /* ─── Quiz catalog ─── */
   const entitledCatalog = useMemo(() => availableQuizzes, [availableQuizzes]);
@@ -306,49 +304,41 @@ useEffect(() => {
   }, [entitledTests, entitledCatalog]);
 
   /* ─── Merge quizzes with completed results ─── */
-  /* ─── Merge quizzes with completed results ─── */
-const mergedQuizzes = useMemo(() => {
-  return entitledCatalog.map((quiz) => {
-    // Find ALL matches, filtering by subject first to prevent cross-subject collisions
-    const matches = tests.filter((t) => {
-      // Subject guard — Writing must only match Writing, and vice versa
-      const quizIsWriting = quiz.subject === "Writing";
-      const testIsWriting = t.subject === "Writing";
-      if (quizIsWriting !== testIsWriting) return false;
+  const mergedQuizzes = useMemo(() => {
+    return entitledCatalog.map((quiz) => {
+      const matches = tests.filter((t) => {
+        const quizIsWriting = quiz.subject === "Writing";
+        const testIsWriting = t.subject === "Writing";
+        if (quizIsWriting !== testIsWriting) return false;
+        if (quiz.quiz_id && t.quiz_id && quiz.quiz_id === t.quiz_id) return true;
+        const tName = (t.name || t.quiz_name || "").toLowerCase().trim();
+        const qName = (quiz.quiz_name || "").toLowerCase().trim();
+        return tName === qName;
+      });
 
-      // Primary: match by quiz_id (most reliable)
-      if (quiz.quiz_id && t.quiz_id && quiz.quiz_id === t.quiz_id) return true;
+      const matched = matches.length
+        ? matches.sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+        : null;
 
-      // Fallback: match by name
-      const tName = (t.name || t.quiz_name || "").toLowerCase().trim();
-      const qName = (quiz.quiz_name || "").toLowerCase().trim();
-      return tName === qName;
+      return {
+        id: quiz.quiz_id,
+        quiz_id: quiz.quiz_id,
+        name: quiz.quiz_name,
+        subject: quiz.subject,
+        year_level: quiz.year_level,
+        difficulty: quiz.difficulty || "Standard",
+        time_limit_minutes: quiz.time_limit_minutes,
+        question_count: quiz.question_count,
+        is_trial: quiz.is_trial,
+        is_entitled: quiz.is_entitled,
+        status: matched ? "completed" : "not_started",
+        score: matched ? matched.score : null,
+        grade: matched ? matched.grade : null,
+        date_completed: matched ? matched.date : null,
+        response_id: matched ? matched.response_id : null,
+      };
     });
-
-    // Pick the MOST RECENT match so retakes always show the latest response_id
-    const matched = matches.length
-      ? matches.sort((a, b) => new Date(b.date) - new Date(a.date))[0]
-      : null;
-
-    return {
-      id: quiz.quiz_id,
-      quiz_id: quiz.quiz_id,
-      name: quiz.quiz_name,
-      subject: quiz.subject,
-      year_level: quiz.year_level,
-      difficulty: quiz.difficulty || "Standard",
-      time_limit_minutes: quiz.time_limit_minutes,
-      question_count: quiz.question_count,
-      is_trial: quiz.is_trial,
-      is_entitled: quiz.is_entitled,
-      status: matched ? "completed" : "not_started",
-      score: matched ? matched.score : null,
-      grade: matched ? matched.grade : null,
-      date_completed: matched ? matched.date : null,
-      response_id: matched ? matched.response_id : null,
-    };
-  });
-}, [tests, entitledCatalog]);
+  }, [tests, entitledCatalog]);
 
   const completedCount = mergedQuizzes.filter((q) => q.status === "completed").length;
   const availableCount = mergedQuizzes.filter((q) => q.status === "not_started").length;
@@ -441,30 +431,26 @@ const mergedQuizzes = useMemo(() => {
   }, [activeToken]);
 
   const handleAiFeedback = useCallback((item) => {
-  const rid = item.response_id;
-  if (!rid) return;
+    const rid = item.response_id;
+    if (!rid) return;
+    const isWriting = (item.subject || "").toLowerCase() === "writing";
+    const params = new URLSearchParams({ r: rid });
+    const username =
+      childInfo?.username ||
+      childProfile?.username ||
+      searchParams.get("username") ||
+      null;
+    if (username) params.set("username", username);
+    if (item.subject) params.set("subject", item.subject);
+    if (item.quiz_name || item.name) params.set("quiz_name", item.quiz_name || item.name);
+    params.set("status", childStatus);
+    if (isWriting) {
+      navigate(`/writing-feedback/result?${params.toString()}`);
+    } else {
+      navigate(`/NonWritingLookupQuizResults/results?${params.toString()}`);
+    }
+  }, [navigate, childInfo, childProfile, searchParams, childStatus]);
 
-  const isWriting = (item.subject || "").toLowerCase() === "writing";
-  const params = new URLSearchParams({ r: rid });
-
-  const username =
-    childInfo?.username ||
-    childProfile?.username ||
-    searchParams.get("username") ||
-    null;
-  if (username) params.set("username", username);
-  if (item.subject) params.set("subject", item.subject);
-  if (item.quiz_name || item.name) params.set("quiz_name", item.quiz_name || item.name);
-
-  // ✅ FIX: Pass the live childStatus so result pages don't default to "trial"
-  params.set("status", childStatus);
-
-  if (isWriting) {
-    navigate(`/writing-feedback/result?${params.toString()}`);
-  } else {
-    navigate(`/NonWritingLookupQuizResults/results?${params.toString()}`);
-  }
-}, [navigate, childInfo, childProfile, searchParams, childStatus]); // ← add childStatus to deps
   const handleQuizClose = () => {
     setActiveQuiz(null);
     if (activeToken && childId) {
@@ -607,8 +593,8 @@ const mergedQuizzes = useMemo(() => {
           <div className="space-y-1">
             <h1 className="text-3xl font-bold text-indigo-600">
               {isParentViewing
-                ? `Hi ${displayName}! ${motivation.emoji}`
-                : `${timeGreeting}, ${displayName}! ${motivation.emoji}`}
+                ? `Hi ${displayName}!`
+                : `${timeGreeting}, ${displayName}!`}
             </h1>
             {yearLevel && (
               <p className="text-sm text-indigo-400 font-medium">Year {yearLevel} Explorer</p>
@@ -618,23 +604,20 @@ const mergedQuizzes = useMemo(() => {
             </p>
           </div>
 
-          {/* ── ACTION BUTTONS — single logout guaranteed by ternary ── */}
           <div className="flex gap-2 flex-shrink-0">
-            {/* Overall Analytics — always visible */}
             <button
               onClick={() => setShowAnalytics(true)}
               className="group inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold
                          bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-200
                          hover:from-indigo-700 hover:to-violet-700 hover:shadow-lg transition-all duration-200"
-              title="Overall Analytics"
+              title="Learning Progress"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
               </svg>
-              Overall Analytics
+              Learning Progress
             </button>
 
-            {/* Ternary: parent view gets Back + Logout, child view gets just Logout */}
             {isParentViewing ? (
               <>
                 <button
@@ -697,7 +680,7 @@ const mergedQuizzes = useMemo(() => {
           <AnimatedProgressRing percent={overallAverage} />
         </section>
 
-         {/* ── MY QUIZZES ── */}
+        {/* ── MY QUIZZES ── */}
         <section>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-4">
@@ -752,7 +735,7 @@ const mergedQuizzes = useMemo(() => {
                     { key: "status",  label: "Status" },
                     { key: "score",   label: "Score" },
                     { key: null,      label: "Action" },
-                    { key: null,      label: "AI Feedback" },
+                    { key: null,      label: "Test Insights" },
                     { key: null,      label: "" },
                   ].map((col, idx) => (
                     <th
@@ -781,6 +764,10 @@ const mergedQuizzes = useMemo(() => {
                     const style = SUBJECT_STYLE[quiz.subject] || SUBJECT_STYLE.Other;
                     const isCompleted = quiz.status === "completed";
                     const canOpenResult = Boolean(quiz.response_id);
+
+                    // ✅ FIX: Extract Lucide icon as a component so it renders correctly
+                    const SubjectIconComponent = style.icon;
+
                     return (
                       <tr
                         key={quiz.id}
@@ -790,8 +777,9 @@ const mergedQuizzes = useMemo(() => {
                         {/* Subject */}
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-2.5">
-                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${style.bg}`}>
-                              {style.icon}
+                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${style.bg}`}>
+                              {/* ✅ FIX: Render as JSX component, not as {style.icon} */}
+                              <SubjectIconComponent className={`w-4 h-4 ${style.text}`} />
                             </span>
                             <span className={`font-medium text-sm ${style.text}`}>{quiz.subject}</span>
                           </div>
@@ -861,8 +849,7 @@ const mergedQuizzes = useMemo(() => {
                           )}
                         </td>
 
-        
-                        {/* AI Feedback */}
+                        {/* Test Insights */}
                         <td className="px-5 py-4">
                           {quiz.response_id ? (
                             <button
@@ -873,13 +860,13 @@ const mergedQuizzes = useMemo(() => {
                                   : "bg-indigo-600 hover:bg-indigo-700"
                                 }`}
                             >
-                              {(quiz.subject || "").toLowerCase() === "writing" ? "AI Feedback" : "AI Feedback"}
+                              Test Insights
                             </button>
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
                         </td>
-                    </tr>
+                      </tr>
                     );
                   })
                 ) : (
@@ -960,18 +947,22 @@ const mergedQuizzes = useMemo(() => {
             </div>
           ) : (
             <div className="grid md:grid-cols-4 gap-4">
-              {SUBJECTS.map((subj, i) => (
-                <div
-                  key={subj}
-                  className="bg-white border border-dashed border-slate-300 rounded-xl p-4 flex flex-col items-center justify-center text-center py-8"
-                >
-                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-3">
-                    <span className="text-slate-400 text-lg">{["📖", "✍️", "🔢", "📝"][i]}</span>
+              {SUBJECTS.map((subj, i) => {
+                const style = SUBJECT_STYLE[subj] || SUBJECT_STYLE.Other;
+                const EmptyIcon = style.icon;
+                return (
+                  <div
+                    key={subj}
+                    className="bg-white border border-dashed border-slate-300 rounded-xl p-4 flex flex-col items-center justify-center text-center py-8"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                      <EmptyIcon className="w-5 h-5 text-slate-400" />
+                    </div>
+                    <p className="text-xs text-slate-400 font-medium">{subj}</p>
+                    <p className="text-xs text-slate-300 mt-1">No results yet</p>
                   </div>
-                  <p className="text-xs text-slate-400 font-medium">{subj}</p>
-                  <p className="text-xs text-slate-300 mt-1">No results yet</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
@@ -1005,18 +996,21 @@ const mergedQuizzes = useMemo(() => {
             })}
           </div>
         </section>
+
       </div>
     </div>
   );
 }
 
-/* ─── Small components ─── */
+/* ─── SubjectIcon — now uses Lucide icons from SUBJECT_STYLE ─── */
 function SubjectIcon({ subject, size = "md" }) {
-  const icons = { Reading: "📖", Writing: "✍️", Numeracy: "🔢", Language: "📝", Other: "📚" };
-  const sizes = { sm: "w-6 h-6 text-sm", md: "w-8 h-8 text-base" };
+  const style = SUBJECT_STYLE[subject] || SUBJECT_STYLE.Other;
+  const Icon = style.icon;
+  const sizes = { sm: "w-6 h-6", md: "w-8 h-8" };
+  const iconSizes = { sm: "w-3 h-3", md: "w-4 h-4" };
   return (
-    <div className={`${sizes[size]} rounded-full bg-indigo-50 flex items-center justify-center flex-shrink-0`}>
-      {icons[subject] || icons.Other}
+    <div className={`${sizes[size]} rounded-full ${style.bg} flex items-center justify-center flex-shrink-0`}>
+      <Icon className={`${iconSizes[size]} ${style.text}`} />
     </div>
   );
 }
