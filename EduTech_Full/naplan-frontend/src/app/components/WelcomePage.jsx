@@ -1,3 +1,7 @@
+import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "@/app/context/AuthContext";
+
 import Navbar from '@/app/components/layout/Navbar'
 import HeroSection from '@/app/components/landing/HeroSection'
 import TrustBar from '@/app/components/landing/TrustBar'
@@ -11,14 +15,29 @@ import Footer from '@/app/components/landing/Footer'
 import FreeVsPaidSection from '@/app/components/landing/FreeVsPaidSection'
 
 export default function WelcomePage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { isParent, isChild, isInitializing } = useAuth();
+
+  // If URL has ?welcome=1, the user intentionally wants to see this page
+  // so we skip the auto-redirect even if they're logged in
+  const bypassRedirect = searchParams.get("welcome") === "1";
+
+  useEffect(() => {
+    if (bypassRedirect) return;        // ← user chose to view this page
+    if (isInitializing) return;        // ← wait for localStorage to load
+    if (isParent) navigate("/parent-dashboard", { replace: true });
+    else if (isChild) navigate("/child-dashboard", { replace: true });
+  }, [isParent, isChild, isInitializing, navigate, bypassRedirect]);
+
   return (
-  <div>
+    <div>
       <Navbar />
       <HeroSection />
       <TrustBar />
       <HowItWorks />
       <WhySection />
-      <FreeVsPaidSection />       
+      <FreeVsPaidSection />
       <TestimonialsSection />
       <FAQSection />
       <CTASection />

@@ -157,7 +157,7 @@ router.post("/google", async (req, res) => {
         email: parent.email,
       },
       PARENT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "365d" }
     );
 
     return res.json({
