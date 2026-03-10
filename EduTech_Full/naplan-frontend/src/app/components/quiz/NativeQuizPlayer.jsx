@@ -249,7 +249,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
         if (res.status === 410) {
           clearInterval(autoSaveTimer.current);
           if (!submitCalledRef.current) {
-            console.log("⏰ Server says time expired — auto-submitting...");
+            console.log("Server says time expired — auto-submitting...");
             handleSubmit();
           }
         }

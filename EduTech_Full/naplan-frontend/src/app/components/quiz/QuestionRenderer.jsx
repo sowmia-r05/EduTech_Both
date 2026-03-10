@@ -191,7 +191,7 @@ function FreeTextQuestion({ question, answer, onAnswer }) {
         </div>
       </div>
       <p className="text-xs text-slate-400">
-        ✏️ Write your response in the box above. Your answer is saved automatically.
+        Write your response in the box above. Your answer is saved automatically.
       </p>
     </div>
   );
@@ -232,7 +232,7 @@ function ShortAnswerQuestion({ question, answer, onAnswer }) {
         )}
       </div>
       <p className="text-xs text-slate-400">
-        ✍️ Type your answer in the box above. Your answer is saved automatically.
+        Type your answer in the box above. Your answer is saved automatically.
       </p>
     </div>
   );
