@@ -75,6 +75,7 @@ export default function ChildAvatarMenu({
   displayName,
   isParentViewing = false,
   isOnAnalyticsPage = false,
+  hideBackToChild = false,
   onViewAnalytics,
   onBackToParent,
   onBackToChildDashboard,
@@ -306,6 +307,7 @@ export default function ChildAvatarMenu({
             <div style={{ padding: "6px" }}>
 
               {/* ← Back to Child Dashboard — always (both parent & child) */}
+              {!hideBackToChild && (
               <MenuItem
                 onClick={handleBackToChild}
                 iconBg="#F0F9FF"
@@ -318,6 +320,7 @@ export default function ChildAvatarMenu({
                 color="#0284C7"
                 hoverBg="#F0F9FF"
               />
+              )}
 
               {/* ← Back to Parent Dashboard — parent only */}
               {isParentViewing && (
