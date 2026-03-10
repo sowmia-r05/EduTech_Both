@@ -366,9 +366,6 @@ export default function ChildDashboard() {
         <IconChart /><span className="hidden sm:inline">Learning Progress</span>
       </NavBtn>
       <ChildAvatarMenu displayName={displayName} isParentViewing={isParentViewing} onViewAnalytics={onAnalyticsClick} onBackToParent={() => navigate("/parent-dashboard")} />
-      <NavBtn onClick={handleLogout} variant="danger">
-        <IconLogout /><span className="hidden sm:inline">Log Out</span>
-      </NavBtn>
     </>
   );
 
@@ -408,13 +405,8 @@ export default function ChildDashboard() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
         <DashboardHeader>
-          <button onClick={() => setShowAnalytics(false)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-all">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-            Back to Dashboard
-          </button>
           <span className="text-sm font-medium text-slate-500 hidden md:inline">{displayName}'s Learning Progress</span>
           <ChildAvatarMenu displayName={displayName} isParentViewing={isParentViewing} onViewAnalytics={() => {}} onBackToParent={() => navigate("/parent-dashboard")} />
-          <NavBtn onClick={handleLogout} variant="danger"><IconLogout /><span className="hidden sm:inline">Log Out</span></NavBtn>
         </DashboardHeader>
         <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="analytics" viewerType={viewerType} onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")} onBack={() => setShowAnalytics(false)} yearLevel={yearLevel}>
           <StudentDashboardAnalytics tests={entitledTests} displayName={displayName} yearLevel={yearLevel} embedded={true} onLogout={handleLogout} />
@@ -495,27 +487,66 @@ export default function ChildDashboard() {
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-fixed">
+                {/*
+                  Column widths — must add up to 100%:
+                  Subject 15 | Quiz Name 26 | Status 14 | Score 10 | Action 13 | Test Insights 14 | Date 8
+                */}
+                <colgroup>
+                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "26%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "13%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "8%"  }} />
+                </colgroup>
+
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    {[
-                      { key:"subject", label:"Subject" },
-                      { key:"name",    label:"Quiz Name" },
-                      { key:"status",  label:"Status" },
-                      { key:"score",   label:"Score" },
-                      { key:null,      label:"Action" },
-                      { key:null,      label:"Test Insights" },
-                      { key:null,      label:"" },
-                    ].map((col, idx) => (
-                      <th key={`${col.label}-${idx}`} onClick={() => col.key && handleSort(col.key)}
-                        className={`px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider ${col.key ? "cursor-pointer hover:text-indigo-600 select-none" : ""}`}>
-                        {col.label
-                          ? <span className="flex items-center gap-1">{col.label}{col.key && sortConfig.key === col.key && <span className="text-indigo-500">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>}</span>
-                          : null}
-                      </th>
-                    ))}
+                    {/* Subject — left */}
+                    <th onClick={() => handleSort("subject")}
+                      className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600 select-none">
+                      <span className="flex items-center gap-1">
+                        Subject {sortConfig.key === "subject" && <span className="text-indigo-500">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>}
+                      </span>
+                    </th>
+                    {/* Quiz Name — left */}
+                    <th onClick={() => handleSort("name")}
+                      className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600 select-none">
+                      <span className="flex items-center gap-1">
+                        Quiz Name {sortConfig.key === "name" && <span className="text-indigo-500">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>}
+                      </span>
+                    </th>
+                    {/* Status — center */}
+                    <th onClick={() => handleSort("status")}
+                      className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600 select-none">
+                      <span className="flex items-center justify-center gap-1">
+                        Status {sortConfig.key === "status" && <span className="text-indigo-500">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>}
+                      </span>
+                    </th>
+                    {/* Score — center */}
+                    <th onClick={() => handleSort("score")}
+                      className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600 select-none">
+                      <span className="flex items-center justify-center gap-1">
+                        Score {sortConfig.key === "score" && <span className="text-indigo-500">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>}
+                      </span>
+                    </th>
+                    {/* Action — center */}
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Action
+                    </th>
+                    {/* Test Insights — center */}
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Test Insights
+                    </th>
+                    {/* Date — center */}
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Date
+                    </th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-slate-100">
                   {paginatedQuizzes.length > 0 ? paginatedQuizzes.map((quiz) => {
                     const style = SUBJECT_STYLE[quiz.subject] || SUBJECT_STYLE.Other;
@@ -527,58 +558,54 @@ export default function ChildDashboard() {
                       <tr
                         key={quiz.id}
                         onClick={() => canViewResult && handleViewResult(quiz)}
-                        className={`transition group ${canViewResult ? "cursor-pointer hover:bg-indigo-50/40" : "hover:bg-slate-50/60"}`}
-                        title={canViewResult ? "Click to view result" : undefined}
+                        className={`transition ${canViewResult ? "cursor-pointer hover:bg-indigo-50/40" : "hover:bg-slate-50/60"}`}
+                        title={canViewResult ? "Click row to view result" : undefined}
                       >
-                        {/* Subject */}
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-2.5">
-                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${style.bg}`}>
+                        {/* Subject — left */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${style.bg}`}>
                               <Icon className={`w-4 h-4 ${style.text}`} />
                             </span>
                             <span className={`font-medium text-sm ${style.text}`}>{quiz.subject}</span>
                           </div>
                         </td>
 
-                        {/* Quiz name */}
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-slate-800">{quiz.name}</p>
+                        {/* Quiz Name — left */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-slate-800 leading-snug">{quiz.name}</p>
                             <DifficultyBadge difficulty={quiz.difficulty} />
                           </div>
-                          {canViewResult && (
-                            <p className="text-[11px] text-indigo-400 mt-0.5 opacity-0 group-hover:opacity-100 transition">
-                              Click row to view result
-                            </p>
-                          )}
                         </td>
 
-                        {/* Status */}
-                        <td className="px-5 py-4">
+                        {/* Status — center */}
+                        <td className="px-4 py-3 text-center">
                           {isCompleted
-                            ? <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Completed</span>
-                            : <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-50 text-slate-600 border border-slate-200"><span className="w-1.5 h-1.5 rounded-full bg-slate-400" />Not Started</span>}
+                            ? <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />Completed
+                              </span>
+                            : <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-50 text-slate-600 border border-slate-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 flex-shrink-0" />Not Started
+                              </span>}
                         </td>
 
-                        {/* Score */}
-                        <td className="px-5 py-4">
+                        {/* Score — center */}
+                        <td className="px-4 py-3 text-center">
                           {isCompleted && quiz.score !== null
-                            ? <div className="flex items-center gap-2">
+                            ? <span>
                                 <span className={`text-sm font-bold ${quiz.score >= 85 ? "text-emerald-600" : quiz.score >= 70 ? "text-amber-600" : "text-rose-600"}`}>{quiz.score}%</span>
-                                {quiz.grade && <span className="text-xs text-slate-400">({quiz.grade})</span>}
-                              </div>
+                                {quiz.grade && <span className="text-xs text-slate-400 ml-1">({quiz.grade})</span>}
+                              </span>
                             : <span className="text-slate-300">—</span>}
                         </td>
 
-                        {/* ── ACTION COLUMN ──
-                            Completed  → "Retake Quiz" (launches quiz player again)
-                            Not started → "Start Quiz"
-                            No separate View Result — clicking the row does that */}
-                        <td className="px-5 py-4" onClick={(e) => e.stopPropagation()}>
+                        {/* Action — center */}
+                        <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                           {isCompleted ? (
                             <button
                               onClick={() => setActiveQuiz(quiz)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition border border-slate-200"
+                              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition border border-slate-200 whitespace-nowrap"
                             >
                               <IconRetake />
                               Retake Quiz
@@ -586,28 +613,32 @@ export default function ChildDashboard() {
                           ) : (
                             <button
                               onClick={() => setActiveQuiz(quiz)}
-                              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition"
+                              className="inline-flex items-center justify-center px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap"
                             >
                               Start Quiz
                             </button>
                           )}
                         </td>
 
-                        {/* Test Insights */}
-                        <td className="px-5 py-4" onClick={(e) => e.stopPropagation()}>
+                        {/* Test Insights — center */}
+                        <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                           {isCompleted && quiz.response_id
-                            ? <button onClick={() => handleAiFeedback(quiz)}
-                                className={`px-3 py-1.5 text-white text-xs font-semibold rounded-lg transition ${(quiz.subject||"").toLowerCase()==="writing" ? "bg-purple-600 hover:bg-purple-700" : "bg-indigo-600 hover:bg-indigo-700"}`}>
+                            ? <button
+                                onClick={() => handleAiFeedback(quiz)}
+                                className={`inline-flex items-center justify-center px-3 py-1.5 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap ${(quiz.subject||"").toLowerCase()==="writing" ? "bg-purple-600 hover:bg-purple-700" : "bg-indigo-600 hover:bg-indigo-700"}`}
+                              >
                                 Test Insights
                               </button>
                             : <span className="text-slate-300">—</span>}
                         </td>
 
-                        {/* Date */}
-                        <td className="px-5 py-4">
+                        {/* Date — center */}
+                        <td className="px-4 py-3 text-center">
                           {quiz.date_completed
-                            ? <span className="text-xs text-slate-400">{new Date(quiz.date_completed).toLocaleDateString("en-AU",{day:"numeric",month:"short"})}</span>
-                            : null}
+                            ? <span className="text-xs text-slate-400 whitespace-nowrap">
+                                {new Date(quiz.date_completed).toLocaleDateString("en-AU",{day:"numeric",month:"short"})}
+                              </span>
+                            : <span className="text-slate-300">—</span>}
                         </td>
                       </tr>
                     );
