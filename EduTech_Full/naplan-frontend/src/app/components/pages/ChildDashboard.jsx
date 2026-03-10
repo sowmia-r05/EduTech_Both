@@ -415,27 +415,47 @@ export default function ChildDashboard() {
     </div>
   );
 
-  /* ─── Analytics view ─── */
-  if (showAnalytics) {
-    const viewerType = childToken && !isParentViewing ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
-        <DashboardHeader>
-          <button onClick={() => setShowAnalytics(false)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-all">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-            Back to Dashboard
-          </button>
-          <span className="text-sm font-medium text-slate-500 hidden md:inline">{displayName}'s Learning Progress</span>
-          {/* Avatar + Logout still visible on analytics view */}
-          <ChildAvatarMenu displayName={displayName} isParentViewing={isParentViewing} onViewAnalytics={() => {}} onBackToParent={() => navigate("/parent-dashboard")} />
-          <NavBtn onClick={handleLogout} variant="danger"><IconLogout /><span className="hidden sm:inline">Log Out</span></NavBtn>
-        </DashboardHeader>
-        <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="analytics" viewerType={viewerType} onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")} onBack={() => setShowAnalytics(false)} yearLevel={yearLevel}>
-          <StudentDashboardAnalytics tests={entitledTests} displayName={displayName} yearLevel={yearLevel} embedded={true} onLogout={handleLogout} />
-        </TrialGateOverlay>
-      </div>
-    );
-  }
+
+
+if (showAnalytics) {
+  const viewerType = childToken && !isParentViewing ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
+
+      {/* ── Clean header: no back button, no standalone logout ── */}
+      <DashboardHeader>
+        <span className="text-sm font-semibold text-slate-600 hidden md:inline">
+          {displayName}&apos;s Learning Progress
+        </span>
+        <ChildAvatarMenu
+          displayName={displayName}
+          isParentViewing={isParentViewing}
+          onViewAnalytics={null}
+          onBackToParent={() => navigate("/parent-dashboard")}
+          onBackToChildDashboard={() => setShowAnalytics(false)}
+        />
+      </DashboardHeader>
+
+      <TrialGateOverlay
+        isTrialUser={childStatus === "trial"}
+        preset="analytics"
+        viewerType={viewerType}
+        onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")}
+        onBack={() => setShowAnalytics(false)}
+        yearLevel={yearLevel} >
+        <StudentDashboardAnalytics
+          tests={entitledTests}
+          displayName={displayName}
+          yearLevel={yearLevel}
+          embedded={true}
+          onLogout={handleLogout}
+        />
+      </TrialGateOverlay>
+
+    </div>
+  );
+}
+
 
   /* ═══════════════════════════════════════════
      MAIN DASHBOARD
