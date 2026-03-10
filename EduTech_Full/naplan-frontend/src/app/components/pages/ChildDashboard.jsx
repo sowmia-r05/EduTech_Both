@@ -362,9 +362,7 @@ export default function ChildDashboard() {
   /* ── Shared nav ── */
   const sharedNav = (onAnalyticsClick = () => setShowAnalytics(true)) => (
     <>
-      <NavBtn onClick={onAnalyticsClick} variant="primary">
-        <IconChart /><span className="hidden sm:inline">Learning Progress</span>
-      </NavBtn>
+
       <ChildAvatarMenu displayName={displayName} isParentViewing={isParentViewing} onViewAnalytics={onAnalyticsClick} onBackToParent={() => navigate("/parent-dashboard")} />
     </>
   );
@@ -382,10 +380,6 @@ export default function ChildDashboard() {
     return (
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-slate-50">
         <DashboardHeader>
-          <button onClick={() => setSelectedQuizResult(null)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-all">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-            Back
-          </button>
           <span className="text-sm text-slate-500 hidden sm:inline">{selectedQuizResult.quizName}</span>
           {sharedNav(() => { setSelectedQuizResult(null); setTimeout(() => setShowAnalytics(true), 50); })}
         </DashboardHeader>
