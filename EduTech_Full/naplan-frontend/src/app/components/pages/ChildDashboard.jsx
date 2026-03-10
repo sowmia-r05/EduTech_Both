@@ -360,10 +360,16 @@ export default function ChildDashboard() {
   const timeGreeting = getTimeGreeting();
 
   /* ── Shared nav ── */
-  const sharedNav = (onAnalyticsClick = () => setShowAnalytics(true)) => (
+  const sharedNav = (onAnalyticsClick = () => setShowAnalytics(true), isOnAnalyticsPage = false) => (
     <>
-
-      <ChildAvatarMenu displayName={displayName} isParentViewing={isParentViewing} onViewAnalytics={onAnalyticsClick} onBackToParent={() => navigate("/parent-dashboard")} />
+      <ChildAvatarMenu
+        displayName={displayName}
+        isParentViewing={isParentViewing}
+        isOnAnalyticsPage={isOnAnalyticsPage}
+        onViewAnalytics={onAnalyticsClick}
+        onBackToParent={() => navigate("/parent-dashboard")}
+        onBackToChildDashboard={() => navigate("/child-dashboard")}
+      />
     </>
   );
 
@@ -381,7 +387,7 @@ export default function ChildDashboard() {
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-slate-50">
         <DashboardHeader>
           <span className="text-sm text-slate-500 hidden sm:inline">{selectedQuizResult.quizName}</span>
-          {sharedNav(() => { setSelectedQuizResult(null); setTimeout(() => setShowAnalytics(true), 50); })}
+          {sharedNav(() => { setSelectedQuizResult(null); setTimeout(() => setShowAnalytics(true), 50); }, true)}
         </DashboardHeader>
         <QuizResult result={selectedQuizResult.result} quizName={selectedQuizResult.quizName} onClose={() => setSelectedQuizResult(null)} />
       </div>
@@ -400,7 +406,14 @@ export default function ChildDashboard() {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
         <DashboardHeader>
           <span className="text-sm font-medium text-slate-500 hidden md:inline">{displayName}'s Learning Progress</span>
-          <ChildAvatarMenu displayName={displayName} isParentViewing={isParentViewing} onViewAnalytics={() => {}} onBackToParent={() => navigate("/parent-dashboard")} />
+          <ChildAvatarMenu
+            displayName={displayName}
+            isParentViewing={isParentViewing}
+            isOnAnalyticsPage={true}
+            onViewAnalytics={() => {}}
+            onBackToParent={() => navigate("/parent-dashboard")}
+            onBackToChildDashboard={() => setShowAnalytics(false)}
+          />
         </DashboardHeader>
         <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="analytics" viewerType={viewerType} onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")} onBack={() => setShowAnalytics(false)} yearLevel={yearLevel}>
           <StudentDashboardAnalytics tests={entitledTests} displayName={displayName} yearLevel={yearLevel} embedded={true} onLogout={handleLogout} />
