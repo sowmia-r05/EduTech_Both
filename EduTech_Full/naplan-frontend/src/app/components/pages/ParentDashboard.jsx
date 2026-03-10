@@ -181,8 +181,8 @@ const Card = ({ children, borderColor }) => (
       border: `1px solid ${borderColor}55`,
       borderTop: `3px solid ${borderColor}`,
       padding: "20px 22px",
-      flex: "1 1 0",
-      minWidth: 0,
+      flex: "1 1 280px",
+      minWidth: "280px",
       display: "flex",
       flexDirection: "column",
       boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
@@ -1042,8 +1042,8 @@ function ChildCard({
         display: "flex",
         flexDirection: "column",
         gap: "0",
-        flex: "1 1 0",
-        minWidth: 0,
+        flex: "1 1 280px",
+        minWidth: "280px",
       }}
     >
       {/* Top row */}
@@ -1398,7 +1398,7 @@ function ChildManagementSection({
           </button>
         </div>
       ) : (
-        <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "20px" }}>  
           {childList.map((child, i) => (
             <ChildCard
               key={child.id}
