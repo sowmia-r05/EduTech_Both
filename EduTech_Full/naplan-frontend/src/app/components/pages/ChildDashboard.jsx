@@ -128,12 +128,7 @@ const IconLogout = () => (
   </svg>
 );
 
-/* ── Retake icon ── */
-const IconRetake = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1 4v6h6" /><path d="M3.51 15a9 9 0 1 0 .49-3.51" />
-  </svg>
-);
+
 
 /* ═══════════════════════════════════════════════════════
    MAIN COMPONENT
@@ -617,9 +612,8 @@ export default function ChildDashboard() {
                           {isCompleted ? (
                             <button
                               onClick={() => setActiveQuiz(quiz)}
-                              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition border border-slate-200 whitespace-nowrap"
+                              className="inline-flex items-center justify-center px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition border border-slate-200 whitespace-nowrap"
                             >
-                              <IconRetake />
                               Retake Quiz
                             </button>
                           ) : (
