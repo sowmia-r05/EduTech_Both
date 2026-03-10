@@ -360,15 +360,16 @@ export default function ChildDashboard() {
   const timeGreeting = getTimeGreeting();
 
   /* ── Shared nav ── */
-  const sharedNav = (onAnalyticsClick = () => setShowAnalytics(true), isOnAnalyticsPage = false) => (
+  const sharedNav = (onAnalyticsClick = () => setShowAnalytics(true), isOnAnalyticsPage = false, onBackOverride = null) => (
     <>
       <ChildAvatarMenu
         displayName={displayName}
         isParentViewing={isParentViewing}
         isOnAnalyticsPage={isOnAnalyticsPage}
+        hideBackToChild={!isOnAnalyticsPage && !onBackOverride}
         onViewAnalytics={onAnalyticsClick}
         onBackToParent={() => navigate("/parent-dashboard")}
-        onBackToChildDashboard={() => navigate("/child-dashboard")}
+        onBackToChildDashboard={onBackOverride ?? (() => navigate("/child-dashboard"))}
       />
     </>
   );
@@ -386,8 +387,12 @@ export default function ChildDashboard() {
     return (
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-slate-50">
         <DashboardHeader>
-          <span className="text-sm text-slate-500 hidden sm:inline">{selectedQuizResult.quizName}</span>
-          {sharedNav(() => { setSelectedQuizResult(null); setTimeout(() => setShowAnalytics(true), 50); }, true)}
+          <span className="text-sm text-slate-500 hidden sm:inline">{selectedQuizResult.quizName}</span>  
+        {sharedNav(
+          () => { setSelectedQuizResult(null); setTimeout(() => setShowAnalytics(true), 50); },
+          true,
+          () => setSelectedQuizResult(null)   
+        )}
         </DashboardHeader>
         <QuizResult result={selectedQuizResult.result} quizName={selectedQuizResult.quizName} onClose={() => setSelectedQuizResult(null)} />
       </div>
