@@ -190,21 +190,7 @@ export default function ChildAvatarMenu({
               />
             )}
 
-            {/* 📊 Learning Progress — only when NOT already on analytics */}
-            {!onBackToChildDashboard && onViewAnalytics && (
-              <MenuItem
-                onClick={() => { close(); onViewAnalytics(); }}
-                iconBg="#EEF2FF"
-                icon={
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 12h4l3-9 4 18 3-9h4" />
-                  </svg>
-                }
-                label="Learning Progress"
-                color="#4F46E5"
-                hoverBg="#EEF2FF"
-              />
-            )}
+
 
             {/* ← Back to Parent Dashboard — parent only */}
             {isParentViewing && (
