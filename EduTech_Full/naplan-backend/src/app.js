@@ -52,6 +52,7 @@ app.use(
 // ✅ JSON + keep raw body for Stripe webhook signature verification
 app.use(
   express.json({
+    limit: "100mb",
     verify: (req, res, buf) => {
       req.rawBody = buf;
     },

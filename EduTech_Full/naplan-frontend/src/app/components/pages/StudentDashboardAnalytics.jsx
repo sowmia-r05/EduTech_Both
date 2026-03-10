@@ -197,7 +197,6 @@ function ChartSkeleton({ message }) {
   return (
     <div className="flex flex-col items-center justify-center h-48 text-center gap-3">
       <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-        {/* ✅ Lucide icon instead of 📊 emoji */}
         <LayoutDashboard className="w-6 h-6 text-slate-400" />
       </div>
       <p className="text-sm text-slate-400 max-w-xs">{message}</p>
@@ -424,7 +423,6 @@ function SubjectDropdown({ selectedSubject, onChange, tests }) {
             : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
           }`}
       >
-        {/* ✅ Lucide icon */}
         <SubjectIconEl subject={selected.value} className="w-4 h-4" />
         <span>{selected.label}</span>
         {selected.count > 0 && (
@@ -452,7 +450,6 @@ function SubjectDropdown({ selectedSubject, onChange, tests }) {
                 ${opt.value !== "All" && opt.value === selectedSubject ? SUBJECT_TEXT[opt.value] : "text-slate-700"}
               `}
             >
-              {/* ✅ Lucide icon */}
               <SubjectIconEl subject={opt.value} className="w-4 h-4 flex-shrink-0" />
               <span className="flex-1">{opt.label}</span>
               <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
@@ -495,7 +492,6 @@ function SubjectTabBar({ selectedSubject, onChange, tests }) {
                 : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
               }`}
           >
-            {/* ✅ Lucide icon */}
             <SubjectIconEl
               subject={opt.value}
               className={`w-4 h-4 ${isActive ? "text-white" : opt.value !== "All" ? SUBJECT_TEXT[opt.value] : "text-slate-500"}`}
@@ -556,6 +552,7 @@ export default function StudentDashboardAnalytics({
   onBack = null,
   onLogout = null,
   embedded = false,
+  childId: childIdProp = null,   // ✅ FIX: accept childId as prop (needed for parent viewing child)
 }) {
   const navigate = useNavigate();
   const { logout, logoutChild, childToken, parentToken, user } = useAuth();
@@ -568,11 +565,13 @@ export default function StudentDashboardAnalytics({
   const [refreshing, setRefreshing] = useState(false);
   const pollTimerRef = useRef(null);
 
+  // ✅ FIX: prop takes priority — fixes parent viewing child's analytics (user.childId is null for parents)
   const childId = useMemo(() => {
+    if (childIdProp) return childIdProp;
     if (user?.childId) return user.childId;
     if (user?.child_id) return user.child_id;
     return null;
-  }, [user]);
+  }, [childIdProp, user]);
 
   const activeToken = childToken || parentToken || null;
 
@@ -763,7 +762,6 @@ export default function StudentDashboardAnalytics({
           {/* Subject context banner */}
           {selectedSubject !== "All" && (
             <div className={`mt-4 flex items-center gap-3 px-5 py-3 rounded-xl ${subjectBg} border ${SUBJECT_BORDER[selectedSubject]}`}>
-              {/* ✅ Lucide icon in context banner */}
               <span className={`${subjectTextClass}`}>
                 <SubjectIconEl subject={selectedSubject} className="w-6 h-6" />
               </span>
@@ -937,7 +935,6 @@ export default function StudentDashboardAnalytics({
                         onClick={() => setSelectedSubject(c.subject)}
                         className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition text-left"
                       >
-                        {/* ✅ Lucide icon in comparison list */}
                         <span className={`flex-shrink-0 ${SUBJECT_TEXT[c.subject]}`}>
                           <SubjectIconEl subject={c.subject} className="w-4 h-4" />
                         </span>
@@ -1106,7 +1103,6 @@ export default function StudentDashboardAnalytics({
                             : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
                           }`}
                       >
-                        {/* ✅ Lucide icon in AI coach pills */}
                         <SubjectIconEl subject={key} className={`w-3.5 h-3.5 ${isActive ? "text-white" : key !== "All" ? SUBJECT_TEXT[key] : "text-slate-500"}`} />
                         {label}
                         {isDone && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5" title="Ready" />}
@@ -1155,7 +1151,6 @@ export default function StudentDashboardAnalytics({
                         onClick={() => setSelectedSubject(s)}
                         className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium transition-all hover:shadow-sm ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border}`}
                       >
-                        {/* ✅ Lucide icon in feedback status pills */}
                         <SubjectIconEl subject={s} className="w-3.5 h-3.5" />
                         <span>{s}</span>
                         <span className="font-bold">{statusConfig.icon}</span>
@@ -1196,7 +1191,6 @@ export default function StudentDashboardAnalytics({
                       <td className="py-3 pr-4 text-slate-700 font-medium max-w-xs truncate">{t.name}</td>
                       {selectedSubject === "All" && (
                         <td className="py-3 pr-4">
-                          {/* ✅ Lucide icon in recent assessments table */}
                           <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${SUBJECT_LIGHT_BG[t.subject] || "bg-slate-100"} ${SUBJECT_TEXT[t.subject] || "text-slate-600"}`}>
                             <SubjectIconEl subject={t.subject} className="w-3 h-3" />
                             {t.subject}
@@ -1215,7 +1209,6 @@ export default function StudentDashboardAnalytics({
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
-              {/* ✅ Lucide icon in empty state */}
               <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center">
                 <SubjectIconEl
                   subject={selectedSubject !== "All" ? selectedSubject : "All"}
