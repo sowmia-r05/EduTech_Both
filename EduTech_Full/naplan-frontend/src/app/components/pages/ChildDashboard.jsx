@@ -1,13 +1,10 @@
 // ChildDashboard.jsx — FULL REPLACEMENT
 //
-// NAV LAYOUT (all views):
-//   [Logo]  ·····  [📊 Learning Progress]  [Child Name ▾]  [🚪 Log Out]
-//
-// Avatar dropdown:
-//   Child logged in  →  [📊 Learning Progress]  |  [🚪 Log Out]
-//   Parent viewing   →  [📊 Learning Progress]  [← Back to Parent Dashboard]  |  [🚪 Log Out]
-//
-// Log Out is ALWAYS visible in the navbar AND in the dropdown.
+// Quiz table ACTION column:
+//   Completed  → "Retake Quiz" button  (clicking the ROW opens the result)
+//   Not started → "Start Quiz" button
+//   Row click   → handleViewResult  (view the result page)
+//   No separate "View Result" button — row click does it
 
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -102,7 +99,7 @@ function DifficultyBadge({ difficulty }) {
   return <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${s[difficulty] || s.Standard}`}>{difficulty || "Standard"}</span>;
 }
 
-/* ── Reusable nav pill buttons ── */
+/* ── Nav pill buttons ── */
 function NavBtn({ onClick, children, variant = "default" }) {
   const [hov, setHov] = useState(false);
   const styles = {
@@ -112,12 +109,8 @@ function NavBtn({ onClick, children, variant = "default" }) {
   };
   const s = styles[variant] || styles.default;
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", borderRadius: "22px", fontSize: "13px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", outline: "none", transition: "all 0.15s ease", transform: hov ? "translateY(-1px)" : "translateY(0)", ...s }}
-    >
+    <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{ display:"inline-flex", alignItems:"center", gap:"6px", padding:"7px 14px", borderRadius:"22px", fontSize:"13px", fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", outline:"none", transition:"all 0.15s ease", transform: hov ? "translateY(-1px)" : "translateY(0)", ...s }}>
       {children}
     </button>
   );
@@ -132,6 +125,13 @@ const IconChart = () => (
 const IconLogout = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+  </svg>
+);
+
+/* ── Retake icon ── */
+const IconRetake = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 4v6h6" /><path d="M3.51 15a9 9 0 1 0 .49-3.51" />
   </svg>
 );
 
@@ -217,41 +217,18 @@ export default function ChildDashboard() {
     Promise.all([fetchChildResults(activeToken, childId), fetchChildWriting(activeToken, childId)])
       .then(([results, writingDocs]) => {
         const nonWriting = results.map((r) => ({
-          id: r._id,
-          response_id: r.response_id,
-          quiz_id: r.quiz_id,
+          id: r._id, response_id: r.response_id, quiz_id: r.quiz_id,
           subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
-          name: r.quiz_name || "Untitled Quiz",
-          score: Math.round(r.score?.percentage || 0),
-          date: r.date_submitted || r.createdAt,
-          quiz_name: r.quiz_name,
-          grade: r.score?.grade || "",
-          duration: r.duration || 0,
-          source: r.source || "native",
+          name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
+          date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name,
+          grade: r.score?.grade || "", duration: r.duration || 0, source: r.source || "native",
         }));
-
-        const writing = (writingDocs || []).map((w) => ({
-          id: w._id,
-          response_id: w.response_id,
-          quiz_id: w.quiz_id,
-          subject: "Writing",
-          name: w.quiz_name || "Untitled Quiz",
-          score: (() => {
-            const overall = w?.ai?.feedback?.overall;
-            if (!overall) return 0;
-            const total = overall.total_score || 0;
-            const max = overall.max_score || 0;
-            return max > 0 ? Math.round((total / max) * 100) : 0;
-          })(),
-          date: w.submitted_at || w.createdAt,
-          quiz_name: w.quiz_name,
-          grade: "",
-          duration: w.duration_sec || 0,
-          source: "writing",
-        }));
-
-        setTests([...nonWriting, ...writing]);
-        setError(null);
+        const writing = (writingDocs || []).map((w) => {
+          const overall = w?.ai?.feedback?.overall;
+          const total = overall?.total_score || 0; const max = overall?.max_score || 0;
+          return { id: w._id, response_id: w.response_id, quiz_id: w.quiz_id, subject: "Writing", name: w.quiz_name || "Untitled Quiz", score: max > 0 ? Math.round((total / max) * 100) : 0, date: w.submitted_at || w.createdAt, quiz_name: w.quiz_name, grade: "", duration: w.duration_sec || 0, source: "writing" };
+        });
+        setTests([...nonWriting, ...writing]); setError(null);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -291,7 +268,15 @@ export default function ChildDashboard() {
       return (t.name || t.quiz_name || "").toLowerCase().trim() === (quiz.quiz_name || "").toLowerCase().trim();
     });
     const m = matches.length ? matches.sort((a, b) => new Date(b.date) - new Date(a.date))[0] : null;
-    return { id: quiz.quiz_id, quiz_id: quiz.quiz_id, name: quiz.quiz_name, subject: quiz.subject, year_level: quiz.year_level, difficulty: quiz.difficulty || "Standard", time_limit_minutes: quiz.time_limit_minutes, question_count: quiz.question_count, is_trial: quiz.is_trial, is_entitled: quiz.is_entitled, status: m ? "completed" : "not_started", score: m?.score ?? null, grade: m?.grade ?? null, date_completed: m?.date ?? null, response_id: m?.response_id ?? null };
+    return {
+      id: quiz.quiz_id, quiz_id: quiz.quiz_id, name: quiz.quiz_name, subject: quiz.subject,
+      year_level: quiz.year_level, difficulty: quiz.difficulty || "Standard",
+      time_limit_minutes: quiz.time_limit_minutes, question_count: quiz.question_count,
+      is_trial: quiz.is_trial, is_entitled: quiz.is_entitled,
+      status: m ? "completed" : "not_started",
+      score: m?.score ?? null, grade: m?.grade ?? null,
+      date_completed: m?.date ?? null, response_id: m?.response_id ?? null,
+    };
   }), [tests, entitledCatalog]);
 
   const completedCount = mergedQuizzes.filter((q) => q.status === "completed").length;
@@ -328,12 +313,21 @@ export default function ChildDashboard() {
     const rid = item.response_id; if (!rid) return;
     setResultLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/results/${encodeURIComponent(rid)}`, { headers: { Accept: "application/json", "Cache-Control": "no-cache", ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}) }, cache: "no-store" });
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/results/${encodeURIComponent(rid)}`, {
+        headers: { Accept: "application/json", "Cache-Control": "no-cache", ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}) },
+        cache: "no-store",
+      });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setSelectedQuizResult({ result: { score: data.score || { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" }, topic_breakdown: data.topicBreakdown || data.topic_breakdown || {}, is_writing: (item.subject || "").toLowerCase() === "writing", ai_status: data.ai?.status || data.ai_feedback_meta?.status || null, attempt_id: data.response_id || rid, response_id: rid, subject: item.subject || data.subject || "" }, quizName: item.name || data.quiz_name || "Quiz" });
+      setSelectedQuizResult({
+        result: { score: data.score || { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" }, topic_breakdown: data.topicBreakdown || data.topic_breakdown || {}, is_writing: (item.subject || "").toLowerCase() === "writing", ai_status: data.ai?.status || data.ai_feedback_meta?.status || null, attempt_id: data.response_id || rid, response_id: rid, subject: item.subject || data.subject || "" },
+        quizName: item.name || data.quiz_name || "Quiz",
+      });
     } catch {
-      setSelectedQuizResult({ result: { score: { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" }, topic_breakdown: {}, is_writing: (item.subject || "").toLowerCase() === "writing", attempt_id: rid, response_id: rid, subject: item.subject || "" }, quizName: item.name || "Quiz" });
+      setSelectedQuizResult({
+        result: { score: { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" }, topic_breakdown: {}, is_writing: (item.subject || "").toLowerCase() === "writing", attempt_id: rid, response_id: rid, subject: item.subject || "" },
+        quizName: item.name || "Quiz",
+      });
     } finally { setResultLoading(false); }
   }, [activeToken]);
 
@@ -348,38 +342,33 @@ export default function ChildDashboard() {
     navigate((item.subject || "").toLowerCase() === "writing" ? `/writing-feedback/result?${params}` : `/NonWritingLookupQuizResults/results?${params}`);
   }, [navigate, childInfo, childProfile, searchParams, childStatus]);
 
-  const handleQuizClose = () => {
-    setActiveQuiz(null);
-    if (activeToken && childId) {
-      fetchChildResults(activeToken, childId).then((r) => setTests(r.map((x) => ({ id: x._id, response_id: x.response_id, quiz_id: x.quiz_id, subject: normalizeSubject(x.subject || inferSubject(x.quiz_name)), name: x.quiz_name || "Untitled Quiz", score: Math.round(x.score?.percentage || 0), date: x.date_submitted || x.createdAt, quiz_name: x.quiz_name, grade: x.score?.grade || "", duration: x.duration || 0, source: x.source || "flexiquiz" }))).catch(() => {}));
-      fetchAvailableQuizzes(activeToken, childId).then((data) => { const q = Array.isArray(data) ? data : data?.quizzes || []; setAvailableQuizzes(q.map((x) => ({ ...x, subject: normalizeSubject(x.subject) }))); if (data?.child_status) setChildStatus(data.child_status); }).catch(() => {});
-    }
-  };
+  const refreshData = useCallback(() => {
+    if (!activeToken || !childId) return;
+    fetchChildResults(activeToken, childId)
+      .then((r) => setTests(r.map((x) => ({ id: x._id, response_id: x.response_id, quiz_id: x.quiz_id, subject: normalizeSubject(x.subject || inferSubject(x.quiz_name)), name: x.quiz_name || "Untitled Quiz", score: Math.round(x.score?.percentage || 0), date: x.date_submitted || x.createdAt, quiz_name: x.quiz_name, grade: x.score?.grade || "", duration: x.duration || 0, source: x.source || "flexiquiz" }))))
+      .catch(() => {});
+    fetchAvailableQuizzes(activeToken, childId)
+      .then((data) => { const q = Array.isArray(data) ? data : data?.quizzes || []; setAvailableQuizzes(q.map((x) => ({ ...x, subject: normalizeSubject(x.subject) }))); if (data?.child_status) setChildStatus(data.child_status); })
+      .catch(() => {});
+  }, [activeToken, childId]);
+
+  const handleQuizClose = () => { setActiveQuiz(null); refreshData(); };
 
   const displayName = childInfo?.display_name || childProfile?.displayName || "Student";
   const yearLevel = childInfo?.year_level || childProfile?.yearLevel || null;
   const motivation = getDailyMotivation();
   const timeGreeting = getTimeGreeting();
 
-  /* ══════════════════════════════════════════
-     SHARED NAV — used in every view
-     [📊 Learning Progress]  [Name ▾]  [🚪 Log Out]
-     ══════════════════════════════════════════ */
+  /* ── Shared nav ── */
   const sharedNav = (onAnalyticsClick = () => setShowAnalytics(true)) => (
     <>
-      {/* 📊 Learning Progress */}
       <NavBtn onClick={onAnalyticsClick} variant="primary">
-        <IconChart />
-        <span className="hidden sm:inline">Learning Progress</span>
+        <IconChart /><span className="hidden sm:inline">Learning Progress</span>
       </NavBtn>
-
-      {/* Child avatar dropdown */}
-      <ChildAvatarMenu
-        displayName={displayName}
-        isParentViewing={isParentViewing}
-        onViewAnalytics={onAnalyticsClick}
-        onBackToParent={() => navigate("/parent-dashboard")}
-      />
+      <ChildAvatarMenu displayName={displayName} isParentViewing={isParentViewing} onViewAnalytics={onAnalyticsClick} onBackToParent={() => navigate("/parent-dashboard")} />
+      <NavBtn onClick={handleLogout} variant="danger">
+        <IconLogout /><span className="hidden sm:inline">Log Out</span>
+      </NavBtn>
     </>
   );
 
@@ -392,7 +381,6 @@ export default function ChildDashboard() {
     </div>
   );
 
-  /* ─── Quiz result inline view ─── */
   if (selectedQuizResult) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-slate-50">
@@ -415,62 +403,37 @@ export default function ChildDashboard() {
     </div>
   );
 
-
-
-if (showAnalytics) {
-  const viewerType = childToken && !isParentViewing ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
-
-      {/* ── Clean header: no back button, no standalone logout ── */}
-      <DashboardHeader>
-        <span className="text-sm font-semibold text-slate-600 hidden md:inline">
-          {displayName}&apos;s Learning Progress
-        </span>
-        <ChildAvatarMenu
-          displayName={displayName}
-          isParentViewing={isParentViewing}
-          onViewAnalytics={null}
-          onBackToParent={() => navigate("/parent-dashboard")}
-          onBackToChildDashboard={() => setShowAnalytics(false)}
-        />
-      </DashboardHeader>
-
-      <TrialGateOverlay
-        isTrialUser={childStatus === "trial"}
-        preset="analytics"
-        viewerType={viewerType}
-        onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")}
-        onBack={() => setShowAnalytics(false)}
-        yearLevel={yearLevel} >
-        <StudentDashboardAnalytics
-          tests={entitledTests}
-          displayName={displayName}
-          yearLevel={yearLevel}
-          embedded={true}
-          onLogout={handleLogout}
-        />
-      </TrialGateOverlay>
-
-    </div>
-  );
-}
-
+  if (showAnalytics) {
+    const viewerType = childToken && !isParentViewing ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
+        <DashboardHeader>
+          <button onClick={() => setShowAnalytics(false)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-all">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            Back to Dashboard
+          </button>
+          <span className="text-sm font-medium text-slate-500 hidden md:inline">{displayName}'s Learning Progress</span>
+          <ChildAvatarMenu displayName={displayName} isParentViewing={isParentViewing} onViewAnalytics={() => {}} onBackToParent={() => navigate("/parent-dashboard")} />
+          <NavBtn onClick={handleLogout} variant="danger"><IconLogout /><span className="hidden sm:inline">Log Out</span></NavBtn>
+        </DashboardHeader>
+        <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="analytics" viewerType={viewerType} onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")} onBack={() => setShowAnalytics(false)} yearLevel={yearLevel}>
+          <StudentDashboardAnalytics tests={entitledTests} displayName={displayName} yearLevel={yearLevel} embedded={true} onLogout={handleLogout} />
+        </TrialGateOverlay>
+      </div>
+    );
+  }
 
   /* ═══════════════════════════════════════════
      MAIN DASHBOARD
-     Nav: [Logo] ·· [📊 Learning Progress] [Name ▾] [🚪 Log Out]
   ═══════════════════════════════════════════ */
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white">
-      <DashboardHeader>
-        {sharedNav()}
-      </DashboardHeader>
+      <DashboardHeader>{sharedNav()}</DashboardHeader>
 
       <div className="px-4 py-8 md:px-8">
         <div className="max-w-6xl mx-auto space-y-8">
 
-          {/* ── Greeting ── */}
+          {/* Greeting */}
           <div className="space-y-1">
             <h1 className="text-3xl font-bold text-indigo-600">
               {isParentViewing ? `Hi ${displayName}!` : `${timeGreeting}, ${displayName}! ${motivation.emoji}`}
@@ -483,7 +446,7 @@ if (showAnalytics) {
 
           {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-xl">{error}</div>}
 
-          {/* ── KPI Cards ── */}
+          {/* KPI Cards */}
           <section className="grid md:grid-cols-4 gap-6 bg-white rounded-2xl p-6 border shadow">
             <div>
               <p className="text-xs text-slate-500 uppercase tracking-wide">Level</p>
@@ -501,25 +464,30 @@ if (showAnalytics) {
             <AnimatedProgressRing percent={overallAverage} />
           </section>
 
-          {/* ── My Quizzes ── */}
+          {/* ══════════════════════════════════════════════
+              MY QUIZZES
+             ══════════════════════════════════════════════ */}
           <section>
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
               <div className="flex items-center gap-4 flex-wrap">
                 <div>
                   <h2 className="text-xl font-semibold">My Quizzes</h2>
-                  <p className="text-xs text-slate-500 mt-1">Live quiz data is synced from the backend.</p>
+                  <p className="text-xs text-slate-500 mt-1">Click any completed row to view results.</p>
                 </div>
                 <div className="flex bg-slate-100 rounded-lg p-0.5">
                   {[{ key:"all", label:"All", count:entitledCatalog.length }, { key:"available", label:"Available", count:availableCount }, { key:"completed", label:"Completed", count:completedCount }].map((tab) => (
-                    <button key={tab.key} onClick={() => setViewMode(tab.key)} className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                    <button key={tab.key} onClick={() => setViewMode(tab.key)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                       {tab.label} <span className="text-slate-400">({tab.count})</span>
                     </button>
                   ))}
                 </div>
               </div>
               <div className="flex gap-3">
-                <input type="text" placeholder="Search quizzes..." value={search} onChange={(e) => setSearch(e.target.value)} className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 outline-none" />
-                <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 outline-none">
+                <input type="text" placeholder="Search quizzes..." value={search} onChange={(e) => setSearch(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 outline-none" />
+                <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 outline-none">
                   <option value="All">All Subjects</option>
                   {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
@@ -530,9 +498,20 @@ if (showAnalytics) {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    {[{ key:"subject",label:"Subject" },{ key:"name",label:"Quiz Name" },{ key:"status",label:"Status" },{ key:"score",label:"Score" },{ key:null,label:"Action" },{ key:null,label:"Test Insights" },{ key:null,label:"" }].map((col, idx) => (
-                      <th key={`${col.label}-${idx}`} onClick={() => col.key && handleSort(col.key)} className={`px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider ${col.key ? "cursor-pointer hover:text-indigo-600 select-none" : ""}`}>
-                        {col.label ? <span className="flex items-center gap-1">{col.label}{col.key && sortConfig.key === col.key && <span className="text-indigo-500">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>}</span> : null}
+                    {[
+                      { key:"subject", label:"Subject" },
+                      { key:"name",    label:"Quiz Name" },
+                      { key:"status",  label:"Status" },
+                      { key:"score",   label:"Score" },
+                      { key:null,      label:"Action" },
+                      { key:null,      label:"Test Insights" },
+                      { key:null,      label:"" },
+                    ].map((col, idx) => (
+                      <th key={`${col.label}-${idx}`} onClick={() => col.key && handleSort(col.key)}
+                        className={`px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider ${col.key ? "cursor-pointer hover:text-indigo-600 select-none" : ""}`}>
+                        {col.label
+                          ? <span className="flex items-center gap-1">{col.label}{col.key && sortConfig.key === col.key && <span className="text-indigo-500">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>}</span>
+                          : null}
                       </th>
                     ))}
                   </tr>
@@ -541,38 +520,104 @@ if (showAnalytics) {
                   {paginatedQuizzes.length > 0 ? paginatedQuizzes.map((quiz) => {
                     const style = SUBJECT_STYLE[quiz.subject] || SUBJECT_STYLE.Other;
                     const isCompleted = quiz.status === "completed";
-                    const canOpen = Boolean(quiz.response_id);
+                    const canViewResult = isCompleted && Boolean(quiz.response_id);
                     const Icon = style.icon;
+
                     return (
-                      <tr key={quiz.id} onClick={() => canOpen && handleViewResult(quiz)} className={`hover:bg-indigo-50/30 transition ${canOpen ? "cursor-pointer" : ""}`}>
-                        <td className="px-5 py-4"><div className="flex items-center gap-2.5"><span className={`w-7 h-7 rounded-lg flex items-center justify-center ${style.bg}`}><Icon className={`w-4 h-4 ${style.text}`} /></span><span className={`font-medium text-sm ${style.text}`}>{quiz.subject}</span></div></td>
-                        <td className="px-5 py-4"><div className="flex items-center gap-2"><p className="font-medium text-slate-800">{quiz.name}</p><DifficultyBadge difficulty={quiz.difficulty} /></div></td>
+                      <tr
+                        key={quiz.id}
+                        onClick={() => canViewResult && handleViewResult(quiz)}
+                        className={`transition group ${canViewResult ? "cursor-pointer hover:bg-indigo-50/40" : "hover:bg-slate-50/60"}`}
+                        title={canViewResult ? "Click to view result" : undefined}
+                      >
+                        {/* Subject */}
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2.5">
+                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${style.bg}`}>
+                              <Icon className={`w-4 h-4 ${style.text}`} />
+                            </span>
+                            <span className={`font-medium text-sm ${style.text}`}>{quiz.subject}</span>
+                          </div>
+                        </td>
+
+                        {/* Quiz name */}
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-slate-800">{quiz.name}</p>
+                            <DifficultyBadge difficulty={quiz.difficulty} />
+                          </div>
+                          {canViewResult && (
+                            <p className="text-[11px] text-indigo-400 mt-0.5 opacity-0 group-hover:opacity-100 transition">
+                              Click row to view result
+                            </p>
+                          )}
+                        </td>
+
+                        {/* Status */}
                         <td className="px-5 py-4">
                           {isCompleted
                             ? <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Completed</span>
                             : <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-50 text-slate-600 border border-slate-200"><span className="w-1.5 h-1.5 rounded-full bg-slate-400" />Not Started</span>}
                         </td>
+
+                        {/* Score */}
                         <td className="px-5 py-4">
                           {isCompleted && quiz.score !== null
-                            ? <div className="flex items-center gap-2"><span className={`text-sm font-bold ${quiz.score >= 85 ? "text-emerald-600" : quiz.score >= 70 ? "text-amber-600" : "text-rose-600"}`}>{quiz.score}%</span>{quiz.grade && <span className="text-xs text-slate-400">({quiz.grade})</span>}</div>
+                            ? <div className="flex items-center gap-2">
+                                <span className={`text-sm font-bold ${quiz.score >= 85 ? "text-emerald-600" : quiz.score >= 70 ? "text-amber-600" : "text-rose-600"}`}>{quiz.score}%</span>
+                                {quiz.grade && <span className="text-xs text-slate-400">({quiz.grade})</span>}
+                              </div>
                             : <span className="text-slate-300">—</span>}
                         </td>
+
+                        {/* ── ACTION COLUMN ──
+                            Completed  → "Retake Quiz" (launches quiz player again)
+                            Not started → "Start Quiz"
+                            No separate View Result — clicking the row does that */}
                         <td className="px-5 py-4" onClick={(e) => e.stopPropagation()}>
-                          {isCompleted
-                            ? <button onClick={() => handleViewResult(quiz)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition">View Result</button>
-                            : <button onClick={() => setActiveQuiz(quiz)} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition">Start Quiz</button>}
+                          {isCompleted ? (
+                            <button
+                              onClick={() => setActiveQuiz(quiz)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition border border-slate-200"
+                            >
+                              <IconRetake />
+                              Retake Quiz
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setActiveQuiz(quiz)}
+                              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition"
+                            >
+                              Start Quiz
+                            </button>
+                          )}
                         </td>
+
+                        {/* Test Insights */}
                         <td className="px-5 py-4" onClick={(e) => e.stopPropagation()}>
                           {isCompleted && quiz.response_id
-                            ? <button onClick={() => handleAiFeedback(quiz)} className={`px-3 py-1.5 text-white text-xs font-medium rounded-lg transition ${(quiz.subject||"").toLowerCase()==="writing" ? "bg-purple-600 hover:bg-purple-700" : "bg-indigo-600 hover:bg-indigo-700"}`}>Test Insights</button>
+                            ? <button onClick={() => handleAiFeedback(quiz)}
+                                className={`px-3 py-1.5 text-white text-xs font-semibold rounded-lg transition ${(quiz.subject||"").toLowerCase()==="writing" ? "bg-purple-600 hover:bg-purple-700" : "bg-indigo-600 hover:bg-indigo-700"}`}>
+                                Test Insights
+                              </button>
                             : <span className="text-slate-300">—</span>}
                         </td>
-                        <td className="px-5 py-4">{quiz.date_completed ? <span className="text-xs text-slate-400">{new Date(quiz.date_completed).toLocaleDateString("en-AU",{day:"numeric",month:"short"})}</span> : null}</td>
+
+                        {/* Date */}
+                        <td className="px-5 py-4">
+                          {quiz.date_completed
+                            ? <span className="text-xs text-slate-400">{new Date(quiz.date_completed).toLocaleDateString("en-AU",{day:"numeric",month:"short"})}</span>
+                            : null}
+                        </td>
                       </tr>
                     );
                   }) : (
                     <tr><td colSpan={7} className="px-5 py-12 text-center">
-                      <p className="text-slate-400 text-sm">{entitledCatalog.length === 0 ? (isParentViewing ? `Quiz results will appear here once ${displayName} completes a quiz.` : "Your quiz results will show up here after you take a quiz!") : "No quizzes match your filters."}</p>
+                      <p className="text-slate-400 text-sm">
+                        {entitledCatalog.length === 0
+                          ? (isParentViewing ? `Quiz results will appear here once ${displayName} completes a quiz.` : "Your quiz results will show up here after you take a quiz!")
+                          : "No quizzes match your filters."}
+                      </p>
                       {entitledCatalog.length > 0 && <button onClick={() => { setSearch(""); setSubjectFilter("All"); setViewMode("all"); }} className="text-indigo-600 text-sm font-medium mt-2 hover:underline">Clear filters</button>}
                     </td></tr>
                   )}
@@ -592,7 +637,7 @@ if (showAnalytics) {
             </div>
           </section>
 
-          {/* ── Recent Activity ── */}
+          {/* Recent Activity */}
           <section>
             <h2 className="text-xl font-semibold mb-4">Recent Activity</h2>
             {hasTests ? (
@@ -601,7 +646,10 @@ if (showAnalytics) {
                   <div key={t.id} onClick={() => handleViewResult(t)} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition cursor-pointer">
                     <div className="flex items-center gap-2 mb-2"><SubjectIcon subject={t.subject} /><span className="text-xs text-slate-500">{t.subject}</span></div>
                     <p className="text-sm font-medium text-slate-800 truncate">{t.name}</p>
-                    <div className="flex items-center justify-between mt-3"><span className="text-lg font-bold text-indigo-600">{t.score}%</span><span className="text-xs text-slate-400">{new Date(t.date).toLocaleDateString()}</span></div>
+                    <div className="flex items-center justify-between mt-3">
+                      <span className="text-lg font-bold text-indigo-600">{t.score}%</span>
+                      <span className="text-xs text-slate-400">{new Date(t.date).toLocaleDateString()}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -618,7 +666,7 @@ if (showAnalytics) {
             )}
           </section>
 
-          {/* ── Subject Breakdown ── */}
+          {/* Subject Breakdown */}
           <section>
             <h2 className="text-xl font-semibold mb-4">Subject Breakdown</h2>
             <div className="grid md:grid-cols-4 gap-4">
@@ -636,7 +684,7 @@ if (showAnalytics) {
             </div>
           </section>
 
-          {/* ── Getting Started ── */}
+          {/* Getting Started */}
           {!hasTests && !error && (
             <section className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-800 mb-6">{isParentViewing ? `How to Get ${displayName} Started` : "What's Next?"}</h2>
