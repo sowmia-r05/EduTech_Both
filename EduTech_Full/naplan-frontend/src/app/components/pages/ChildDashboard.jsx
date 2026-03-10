@@ -225,7 +225,7 @@ export default function ChildDashboard() {
           quiz_name: r.quiz_name,
           grade: r.score?.grade || "",
           duration: r.duration || 0,
-          source: r.source || "flexiquiz",
+          source: r.source || "native",
         }));
 
         const writing = (writingDocs || []).map((w) => ({

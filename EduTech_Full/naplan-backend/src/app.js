@@ -10,7 +10,6 @@ const cors = require("cors");
 // ─── Routes ───
 const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
-const resultsRoutes = require("./routes/resultRoutes");
 const writingRoutes = require("./routes/writingRoutes");
 const catalogRoutes = require("./routes/catalogRoutes");
 const otpAuth = require("./routes/otpAuth");
@@ -18,7 +17,6 @@ const parentRoutes = require("./routes/parentRoutes");
 const googleAuthRoutes = require("./routes/googleAuthRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
 const path = require("path");
-const regenerateAiRoute = require("./routes/regenerateAiRoute");
 
 // ─── NEW routes ───
 const childRoutes = require("./routes/childRoutes");
@@ -30,10 +28,10 @@ const availableQuizzesRoute = require("./routes/availableQuizzesRoute");
 const flashcardsRoute = require("./routes/flashcardsRoute");
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const healthRoutes = require("./routes/healthRoutes");
-const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes"); // ✅ NEW
+const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes");
 
-// ✅ Legacy route auth middleware (requires JWT for all methods now)
-const { secureLegacyResults, secureLegacyWriting } = require("./middleware/legacyRouteAuth");
+// ✅ Legacy route auth middleware
+const { secureLegacyWriting } = require("./middleware/legacyRouteAuth");
 
 const app = express();
 
@@ -72,9 +70,6 @@ const apiLimiter = rateLimit({
 });
 app.use("/api", apiLimiter);
 
-// AI Refetch
-app.use("/api/results", secureLegacyResults, regenerateAiRoute);
-
 // ✅ Routes — Auth (no auth middleware)
 app.use("/api/auth", otpAuth);
 app.use("/api/auth", childAuthRoutes);
@@ -86,10 +81,9 @@ app.use("/api/parents/auth", googleAuthRoutes);
 
 // ✅ Routes — Children
 app.use("/api/children", childRoutes);
-app.use("/api/children/:childId/cumulative-feedback", cumulativeFeedbackRoutes); // ✅ NEW
+app.use("/api/children/:childId/cumulative-feedback", cumulativeFeedbackRoutes);
 
-// ✅ Routes — Data (SECURED)
-app.use("/api/results", secureLegacyResults, resultsRoutes);
+// ✅ Routes — Writing (secured)
 app.use("/api/writing", secureLegacyWriting, writingRoutes);
 
 // ✅ Routes — Catalog (public)
@@ -114,7 +108,6 @@ app.use("/api/payments", paymentRoutes);
 
 // ✅ Static uploads
 app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
-
 
 // ═══════════════════════════════════════
 // CRON JOBS
