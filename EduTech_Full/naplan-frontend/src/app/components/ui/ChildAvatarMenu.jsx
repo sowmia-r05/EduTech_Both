@@ -5,15 +5,17 @@
  * Matches ParentAvatarMenu style exactly.
  *
  * Dropdown contents:
- *   Both modes   →  [info row]  [📊 Learning Progress]
- *   Parent only  →  [← Back to Parent Dashboard]
- *   Both modes   →  [🚪 Log Out]   ← always shown at the bottom
+ *   Both modes        →  [info row]  [📊 Learning Progress]
+ *   Analytics page    →  [← Back to Child Dashboard]          ← NEW
+ *   Parent only       →  [← Back to Parent Dashboard]
+ *   Both modes        →  [🚪 Log Out]   ← always shown at the bottom
  *
  * Props:
- *   displayName      string  — child's display name
- *   isParentViewing  bool    — true when parent JWT is active (not child JWT)
- *   onViewAnalytics  fn      — opens analytics / learning progress view
- *   onBackToParent   fn      — navigates to /parent-dashboard
+ *   displayName            string  — child's display name
+ *   isParentViewing        bool    — true when parent JWT is active (not child JWT)
+ *   onViewAnalytics        fn      — opens analytics / learning progress view
+ *   onBackToParent         fn      — navigates to /parent-dashboard
+ *   onBackToChildDashboard fn      — when provided, shows "Back to Child Dashboard" item
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -49,7 +51,11 @@ function MenuItem({ onClick, iconBg, icon, label, color = "#374151", hoverBg = "
         transition: "background 0.12s",
       }}
     >
-      <span style={{ width: "28px", height: "28px", borderRadius: "8px", background: iconBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <span style={{
+        width: "28px", height: "28px", borderRadius: "8px",
+        background: iconBg,
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+      }}>
         {icon}
       </span>
       <span style={{ fontSize: "13px", fontWeight: 500, color }}>{label}</span>
@@ -57,7 +63,13 @@ function MenuItem({ onClick, iconBg, icon, label, color = "#374151", hoverBg = "
   );
 }
 
-export default function ChildAvatarMenu({ displayName, isParentViewing = false, onViewAnalytics, onBackToParent }) {
+export default function ChildAvatarMenu({
+  displayName,
+  isParentViewing = false,
+  onViewAnalytics,
+  onBackToParent,
+  onBackToChildDashboard,   // ← NEW: pass this when on the Learning Progress page
+}) {
   const { logoutChild, logout, childToken } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -66,7 +78,9 @@ export default function ChildAvatarMenu({ displayName, isParentViewing = false, 
   const initials = getInitials(displayName);
 
   useEffect(() => {
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
@@ -111,12 +125,18 @@ export default function ChildAvatarMenu({ displayName, isParentViewing = false, 
         </span>
 
         {/* Name */}
-        <span style={{ fontSize: "13px", fontWeight: 600, color: "#374151", maxWidth: "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span style={{
+          fontSize: "13px", fontWeight: 600, color: "#374151",
+          maxWidth: "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
           {displayName || "Student"}
         </span>
 
         {/* Chevron */}
-        <ChevronDown style={{ width: "14px", height: "14px", color: "#9CA3AF", flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }} />
+        <ChevronDown style={{
+          width: "14px", height: "14px", color: "#9CA3AF", flexShrink: 0,
+          transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s",
+        }} />
       </button>
 
       {/* ── Dropdown ── */}
@@ -133,7 +153,9 @@ export default function ChildAvatarMenu({ displayName, isParentViewing = false, 
           <div style={{ padding: "12px 14px", borderBottom: "1px solid #F3F4F6", display: "flex", alignItems: "center", gap: "10px" }}>
             <span style={{
               width: "34px", height: "34px", borderRadius: "50%", flexShrink: 0,
-              background: isParentViewing ? "linear-gradient(135deg,#7C3AED,#4F46E5)" : "linear-gradient(135deg,#059669,#0891B2)",
+              background: isParentViewing
+                ? "linear-gradient(135deg,#7C3AED,#4F46E5)"
+                : "linear-gradient(135deg,#059669,#0891B2)",
               display: "flex", alignItems: "center", justifyContent: "center",
               color: "#fff", fontSize: "12px", fontWeight: 700,
             }}>
@@ -152,12 +174,48 @@ export default function ChildAvatarMenu({ displayName, isParentViewing = false, 
           {/* Menu items */}
           <div style={{ padding: "6px" }}>
 
+            {/* ← Back to Child Dashboard — shown only on Learning Progress page */}
+            {onBackToChildDashboard && (
+              <MenuItem
+                onClick={() => { close(); onBackToChildDashboard(); }}
+                iconBg="#EFF6FF"
+                icon={
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 19l-7-7 7-7" />
+                  </svg>
+                }
+                label="Back to Child Dashboard"
+                color="#2563EB"
+                hoverBg="#EFF6FF"
+              />
+            )}
+
+            {/* 📊 Learning Progress — only when NOT already on analytics */}
+            {!onBackToChildDashboard && onViewAnalytics && (
+              <MenuItem
+                onClick={() => { close(); onViewAnalytics(); }}
+                iconBg="#EEF2FF"
+                icon={
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12h4l3-9 4 18 3-9h4" />
+                  </svg>
+                }
+                label="Learning Progress"
+                color="#4F46E5"
+                hoverBg="#EEF2FF"
+              />
+            )}
+
             {/* ← Back to Parent Dashboard — parent only */}
             {isParentViewing && (
               <MenuItem
                 onClick={() => { close(); onBackToParent?.(); }}
                 iconBg="#F0FDF4"
-                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 19l-7-7 7-7" /></svg>}
+                icon={
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 19l-7-7 7-7" />
+                  </svg>
+                }
                 label="Back to Parent Dashboard"
                 color="#16A34A"
                 hoverBg="#F0FDF4"
@@ -171,7 +229,11 @@ export default function ChildAvatarMenu({ displayName, isParentViewing = false, 
             <MenuItem
               onClick={handleLogout}
               iconBg="#FEF2F2"
-              icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>}
+              icon={
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                </svg>
+              }
               label="Log Out"
               color="#DC2626"
               hoverBg="#FEF2F2"

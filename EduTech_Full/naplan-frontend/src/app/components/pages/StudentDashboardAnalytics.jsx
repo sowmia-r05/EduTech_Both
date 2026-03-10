@@ -736,12 +736,6 @@ export default function StudentDashboardAnalytics({
                 </button>
               ))}
             </div>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 rounded-xl text-sm font-medium text-slate-500 border border-slate-200 bg-white hover:bg-slate-50 hover:text-slate-700 transition-all"
-            >
-              Log out
-            </button>
           </div>
         </header>
 
