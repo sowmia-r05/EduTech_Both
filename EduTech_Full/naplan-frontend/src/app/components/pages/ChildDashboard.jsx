@@ -216,13 +216,42 @@ export default function ChildDashboard() {
     setLoading(true);
     Promise.all([fetchChildResults(activeToken, childId), fetchChildWriting(activeToken, childId)])
       .then(([results, writingDocs]) => {
-        const nonWriting = results.map((r) => ({ id: r._id, response_id: r.response_id, quiz_id: r.quiz_id, subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)), name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0), date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name, grade: r.score?.grade || "", duration: r.duration || 0, source: r.source || "native" }));
-        const writing = (writingDocs || []).map((w) => {
-          const overall = w?.ai?.feedback?.overall;
-          const total = overall?.total_score || 0; const max = overall?.max_score || 0;
-          return { id: w._id, response_id: w.response_id, quiz_id: w.quiz_id, subject: "Writing", name: w.quiz_name || "Untitled Quiz", score: max > 0 ? Math.round((total / max) * 100) : 0, date: w.submitted_at || w.createdAt, quiz_name: w.quiz_name, grade: "", duration: w.duration_sec || 0, source: "writing" };
-        });
-        setTests([...nonWriting, ...writing]); setError(null);
+        const nonWriting = results.map((r) => ({
+          id: r._id,
+          response_id: r.response_id,
+          quiz_id: r.quiz_id,
+          subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
+          name: r.quiz_name || "Untitled Quiz",
+          score: Math.round(r.score?.percentage || 0),
+          date: r.date_submitted || r.createdAt,
+          quiz_name: r.quiz_name,
+          grade: r.score?.grade || "",
+          duration: r.duration || 0,
+          source: r.source || "native",
+        }));
+
+        const writing = (writingDocs || []).map((w) => ({
+          id: w._id,
+          response_id: w.response_id,
+          quiz_id: w.quiz_id,
+          subject: "Writing",
+          name: w.quiz_name || "Untitled Quiz",
+          score: (() => {
+            const overall = w?.ai?.feedback?.overall;
+            if (!overall) return 0;
+            const total = overall.total_score || 0;
+            const max = overall.max_score || 0;
+            return max > 0 ? Math.round((total / max) * 100) : 0;
+          })(),
+          date: w.submitted_at || w.createdAt,
+          quiz_name: w.quiz_name,
+          grade: "",
+          duration: w.duration_sec || 0,
+          source: "writing",
+        }));
+
+        setTests([...nonWriting, ...writing]);
+        setError(null);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
