@@ -1,5 +1,5 @@
 /**
- * services/cumulativeFeedbackService.js  (v2 — fixed MCQ status query)
+ * services/cumulativeFeedbackService.js  (v3 — robust Python JSON parser)
  *
  * Generates and stores Gemini cumulative feedback for a child
  * across ALL their quiz attempts, broken down by subject + overall.
@@ -8,12 +8,12 @@
  *   - MCQ (Reading/Numeracy/Language) → QuizAttempts collection
  *   - Writing                         → Writing collection (never in QuizAttempts)
  *
- * FIX v2:
- *   fetchAllTestsForChild() was querying status: "submitted" for MCQ attempts.
- *   MCQ lifecycle is: in_progress → scored → ai_done  ("submitted" is NEVER used)
- *   Only Writing uses "submitted" briefly before it moves to the Writing collection.
- *   This meant cumulative feedback always had ZERO MCQ data — analytics was empty.
+ * FIX v2: fetchAllTestsForChild() was querying status: "submitted" for MCQ attempts.
  *   Fixed to: status: { $in: ["scored", "ai_done"] }
+ *
+ * FIX v3: runPython() used naive JSON.parse(stdout) — fails if Python prints ANY
+ *   warnings/notices before the JSON. Now uses robust last-valid-JSON extraction,
+ *   same pattern already used in aiFeedbackService.js.
  */
 
 const { spawn } = require("child_process");
@@ -92,14 +92,6 @@ function writingTopicBreakdown(writingDoc) {
 
 // ─────────────────────────────────────────────────────────────
 // Fetch all quiz data for a child
-//
-// MCQ source:     QuizAttempts  (Reading, Numeracy, Language)
-// Writing source: Writing       (moved here permanently after AI)
-//
-// ✅ FIX v2: status was "submitted" — wrong for MCQ
-//   MCQ status lifecycle: in_progress → scored → ai_done
-//   "submitted" is ONLY used by Writing before it moves to Writing collection
-//   Changed to: { $in: ["scored", "ai_done"] }
 // ─────────────────────────────────────────────────────────────
 async function fetchAllTestsForChild(childId) {
   const tests = [];
@@ -107,7 +99,7 @@ async function fetchAllTestsForChild(childId) {
   // ── MCQ QuizAttempts (Reading, Numeracy, Language) ──────────
   const attempts = await QuizAttempt.find({
     child_id: childId,
-    status: { $in: ["scored", "ai_done"] },  // ✅ FIXED: was "submitted"
+    status: { $in: ["scored", "ai_done"] },  // ✅ FIX v2: was "submitted"
     subject: { $not: /writing/i },
   })
     .select("quiz_name subject score submitted_at createdAt duration_sec topic_breakdown")
@@ -141,7 +133,6 @@ async function fetchAllTestsForChild(childId) {
   }
 
   // ── Writing attempts (from Writing collection ONLY) ──────────
-  // Writing is never in QuizAttempts — aiFeedbackService moves it + deletes QuizAttempt
   const writingDocs = await Writing.find({
     child_id: childId,
     "ai.status": "done",
@@ -194,14 +185,30 @@ function runPython(payload) {
     child.on("close", (code) => {
       finished = true;
       clearTimeout(timer);
+
       if (code !== 0) {
         return reject(new Error(`Python exited ${code}: ${stderr || stdout}`));
       }
-      try {
-        resolve(JSON.parse(stdout));
-      } catch (e) {
-        reject(new Error(`Cannot parse Python output: ${e.message} | Output: ${stdout.slice(0, 300)}`));
+
+      // ✅ FIX v3: Robust JSON extraction — find the LAST valid {...} block in stdout.
+      // Handles Python printing warnings/pip notices/deprecation before the JSON payload.
+      // (naive JSON.parse(stdout) would throw on any extra text before the JSON)
+      const jsonMatches = stdout.match(/\{[\s\S]*\}/g);
+      if (jsonMatches) {
+        for (let i = jsonMatches.length - 1; i >= 0; i--) {
+          try {
+            const parsed = JSON.parse(jsonMatches[i]);
+            return resolve(parsed);
+          } catch (_) {
+            // try next match
+          }
+        }
       }
+
+      reject(new Error(
+        `Cannot parse Python output. ` +
+        `stderr: ${stderr.slice(0, 200)} | stdout: ${stdout.slice(0, 300)}`
+      ));
     });
 
     child.stdin.write(JSON.stringify(payload));

@@ -583,18 +583,25 @@ export default function StudentDashboardAnalytics({
 
   const activeToken = childToken || parentToken || null;
 
-  const loadCumulativeFeedback = useCallback(async () => {
+const loadCumulativeFeedback = useCallback(async () => {
     if (!childId || !activeToken) {
       console.warn("⚠️ Missing childId or token:", { childId, activeToken });
       return;
     }
     try {
-      const data = await fetchCumulativeFeedback(activeToken, childId);
-      console.log("✅ Cumulative feedback response:", data);
-      setCumulativeFeedback(data || {});
-      const stillGenerating = Object.values(data || {}).some(
-        (d) => d.status === "generating" || d.status === "pending"
-      );
+      // ✅ FIX: fetchCumulativeFeedback now returns { feedback, generating }
+      const { feedback, generating } = await fetchCumulativeFeedback(activeToken, childId);
+      console.log("✅ Cumulative feedback response:", { feedback, generating });
+      setCumulativeFeedback(feedback || {});
+
+      // ✅ FIX: Poll if backend says generating=true (covers the "no docs yet" bootstrap case)
+      // OR if any existing doc still has generating/pending status
+      const stillGenerating =
+        generating ||
+        Object.values(feedback || {}).some(
+          (d) => d.status === "generating" || d.status === "pending"
+        );
+
       if (stillGenerating) {
         pollTimerRef.current = setTimeout(loadCumulativeFeedback, 4000);
       }
