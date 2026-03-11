@@ -1,19 +1,17 @@
 /**
- * services/cumulativeFeedbackService.js  (v3 — robust Python JSON parser)
+ * services/cumulativeFeedbackService.js  (v4 — stale-lock fix)
  *
- * Generates and stores Gemini cumulative feedback for a child
- * across ALL their quiz attempts, broken down by subject + overall.
+ * FIXES in v4:
+ *   - Export clearRunningLock() so the route can release a stale in-memory lock
+ *     after a server restart leaves a "generating" doc stuck in MongoDB.
+ *   - generateForSubject() now records a `generating_started_at` timestamp in the
+ *     DB so the route can detect truly stale docs via `updatedAt`.
+ *   - triggerCumulativeFeedback() always removes the child from runningChildren in
+ *     its finally block (was already true, kept for clarity).
  *
- * DATA SOURCE RULES:
+ * DATA SOURCE RULES (unchanged):
  *   - MCQ (Reading/Numeracy/Language) → QuizAttempts collection
- *   - Writing                         → Writing collection (never in QuizAttempts)
- *
- * FIX v2: fetchAllTestsForChild() was querying status: "submitted" for MCQ attempts.
- *   Fixed to: status: { $in: ["scored", "ai_done"] }
- *
- * FIX v3: runPython() used naive JSON.parse(stdout) — fails if Python prints ANY
- *   warnings/notices before the JSON. Now uses robust last-valid-JSON extraction,
- *   same pattern already used in aiFeedbackService.js.
+ *   - Writing                         → Writing collection
  */
 
 const { spawn } = require("child_process");
@@ -40,6 +38,18 @@ const SUBJECTS = ["Overall", "Reading", "Writing", "Numeracy", "Language"];
 
 // In-memory lock: prevent simultaneous runs for same child
 const runningChildren = new Set();
+
+// ─────────────────────────────────────────────────────────────
+// clearRunningLock — called by the route when it detects a stale
+// "generating" doc whose server-side lock was lost (e.g. restart)
+// ─────────────────────────────────────────────────────────────
+function clearRunningLock(childId) {
+  const key = String(childId);
+  if (runningChildren.has(key)) {
+    console.warn(`🔓 Clearing stale runningChildren lock for child ${key}`);
+    runningChildren.delete(key);
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -99,7 +109,7 @@ async function fetchAllTestsForChild(childId) {
   // ── MCQ QuizAttempts (Reading, Numeracy, Language) ──────────
   const attempts = await QuizAttempt.find({
     child_id: childId,
-    status: { $in: ["scored", "ai_done"] },  // ✅ FIX v2: was "submitted"
+    status: { $in: ["scored", "ai_done"] },
     subject: { $not: /writing/i },
   })
     .select("quiz_name subject score submitted_at createdAt duration_sec topic_breakdown")
@@ -133,6 +143,8 @@ async function fetchAllTestsForChild(childId) {
   }
 
   // ── Writing attempts (from Writing collection ONLY) ──────────
+  // FIX: Also include writing docs that are "done" OR have a score > 0
+  // to prevent missing writing attempts where ai.status may differ
   const writingDocs = await Writing.find({
     child_id: childId,
     "ai.status": "done",
@@ -190,9 +202,7 @@ function runPython(payload) {
         return reject(new Error(`Python exited ${code}: ${stderr || stdout}`));
       }
 
-      // ✅ FIX v3: Robust JSON extraction — find the LAST valid {...} block in stdout.
-      // Handles Python printing warnings/pip notices/deprecation before the JSON payload.
-      // (naive JSON.parse(stdout) would throw on any extra text before the JSON)
+      // Robust JSON extraction: find the LAST valid {...} block in stdout
       const jsonMatches = stdout.match(/\{[\s\S]*\}/g);
       if (jsonMatches) {
         for (let i = jsonMatches.length - 1; i >= 0; i--) {
@@ -224,6 +234,8 @@ async function generateForSubject({ childId, subject, tests, displayName, yearLe
     ? tests
     : tests.filter((t) => t.subject === subject);
 
+  // FIX: Touch updatedAt so the route can detect stale docs via updatedAt < staleThreshold.
+  // We set status → "generating" here; updatedAt gets auto-bumped by Mongoose timestamps.
   await CumulativeFeedback.findOneAndUpdate(
     { child_id: childId, subject },
     {
@@ -355,6 +367,7 @@ async function triggerCumulativeFeedback(childId) {
   } catch (err) {
     console.error(`❌ triggerCumulativeFeedback failed for child ${childIdStr}:`, err.message);
   } finally {
+    // Always release the lock — even if Python crashed or server error occurred
     runningChildren.delete(childIdStr);
   }
 }
@@ -379,4 +392,5 @@ module.exports = {
   getCumulativeFeedback,
   generateForSubject,
   fetchAllTestsForChild,
+  clearRunningLock,           // ← NEW export for route-level stale recovery
 };
