@@ -272,7 +272,7 @@ export default function ChildDashboard() {
       is_trial: quiz.is_trial, is_entitled: quiz.is_entitled,
       status: m ? "completed" : "not_started",
       score: m?.score ?? null, grade: m?.grade ?? null,
-      date_completed: m?.date ?? null, response_id: m?.response_id ?? null,
+      date_completed: m?.date ?? null, response_id: m?.response_id ?? null, ai_status: m?.ai_status ?? null,
 };
   }), [tests, entitledCatalog]);
 
@@ -340,14 +340,28 @@ export default function ChildDashboard() {
   }, [navigate, childInfo, childProfile, searchParams, childStatus]);
 
   const refreshData = useCallback(() => {
-    if (!activeToken || !childId) return;
-    fetchChildResults(activeToken, childId)
-      .then((r) => setTests(r.map((x) => ({ id: x._id, response_id: x.response_id, quiz_id: x.quiz_id, subject: normalizeSubject(x.subject || inferSubject(x.quiz_name)), name: x.quiz_name || "Untitled Quiz", score: Math.round(x.score?.percentage || 0), date: x.date_submitted || x.createdAt, quiz_name: x.quiz_name, grade: x.score?.grade || "", duration: x.duration || 0, source: x.source || "flexiquiz" }))))
-      .catch(() => {});
-    fetchAvailableQuizzes(activeToken, childId)
-      .then((data) => { const q = Array.isArray(data) ? data : data?.quizzes || []; setAvailableQuizzes(q.map((x) => ({ ...x, subject: normalizeSubject(x.subject) }))); if (data?.child_status) setChildStatus(data.child_status); })
-      .catch(() => {});
-  }, [activeToken, childId]);
+  if (!activeToken || !childId) return;
+  Promise.all([fetchChildResults(activeToken, childId), fetchChildWriting(activeToken, childId)])
+    .then(([results, writingDocs]) => {
+      const nonWriting = results.map((r) => ({
+        id: r._id, response_id: r.response_id, quiz_id: r.quiz_id,
+        subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
+        name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
+        date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name,
+        grade: r.score?.grade || "", duration: r.duration || 0, source: r.source || "native",
+      }));
+      const writing = (writingDocs || []).map((w) => {
+        const overall = w?.ai?.feedback?.overall;
+        const total = overall?.total_score || 0; const max = overall?.max_score || 0;
+       return { id: w._id, response_id: w.response_id, quiz_id: w.quiz_id, subject: "Writing", name: w.quiz_name || "Untitled Quiz", score: max > 0 ? Math.round((total / max) * 100) : 0, date: w.submitted_at || w.createdAt, quiz_name: w.quiz_name, grade: "", duration: w.duration_sec || 0, source: "writing", ai_status: w?.ai?.status || "pending" };
+      });
+      setTests([...nonWriting, ...writing]);
+    })
+    .catch(() => {});
+  fetchAvailableQuizzes(activeToken, childId)
+    .then((data) => { const q = Array.isArray(data) ? data : data?.quizzes || []; setAvailableQuizzes(q.map((x) => ({ ...x, subject: normalizeSubject(x.subject) }))); if (data?.child_status) setChildStatus(data.child_status); })
+    .catch(() => {});
+}, [activeToken, childId]);
 
   const handleQuizClose = () => { setActiveQuiz(null); refreshData(); };
 
