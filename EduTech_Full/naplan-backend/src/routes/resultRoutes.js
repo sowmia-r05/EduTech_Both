@@ -4,31 +4,12 @@
  * ✅ REWRITTEN: All `Result` (FlexiQuiz legacy) model references removed.
  *    Now uses ONLY QuizAttempt + Child + Writing — the native collections.
  *
- * All endpoints preserve the same URL shape so the frontend (Dashboard.jsx,
- * api.js) needs NO changes whatsoever.
- *
- * Endpoints:
- *   GET  /api/results/                          → all attempts (admin/debug)
- *   GET  /api/results/latest                    → most recent attempt
- *   GET  /api/results/latest/by-email           → latest by email
- *   GET  /api/results/latest/by-userid          → latest by user_id (noop, returns null)
- *   GET  /api/results/latest/by-username        → latest by username + optional filters
- *   GET  /api/results/latest/by-filters         → latest by email + optional filters
- *   GET  /api/results/quizzes                   → distinct quiz names for an email
- *   GET  /api/results/by-email                  → all attempts for email
- *   GET  /api/results/by-username               → all attempts for username
- *   GET  /api/results/check-submission/:username→ recent submission check
- *   GET  /api/results/:responseId               → single result by attempt_id
- *   POST /api/results/webhook                   → no-op (FlexiQuiz webhook — not used)
- *
  * FIX v2:
  *   GET /api/results/:responseId no longer filters by status.
- *   Old code: status: { $in: ["scored", "ai_done", "submitted"] }
- *   Problem: If AI is still running (status="queued"/"generating"), the attempt
- *            was invisible → returned null → Dashboard.jsx showed a blank page.
- *   Fix: Look up by attempt_id only. Any non-in_progress attempt is valid to display.
- *        The frontend's isAiPending() already handles showing a loading overlay
- *        when AI hasn't finished yet.
+ *   Old: status: { $in: ["scored", "ai_done", "submitted"] }
+ *   Problem: attempts with status="queued"/"generating"/"error"/"expired"
+ *            were invisible → returned null → Dashboard showed blank page.
+ *   Fix: status: { $ne: "in_progress" } — any submitted attempt is valid.
  */
 
 const express = require("express");
@@ -38,16 +19,10 @@ const Child = require("../models/child");
 const Writing = require("../models/writing");
 const connectDB = require("../config/db");
 
-// ─── Helpers ─────────────────────────────────────────────────
-
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * Infer NAPLAN subject from quiz name.
- * Covers both admin-set subject fields AND quiz name keywords.
- */
 function inferSubjectFromQuizName(quizName = "") {
   const s = String(quizName || "").toLowerCase();
   if (s.includes("calculator")) return "Numeracy_with_calculator";
@@ -64,7 +39,7 @@ function inferSubjectFromQuizName(quizName = "") {
     s.includes("numeracy") ||
     s.includes("number") ||
     s.includes("algebra") ||
-    s.includes("algebar") ||   // common typo in quiz names
+    s.includes("algebar") ||
     s.includes("maths") ||
     s.includes("math") ||
     s.includes("measurement") ||
@@ -75,12 +50,7 @@ function inferSubjectFromQuizName(quizName = "") {
   return null;
 }
 
-/**
- * Normalize a QuizAttempt document into the legacy Result shape
- * that Dashboard.jsx / AISuggestionPanel / AICoachPanel expect.
- */
 function normalizeQuizAttempt(attempt, child) {
-  // ── topic_breakdown: Map or plain object → plain object ──
   const tb = {};
   if (attempt.topic_breakdown) {
     const entries =
@@ -92,7 +62,6 @@ function normalizeQuizAttempt(attempt, child) {
     }
   }
 
-  // ── ai_feedback: only expose when AI has actually run ──
   const metaStatus = String(
     attempt.ai_feedback_meta?.status || "pending"
   ).toLowerCase();
@@ -133,7 +102,6 @@ function normalizeQuizAttempt(attempt, child) {
     ai_feedback_meta: attempt.ai_feedback_meta || null,
     performance_analysis: attempt.performance_analysis || null,
 
-    // Synthetic `ai` field — Dashboard.jsx isAiPending() reads this
     ai: {
       status:       metaStatus === "done" ? "done" : metaStatus,
       message:
@@ -149,9 +117,7 @@ function normalizeQuizAttempt(attempt, child) {
   };
 }
 
-// ─────────────────────────────────────────────────────────────
 // GET /api/results/
-// ─────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
     await connectDB();
@@ -170,9 +136,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // GET /api/results/latest
-// ─────────────────────────────────────────────────────────────
 router.get("/latest", async (req, res) => {
   try {
     await connectDB();
@@ -188,16 +152,12 @@ router.get("/latest", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // GET /api/results/latest/by-email
-// ─────────────────────────────────────────────────────────────
 router.get("/latest/by-email", async (req, res) => {
   try {
     await connectDB();
     const email = String(req.query.email || "").trim().toLowerCase();
     if (!email) return res.status(400).json({ error: "email required" });
-    // Native attempts don't store email — look up child by parent email
-    const child = await Child.findOne().lean(); // fallback noop
     return res.json(null);
   } catch (err) {
     console.error(err);
@@ -205,16 +165,12 @@ router.get("/latest/by-email", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// GET /api/results/latest/by-userid   (legacy no-op)
-// ─────────────────────────────────────────────────────────────
+// GET /api/results/latest/by-userid (legacy no-op)
 router.get("/latest/by-userid", async (req, res) => {
   return res.json(null);
 });
 
-// ─────────────────────────────────────────────────────────────
 // GET /api/results/latest/by-username
-// ─────────────────────────────────────────────────────────────
 router.get("/latest/by-username", async (req, res) => {
   try {
     await connectDB();
@@ -249,9 +205,7 @@ router.get("/latest/by-username", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // GET /api/results/latest/by-filters
-// ─────────────────────────────────────────────────────────────
 router.get("/latest/by-filters", async (req, res) => {
   try {
     await connectDB();
@@ -286,14 +240,11 @@ router.get("/latest/by-filters", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // GET /api/results/quizzes
-// ─────────────────────────────────────────────────────────────
 router.get("/quizzes", async (req, res) => {
   try {
     await connectDB();
     const username = String(req.query.username || "").trim();
-    const email    = String(req.query.email    || "").trim().toLowerCase();
 
     let child = null;
     if (username) {
@@ -319,16 +270,12 @@ router.get("/quizzes", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// GET /api/results/by-email   (legacy — native attempts have no email; returns [])
-// ─────────────────────────────────────────────────────────────
+// GET /api/results/by-email (legacy — returns [])
 router.get("/by-email", async (req, res) => {
   return res.json([]);
 });
 
-// ─────────────────────────────────────────────────────────────
 // GET /api/results/by-username
-// ─────────────────────────────────────────────────────────────
 router.get("/by-username", async (req, res) => {
   try {
     await connectDB();
@@ -362,9 +309,7 @@ router.get("/by-username", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // GET /api/results/check-submission/:username
-// ─────────────────────────────────────────────────────────────
 router.get("/check-submission/:username", async (req, res) => {
   try {
     await connectDB();
@@ -424,21 +369,9 @@ router.get("/check-submission/:username", async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // GET /api/results/:responseId
 //
-// ✅ FIX v2: Removed status filter.
-//
-// OLD (broken):
-//   QuizAttempt.findOne({ attempt_id: id, status: { $in: ["scored", "ai_done", "submitted"] } })
-//   → returns null if AI is still running (status="queued"/"generating")
-//   → Dashboard.jsx gets null → latestResult never set → selectedResult = null → blank page
-//
-// NEW (fixed):
-//   QuizAttempt.findOne({ attempt_id: id })
-//   → returns the attempt regardless of AI processing status
-//   → Dashboard.jsx shows the score immediately; isAiPending() overlays a spinner
-//     while AI finishes, and polls until done
-//
-// We still exclude in_progress attempts (quiz not yet submitted):
-//   status: { $ne: "in_progress" }
+// ✅ FIX: Uses status: { $ne: "in_progress" } instead of whitelist.
+// Old code blocked attempts with status "error"/"expired"/"queued"
+// causing a blank page. Now any submitted attempt is returned.
 // ─────────────────────────────────────────────────────────────
 router.get("/:responseId", async (req, res) => {
   try {
@@ -447,7 +380,7 @@ router.get("/:responseId", async (req, res) => {
 
     const attempt = await QuizAttempt.findOne({
       attempt_id: id,
-      status: { $ne: "in_progress" }, // exclude quizzes still being taken
+      status: { $ne: "in_progress" },  // ✅ exclude only actively in-progress quizzes
     }).lean();
 
     if (attempt) {
@@ -462,9 +395,7 @@ router.get("/:responseId", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// POST /api/results/webhook   — legacy FlexiQuiz no-op
-// ─────────────────────────────────────────────────────────────
+// POST /api/results/webhook — legacy FlexiQuiz no-op
 router.post("/webhook", (req, res) => {
   console.log("⚠️ Legacy FlexiQuiz webhook hit — ignored (native quizzes only)");
   return res.status(200).json({ message: "Received — native quiz system active" });
