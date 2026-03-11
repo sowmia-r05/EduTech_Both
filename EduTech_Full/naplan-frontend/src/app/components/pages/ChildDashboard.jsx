@@ -432,7 +432,7 @@ export default function ChildDashboard() {
           />
         </DashboardHeader>
         <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="analytics" viewerType={viewerType} onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")} onBack={() => setShowAnalytics(false)} yearLevel={yearLevel}>
-          <StudentDashboardAnalytics tests={entitledTests} displayName={displayName} yearLevel={yearLevel} embedded={true} onLogout={handleLogout} />
+          <StudentDashboardAnalytics tests={entitledTests} displayName={displayName} yearLevel={yearLevel} embedded={true} childId={childId} onLogout={handleLogout} />
         </TrialGateOverlay>
       </div>
     );
