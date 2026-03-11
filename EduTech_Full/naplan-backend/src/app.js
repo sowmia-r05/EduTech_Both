@@ -30,8 +30,14 @@ const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const healthRoutes = require("./routes/healthRoutes");
 const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes");
 
+
 // ✅ Legacy route auth middleware
-const { secureLegacyWriting } = require("./middleware/legacyRouteAuth");
+const {
+  secureLegacyResults,
+  secureLegacyWriting,
+} = require("./middleware/legacyRouteAuth");
+const resultRoutes = require("./routes/resultRoutes");
+const regenerateAiRoute = require("./routes/regenerateAiRoute");
 
 const app = express();
 
@@ -86,6 +92,8 @@ app.use("/api/children/:childId/cumulative-feedback", cumulativeFeedbackRoutes);
 
 // ✅ Routes — Writing (secured)
 app.use("/api/writing", secureLegacyWriting, writingRoutes);
+app.use("/api/results", secureLegacyResults, resultRoutes);     
+app.use("/api/results", secureLegacyResults, regenerateAiRoute); 
 
 // ✅ Routes — Catalog (public)
 app.use("/api/catalog", catalogRoutes);

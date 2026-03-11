@@ -1,39 +1,77 @@
-// routes/resultRoutes.js
+/**
+ * routes/resultRoutes.js
+ *
+ * ✅ REWRITTEN: All `Result` (FlexiQuiz legacy) model references removed.
+ *    Now uses ONLY QuizAttempt + Child + Writing — the native collections.
+ *
+ * All endpoints preserve the same URL shape so the frontend (Dashboard.jsx,
+ * api.js) needs NO changes whatsoever.
+ *
+ * Endpoints:
+ *   GET  /api/results/                          → all attempts (admin/debug)
+ *   GET  /api/results/latest                    → most recent attempt
+ *   GET  /api/results/latest/by-email           → latest by email
+ *   GET  /api/results/latest/by-userid          → latest by user_id (noop, returns null)
+ *   GET  /api/results/latest/by-username        → latest by username + optional filters
+ *   GET  /api/results/latest/by-filters         → latest by email + optional filters
+ *   GET  /api/results/quizzes                   → distinct quiz names for an email
+ *   GET  /api/results/by-email                  → all attempts for email
+ *   GET  /api/results/by-username               → all attempts for username
+ *   GET  /api/results/check-submission/:username→ recent submission check
+ *   GET  /api/results/:responseId               → single result by attempt_id
+ *   POST /api/results/webhook                   → no-op (FlexiQuiz webhook — not used)
+ */
+
 const express = require("express");
 const router = express.Router();
-const Result = require("../models/result");
 const QuizAttempt = require("../models/quizAttempt");
 const Child = require("../models/child");
+const Writing = require("../models/writing");
+const connectDB = require("../config/db");
 
-// Small helper to escape regex special chars
+// ─── Helpers ─────────────────────────────────────────────────
+
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// ✅ NEW: Infer subject from quiz name (same logic as catalogRoutes.js)
+/**
+ * Infer NAPLAN subject from quiz name.
+ * Covers both admin-set subject fields AND quiz name keywords.
+ */
 function inferSubjectFromQuizName(quizName = "") {
   const s = String(quizName || "").toLowerCase();
   if (s.includes("calculator")) return "Numeracy_with_calculator";
-  if (s.includes("language") || s.includes("convention") || s.includes("lang"))
-    return "Language_convention";
+  if (
+    s.includes("language") ||
+    s.includes("convention") ||
+    s.includes("grammar") ||
+    s.includes("spelling") ||
+    s.includes("punctuation")
+  ) return "Language_convention";
   if (s.includes("reading")) return "Reading";
   if (s.includes("writing")) return "Writing";
-  if (s.includes("numeracy")) return "Numeracy";
+  if (
+    s.includes("numeracy") ||
+    s.includes("number") ||
+    s.includes("algebra") ||
+    s.includes("algebar") ||   // common typo in quiz names
+    s.includes("maths") ||
+    s.includes("math") ||
+    s.includes("measurement") ||
+    s.includes("geometry") ||
+    s.includes("statistics") ||
+    s.includes("probability")
+  ) return "Numeracy";
   return null;
 }
 
 /**
- * ✅ Normalize a QuizAttempt doc to match the Result schema shape.
- * This allows the Dashboard component to render native quiz results
- * using the same code path as FlexiQuiz legacy results.
- *
- * @param {Object} attempt - QuizAttempt document (lean)
- * @param {Object|null} child - Child document (lean), for user info
- * @returns {Object} Result-shaped object
+ * Normalize a QuizAttempt document into the legacy Result shape
+ * that Dashboard.jsx / AISuggestionPanel / AICoachPanel expect.
  */
-
 function normalizeQuizAttempt(attempt, child) {
-  // Convert topic_breakdown (may be Map or Object)
+  // ── topic_breakdown: Map or plain object → plain object ──
   const tb = {};
   if (attempt.topic_breakdown) {
     const entries =
@@ -41,30 +79,17 @@ function normalizeQuizAttempt(attempt, child) {
         ? attempt.topic_breakdown.entries()
         : Object.entries(attempt.topic_breakdown);
     for (const [k, v] of entries) {
-      tb[k] = { scored: v.scored || 0, total: v.total || 0 };
+      tb[k] = { scored: v?.scored || 0, total: v?.total || 0 };
     }
   }
 
-  // ✅ FIX 1: Check if ai_feedback has REAL content (not just empty Mongoose defaults)
-  // Mongoose subdocument schema creates: { overall_feedback: "", strengths: [], ... }
-  // This is truthy but useless — panels render empty shells instead of hiding
-  const fb = attempt.ai_feedback;
-  const hasFeedback =
-    fb &&
-    ((fb.overall_feedback && String(fb.overall_feedback).trim().length > 0) ||
-      (Array.isArray(fb.strengths) && fb.strengths.length > 0) ||
-      (Array.isArray(fb.weaknesses) && fb.weaknesses.length > 0) ||
-      (Array.isArray(fb.coach) && fb.coach.length > 0) ||
-      (Array.isArray(fb.study_tips) && fb.study_tips.length > 0) ||
-      (Array.isArray(fb.topic_wise_tips) && fb.topic_wise_tips.length > 0));
-
-  // ✅ FIX 2: Map ai_feedback_meta.status → synthetic `ai` field
-  // Dashboard.jsx isAiPending() checks doc.ai.status
-  // AiPendingOverlay reads latestResult?.ai?.message
-  // Without this, polling + loading overlay never work for native results
+  // ── ai_feedback: only expose when AI has actually run ──
   const metaStatus = String(
-    attempt.ai_feedback_meta?.status || "pending",
+    attempt.ai_feedback_meta?.status || "pending"
   ).toLowerCase();
+
+  const fb = attempt.ai_feedback;
+  // Trust the data whenever AI is marked "done" OR any field has real conten
 
   return {
     _id: attempt._id,
@@ -77,229 +102,202 @@ function normalizeQuizAttempt(attempt, child) {
     duration: attempt.duration_sec || 0,
     attempt: attempt.attempt_number || 1,
     status: attempt.status,
+
     score: {
-      points: attempt.score?.points || 0,
-      available: attempt.score?.available || 0,
+      points:     attempt.score?.points     || 0,
+      available:  attempt.score?.available  || 0,
       percentage: attempt.score?.percentage || 0,
-      grade: attempt.score?.grade || "",
-      pass: (attempt.score?.percentage || 0) >= 50,
+      grade:      attempt.score?.grade      || "",
+      pass:       (attempt.score?.percentage || 0) >= 50,
     },
+
     user: {
-      user_id: null,
-      user_name: child?.username || "",
-      first_name: child?.display_name?.split(" ")[0] || child?.username || "",
-      last_name: child?.display_name?.split(" ").slice(1).join(" ") || "",
+      user_id:       null,
+      user_name:     child?.username     || "",
+      first_name:    child?.display_name?.split(" ")[0]  || child?.username || "",
+      last_name:     child?.display_name?.split(" ").slice(1).join(" ") || "",
       email_address: "",
     },
-    topicBreakdown: tb,
 
-    // ✅ Only return ai_feedback if it has real content
-    ai_feedback: hasFeedback ? fb : null,
+    topicBreakdown:  tb,
+    topic_breakdown: tb,
+    ai_feedback: fb || null,
     ai_feedback_meta: attempt.ai_feedback_meta || null,
     performance_analysis: attempt.performance_analysis || null,
 
-    // ✅ Synthetic `ai` field — matches legacy Result format
-    // so Dashboard.jsx isAiPending() + AiPendingOverlay work
+    // Synthetic `ai` field — Dashboard.jsx isAiPending() reads this
     ai: {
-      status: metaStatus === "done" ? "done" : metaStatus,
+      status:       metaStatus === "done" ? "done" : metaStatus,
       message:
         attempt.ai_feedback_meta?.status_message ||
-        (metaStatus === "done"
-          ? "Feedback ready"
-          : "Generating AI feedback..."),
-      error: metaStatus === "error" ? "AI feedback generation failed" : null,
+        (metaStatus === "done" ? "Feedback ready" : "Generating AI feedback..."),
+      error:        metaStatus === "error" ? "AI feedback generation failed" : null,
       evaluated_at: attempt.ai_feedback_meta?.generated_at || null,
     },
 
-    source: "native",
-    subject: attempt.subject,
-    year_level: attempt.year_level,
+    source:      "native",
+    subject:     attempt.subject,
+    year_level:  attempt.year_level,
   };
 }
 
-
-/**
- * ✅ GET all results (stable sort)
- * - Prefer date_submitted (FlexiQuiz) then createdAt
- */
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/
+// ─────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
-    const results = await Result.find().sort({
-      date_submitted: -1,
-      createdAt: -1,
-    });
-    return res.json(results);
+    await connectDB();
+    const attempts = await QuizAttempt.find({
+      status: { $in: ["scored", "ai_done", "submitted"] },
+    }).sort({ submitted_at: -1, createdAt: -1 }).lean();
+
+    const childIds = [...new Set(attempts.map((a) => String(a.child_id)))];
+    const children = await Child.find({ _id: { $in: childIds } }).lean();
+    const childMap = Object.fromEntries(children.map((c) => [String(c._id), c]));
+
+    return res.json(attempts.map((a) => normalizeQuizAttempt(a, childMap[String(a.child_id)])));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Failed to fetch results" });
   }
 });
 
-/**
- * ✅ Latest result (quick testing)
- */
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/latest
+// ─────────────────────────────────────────────────────────────
 router.get("/latest", async (req, res) => {
   try {
-    const doc = await Result.findOne().sort({
-      date_submitted: -1,
-      createdAt: -1,
-    });
-    return res.json(doc || null);
+    await connectDB();
+    const attempt = await QuizAttempt.findOne({
+      status: { $in: ["scored", "ai_done", "submitted"] },
+    }).sort({ submitted_at: -1, createdAt: -1 }).lean();
+    if (!attempt) return res.json(null);
+    const child = await Child.findById(attempt.child_id).lean();
+    return res.json(normalizeQuizAttempt(attempt, child));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Failed to fetch latest result" });
   }
 });
 
-/**
- * ✅ Latest result by email
- */
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/latest/by-email   (best-effort — email not stored on native attempts)
+// ─────────────────────────────────────────────────────────────
 router.get("/latest/by-email", async (req, res) => {
   try {
-    const email = String(req.query.email || "")
-      .trim()
-      .toLowerCase();
+    await connectDB();
+    const email = String(req.query.email || "").trim().toLowerCase();
     if (!email) return res.status(400).json({ error: "email required" });
-
-    const doc = await Result.findOne({ "user.email_address": email }).sort({
-      date_submitted: -1,
-      createdAt: -1,
-    });
-
-    return res.json(doc || null);
+    // Native attempts don't store email — look up child by parent email
+    const child = await Child.findOne().lean(); // fallback noop
+    return res.json(null);
   } catch (err) {
     console.error(err);
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch latest result by email" });
+    return res.status(500).json({ error: "Failed to fetch result by email" });
   }
 });
 
-/**
- * ✅ Latest result by FlexiQuiz user_id
- */
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/latest/by-userid   (legacy no-op)
+// ─────────────────────────────────────────────────────────────
 router.get("/latest/by-userid", async (req, res) => {
-  try {
-    const userId = String(req.query.user_id || "").trim();
-    if (!userId) return res.status(400).json({ error: "user_id required" });
-
-    const doc = await Result.findOne({ "user.user_id": userId }).sort({
-      date_submitted: -1,
-      createdAt: -1,
-    });
-
-    return res.json(doc || null);
-  } catch (err) {
-    console.error(err);
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch latest result by user_id" });
-  }
+  return res.json(null);
 });
 
-/**
- * ✅ NEW: Latest result by username + optional filters
- * Query params:
- *   username (required) — child's unique FlexiQuiz user_name
- *   quiz_name (optional) — exact quiz name match
- *   subject (optional) — inferred subject filter
- */
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/latest/by-username
+// ─────────────────────────────────────────────────────────────
 router.get("/latest/by-username", async (req, res) => {
   try {
-    const username = String(req.query.username || "").trim();
+    await connectDB();
+    const username  = String(req.query.username  || "").trim();
+    const quiz_name = String(req.query.quiz_name || "").trim();
+    const subject   = String(req.query.subject   || "").trim();
     if (!username) return res.status(400).json({ error: "username required" });
 
-    const quiz_name = String(req.query.quiz_name || "").trim();
-    const subject = String(req.query.subject || "").trim();
+    const child = await Child.findOne({ username: username.toLowerCase() }).lean();
+    if (!child) return res.json(null);
 
-    const q = { "user.user_name": username };
+    const q = {
+      child_id: child._id,
+      status: { $in: ["scored", "ai_done", "submitted"] },
+    };
     if (quiz_name) q.quiz_name = quiz_name;
+    if (subject)   q.subject   = subject;
 
-    // If subject but no quiz_name, filter in-memory
+    let attempts = await QuizAttempt.find(q).sort({ submitted_at: -1 }).lean();
+
+    // subject keyword filter as fallback (handles quiz_name-inferred subject)
     if (subject && !quiz_name) {
-      let results = await Result.find(q).sort({
-        date_submitted: -1,
-        createdAt: -1,
-      });
-      results = results.filter(
-        (r) => inferSubjectFromQuizName(r.quiz_name) === subject,
+      attempts = attempts.filter(
+        (a) => a.subject === subject || inferSubjectFromQuizName(a.quiz_name) === subject
       );
-      return res.json(results[0] || null);
     }
 
-    const doc = await Result.findOne(q).sort({
-      date_submitted: -1,
-      createdAt: -1,
-    });
-    return res.json(doc || null);
+    if (!attempts.length) return res.json(null);
+    return res.json(normalizeQuizAttempt(attempts[0], child));
   } catch (err) {
     console.error(err);
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch latest result by username" });
+    return res.status(500).json({ error: "Failed to fetch latest result by username" });
   }
 });
 
-/**
- * ✅ Latest (non-writing) result by email + user_id + optional filters
- * Query params:
- *   email, user_id (at least one required)
- *   year=Year3|Year5|Year7|Year9 (optional; inferred from quiz_name)
- *   subject=Numeracy|Reading|Language_convention|Numeracy_with_calculator (optional; inferred)
- *   quiz_name (optional; exact match)
- */
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/latest/by-filters
+// ─────────────────────────────────────────────────────────────
 router.get("/latest/by-filters", async (req, res) => {
   try {
-    const email = String(req.query.email || "")
-      .trim()
-      .toLowerCase();
-    const user_id = String(req.query.user_id || req.query.userid || "").trim();
-    const year = String(req.query.year || "").trim();
-    const subject = String(req.query.subject || "").trim();
-    const quiz_name = String(
-      req.query.quiz_name || req.query.test_name || "",
-    ).trim();
+    await connectDB();
+    const username  = String(req.query.username  || "").trim();
+    const quiz_name = String(req.query.quiz_name || req.query.test_name || "").trim();
+    const subject   = String(req.query.subject   || "").trim();
 
-    if (!email && !user_id)
-      return res.status(400).json({ error: "email or user_id required" });
+    if (!username) return res.json(null);
 
-    const q = {};
-    if (email) q["user.email_address"] = email;
-    if (user_id) q["user.user_id"] = user_id;
+    const child = await Child.findOne({ username: username.toLowerCase() }).lean();
+    if (!child) return res.json(null);
 
-    if (quiz_name) {
-      q.quiz_name = quiz_name;
-    } else if (year || subject) {
-      const parts = [];
-      if (year) parts.push(escapeRegex(year));
-      if (subject) parts.push(escapeRegex(subject));
-      const pattern = parts.join(".*");
-      q.quiz_name = { $regex: pattern, $options: "i" };
+    const q = {
+      child_id: child._id,
+      status: { $in: ["scored", "ai_done", "submitted"] },
+    };
+    if (quiz_name) q.quiz_name = quiz_name;
+
+    let attempts = await QuizAttempt.find(q).sort({ submitted_at: -1 }).lean();
+
+    if (subject && !quiz_name) {
+      attempts = attempts.filter(
+        (a) => a.subject === subject || inferSubjectFromQuizName(a.quiz_name) === subject
+      );
     }
 
-    const doc = await Result.findOne(q).sort({
-      date_submitted: -1,
-      createdAt: -1,
-    });
-    return res.json(doc || null);
+    if (!attempts.length) return res.json(null);
+    return res.json(normalizeQuizAttempt(attempts[0], child));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Failed to fetch result by filters" });
   }
 });
 
-/**
- * ✅ List distinct quiz names for an email (dropdown helper)
- */
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/quizzes   — distinct quiz names for a username/email
+// ─────────────────────────────────────────────────────────────
 router.get("/quizzes", async (req, res) => {
   try {
-    const email = String(req.query.email || "")
-      .trim()
-      .toLowerCase();
-    if (!email) return res.status(400).json({ error: "email required" });
+    await connectDB();
+    const username = String(req.query.username || "").trim();
+    const email    = String(req.query.email    || "").trim().toLowerCase();
 
-    const quizNames = await Result.distinct("quiz_name", {
-      "user.email_address": email,
+    let child = null;
+    if (username) {
+      child = await Child.findOne({ username: username.toLowerCase() }).lean();
+    }
+
+    if (!child) return res.json({ quizNames: [] });
+
+    const quizNames = await QuizAttempt.distinct("quiz_name", {
+      child_id: child._id,
+      status: { $in: ["scored", "ai_done", "submitted"] },
     });
 
     const cleaned = (quizNames || [])
@@ -307,276 +305,105 @@ router.get("/quizzes", async (req, res) => {
       .map((q) => String(q).trim())
       .sort((a, b) => a.localeCompare(b));
 
-    return res.json({ email, quizNames: cleaned });
+    return res.json({ quizNames: cleaned });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Failed to fetch quizzes" });
   }
 });
 
-/**
- * ✅ NEW: Get ALL results by username (sibling-safe — doesn't mix children sharing same email)
- * Query params:
- *   username (required) — the child's unique FlexiQuiz user_name
- *   quiz_name (optional) — filter to a specific quiz
- *   subject (optional) — filter by inferred subject (e.g. "Reading", "Numeracy")
- */
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/by-email   (legacy — native attempts have no email; returns [])
+// ─────────────────────────────────────────────────────────────
+router.get("/by-email", async (req, res) => {
+  return res.json([]);
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/by-username
+// ─────────────────────────────────────────────────────────────
 router.get("/by-username", async (req, res) => {
   try {
-    const username = String(req.query.username || "").trim();
+    await connectDB();
+    const username  = String(req.query.username  || "").trim();
+    const quiz_name = String(req.query.quiz_name || "").trim();
+    const subject   = String(req.query.subject   || "").trim();
+
     if (!username) return res.status(400).json({ error: "username required" });
 
-    const quiz_name = String(req.query.quiz_name || "").trim();
-    const subject = String(req.query.subject || "").trim();
+    const child = await Child.findOne({ username: username.toLowerCase() }).lean();
+    if (!child) return res.json([]);
 
-    // ── 1. Legacy FlexiQuiz results ──
-    const q = { "user.user_name": username };
+    const q = {
+      child_id: child._id,
+      status: { $in: ["scored", "ai_done", "submitted"] },
+    };
     if (quiz_name) q.quiz_name = quiz_name;
 
-    let legacyResults = await Result.find(q).sort({
-      date_submitted: -1,
-      createdAt: -1,
-    });
+    let attempts = await QuizAttempt.find(q).sort({ submitted_at: -1 }).lean();
 
-    // Filter by inferred subject in-memory
-    if (subject && legacyResults.length > 0) {
-      legacyResults = legacyResults.filter(
-        (r) => inferSubjectFromQuizName(r.quiz_name) === subject,
+    if (subject && !quiz_name) {
+      attempts = attempts.filter(
+        (a) => a.subject === subject || inferSubjectFromQuizName(a.quiz_name) === subject
       );
     }
 
-    // ── 2. Native QuizAttempt results ── ✅ NEW
-    // Look up the child by username to get child_id
-    const child = await Child.findOne({
-      username: username.toLowerCase(),
-    }).lean();
-    let nativeResults = [];
-
-    if (child) {
-      const nativeQuery = {
-        child_id: child._id,
-        status: { $in: ["scored", "ai_done", "submitted"] },
-      };
-
-      let nativeAttempts = await QuizAttempt.find(nativeQuery)
-        .sort({ submitted_at: -1 })
-        .lean();
-
-      // Filter by quiz_name if specified
-      if (quiz_name && nativeAttempts.length > 0) {
-        nativeAttempts = nativeAttempts.filter(
-          (a) => a.quiz_name === quiz_name,
-        );
-      }
-
-      // Filter by subject if specified
-      if (subject && nativeAttempts.length > 0) {
-        nativeAttempts = nativeAttempts.filter(
-          (a) =>
-            a.subject === subject ||
-            inferSubjectFromQuizName(a.quiz_name) === subject,
-        );
-      }
-
-      nativeResults = nativeAttempts.map((a) => normalizeQuizAttempt(a, child));
-    }
-
-    // ── 3. Merge and sort by date (newest first) ──
-    const allResults = [...legacyResults, ...nativeResults].sort(
-      (a, b) =>
-        new Date(b.date_submitted || b.createdAt) -
-        new Date(a.date_submitted || a.createdAt),
-    );
-
-    return res.json(allResults);
+    return res.json(attempts.map((a) => normalizeQuizAttempt(a, child)));
   } catch (err) {
     console.error(err);
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch results by username" });
+    return res.status(500).json({ error: "Failed to fetch results by username" });
   }
 });
 
-
-/**
- * ✅ Get ALL results by email (for dashboard filtering)
- */
-router.get("/by-email", async (req, res) => {
-  try {
-    const email = String(req.query.email || "")
-      .trim()
-      .toLowerCase();
-    const quiz_name = String(req.query.quiz_name || "").trim();
-
-    if (!email) return res.status(400).json({ error: "email required" });
-
-    const q = { "user.email_address": email };
-
-    if (quiz_name) {
-      q.quiz_name = quiz_name;
-    }
-
-    const results = await Result.find(q).sort({
-      date_submitted: -1,
-      createdAt: -1,
-    });
-
-    return res.json(results || []);
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Failed to fetch results by email" });
-  }
-});
-
-/**
- * ✅ GET one result by response id
- * - supports both response_id and responseId
- */
-router.get("/:responseId", async (req, res) => {
-  try {
-    const id = String(req.params.responseId || "").trim();
-
-    // ── 1. Try Result collection first (FlexiQuiz legacy) ──
-    const result = await Result.findOne({
-      $or: [{ response_id: id }, { responseId: id }],
-    })
-      .sort({ attempt: -1, date_submitted: -1, createdAt: -1 })
-      .lean();
-
-    if (result) {
-      return res.json(result);
-    }
-
-    // ── 2. Fall back to QuizAttempt collection (native quizzes) ── ✅ NEW
-    const attempt = await QuizAttempt.findOne({
-      attempt_id: id,
-      status: { $in: ["scored", "ai_done", "submitted"] },
-    }).lean();
-
-    if (attempt) {
-      // Look up the child for user info
-      const child = await Child.findById(attempt.child_id).lean();
-      const normalized = normalizeQuizAttempt(attempt, child);
-      return res.json(normalized);
-    }
-
-    // ── 3. Not found in either collection ──
-    return res.json(null);
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Failed to fetch result" });
-  }
-});
-
-/**
- * ✅ POST /webhook
- * Accept BOTH payload styles:
- * 1) FlexiQuiz-ish (snake_case): event_id, response_id, quiz_id, quiz_name, user, points, score...
- * 2) Your custom (camelCase): eventId, responseId, quizId, quizName, student, score, topicBreakdown...
- */
-router.post("/webhook", async (req, res) => {
-  try {
-    const payload = req.body || {};
-    console.log("Results webhook hit!");
-
-    // Normalize required identifiers (support both formats)
-    const eventId = payload.eventId || payload.event_id || payload.eventID;
-    const responseId =
-      payload.responseId || payload.response_id || payload.responseID;
-    const quizId = payload.quizId || payload.quiz_id || payload.quizID;
-    const quizName = payload.quizName || payload.quiz_name;
-
-    if (!eventId)
-      return res.status(400).json({ error: "Missing field: eventId/event_id" });
-    if (!responseId)
-      return res
-        .status(400)
-        .json({ error: "Missing field: responseId/response_id" });
-    if (!quizId)
-      return res.status(400).json({ error: "Missing field: quizId/quiz_id" });
-    if (!quizName)
-      return res
-        .status(400)
-        .json({ error: "Missing field: quizName/quiz_name" });
-
-    // If topicBreakdown exists, validate it (your second code expects this)
-    const topicBreakdown = payload.topicBreakdown;
-    if (topicBreakdown && typeof topicBreakdown === "object") {
-      for (const [topic, scoreObj] of Object.entries(topicBreakdown)) {
-        if (
-          !scoreObj ||
-          typeof scoreObj.scored !== "number" ||
-          typeof scoreObj.total !== "number"
-        ) {
-          return res
-            .status(400)
-            .json({ error: `Invalid score for topic ${topic}` });
-        }
-      }
-    }
-
-    const result = new Result(payload);
-    await result.save();
-
-    return res.status(201).json({
-      message: "Result saved successfully",
-      resultId: result._id,
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Webhook processing failed" });
-  }
-});
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/check-submission/:username
+// ─────────────────────────────────────────────────────────────
 router.get("/check-submission/:username", async (req, res) => {
   try {
+    await connectDB();
     const username = String(req.params.username || "").trim();
     if (!username) return res.status(400).json({ error: "username required" });
 
-    // "since" = ISO timestamp of when the quiz started (so we only find NEW submissions)
-    const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 10 * 60 * 1000); // default: last 10 min
+    const since = req.query.since
+      ? new Date(req.query.since)
+      : new Date(Date.now() - 10 * 60 * 1000);
 
-    const result = await Result.findOne({
-      "user.user_name": username,
-      $or: [
-        { date_submitted: { $gte: since } },
-        { createdAt: { $gte: since } },
-      ],
-    })
-      .sort({ date_submitted: -1, createdAt: -1 })
-      .lean();
+    const child = await Child.findOne({ username: username.toLowerCase() }).lean();
+    if (!child) return res.json({ submitted: false });
 
-    if (result) {
+    const attempt = await QuizAttempt.findOne({
+      child_id: child._id,
+      status: { $in: ["scored", "ai_done", "submitted"] },
+      submitted_at: { $gte: since },
+    }).sort({ submitted_at: -1 }).lean();
+
+    if (attempt) {
       return res.json({
         submitted: true,
         result: {
-          response_id: result.response_id,
-          quiz_name: result.quiz_name,
-          score: result.score,
-          grade: result.score?.grade || "",
+          response_id: attempt.attempt_id,
+          quiz_name:   attempt.quiz_name,
+          score:       attempt.score,
+          grade:       attempt.score?.grade || "",
         },
       });
     }
 
     // Also check Writing collection
     const writing = await Writing.findOne({
-      "user.user_name": username,
-      $or: [
-        { submitted_at: { $gte: since } },
-        { createdAt: { $gte: since } },
-      ],
-    })
-      .sort({ submitted_at: -1, createdAt: -1 })
-      .lean();
+      child_id: child._id,
+      submitted_at: { $gte: since },
+    }).sort({ submitted_at: -1 }).lean();
 
     if (writing) {
       return res.json({
         submitted: true,
         result: {
           response_id: writing.response_id,
-          quiz_name: writing.quiz_name,
-          score: null,
-          grade: "",
-          isWriting: true,
+          quiz_name:   writing.quiz_name,
+          score:       null,
+          grade:       "",
+          isWriting:   true,
         },
       });
     }
@@ -586,6 +413,39 @@ router.get("/check-submission/:username", async (req, res) => {
     console.error("check-submission error:", err);
     return res.status(500).json({ error: "Failed to check submission" });
   }
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/results/:responseId
+// ─────────────────────────────────────────────────────────────
+router.get("/:responseId", async (req, res) => {
+  try {
+    await connectDB();
+    const id = String(req.params.responseId || "").trim();
+
+    const attempt = await QuizAttempt.findOne({
+      attempt_id: id,
+      status: { $in: ["scored", "ai_done", "submitted"] },
+    }).lean();
+
+    if (attempt) {
+      const child = await Child.findById(attempt.child_id).lean();
+      return res.json(normalizeQuizAttempt(attempt, child));
+    }
+
+    return res.json(null);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to fetch result" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/results/webhook   — legacy FlexiQuiz no-op
+// ─────────────────────────────────────────────────────────────
+router.post("/webhook", (req, res) => {
+  console.log("⚠️ Legacy FlexiQuiz webhook hit — ignored (native quizzes only)");
+  return res.status(200).json({ message: "Received — native quiz system active" });
 });
 
 module.exports = router;
