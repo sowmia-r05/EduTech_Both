@@ -1,17 +1,5 @@
 /**
  * routes/cumulativeFeedbackRoutes.js
- *
- * Mounts at: /api/children/:childId/cumulative-feedback
- *
- * GET  /api/children/:childId/cumulative-feedback
- *   → Returns all cumulative feedback docs for the child (keyed by subject).
- *     If feedback is stale (not generated yet or errored), optionally triggers refresh.
- *
- * POST /api/children/:childId/cumulative-feedback/refresh
- *   → Manually triggers regeneration of all cumulative feedback for the child.
- *     Runs async (responds immediately with 202 Accepted).
- *
- * Auth: requireAuth (parent token or child token both OK)
  */
 
 const router = require("express").Router({ mergeParams: true });
@@ -23,26 +11,16 @@ const {
   getCumulativeFeedback,
 } = require("../services/cumulativeFeedbackService");
 
-// All routes require auth
 router.use(verifyToken);
 router.use(requireAuth);
 
-// ─────────────────────────────────────────────────────────────
-// Validate child access helper
-// Ensures the requester (parent or child) can access this child's data
-// ─────────────────────────────────────────────────────────────
 function validateChildAccess(req, childId) {
   const user = req.user;
   if (!user) return false;
-
-  // Parent: must own the child (checked by parent_id on child — enforced at child routes level)
   if (user.role === "parent" || user.parentId) return true;
-
-  // Child: must match their own childId
   if (user.role === "child" || user.childId) {
     return String(user.childId || user.child_id) === String(childId);
   }
-
   return false;
 }
 
@@ -63,12 +41,14 @@ router.get("/", async (req, res) => {
 
     const feedbackMap = await getCumulativeFeedback(childId);
 
-    // If no feedback exists at all, kick off generation (async, don't wait)
-    // ✅ CORRECT
     const hasAnyDone = Object.values(feedbackMap).some((d) => d.status === "done");
     const hasError = Object.values(feedbackMap).some((d) => d.status === "error");
+    const isCurrentlyGenerating = Object.values(feedbackMap).some(
+      (d) => d.status === "generating" || d.status === "pending"
+    );
 
-    if (!hasAnyDone || hasError) {
+    const justTriggered = !hasAnyDone || hasError;
+    if (justTriggered && !isCurrentlyGenerating) {
       setImmediate(() => {
         triggerCumulativeFeedback(childId).catch((e) =>
           console.error("Async cumulative trigger error:", e.message)
@@ -79,8 +59,7 @@ router.get("/", async (req, res) => {
     return res.json({
       ok: true,
       feedback: feedbackMap,
-      // Tell the client if it needs to poll
-      generating: Object.values(feedbackMap).some((d) => d.status === "generating"),
+      generating: justTriggered || isCurrentlyGenerating, // ✅ FIXED
     });
 
   } catch (err) {
@@ -104,13 +83,11 @@ router.post("/refresh", async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // Mark all existing docs as pending so UI shows loading state
     await CumulativeFeedback.updateMany(
       { child_id: childId },
       { $set: { status: "pending", status_message: "Refresh requested…" } }
     );
 
-    // Trigger async (fire and forget)
     setImmediate(() => {
       triggerCumulativeFeedback(childId).catch((e) =>
         console.error("Refresh cumulative trigger error:", e.message)

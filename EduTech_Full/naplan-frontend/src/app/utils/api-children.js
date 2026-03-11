@@ -10,8 +10,13 @@
 //   import { fetchChildrenSummaries, createChild, fetchAvailableQuizzes, ... } from "@/app/utils/api-children";
 export async function fetchCumulativeFeedback(token, childId) {
   const data = await authGet(`/api/children/${childId}/cumulative-feedback`, token);
-  return data?.feedback || {};
+  return {
+    feedback: data?.feedback || {},
+    generating: data?.generating ?? false,
+  };
 }
+
+
 
 /**
  * Trigger a manual refresh of cumulative AI feedback for a child.
