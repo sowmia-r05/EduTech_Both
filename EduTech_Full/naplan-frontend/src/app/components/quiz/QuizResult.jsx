@@ -1,13 +1,27 @@
 /**
- * QuizResult.jsx  (v2 — THREE FIXES)
+ * QuizResult.jsx  (v4 — NAVIGATION FIXED)
  *
  * ✅ FIX 1: AI status polling — polls /api/attempts/:id/ai-status every 5s
- *           until status becomes "done" or "error". Spinner stops automatically.
- * ✅ FIX 2: Writing layout — no "View Answers" button (not applicable for writing).
- *           "View Progress" is full-width instead of half-width grid.
+ *           until status becomes "done" or "error".
+ * ✅ FIX 2: Writing layout — no "View Answers" button. "View Progress" is full-width.
  * ✅ FIX 3: Live child status fetch on mount for correct AI feedback routing.
+ * ✅ FIX 4: "View Progress" — uses onViewAnalytics prop when embedded in ChildDashboard
+ *           (opens analytics panel with real tests data). Falls back to navigate("/child-dashboard").
+ *           OLD BUG: navigate("/student-analytics") — route exists but StudentDashboardAnalytics
+ *           gets no tests prop there → renders empty/broken.
+ * ✅ FIX 5: "View Test Insights" — uses onViewAIFeedback prop when embedded in ChildDashboard.
+ *           Standalone fallback uses navigate() with correct BrowserRouter paths.
+ *           OLD BUG: window.location.href = ".../#/path" — App.jsx uses BrowserRouter NOT
+ *           HashRouter, so the /#/ prefix broke routing entirely — nothing would load.
  *
- * Place in: src/app/components/quiz/QuizResult.jsx
+ * Props:
+ *   result            object   — quiz result data
+ *   quizName          string   — quiz name
+ *   violations        number   — proctoring violations count
+ *   onClose           fn       — closes result view
+ *   onViewAnalytics   fn       — (from ChildDashboard) opens analytics panel inline with real data
+ *   onViewAIFeedback  fn(id, subject, name) — (from ChildDashboard) navigates to correct route
+ *   childStatus       string   — subscription status fallback
  */
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -116,7 +130,15 @@ const icons = {
 /* ═══════════════════════════════════════
    MAIN: QuizResult
    ═══════════════════════════════════════ */
-export default function QuizResult({ result, quizName, violations = 0, onClose, childStatus: childStatusProp }) {
+export default function QuizResult({
+  result,
+  quizName,
+  violations = 0,
+  onClose,
+  onViewAnalytics,    // ✅ FIX 4: from ChildDashboard
+  onViewAIFeedback,   // ✅ FIX 5: from ChildDashboard
+  childStatus: childStatusProp,
+}) {
   const navigate = useNavigate();
   const { user, childProfile, apiFetch } = useAuth();
 
@@ -125,42 +147,34 @@ export default function QuizResult({ result, quizName, violations = 0, onClose, 
   const isWriting = result?.is_writing;
 
   const [showAnswers, setShowAnswers] = useState(false);
-
-  // ✅ FIX 1: Live aiStatus — starts from result, updated by polling
-  const [aiStatus, setAiStatus] = useState(result?.ai_status || "queued");
-
-  const [liveStatus, setLiveStatus] = useState(null);
+  const [aiStatus, setAiStatus]       = useState(result?.ai_status || "queued");
+  const [liveStatus, setLiveStatus]   = useState(null);
 
   const attemptId = result?.attempt_id || result?.response_id || result?.responseId || null;
 
   const authRef = useRef({ user, childProfile });
   useEffect(() => { authRef.current = { user, childProfile }; });
 
-  // ✅ FIX 1b: Poll for AI completion every 5s until done/error
+  // Poll for writing AI status every 5s until done/error
   useEffect(() => {
     if (!isWriting || !attemptId) return;
     if (aiStatus === "done" || aiStatus === "error") return;
-
     let cancelled = false;
-
     const poll = async () => {
       try {
         const res = await apiFetch(`/api/attempts/${attemptId}/ai-status`);
         if (!res.ok) return;
         const data = await res.json();
         const status = data?.ai_status || data?.status;
-        if (status && !cancelled) {
-          setAiStatus(status);
-        }
+        if (status && !cancelled) setAiStatus(status);
       } catch (_) {}
     };
-
-    poll(); // immediate check
+    poll();
     const interval = setInterval(poll, 5000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [isWriting, attemptId, aiStatus, apiFetch]);
 
-  // ✅ FIX 3: Fetch live child subscription status on mount
+  // Fetch live child subscription status on mount
   useEffect(() => {
     (async () => {
       try {
@@ -174,24 +188,48 @@ export default function QuizResult({ result, quizName, violations = 0, onClose, 
     })();
   }, [apiFetch]);
 
+  // ✅ FIX 4: View Progress
+  // Embedded in ChildDashboard → onViewAnalytics() opens analytics panel with real tests data
+  // Standalone (e.g. after NativeQuizPlayer) → navigate("/child-dashboard")
+  // OLD BUG: navigate("/student-analytics") renders StudentDashboardAnalytics with no tests prop → empty
+  const handleViewAnalytics = useCallback(() => {
+    if (onViewAnalytics) {
+      onViewAnalytics();
+    } else {
+      navigate("/child-dashboard");
+    }
+  }, [navigate, onViewAnalytics]);
+
+  // ✅ FIX 5: View Test Insights
+  // Embedded in ChildDashboard → onViewAIFeedback() handles navigation cleanly via navigate()
+  // Standalone → use navigate() with correct BrowserRouter paths (no hash, no window.location.href)
+  // OLD BUG: window.location.href = "origin/#/path" — App.jsx uses BrowserRouter not HashRouter
+  //          so /#/ prefix caused broken routing → blank page or 404
   const handleViewAIFeedback = useCallback(() => {
     if (!attemptId) return;
+
+    if (onViewAIFeedback) {
+      onViewAIFeedback(attemptId, result?.subject, quizName);
+      return;
+    }
+
+    // Standalone fallback — correct BrowserRouter paths matching App.jsx routes
     const { childProfile: cp, user: u } = authRef.current;
     const resolvedStatus = liveStatus || childStatusProp || cp?.status || "trial";
-    const resolvedChildId = cp?.child_id || cp?.id || cp?.childId || u?.child_id || u?.childId || null;
 
     const params = new URLSearchParams({ r: attemptId });
     if (u?.username)     params.set("username",  u.username);
     if (result?.subject) params.set("subject",   result.subject);
     if (quizName)        params.set("quiz_name", quizName);
     params.set("status", resolvedStatus);
-    if (resolvedChildId) params.set("child_id", String(resolvedChildId));
 
-    const hashPath = isWriting ? "writing-feedback/result" : "NonWritingLookupQuizResults/results";
-    window.location.href = `${window.location.origin}/#/${hashPath}?${params}`;
-  }, [attemptId, result?.subject, quizName, isWriting, childStatusProp, liveStatus]);
+    // These paths match exactly what's defined in App.jsx
+    const path = isWriting
+      ? `/writing-feedback/result?${params.toString()}`
+      : `/NonWritingLookupQuizResults/results?${params.toString()}`;
 
-  const handleViewAnalytics = useCallback(() => navigate("/student-analytics"), [navigate]);
+    navigate(path);
+  }, [attemptId, result?.subject, quizName, isWriting, childStatusProp, liveStatus, onViewAIFeedback, navigate]);
 
   const gradeLabel = useMemo(() => {
     const p = score.percentage || 0;
@@ -237,14 +275,10 @@ export default function QuizResult({ result, quizName, violations = 0, onClose, 
         {/* ── Writing AI Feedback Status ── */}
         {isWriting && (
           <div className={`rounded-2xl p-5 flex items-center gap-4 border transition-colors ${
-            aiStatus === "done"
-              ? "bg-violet-50 border-violet-200"
-              : aiStatus === "error"
-              ? "bg-red-50 border-red-200"
-              : "bg-violet-50 border-violet-200"
+            aiStatus === "error" ? "bg-red-50 border-red-200" : "bg-violet-50 border-violet-200"
           }`}>
             <div className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center ${
-              aiStatus === "done" ? "bg-violet-100" : aiStatus === "error" ? "bg-red-100" : "bg-violet-100"
+              aiStatus === "error" ? "bg-red-100" : "bg-violet-100"
             }`}>
               {aiStatus === "done" ? (
                 <svg className="w-5 h-5 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -260,7 +294,9 @@ export default function QuizResult({ result, quizName, violations = 0, onClose, 
             </div>
             <div>
               <p className={`text-sm font-semibold ${aiStatus === "error" ? "text-red-700" : "text-violet-800"}`}>
-                {aiStatus === "done" ? "AI Feedback Ready! ✨" : aiStatus === "error" ? "AI feedback unavailable" : "Generating AI Feedback..."}
+                {aiStatus === "done"  ? "AI Feedback Ready! ✨"  :
+                 aiStatus === "error" ? "AI feedback unavailable" :
+                                        "Generating AI Feedback..."}
               </p>
               <p className={`text-xs mt-0.5 ${aiStatus === "error" ? "text-red-500" : "text-violet-600"}`}>
                 {aiStatus === "done"
@@ -307,11 +343,9 @@ export default function QuizResult({ result, quizName, violations = 0, onClose, 
           </div>
         )}
 
-        {/* ══ Actions ══ */}
+        {/* ══ Action Buttons ══ */}
         <div className="space-y-2.5 pt-1 pb-6">
 
-          {/* ✅ FIX 2: Writing — no View Answers, View Progress is full-width */}
-          {/* Non-writing — 2-col grid with View Answers + View Progress */}
           {!isWriting ? (
             <div className="grid grid-cols-2 gap-2.5">
               {attemptId && (
@@ -336,7 +370,6 @@ export default function QuizResult({ result, quizName, violations = 0, onClose, 
               </button>
             </div>
           ) : (
-            /* Writing — single full-width View Progress button */
             <button
               onClick={handleViewAnalytics}
               className="group w-full inline-flex flex-col items-center justify-center gap-2 px-4 py-4 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm"
@@ -348,7 +381,6 @@ export default function QuizResult({ result, quizName, violations = 0, onClose, 
             </button>
           )}
 
-          {/* View Test Insights — full-width */}
           {attemptId && (
             <button
               onClick={handleViewAIFeedback}

@@ -27,9 +27,6 @@ const AICoachPanel = ({
   if (!hasFeedback) {
     return (
       <div className="flex flex-col h-full bg-slate-50 rounded-xl p-4 overflow-hidden border border-slate-200">
-        <h2 className="text-teal-600 text-lg font-semibold mb-3 flex-shrink-0">
-          Coach Feedback 🤖
-        </h2>
         <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
           {isRegenerating ? (
             <>
@@ -66,9 +63,6 @@ const AICoachPanel = ({
   return (
     <div className="flex flex-col h-full bg-slate-50 rounded-xl p-4 overflow-hidden border border-slate-200">
       {/* Header */}
-      <h2 className="text-teal-600 text-lg font-semibold mb-3 flex-shrink-0">
-        Coach Feedback 🤖
-      </h2>
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto pr-2 min-h-0 custom-scroll">

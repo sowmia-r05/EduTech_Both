@@ -20,9 +20,7 @@ export default function AISuggestionPanel({
   if (!hasSuggestions && !hasStudyTips && !hasTopicWiseTips) {
     return (
       <div>
-        <h3 className="text-lg font-semibold mb-3 text-amber-600">
-          AI Study Recommendations
-        </h3>
+        
         <div className="flex flex-col items-center justify-center text-center py-6">
           {isRegenerating ? (
             <>
@@ -87,9 +85,6 @@ export default function AISuggestionPanel({
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-3 text-amber-600">
-        AI Study Recommendations
-      </h3>
 
       <div className="space-y-4">
         {sectionOrder
