@@ -6,6 +6,7 @@ require("dotenv").config();
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const cors = require("cors");
+const path = require("path");
 
 // ─── Routes ───
 const examRoutes = require("./routes/examRoutes");
@@ -16,7 +17,6 @@ const otpAuth = require("./routes/otpAuth");
 const parentRoutes = require("./routes/parentRoutes");
 const googleAuthRoutes = require("./routes/googleAuthRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
-const path = require("path");
 
 // ─── NEW routes ───
 const childRoutes = require("./routes/childRoutes");
@@ -29,6 +29,7 @@ const flashcardsRoute = require("./routes/flashcardsRoute");
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const healthRoutes = require("./routes/healthRoutes");
 const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes");
+const ocrRoute = require("./routes/ocrRoute"); // ✅ OCR for handwriting upload
 
 // ✅ Legacy route auth middleware
 const { secureLegacyWriting } = require("./middleware/legacyRouteAuth");
@@ -99,13 +100,14 @@ app.get("/", (req, res) => {
   res.json({ status: "NAPLAN backend alive" });
 });
 
-// ✅ Routes — Admin, Quiz, Payments
+// ✅ Routes — Admin, Quiz, Payments, OCR
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
 app.use("/api", quizRoutes);
 app.use("/api", availableQuizzesRoute);
 app.use("/api", flashcardsRoute);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/ocr", ocrRoute); // ✅ OCR route — must be BEFORE static files
 
 // ✅ Static uploads
 app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));

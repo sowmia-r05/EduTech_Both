@@ -264,14 +264,16 @@ export default function ChildDashboard() {
     });
     const m = matches.length ? matches.sort((a, b) => new Date(b.date) - new Date(a.date))[0] : null;
     return {
-      id: quiz.quiz_id, quiz_id: quiz.quiz_id, name: quiz.quiz_name, subject: quiz.subject,
+      id: quiz.quiz_id, quiz_id: quiz.quiz_id,
+      name: quiz.quiz_name, quiz_name: quiz.quiz_name,   // ← add quiz_name here
+      subject: quiz.subject,
       year_level: quiz.year_level, difficulty: quiz.difficulty || "Standard",
       time_limit_minutes: quiz.time_limit_minutes, question_count: quiz.question_count,
       is_trial: quiz.is_trial, is_entitled: quiz.is_entitled,
       status: m ? "completed" : "not_started",
       score: m?.score ?? null, grade: m?.grade ?? null,
       date_completed: m?.date ?? null, response_id: m?.response_id ?? null,
-    };
+};
   }), [tests, entitledCatalog]);
 
   const completedCount = mergedQuizzes.filter((q) => q.status === "completed").length;
