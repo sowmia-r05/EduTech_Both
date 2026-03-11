@@ -64,9 +64,11 @@ router.get("/", async (req, res) => {
     const feedbackMap = await getCumulativeFeedback(childId);
 
     // If no feedback exists at all, kick off generation (async, don't wait)
+    // ✅ CORRECT
     const hasAnyDone = Object.values(feedbackMap).some((d) => d.status === "done");
-    if (!hasAnyDone) {
-      // Fire and forget — client can poll or refresh
+    const hasError = Object.values(feedbackMap).some((d) => d.status === "error");
+
+    if (!hasAnyDone || hasError) {
       setImmediate(() => {
         triggerCumulativeFeedback(childId).catch((e) =>
           console.error("Async cumulative trigger error:", e.message)

@@ -50,10 +50,11 @@ function sleep(ms) {
 async function childHasQuizData(child) {
   const childId = child._id;
 
-  const nativeCount = await QuizAttempt.countDocuments({
-    child_id: childId,
-    status: "submitted",
-  });
+ // ✅ CORRECT
+    const nativeCount = await QuizAttempt.countDocuments({
+      child_id: childId,
+      status: { $in: ["scored", "ai_done"] },
+    });
   if (nativeCount > 0) return true;
 
   if (child.flexiquiz_user_id || child.username) {
