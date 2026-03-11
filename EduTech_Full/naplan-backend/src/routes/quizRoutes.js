@@ -1,12 +1,18 @@
 /**
- * routes/quizRoutes.js  (v5 — fixed writing AI race condition)
+ * routes/quizRoutes.js  (v6 — fixed topic_breakdown not persisting)
  *
  * ✅ FIX in v5:
  *   Removed premature `syncWritingAttempt` call from the submit handler.
  *   It was creating a Writing doc with ai.status="error" (AI hadn't run yet)
  *   and then DELETING the QuizAttempt — causing triggerAiFeedback to exit early
  *   and never actually generate AI feedback.
- *   triggerAiFeedback already handles 100% of the writing pipeline correctly.
+ *   triggerAiFeedback handles 100% of the writing pipeline correctly.
+ *
+ * ✅ FIX in v6:
+ *   Added `attempt.markModified('topic_breakdown')` after assigning topicBreakdown.
+ *   topic_breakdown is a Mongoose Map type — assigning a plain JS object to it
+ *   does NOT get tracked as a change by Mongoose, so it was silently skipped on save().
+ *   markModified() forces Mongoose to include it in the next save().
  */
 
 const express = require("express");
@@ -387,7 +393,8 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     const questionMap = {};
     for (const q of questions) questionMap[q.question_id] = q;
 
-    const isWriting = (attempt.subject || "").toLowerCase() === "writing";
+    // ✅ NEW — matches the same logic as the start route
+    const isWriting = /writing/i.test(attempt.subject || attempt.quiz_name || "");
 
     let totalPoints = 0;
     let totalAvailable = 0;
@@ -439,6 +446,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     attempt.duration_sec = Math.round((attempt.submitted_at - attempt.started_at) / 1000);
     attempt.status = isWriting ? "submitted" : "scored";
     attempt.topic_breakdown = topicBreakdown;
+    attempt.markModified("topic_breakdown"); // ✅ FIX v6: Forces Mongoose to persist the Map field
     attempt.timer_expired = timerExpired;
 
     if (proctoring) {

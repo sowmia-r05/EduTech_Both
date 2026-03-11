@@ -91,12 +91,10 @@ const isAiPending = (doc) => {
 
   // Check legacy Result format (FlexiQuiz results)
   const legacyStatus = String(doc?.ai?.status || "").toLowerCase();
-  if (["queued", "fetching", "generating", "verifying"].includes(legacyStatus))
+  if (["queued", "fetching", "generating", "verifying", "pending"].includes(legacyStatus))
     return true;
 
   // ✅ FIX: Also check native QuizAttempt format (ai_feedback_meta.status)
-  // This fires when the backend normalizeQuizAttempt synthetic `ai` field
-  // is present, but also catches edge cases where it's missing
   const nativeStatus = String(
     doc?.ai_feedback_meta?.status || ""
   ).toLowerCase();
@@ -170,11 +168,54 @@ const AiPendingOverlay = ({ aiMessage }) => (
   </div>
 );
 
+// ✅ FIX 1: New component — shown instead of a blank white page when result can't load.
+// Previously `if (!selectedResult) return null` gave zero feedback to the user.
+// Detect if a string looks like raw HTML (e.g. Express 404 page, nginx error)
+// so we never render it as the error message.
+const isHtmlString = (str) => typeof str === "string" && /<!DOCTYPE|<html|<body|<pre>/i.test(str);
+
+const ResultNotFound = ({ errorMessage, onGoBack }) => {
+  // If the error is raw HTML (e.g. "Cannot GET /api/results/...") show a clean message instead
+  const friendlyMessage = errorMessage && !isHtmlString(errorMessage)
+    ? errorMessage
+    : "We couldn't load this quiz result. It may still be processing or the link may be incorrect.";
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="bg-white rounded-2xl shadow-lg max-w-md w-full mx-4 p-8 text-center">
+        <div className="text-5xl mb-4">📋</div>
+        <h2 className="text-xl font-bold text-gray-800 mb-2">Result Not Found</h2>
+        <p className="text-sm text-gray-500 mb-2">{friendlyMessage}</p>
+        <p className="text-xs text-gray-400 mb-6">
+          If you just submitted the quiz, wait a few seconds and try again.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <button
+            onClick={() => window.location.reload()}
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition"
+          >
+            Try Again
+          </button>
+          <button
+            onClick={onGoBack}
+            className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ═══════════════════ DASHBOARD ═══════════════════ */
 export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { activeToken } = useAuth();
+
+  // ✅ FIX 2: Single useAuth() call — your file called it twice (duplicate destructure below).
+  // Added isInitializing so we wait for auth to rehydrate from localStorage before fetching.
+  const { activeToken, isInitializing, childToken, childProfile, parentToken } = useAuth();
 
   const responseId = String(searchParams.get("r") || "").trim();
   const hasResponseId = Boolean(responseId && responseId !== "[ResponseId]");
@@ -182,39 +223,52 @@ export default function Dashboard() {
   const [latestResult, setLatestResult] = useState(null);
   const [resultsList, setResultsList] = useState([]);
   const [loadingLatest, setLoadingLatest] = useState(true);
+  // ✅ FIX 3: Track fetch failures so we can show an error UI instead of a blank page.
+  const [loadError, setLoadError] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [showNoDataModal, setShowNoDataModal] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
   const [showTourModal, setShowTourModal] = useState(false);
   const [selectedAttemptOverride, setSelectedAttemptOverride] = useState(null);
   const [aiPending, setAiPending] = useState(false);
-  const { childToken, childProfile, parentToken } = useAuth();
-const isParentViewing = !childToken && !!parentToken;
-// ✅ FIX: Prefer status passed via URL (from ChildDashboard which fetches live DB value)
-// Fallback to JWT token value — but JWT can be stale after a purchase
-const childStatus = searchParams.get("status") || childProfile?.status || "trial";
-const yearLevel = childProfile?.yearLevel || null;
 
-const viewerType = childToken && !isParentViewing
-  ? "child"
-  : isParentViewing
-    ? "parent_viewing_child"
-    : "parent";
+  const isParentViewing = !childToken && !!parentToken;
+  // ✅ FIX: Prefer status passed via URL (from ChildDashboard which fetches live DB value)
+  // Fallback to JWT token value — but JWT can be stale after a purchase
+  const childStatus = searchParams.get("status") || childProfile?.status || "trial";
+  const yearLevel = childProfile?.yearLevel || null;
+
+  const viewerType = childToken && !isParentViewing
+    ? "child"
+    : isParentViewing
+      ? "parent_viewing_child"
+      : "parent";
 
   useEffect(() => { if (!hasResponseId) navigate("/", { replace: true }); }, [hasResponseId, navigate]);
 
   useEffect(() => {
-    if (!hasResponseId) return;
+    // ✅ FIX 4: Wait for AuthContext to finish rehydrating from localStorage.
+    // Without this, activeToken is null on the first render tick even though
+    // the token exists — causing a 401 → doc=null → blank page.
+    if (!hasResponseId || isInitializing) return;
+
     let cancelled = false;
     const load = async () => {
       try {
         setLoadingLatest(true);
-        // ✅ FIX: Pass auth token so backend doesn't return 401
+        setLoadError(null);
         const authOpts = activeToken
           ? { headers: { Authorization: `Bearer ${activeToken}` } }
           : {};
         const doc = await fetchResultByResponseId(responseId, authOpts);
-        if (!doc) return;
+
+        // ✅ FIX 5: Handle null doc — set loadError instead of silently returning.
+        // Old code: `if (!doc) return` → latestResult never set → selectedResult=null → blank page.
+        if (!doc) {
+          if (!cancelled) setLoadError("Result not found or still being processed.");
+          return;
+        }
+
         if (!cancelled) {
           setLatestResult(doc);
           if (isAiPending(doc)) setAiPending(true);
@@ -233,17 +287,21 @@ const viewerType = childToken && !isParentViewing
               headers: { Authorization: `Bearer ${activeToken}` },
             });
           }
-          setResultsList(all || [doc]);
+          if (!cancelled) setResultsList(all || [doc]);
         }
+      } catch (err) {
+        // ✅ FIX 6: Catch and surface errors (401, network failure) instead of silent fail.
+        console.error("Dashboard load error:", err.message);
+        if (!cancelled) setLoadError(err.message || "Failed to load result.");
       } finally {
         if (!cancelled) setLoadingLatest(false);
       }
     };
     load();
     return () => (cancelled = true);
-  }, [responseId, hasResponseId, searchParams, activeToken]);
+  }, [responseId, hasResponseId, searchParams, activeToken, isInitializing]);
 
-useEffect(() => {
+  useEffect(() => {
     if (!aiPending || !responseId) return;
     let cancelled = false;
     let pollCount = 0;
@@ -255,7 +313,6 @@ useEffect(() => {
       }
       pollCount++;
       try {
-        // ✅ FIX: Pass auth token
         const authOpts = activeToken
           ? { headers: { Authorization: `Bearer ${activeToken}` } }
           : {};
@@ -297,21 +354,20 @@ useEffect(() => {
 
   useEffect(() => { if (!localStorage.getItem("dashboardTourPrompted")) setShowTourModal(true); }, []);
 
-const quizAttempts = useMemo(() => {
+  const quizAttempts = useMemo(() => {
     if (!latestResult) return [];
     const subject = searchParams.get("subject") || "";
-    const quizName = searchParams.get("quiz_name") || "";   // ✅ NEW
+    const quizName = searchParams.get("quiz_name") || "";
     let attempts;
     if (quizName) {
-        // ✅ Filter to only this specific quiz's attempts
-        attempts = resultsList.filter((r) => r.quiz_name === quizName);
+      attempts = resultsList.filter((r) => r.quiz_name === quizName);
     } else if (subject) {
-        attempts = resultsList;
+      attempts = resultsList;
     } else {
-        attempts = resultsList.filter((r) => r.quiz_name === latestResult.quiz_name);
+      attempts = resultsList.filter((r) => r.quiz_name === latestResult.quiz_name);
     }
     return deduplicateAttempts(attempts);
-}, [resultsList, latestResult, searchParams]);
+  }, [resultsList, latestResult, searchParams]);
 
   const filteredResults = useMemo(() => {
     if (!selectedDate) return quizAttempts;
@@ -327,15 +383,15 @@ const quizAttempts = useMemo(() => {
 
   useEffect(() => { if (selectedDate) setShowNoDataModal(filteredResults.length === 0); }, [selectedDate, filteredResults]);
 
-const selectedResult = useMemo(() => {
+  const selectedResult = useMemo(() => {
     if (selectedAttemptOverride) return selectedAttemptOverride;
-    if (latestResult) return latestResult;              // ✅ Always prefer the clicked quiz result
+    if (latestResult) return latestResult;
     if (!filteredResults.length) return null;
-    return [...filteredResults].sort((a, b) => 
-        new Date(unwrapDate(b.createdAt || b.date_submitted)) - 
-        new Date(unwrapDate(a.createdAt || a.date_submitted))
+    return [...filteredResults].sort((a, b) =>
+      new Date(unwrapDate(b.createdAt || b.date_submitted)) -
+      new Date(unwrapDate(a.createdAt || a.date_submitted))
     )[0];
-}, [filteredResults, latestResult, selectedAttemptOverride]);
+  }, [filteredResults, latestResult, selectedAttemptOverride]);
 
   const testTakenDates = useMemo(() => {
     return quizAttempts.map((r) => {
@@ -361,8 +417,20 @@ const selectedResult = useMemo(() => {
     return idx >= 0 ? idx + 1 : 1;
   }, [selectedResult, quizAttempts]);
 
-  if (loadingLatest) return (<div className="min-h-screen flex items-center justify-center bg-gray-100"><DotLoader label="Loading dashboard" /></div>);
-  if (!selectedResult) return null;
+  // ── Loading: wait for auth init + data fetch ──
+  if (loadingLatest || isInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <DotLoader label="Loading dashboard" />
+      </div>
+    );
+  }
+
+  // ✅ FIX 7: Show ResultNotFound instead of blank page when result couldn't load.
+  // This replaces the old `if (!selectedResult) return null` — pure white screen.
+  if (loadError || !selectedResult) {
+    return <ResultNotFound errorMessage={loadError} onGoBack={() => navigate(-1)} />;
+  }
 
   const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
   const duration = formatDuration(selectedResult?.duration);
@@ -389,7 +457,7 @@ const selectedResult = useMemo(() => {
       <NoDataModal isOpen={showNoDataModal} onClose={() => setShowNoDataModal(false)}
         onClearFilter={() => { setSelectedDate(null); setSelectedAttemptOverride(null); setShowNoDataModal(false); }} />
 
-      {/* ═══════════════ HEADER — upgraded ═══════════════ */}
+      {/* ═══════════════ HEADER — unchanged from your version ═══════════════ */}
       <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-gray-200/70 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3 gap-2 sm:gap-0">
 
