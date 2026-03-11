@@ -1,11 +1,16 @@
 /**
- * services/aiFeedbackService.js
+ * services/aiFeedbackService.js  (v2 — robust Python JSON parser)
  *
- * AI Feedback Bridge — native QuizAttempt → Gemini pipelines
+ * DATA STORAGE RULES (enforced by isWriting flag):
+ *   - Non-writing (MCQ/Reading/Numeracy/Language): saved to QuizAttempt ONLY
+ *   - Writing: saved to Writing collection ONLY, QuizAttempt is deleted after sync
  *
- * DATA STORAGE RULES:
- *   - Non-writing (MCQ): saved to QuizAttempt only
- *   - Writing: saved to Writing collection only, QuizAttempt deleted after sync
+ * WHY this separation:
+ *   - MCQ attempts have a score, topic_breakdown, and ai_feedback all in one doc
+ *   - Writing attempts have free-text answers, no numeric score, AI evaluates the essay
+ *     and the result is stored differently (criteria scores, not topic scores)
+ *   - Writing data MUST NOT stay in QuizAttempts because saveWritingToCollection()
+ *     calls QuizAttempt.deleteOne() at the end — mixing them would cause data loss
  *
  * Status lifecycle:
  *   MCQ:     queued → generating → done | error  (in QuizAttempt)
@@ -13,8 +18,12 @@
  *
  * FIXES:
  *   1. In-memory lock prevents duplicate triggerAiFeedback calls for same attempt
- *   2. QuizAttempt data is fetched BEFORE Python runs (not after deletion)
- *   3. question_text is enriched from Question collection BEFORE building Python payload
+ *   2. QuizAttempt snapshot is fetched BEFORE Python runs (safe from deletion)
+ *   3. question_text is enriched from Question collection BEFORE building payload
+ *   4. NEW v2: runPythonScript() uses robust JSON extraction — extracts the last
+ *      valid {...} block from stdout instead of hard JSON.parse(). This prevents
+ *      ai_feedback_meta from getting stuck on status="error" when Python prints
+ *      any warnings, pip output, or deprecation notices before the JSON.
  */
 
 const { spawn } = require("child_process");
@@ -24,7 +33,6 @@ const Writing = require("../models/writing");
 const Child = require("../models/child");
 const Question = require("../models/question");
 
-// ✅ Cumulative feedback — triggered after every quiz AI completes
 const { triggerCumulativeFeedback } = require("./cumulativeFeedbackService");
 
 // ─── Config ───
@@ -38,7 +46,7 @@ const SUBJECT_FEEDBACK_SCRIPT = path.resolve(
 const PYTHON_BIN =
   process.env.PYTHON_BIN || (process.platform === "win32" ? "py" : "python3");
 
-const FEEDBACK_TIMEOUT_MS = 120000; // 2 min for writing (can be slow)
+const FEEDBACK_TIMEOUT_MS = 120000; // 2 min
 
 // ─── Startup diagnostic ───
 console.log(`🐍 Python binary: ${PYTHON_BIN}`);
@@ -46,13 +54,21 @@ console.log(`📁 Backend root: ${BACKEND_ROOT}`);
 console.log(`🔑 GEMINI_API_KEY set: ${!!process.env.GEMINI_API_KEY}`);
 
 // ─────────────────────────────────────────────────────────────
-// ✅ FIX 1: In-memory lock — prevents double-trigger race condition
-// If triggerAiFeedback is called twice for same attempt, second call is ignored
+// FIX 1: In-memory lock — prevents double-trigger race condition
 // ─────────────────────────────────────────────────────────────
 const activeAttempts = new Set();
 
 // ─────────────────────────────────────────────────────────────
-// Python runner — generic (MCQ subject feedback)
+// Python runner — MCQ subject feedback
+//
+// ✅ FIX v2: Robust JSON parser
+// Old code: resolve(JSON.parse(stdout))
+//   → crashes if Python prints ANY log line before the JSON
+//   → catch block sets status="error", nothing saved to QuizAttempt
+//
+// New code: tries direct parse first, then extracts last {...} block
+//   → handles pip output, deprecation warnings, debug prints
+//   → only rejects if truly no JSON found at all
 // ─────────────────────────────────────────────────────────────
 function runPythonScript(scriptPath, inputData, timeoutMs = FEEDBACK_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
@@ -72,10 +88,36 @@ function runPythonScript(scriptPath, inputData, timeoutMs = FEEDBACK_TIMEOUT_MS)
       if (code !== 0) {
         return reject(new Error(`Python exited with code ${code}: ${stderr || stdout}`));
       }
+
+      const text = String(stdout || "").trim();
+
+      if (!text) {
+        return reject(new Error(`Python returned empty output. stderr: ${stderr.slice(-1000)}`));
+      }
+
+      // Try direct parse first (clean output path)
       try {
-        resolve(JSON.parse(stdout));
-      } catch (e) {
-        reject(new Error(`Failed to parse Python output: ${e.message}\nOutput: ${stdout.slice(0, 500)}`));
+        return resolve(JSON.parse(text));
+      } catch (_) {
+        // Fall back: extract the last valid {...} block
+        // Handles cases where Python prints log lines before the JSON
+        const start = text.lastIndexOf("{");
+        const end = text.lastIndexOf("}");
+        if (start !== -1 && end !== -1 && end > start) {
+          try {
+            return resolve(JSON.parse(text.slice(start, end + 1)));
+          } catch (e2) {
+            return reject(
+              new Error(
+                `Failed to parse Python output. ParseError: ${e2.message}. ` +
+                `Output tail: ${text.slice(-500)}`
+              )
+            );
+          }
+        }
+        return reject(
+          new Error(`No JSON found in Python output: ${text.slice(-500)}`)
+        );
       }
     });
 
@@ -89,7 +131,8 @@ function runPythonScript(scriptPath, inputData, timeoutMs = FEEDBACK_TIMEOUT_MS)
 }
 
 // ─────────────────────────────────────────────────────────────
-// Python runner — writing only (runs as module so imports work)
+// Python runner — Writing only (runs as module so imports work)
+// Same robust JSON parser applied here too
 // ─────────────────────────────────────────────────────────────
 function runWritingPythonModule(inputData, timeoutMs = FEEDBACK_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
@@ -109,10 +152,29 @@ function runWritingPythonModule(inputData, timeoutMs = FEEDBACK_TIMEOUT_MS) {
       if (code !== 0) {
         return reject(new Error(`Python exited with code ${code}: ${stderr || stdout}`));
       }
+
+      const text = String(stdout || "").trim();
+
+      if (!text) {
+        return reject(new Error(`Python returned empty output. stderr: ${stderr.slice(-1000)}`));
+      }
+
+      // Robust parse — same pattern as MCQ runner
       try {
-        resolve(JSON.parse(stdout));
-      } catch (e) {
-        reject(new Error(`Failed to parse Python output: ${e.message}\nOutput: ${stdout.slice(0, 500)}`));
+        return resolve(JSON.parse(text));
+      } catch (_) {
+        const start = text.lastIndexOf("{");
+        const end = text.lastIndexOf("}");
+        if (start !== -1 && end !== -1 && end > start) {
+          try {
+            return resolve(JSON.parse(text.slice(start, end + 1)));
+          } catch (e2) {
+            return reject(
+              new Error(`Failed to parse Writing Python output: ${e2.message}\nTail: ${text.slice(-500)}`)
+            );
+          }
+        }
+        return reject(new Error(`No JSON in Writing Python output: ${text.slice(-500)}`));
       }
     });
 
@@ -162,7 +224,6 @@ function buildSubjectFeedbackPayload({
   };
 }
 
-// ✅ FIX 2: question_text is now passed in (pre-enriched before this function is called)
 function buildWritingFeedbackPayload({ quizName, yearLevel, enrichedAnswers }) {
   const writingAnswers = (enrichedAnswers || []).filter(
     (a) => a.answer_text && a.answer_text.trim()
@@ -181,7 +242,10 @@ function buildWritingFeedbackPayload({ quizName, yearLevel, enrichedAnswers }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Save AI result to QuizAttempt (MCQ only)
+// Save AI result to QuizAttempt (NON-WRITING / MCQ ONLY)
+//
+// Called ONLY when isWriting === false
+// Stores: ai_feedback, ai_feedback_meta, performance_analysis, status="ai_done"
 // ─────────────────────────────────────────────────────────────
 async function updateAttemptWithFeedback(attemptId, feedbackResult) {
   const update = {};
@@ -216,10 +280,10 @@ async function updateAttemptWithFeedback(attemptId, feedbackResult) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ✅ FIX 3: WRITING: Save directly to Writing collection
-// - attemptSnapshot is passed in (fetched BEFORE Python runs)
-//   so deletion of QuizAttempt mid-flight doesn't break anything
-// - enrichedQna is built BEFORE Python runs (question_text populated)
+// Save AI result to Writing collection (WRITING ONLY)
+//
+// Called ONLY when isWriting === true
+// After saving, the QuizAttempt is DELETED — writing data lives here permanently
 // ─────────────────────────────────────────────────────────────
 async function saveWritingToCollection({
   attemptId, quizId, quizName, yearLevel, childId,
@@ -246,7 +310,7 @@ async function saveWritingToCollection({
         $set: {
           // ─── Identifiers ───
           response_id: attemptId,
-          attempt_id:  attemptId,           // ✅ NEW: mirror field
+          attempt_id:  attemptId,
 
           // ─── Quiz ───
           quiz_id:    quizId,
@@ -256,21 +320,21 @@ async function saveWritingToCollection({
 
           // ─── Ownership ───
           child_id:  childId,
-          parent_id: attemptSnapshot.parent_id || null, // ✅ NEW
+          parent_id: attemptSnapshot.parent_id || null,
 
           // ─── Timing ───
-          started_at:    attemptSnapshot.started_at   || null, // ✅ NEW
+          started_at:    attemptSnapshot.started_at   || null,
           submitted_at:  attemptSnapshot.submitted_at,
-          expires_at:    attemptSnapshot.expires_at   || null, // ✅ NEW
+          expires_at:    attemptSnapshot.expires_at   || null,
           duration_sec:  attemptSnapshot.duration_sec,
-          timer_expired: attemptSnapshot.timer_expired || false, // ✅ NEW
+          timer_expired: attemptSnapshot.timer_expired || false,
 
           // ─── Attempt tracking ───
           status:  "submitted",
           attempt: attemptSnapshot.attempt_number,
 
           // ─── Proctoring ───
-          proctoring: attemptSnapshot.proctoring || null, // ✅ NEW
+          proctoring: attemptSnapshot.proctoring || null,
 
           // ─── Content ───
           qna: enrichedQna,
@@ -319,7 +383,6 @@ async function syncWritingAttempt(params) {
     ? { success: true, result: attempt.ai_feedback || null }
     : { success: false, error: aiMeta.status_message || "Unknown error" };
 
-  // Build enrichedQna from scoredAnswers
   const scoredAnswers = params.scoredAnswers || [];
   const questionIds = scoredAnswers.map((a) => a.question_id).filter(Boolean);
   const questions = questionIds.length
@@ -343,11 +406,15 @@ async function syncWritingAttempt(params) {
 
 // ─────────────────────────────────────────────────────────────
 // Main entry point — called from quizRoutes submit
+//
+// ROUTING LOGIC (the key decision point):
+//   isWriting = true  → Writing pipeline → Writing collection → QuizAttempt deleted
+//   isWriting = false → MCQ pipeline    → QuizAttempt only   → nothing deleted
 // ─────────────────────────────────────────────────────────────
 async function triggerAiFeedback(params) {
   const { attemptId, isWriting } = params;
 
-  // ✅ FIX 1: Prevent duplicate execution for the same attempt
+  // FIX 1: Prevent duplicate execution for the same attempt
   if (activeAttempts.has(attemptId)) {
     console.warn(`⚠️ triggerAiFeedback already running for ${attemptId} — skipping duplicate`);
     return;
@@ -355,7 +422,7 @@ async function triggerAiFeedback(params) {
   activeAttempts.add(attemptId);
 
   try {
-    // Mark as generating
+    // Mark as generating in QuizAttempt first (applies to both paths at this stage)
     await QuizAttempt.updateOne(
       { attempt_id: attemptId },
       {
@@ -369,15 +436,18 @@ async function triggerAiFeedback(params) {
     let result;
 
     if (isWriting) {
-      // ✅ FIX 2+3: Fetch attempt + enrich question_text BEFORE running Python
-      // This way, even if QuizAttempt is deleted mid-flight, we have the data
+      // ═══════════════════════════════════════════════════════
+      // WRITING PATH → result goes to Writing collection ONLY
+      // ═══════════════════════════════════════════════════════
+
+      // FIX 2: Fetch snapshot BEFORE Python runs
       const attemptSnapshot = await QuizAttempt.findOne({ attempt_id: attemptId }).lean();
       if (!attemptSnapshot) {
         console.warn(`⚠️ triggerAiFeedback: QuizAttempt not found for ${attemptId}`);
         return;
       }
 
-      // Enrich scoredAnswers with question_text from Question collection
+      // FIX 3: Enrich question_text BEFORE building payload
       const scoredAnswers = params.scoredAnswers || [];
       const questionIds = scoredAnswers.map((a) => a.question_id).filter(Boolean);
       const questions = questionIds.length
@@ -392,7 +462,6 @@ async function triggerAiFeedback(params) {
         answer_text: a.text_answer || "",
       }));
 
-      // Build Python payload using enriched data (question_text now populated)
       const payload = buildWritingFeedbackPayload({
         quizName: params.quizName,
         yearLevel: params.yearLevel,
@@ -409,16 +478,19 @@ async function triggerAiFeedback(params) {
         result = { success: false, error: pythonErr.message };
       }
 
-      // Save to Writing collection using pre-fetched snapshot + enriched qna
+      // Save to Writing collection — QuizAttempt deleted inside saveWritingToCollection
       await saveWritingToCollection({
         ...params,
         feedbackResult: result,
-        attemptSnapshot,    // ✅ pre-fetched — not affected by deletion
-        enrichedQna,        // ✅ question_text + answer_text already populated
+        attemptSnapshot,
+        enrichedQna,
       });
 
     } else {
-      // ─── MCQ: run AI then save to QuizAttempt ───
+      // ═══════════════════════════════════════════════════════
+      // MCQ PATH → result goes to QuizAttempt ONLY
+      // (Reading, Numeracy, Language, any non-writing subject)
+      // ═══════════════════════════════════════════════════════
       const payload = buildSubjectFeedbackPayload(params);
       console.log(`🤖 Triggering subject AI feedback for attempt ${attemptId}`);
 
@@ -429,6 +501,7 @@ async function triggerAiFeedback(params) {
         result = { success: false, error: `Subject feedback failed: ${pythonErr.message}` };
       }
 
+      // Save ai_feedback + ai_feedback_meta + performance_analysis to QuizAttempt
       await updateAttemptWithFeedback(attemptId, result);
     }
 
@@ -438,8 +511,7 @@ async function triggerAiFeedback(params) {
       console.warn(`⚠️ AI feedback issues for attempt ${attemptId}: ${result.error}`);
     }
 
-    // ✅ Trigger cumulative feedback regeneration after every successful quiz AI
-    // Runs async (fire-and-forget) so it never blocks or slows down quiz submission
+    // Trigger cumulative feedback regeneration (fire-and-forget)
     if (result.success && params.childId) {
       setImmediate(() => {
         triggerCumulativeFeedback(params.childId).catch((e) =>
@@ -451,6 +523,7 @@ async function triggerAiFeedback(params) {
   } catch (err) {
     console.error(`❌ AI feedback failed for attempt ${attemptId}:`, err.message);
 
+    // Only update QuizAttempt on error for MCQ — writing QuizAttempt may already be deleted
     if (!isWriting) {
       await QuizAttempt.updateOne(
         { attempt_id: attemptId },
@@ -464,7 +537,6 @@ async function triggerAiFeedback(params) {
       ).catch(() => {});
     }
   } finally {
-    // ✅ Always release the lock when done
     activeAttempts.delete(attemptId);
   }
 }

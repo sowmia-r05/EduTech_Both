@@ -1,16 +1,19 @@
 /**
- * services/cumulativeFeedbackService.js
+ * services/cumulativeFeedbackService.js  (v2 — fixed MCQ status query)
  *
  * Generates and stores Gemini cumulative feedback for a child
  * across ALL their quiz attempts, broken down by subject + overall.
  *
- * Triggered:
- *   - After every quiz attempt completes AI feedback (via aiFeedbackService.js)
- *   - On-demand from the frontend (GET endpoint triggers refresh if stale)
+ * DATA SOURCE RULES:
+ *   - MCQ (Reading/Numeracy/Language) → QuizAttempts collection
+ *   - Writing                         → Writing collection (never in QuizAttempts)
  *
- * Storage:
- *   - CumulativeFeedback collection: one doc per (child_id × subject)
- *   - Subjects: "Overall", "Reading", "Writing", "Numeracy", "Language"
+ * FIX v2:
+ *   fetchAllTestsForChild() was querying status: "submitted" for MCQ attempts.
+ *   MCQ lifecycle is: in_progress → scored → ai_done  ("submitted" is NEVER used)
+ *   Only Writing uses "submitted" briefly before it moves to the Writing collection.
+ *   This meant cumulative feedback always had ZERO MCQ data — analytics was empty.
+ *   Fixed to: status: { $in: ["scored", "ai_done"] }
  */
 
 const { spawn } = require("child_process");
@@ -39,7 +42,7 @@ const SUBJECTS = ["Overall", "Reading", "Writing", "Numeracy", "Language"];
 const runningChildren = new Set();
 
 // ─────────────────────────────────────────────────────────────
-// Helper: normalize subject string
+// Helpers
 // ─────────────────────────────────────────────────────────────
 function normalizeSubject(subject) {
   if (!subject) return "Other";
@@ -63,10 +66,6 @@ function inferSubjectFromQuizName(quizName) {
   return "Other";
 }
 
-// ─────────────────────────────────────────────────────────────
-// Derive a writing score percentage from AI feedback
-// Writing has no score.percentage — use total_score / max_score
-// ─────────────────────────────────────────────────────────────
 function writingScorePercent(writingDoc) {
   const overall = writingDoc?.ai?.feedback?.overall;
   if (!overall) return 0;
@@ -76,7 +75,6 @@ function writingScorePercent(writingDoc) {
   return Math.round((total / max) * 100);
 }
 
-// Build topic_breakdown from writing criteria scores
 function writingTopicBreakdown(writingDoc) {
   const criteria = writingDoc?.ai?.feedback?.criteria;
   if (!Array.isArray(criteria) || criteria.length === 0) return {};
@@ -93,15 +91,23 @@ function writingTopicBreakdown(writingDoc) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Fetch all quiz data for a child (native MCQ + Writing)
+// Fetch all quiz data for a child
+//
+// MCQ source:     QuizAttempts  (Reading, Numeracy, Language)
+// Writing source: Writing       (moved here permanently after AI)
+//
+// ✅ FIX v2: status was "submitted" — wrong for MCQ
+//   MCQ status lifecycle: in_progress → scored → ai_done
+//   "submitted" is ONLY used by Writing before it moves to Writing collection
+//   Changed to: { $in: ["scored", "ai_done"] }
 // ─────────────────────────────────────────────────────────────
 async function fetchAllTestsForChild(childId) {
   const tests = [];
 
-  // ── Native MCQ QuizAttempts ────────────────────────────────
+  // ── MCQ QuizAttempts (Reading, Numeracy, Language) ──────────
   const attempts = await QuizAttempt.find({
     child_id: childId,
-    status: "submitted",
+    status: { $in: ["scored", "ai_done"] },  // ✅ FIXED: was "submitted"
     subject: { $not: /writing/i },
   })
     .select("quiz_name subject score submitted_at createdAt duration_sec topic_breakdown")
@@ -134,7 +140,8 @@ async function fetchAllTestsForChild(childId) {
     });
   }
 
-  // ── Native Writing attempts ────────────────────────────────
+  // ── Writing attempts (from Writing collection ONLY) ──────────
+  // Writing is never in QuizAttempts — aiFeedbackService moves it + deletes QuizAttempt
   const writingDocs = await Writing.find({
     child_id: childId,
     "ai.status": "done",
@@ -157,7 +164,7 @@ async function fetchAllTestsForChild(childId) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Run Python Gemini script for one subject
+// Run Python Gemini cumulative script
 // ─────────────────────────────────────────────────────────────
 function runPython(payload) {
   return new Promise((resolve, reject) => {
