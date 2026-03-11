@@ -1,10 +1,12 @@
 /**
- * routes/quizRoutes.js  (v4 — + ai-status polling endpoint)
+ * routes/quizRoutes.js  (v5 — fixed writing AI race condition)
  *
- * ✅ NEW in v4:
- *   GET /api/attempts/:attemptId/ai-status
- *   Lightweight endpoint for QuizResult.jsx to poll writing AI completion.
- *   Checks Writing collection first, falls back to QuizAttempt.
+ * ✅ FIX in v5:
+ *   Removed premature `syncWritingAttempt` call from the submit handler.
+ *   It was creating a Writing doc with ai.status="error" (AI hadn't run yet)
+ *   and then DELETING the QuizAttempt — causing triggerAiFeedback to exit early
+ *   and never actually generate AI feedback.
+ *   triggerAiFeedback already handles 100% of the writing pipeline correctly.
  */
 
 const express = require("express");
@@ -14,7 +16,7 @@ const Quiz = require("../models/quiz");
 const Question = require("../models/question");
 const QuizAttempt = require("../models/quizAttempt");
 const Child = require("../models/child");
-const { triggerAiFeedback, syncWritingAttempt } = require("../services/aiFeedbackService");
+const { triggerAiFeedback } = require("../services/aiFeedbackService"); // ✅ removed syncWritingAttempt
 const { sendQuizCompletionEmail, checkNotificationEligibility } = require("../services/emailNotifications");
 const QuizCatalog = require("../models/quizCatalog");
 const Writing = require("../models/writing");
@@ -460,18 +462,10 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
 
     console.log(`✅ Quiz submitted: attempt=${attempt.attempt_id}, score=${percentage}%, grade=${grade}${timerExpired ? " (timer expired)" : ""}`);
 
-    if (isWriting) {
-      setImmediate(() =>
-        syncWritingAttempt({
-          attemptId: attempt.attempt_id,
-          quizId: attempt.quiz_id,
-          quizName: attempt.quiz_name,
-          yearLevel: attempt.year_level,
-          childId: attempt.child_id,
-          scoredAnswers,
-        }).catch((err) => console.error("❌ early syncWritingAttempt failed:", err.message))
-      );
-    }
+    // ✅ FIX: Removed premature syncWritingAttempt() call that was here.
+    // It was creating a Writing doc with ai.status="error" (before AI ran),
+    // deleting the QuizAttempt, then triggerAiFeedback found nothing and exited.
+    // triggerAiFeedback handles the full writing pipeline on its own.
 
     triggerAiFeedback({
       attemptId: attempt.attempt_id,
@@ -545,7 +539,7 @@ router.get("/attempts/:attemptId/result", async (req, res) => {
 });
 
 // ═══════════════════════════════════════
-// ✅ NEW: GET /api/attempts/:attemptId/ai-status
+// GET /api/attempts/:attemptId/ai-status
 // Lightweight poll — QuizResult.jsx calls this every 5s
 // to detect when writing AI feedback finishes.
 // Checks Writing collection first (writing moves there after AI),
