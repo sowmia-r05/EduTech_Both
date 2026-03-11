@@ -1,57 +1,40 @@
 /**
- * routes/quizRoutes.js  (v3 — ALL GAPS FILLED + RANDOMIZE + MEDIA)
+ * routes/quizRoutes.js  (v4 — + ai-status polling endpoint)
  *
- * Quiz-taking API routes for children (and parents viewing results).
- *
- * CHANGES FROM v1:
- *   ✅ Gap 1: Entitlement check on /start (trial + paid quiz validation)
- *   ✅ Gap 2: AI feedback trigger wired to existing Gemini pipeline
- *   ✅ Gap 3: connectDB() added to ensure MongoDB connection
- *   ✅ Gap 4: Writing quiz status transitions (submitted → scored → ai_done)
- *   ✅ Gap 5: Max attempts enforcement (configurable per quiz, default 5)
- *   ✅ Gap 6: Server-side timer with expires_at enforcement
- *   ✅ Gap 7: Resume quiz flow (GET /api/quizzes/:quizId/resume + GET /api/children/:childId/in-progress)
- *   ✅ NEW: Randomize questions and options (Fisher-Yates shuffle)
- *   ✅ NEW: Voice/video media URLs returned with questions
- *   ✅ FIX: Closed missing try-catch block on GET /questions route
- *   ✅ FIX: Entitlement check now uses BUNDLE-BASED LOOKUP (no more entitled_quiz_ids)
- *   ✅ FIX: Writing submissions now immediately stored in Writing collection on submit
- *
- * Mount in app.js:
- *   const quizRoutes = require("./routes/quizRoutes");
- *   app.use("/api", quizRoutes);
+ * ✅ NEW in v4:
+ *   GET /api/attempts/:attemptId/ai-status
+ *   Lightweight endpoint for QuizResult.jsx to poll writing AI completion.
+ *   Checks Writing collection first, falls back to QuizAttempt.
  */
 
 const express = require("express");
 const { verifyToken, requireAuth } = require("../middleware/auth");
-const connectDB = require("../config/db"); // ✅ Gap 3
+const connectDB = require("../config/db");
 const Quiz = require("../models/quiz");
 const Question = require("../models/question");
 const QuizAttempt = require("../models/quizAttempt");
 const Child = require("../models/child");
-const { triggerAiFeedback, syncWritingAttempt } = require("../services/aiFeedbackService"); // ✅ Gap 2 + Writing sync
+const { triggerAiFeedback, syncWritingAttempt } = require("../services/aiFeedbackService");
 const { sendQuizCompletionEmail, checkNotificationEligibility } = require("../services/emailNotifications");
-const QuizCatalog = require("../models/quizCatalog"); // ✅ For bundle-based entitlement
-const Writing = require("../models/writing"); // ✅ ADD THIS
+const QuizCatalog = require("../models/quizCatalog");
+const Writing = require("../models/writing");
 const router = express.Router();
 
 // ─── Constants ───
-const MAX_ATTEMPTS_DEFAULT = 5; // ✅ Gap 5: default max attempts per quiz
-const TIMER_GRACE_PERIOD_SEC = 60; // 1 minute grace for network latency
+const MAX_ATTEMPTS_DEFAULT = 5;
+const TIMER_GRACE_PERIOD_SEC = 60;
 
 // All routes require authentication
 router.use(verifyToken, requireAuth);
 
 // ═══════════════════════════════════════
 // GET /api/quizzes/:quizId
-// Quiz metadata (no questions)
 // ═══════════════════════════════════════
 router.get("/quizzes/:quizId", async (req, res) => {
   try {
-    await connectDB(); // ✅ Gap 3
+    await connectDB();
     const quiz = await Quiz.findOne({ quiz_id: req.params.quizId, is_active: true }).lean();
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
-
     const { question_ids, ...safe } = quiz;
     res.json(safe);
   } catch (err) {
@@ -61,22 +44,19 @@ router.get("/quizzes/:quizId", async (req, res) => {
 
 // ═══════════════════════════════════════
 // POST /api/quizzes/:quizId/start
-// Start a new attempt — returns attempt_id + quiz meta
 // ═══════════════════════════════════════
 router.post("/quizzes/:quizId/start", async (req, res) => {
   try {
-    await connectDB(); // ✅ Gap 3
+    await connectDB();
 
     const { childId: tokenChildId, parentId, role } = req.user;
 
-    // ✅ Allow parent to take quiz on behalf of a child
     let childId = tokenChildId;
     if (!childId && role === "parent") {
       childId = req.body.childId;
     }
     if (!childId) return res.status(403).json({ error: "Child login required to take quizzes" });
 
-    // ✅ If parent, verify this child belongs to them
     if (role === "parent" && !tokenChildId) {
       const ownerCheck = await Child.findById(childId).lean();
       if (!ownerCheck || String(ownerCheck.parent_id) !== String(parentId)) {
@@ -87,11 +67,6 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
     const quiz = await Quiz.findOne({ quiz_id: req.params.quizId, is_active: true }).lean();
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
-    // ═══════════════════════════════════════
-    // ✅ Gap 1: ENTITLEMENT CHECK (BUNDLE-BASED)
-    // Validates child has access to this quiz by checking their bundles.
-    // No longer uses entitled_quiz_ids — looks up bundles directly.
-    // ═══════════════════════════════════════
     const child = await Child.findById(childId).lean();
     if (!child) return res.status(404).json({ error: "Child profile not found" });
 
@@ -99,9 +74,7 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
 
     if (!isTrialQuiz) {
       const childBundleIds = child.entitled_bundle_ids || [];
-
       let hasEntitlement = false;
-
       if (childBundleIds.length > 0) {
         const bundleWithQuiz = await QuizCatalog.findOne({
           bundle_id: { $in: childBundleIds },
@@ -110,10 +83,8 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
             { flexiquiz_quiz_ids: quiz.quiz_id },
           ],
         }).lean();
-
         hasEntitlement = !!bundleWithQuiz;
       }
-
       if (!hasEntitlement) {
         return res.status(403).json({
           error: "You don't have access to this quiz. Ask your parent to purchase a bundle.",
@@ -121,33 +92,27 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
         });
       }
     }
-    // Trial quizzes are always accessible — no check needed
 
-    // ═══════════════════════════════════════
-    // ✅ Gap 5: MAX ATTEMPTS CHECK
-    // ═══════════════════════════════════════
-    // ✅ FIX: attempts_enabled=true + max_attempts=null means UNLIMITED
-      if (!quiz.attempts_enabled) {
-        // Retakes disabled — skip the rest of the attempts check, enforce 1 attempt below
-      } 
+    if (!quiz.attempts_enabled) {
+      // Retakes disabled
+    }
 
-      const maxAttempts = quiz.attempts_enabled
-        ? (quiz.max_attempts !== null ? quiz.max_attempts : Infinity)
-        : 1;
-    // ✅ FIX: Count completed attempts from BOTH collections
-// Writing attempts are deleted from QuizAttempt after AI eval → live in Writing collection
-      const isWritingQuizCheck = /writing/i.test(quiz.subject || quiz.quiz_name || "");
+    const maxAttempts = quiz.attempts_enabled
+      ? (quiz.max_attempts !== null ? quiz.max_attempts : Infinity)
+      : 1;
 
-      const [mcqCompleted, writingCompleted] = await Promise.all([
-        QuizAttempt.countDocuments({
-          child_id: childId,
-          quiz_id: quiz.quiz_id,
-          status: { $in: ["scored", "ai_done", "submitted"] },
-        }),
-        isWritingQuizCheck
-          ? Writing.countDocuments({ child_id: childId, quiz_id: quiz.quiz_id })
-          : Promise.resolve(0),
-      ]);
+    const isWritingQuizCheck = /writing/i.test(quiz.subject || quiz.quiz_name || "");
+
+    const [mcqCompleted, writingCompleted] = await Promise.all([
+      QuizAttempt.countDocuments({
+        child_id: childId,
+        quiz_id: quiz.quiz_id,
+        status: { $in: ["scored", "ai_done", "submitted"] },
+      }),
+      isWritingQuizCheck
+        ? Writing.countDocuments({ child_id: childId, quiz_id: quiz.quiz_id })
+        : Promise.resolve(0),
+    ]);
 
     const completedAttempts = mcqCompleted + writingCompleted;
 
@@ -160,10 +125,6 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
       });
     }
 
-    // ═══════════════════════════════════════
-    // ✅ Gap 7: CHECK FOR EXISTING IN-PROGRESS ATTEMPT
-    // If child already has an in_progress attempt, return that instead
-    // ═══════════════════════════════════════
     const existingAttempt = await QuizAttempt.findOne({
       child_id: childId,
       quiz_id: quiz.quiz_id,
@@ -171,9 +132,7 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
     }).lean();
 
     if (existingAttempt) {
-      // Check if the existing attempt has expired server-side
       if (existingAttempt.expires_at && new Date() > new Date(existingAttempt.expires_at)) {
-        // Auto-expire the stale attempt
         await QuizAttempt.updateOne(
           { _id: existingAttempt._id },
           {
@@ -184,9 +143,7 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
             },
           }
         );
-        // Fall through to create a new attempt
       } else {
-        // Return the existing attempt for resuming
         return res.status(200).json({
           attempt_id: existingAttempt.attempt_id,
           resumed: true,
@@ -203,25 +160,17 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
       }
     }
 
-    // Count ALL previous attempts (including expired) for attempt_number
-   // Count ALL previous attempts (including expired) for attempt_number
-// ✅ FIX: For writing quizzes, QuizAttempts are deleted after AI evaluation
-// and moved to the Writing collection — so we must count both to get the
-// true attempt number, otherwise the counter resets to 1 every time.
-      const isWritingQuiz = /writing/i.test(quiz.subject || quiz.quiz_name || "");
+    const isWritingQuiz = /writing/i.test(quiz.subject || quiz.quiz_name || "");
 
-      const [prevQuizAttempts, prevWritingAttempts] = await Promise.all([
-        QuizAttempt.countDocuments({ child_id: childId, quiz_id: quiz.quiz_id }),
-        isWritingQuiz
-          ? Writing.countDocuments({ child_id: childId, quiz_id: quiz.quiz_id })
-          : Promise.resolve(0),
-      ]);
+    const [prevQuizAttempts, prevWritingAttempts] = await Promise.all([
+      QuizAttempt.countDocuments({ child_id: childId, quiz_id: quiz.quiz_id }),
+      isWritingQuiz
+        ? Writing.countDocuments({ child_id: childId, quiz_id: quiz.quiz_id })
+        : Promise.resolve(0),
+    ]);
 
-      const prevAttempts = prevQuizAttempts + prevWritingAttempts;
+    const prevAttempts = prevQuizAttempts + prevWritingAttempts;
 
-    // ═══════════════════════════════════════
-    // ✅ Gap 6: SERVER-SIDE TIMER (expires_at)
-    // ═══════════════════════════════════════
     const now = new Date();
     let expiresAt = null;
     if (quiz.time_limit_minutes) {
@@ -238,7 +187,7 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
       year_level: quiz.year_level,
       status: "in_progress",
       started_at: now,
-      expires_at: expiresAt, // ✅ Gap 6
+      expires_at: expiresAt,
       attempt_number: prevAttempts + 1,
     });
 
@@ -263,12 +212,10 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
 
 // ═══════════════════════════════════════
 // GET /api/quizzes/:quizId/questions
-// Returns questions WITHOUT correct answers
-// ✅ Supports randomization + voice/video media
 // ═══════════════════════════════════════
 router.get("/quizzes/:quizId/questions", async (req, res) => {
   try {
-    await connectDB(); // ✅ Gap 3
+    await connectDB();
     const quiz = await Quiz.findOne({ quiz_id: req.params.quizId, is_active: true }).lean();
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
@@ -276,7 +223,6 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       .sort({ order: 1 })
       .lean();
 
-    // CRITICAL: Strip correct answer flags before sending to client
     const safeQuestions = questions.map((q) => ({
       question_id: q.question_id,
       type: q.type,
@@ -294,7 +240,6 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       video_url: q.video_url || null,
     }));
 
-    // ✅ Randomize question order if enabled
     if (quiz.randomize_questions) {
       for (let i = safeQuestions.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -302,15 +247,12 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       }
     }
 
-    // ✅ Randomize option order — checks BOTH quiz-level AND per-question setting
-    // Build a lookup for per-question shuffle_options from the original DB questions
     const shuffleMap = {};
     for (const q of questions) {
       shuffleMap[q.question_id] = !!q.shuffle_options;
     }
 
     for (const q of safeQuestions) {
-      // Shuffle if quiz-level randomize_options is ON, or this specific question has shuffle_options ON
       const shouldShuffle = quiz.randomize_options || shuffleMap[q.question_id];
       if (shouldShuffle && q.options && q.options.length > 1) {
         for (let i = q.options.length - 1; i > 0; i--) {
@@ -322,7 +264,6 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
 
     res.json({
       questions: safeQuestions,
-      // ✅ Include media URLs so the player can show them
       voice_url: quiz.voice_url || null,
       video_url: quiz.video_url || null,
     });
@@ -332,17 +273,14 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
 });
 
 // ═══════════════════════════════════════
-// ✅ Gap 7: GET /api/quizzes/:quizId/resume
-// Get saved answers for an in-progress attempt
+// GET /api/quizzes/:quizId/resume
 // ═══════════════════════════════════════
 router.get("/quizzes/:quizId/resume", async (req, res) => {
   try {
     await connectDB();
     const { childId: tokenChildId, parentId, role } = req.user;
     let childId = tokenChildId;
-    if (!childId && role === "parent") {
-      childId = req.query.childId;
-    }
+    if (!childId && role === "parent") childId = req.query.childId;
     if (!childId) return res.status(403).json({ error: "Child login required" });
 
     const attempt = await QuizAttempt.findOne({
@@ -351,32 +289,19 @@ router.get("/quizzes/:quizId/resume", async (req, res) => {
       status: "in_progress",
     }).lean();
 
-    if (!attempt) {
-      return res.status(404).json({ error: "No in-progress attempt found" });
-    }
+    if (!attempt) return res.status(404).json({ error: "No in-progress attempt found" });
 
-    // Check server-side expiry
     if (attempt.expires_at && new Date() > new Date(attempt.expires_at)) {
       await QuizAttempt.updateOne(
         { _id: attempt._id },
-        {
-          $set: {
-            status: "expired",
-            submitted_at: new Date(),
-            duration_sec: Math.round((Date.now() - new Date(attempt.started_at).getTime()) / 1000),
-          },
-        }
+        { $set: { status: "expired", submitted_at: new Date(), duration_sec: Math.round((Date.now() - new Date(attempt.started_at).getTime()) / 1000) } }
       );
       return res.status(410).json({ error: "This attempt has expired", code: "ATTEMPT_EXPIRED" });
     }
 
-    // Calculate remaining time
     let timeRemainingSeconds = null;
     if (attempt.expires_at) {
-      timeRemainingSeconds = Math.max(
-        0,
-        Math.round((new Date(attempt.expires_at).getTime() - Date.now()) / 1000)
-      );
+      timeRemainingSeconds = Math.max(0, Math.round((new Date(attempt.expires_at).getTime() - Date.now()) / 1000));
     }
 
     res.json({
@@ -396,23 +321,18 @@ router.get("/quizzes/:quizId/resume", async (req, res) => {
 
 // ═══════════════════════════════════════
 // PATCH /api/attempts/:attemptId/autosave
-// Auto-save answers (progress preservation)
 // ═══════════════════════════════════════
 router.patch("/attempts/:attemptId/autosave", async (req, res) => {
   try {
-    await connectDB(); // ✅ Gap 3
+    await connectDB();
     const attempt = await QuizAttempt.findOne({ attempt_id: req.params.attemptId });
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
+
     const isChildOwner = String(attempt.child_id) === String(req.user.childId);
     const isParentOwner = req.user.role === "parent" && String(attempt.parent_id) === String(req.user.parentId);
-    if (!isChildOwner && !isParentOwner) {
-      return res.status(403).json({ error: "Not your attempt" });
-    }
-    if (attempt.status !== "in_progress") {
-      return res.status(400).json({ error: "Attempt already submitted" });
-    }
+    if (!isChildOwner && !isParentOwner) return res.status(403).json({ error: "Not your attempt" });
+    if (attempt.status !== "in_progress") return res.status(400).json({ error: "Attempt already submitted" });
 
-    // ✅ Gap 6: Server-side expiry check on autosave
     if (attempt.expires_at && new Date() > new Date(attempt.expires_at)) {
       attempt.status = "expired";
       attempt.submitted_at = new Date();
@@ -439,28 +359,19 @@ router.patch("/attempts/:attemptId/autosave", async (req, res) => {
 
 // ═══════════════════════════════════════
 // POST /api/attempts/:attemptId/submit
-// Submit answers, score MCQs, trigger AI for writing
 // ═══════════════════════════════════════
 router.post("/attempts/:attemptId/submit", async (req, res) => {
   try {
-    await connectDB(); // ✅ Gap 3
+    await connectDB();
 
     const attempt = await QuizAttempt.findOne({ attempt_id: req.params.attemptId });
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
+
     const isChildOwner = String(attempt.child_id) === String(req.user.childId);
     const isParentOwner = req.user.role === "parent" && String(attempt.parent_id) === String(req.user.parentId);
-    if (!isChildOwner && !isParentOwner) {
-      return res.status(403).json({ error: "Not your attempt" });
-    }
-    if (attempt.status !== "in_progress") {
-      return res.status(400).json({ error: "Already submitted" });
-    }
+    if (!isChildOwner && !isParentOwner) return res.status(403).json({ error: "Not your attempt" });
+    if (attempt.status !== "in_progress") return res.status(400).json({ error: "Already submitted" });
 
-    // ═══════════════════════════════════════
-    // ✅ Gap 6: Server-side timer enforcement on submit
-    // Allow submission even if slightly past expiry (grace period is built into expires_at)
-    // but flag it
-    // ═══════════════════════════════════════
     let timerExpired = false;
     if (attempt.expires_at && new Date() > new Date(attempt.expires_at)) {
       timerExpired = true;
@@ -468,21 +379,14 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     }
 
     const { answers, proctoring } = req.body;
-    if (!Array.isArray(answers)) {
-      return res.status(400).json({ error: "answers array required" });
-    }
+    if (!Array.isArray(answers)) return res.status(400).json({ error: "answers array required" });
 
-    // Fetch questions WITH correct answers (server-side only)
-    const questions = await Question.find({ quiz_ids: attempt.quiz_id })
-      .sort({ order: 1 })
-      .lean();
-
+    const questions = await Question.find({ quiz_ids: attempt.quiz_id }).sort({ order: 1 }).lean();
     const questionMap = {};
     for (const q of questions) questionMap[q.question_id] = q;
 
     const isWriting = (attempt.subject || "").toLowerCase() === "writing";
 
-    // ─── Score MCQ questions ───
     let totalPoints = 0;
     let totalAvailable = 0;
     const topicBreakdown = {};
@@ -490,29 +394,16 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     const scoredAnswers = answers.map((ans) => {
       const question = questionMap[ans.question_id];
       if (!question) {
-        return {
-          question_id: ans.question_id,
-          selected_option_ids: [],
-          text_answer: "",
-          points_scored: 0,
-          points_available: 0,
-        };
+        return { question_id: ans.question_id, selected_option_ids: [], text_answer: "", points_scored: 0, points_available: 0 };
       }
 
       let pointsScored = 0;
       const pointsAvailable = question.points || 1;
 
       if (question.type !== "free_text") {
-        const correctIds = question.options
-          .filter((o) => o.correct)
-          .map((o) => o.option_id)
-          .sort();
+        const correctIds = question.options.filter((o) => o.correct).map((o) => o.option_id).sort();
         const selectedIds = (ans.selected_option_ids || []).sort();
-
-        const isCorrect =
-          correctIds.length === selectedIds.length &&
-          correctIds.every((id, i) => id === selectedIds[i]);
-
+        const isCorrect = correctIds.length === selectedIds.length && correctIds.every((id, i) => id === selectedIds[i]);
         pointsScored = isCorrect ? pointsAvailable : 0;
       }
 
@@ -534,7 +425,6 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
       };
     });
 
-    // ─── Calculate grade ───
     const percentage = totalAvailable > 0 ? Math.round((totalPoints / totalAvailable) * 100) : 0;
     let grade = "F";
     if (percentage >= 90) grade = "A";
@@ -542,15 +432,13 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     else if (percentage >= 60) grade = "C";
     else if (percentage >= 50) grade = "D";
 
-    // ─── Update attempt ───
     attempt.answers = scoredAnswers;
     attempt.submitted_at = new Date();
     attempt.duration_sec = Math.round((attempt.submitted_at - attempt.started_at) / 1000);
     attempt.status = isWriting ? "submitted" : "scored";
     attempt.topic_breakdown = topicBreakdown;
-    attempt.timer_expired = timerExpired; // ✅ Gap 6: track if timer ran out
+    attempt.timer_expired = timerExpired;
 
-    // Store proctoring data if provided
     if (proctoring) {
       attempt.proctoring = {
         violations: proctoring.violations || 0,
@@ -559,16 +447,9 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     }
 
     if (!isWriting) {
-      attempt.score = {
-        points: totalPoints,
-        available: totalAvailable,
-        percentage,
-        grade,
-        pass: percentage >= 50,
-      };
+      attempt.score = { points: totalPoints, available: totalAvailable, percentage, grade, pass: percentage >= 50 };
     }
 
-    // Set initial AI feedback status
     attempt.ai_feedback_meta = {
       status: "queued",
       status_message: "Generating AI feedback...",
@@ -577,15 +458,8 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
 
     await attempt.save();
 
-    console.log(
-      `✅ Quiz submitted: attempt=${attempt.attempt_id}, score=${percentage}%, grade=${grade}${timerExpired ? " (timer expired)" : ""}`
-    );
+    console.log(`✅ Quiz submitted: attempt=${attempt.attempt_id}, score=${percentage}%, grade=${grade}${timerExpired ? " (timer expired)" : ""}`);
 
-    // ═══════════════════════════════════════
-    // ✅ NEW: Immediately mirror writing submission → Writing collection
-    // Stores the record right away with ai.status = "pending".
-    // triggerAiFeedback will upsert it again later with full AI feedback.
-    // ═══════════════════════════════════════
     if (isWriting) {
       setImmediate(() =>
         syncWritingAttempt({
@@ -599,10 +473,6 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
       );
     }
 
-    // ═══════════════════════════════════════
-    // ✅ Gap 2 + Gap 4: TRIGGER AI FEEDBACK (non-blocking)
-    // Runs async — frontend polls GET /api/attempts/:id/result
-    // ═══════════════════════════════════════
     triggerAiFeedback({
       attemptId: attempt.attempt_id,
       quizId: attempt.quiz_id,
@@ -619,17 +489,11 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
       console.error(`❌ AI feedback trigger failed for attempt ${attempt.attempt_id}:`, err.message);
     });
 
-    // ── Send quiz completion email (non-blocking) ──
     (async () => {
       try {
         const eligibility = await checkNotificationEligibility(attempt.child_id);
         if (!eligibility.shouldSend) return;
-
-        // Convert topic_breakdown Map to plain object
-        const tbObj = attempt.topic_breakdown instanceof Map
-          ? Object.fromEntries(attempt.topic_breakdown)
-          : topicBreakdown;
-
+        const tbObj = attempt.topic_breakdown instanceof Map ? Object.fromEntries(attempt.topic_breakdown) : topicBreakdown;
         await sendQuizCompletionEmail({
           parentEmail: eligibility.parentEmail,
           childName: eligibility.childName,
@@ -652,9 +516,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
       timer_expired: timerExpired,
       score: attempt.score,
       topic_breakdown: Object.fromEntries(
-        attempt.topic_breakdown instanceof Map
-          ? attempt.topic_breakdown
-          : Object.entries(topicBreakdown)
+        attempt.topic_breakdown instanceof Map ? attempt.topic_breakdown : Object.entries(topicBreakdown)
       ),
     });
   } catch (err) {
@@ -665,11 +527,10 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
 
 // ═══════════════════════════════════════
 // GET /api/attempts/:attemptId/result
-// Get scored result with feedback (polls for AI completion)
 // ═══════════════════════════════════════
 router.get("/attempts/:attemptId/result", async (req, res) => {
   try {
-    await connectDB(); // ✅ Gap 3
+    await connectDB();
     const attempt = await QuizAttempt.findOne({ attempt_id: req.params.attemptId }).lean();
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
 
@@ -684,8 +545,48 @@ router.get("/attempts/:attemptId/result", async (req, res) => {
 });
 
 // ═══════════════════════════════════════
-// ✅ Gap 7: GET /api/children/:childId/in-progress
-// List all in-progress attempts for a child (for "Resume Quiz" banner)
+// ✅ NEW: GET /api/attempts/:attemptId/ai-status
+// Lightweight poll — QuizResult.jsx calls this every 5s
+// to detect when writing AI feedback finishes.
+// Checks Writing collection first (writing moves there after AI),
+// falls back to QuizAttempt for in-progress status.
+// ═══════════════════════════════════════
+router.get("/attempts/:attemptId/ai-status", async (req, res) => {
+  try {
+    await connectDB();
+    const { attemptId } = req.params;
+
+    // Writing quizzes: after AI runs, the record lives in Writing collection
+    const writing = await Writing.findOne({
+      $or: [{ response_id: attemptId }, { attempt_id: attemptId }],
+    })
+      .select("ai")
+      .lean();
+
+    if (writing) {
+      const status = writing?.ai?.status || "pending";
+      return res.json({ ai_status: status });
+    }
+
+    // Not in Writing yet — check QuizAttempt (still processing)
+    const attempt = await QuizAttempt.findOne({ attempt_id: attemptId })
+      .select("ai_feedback_meta")
+      .lean();
+
+    if (!attempt) {
+      return res.status(404).json({ error: "Attempt not found" });
+    }
+
+    const status = attempt?.ai_feedback_meta?.status || "queued";
+    return res.json({ ai_status: status });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════
+// GET /api/children/:childId/in-progress
 // ═══════════════════════════════════════
 router.get("/children/:childId/in-progress", async (req, res) => {
   try {
@@ -696,11 +597,7 @@ router.get("/children/:childId/in-progress", async (req, res) => {
     const isParent = req.user.role === "parent";
     if (!isChild && !isParent) return res.status(403).json({ error: "Access denied" });
 
-    // Find all in-progress attempts, check expiry
-    const attempts = await QuizAttempt.find({
-      child_id: childId,
-      status: "in_progress",
-    })
+    const attempts = await QuizAttempt.find({ child_id: childId, status: "in_progress" })
       .sort({ started_at: -1 })
       .select("attempt_id quiz_id quiz_name subject year_level started_at expires_at attempt_number")
       .lean();
@@ -722,7 +619,6 @@ router.get("/children/:childId/in-progress", async (req, res) => {
       }
     }
 
-    // Clean up expired attempts in background
     if (expiredIds.length > 0) {
       QuizAttempt.updateMany(
         { _id: { $in: expiredIds } },
@@ -738,11 +634,10 @@ router.get("/children/:childId/in-progress", async (req, res) => {
 
 // ═══════════════════════════════════════
 // GET /api/children/:childId/attempts
-// List all attempts for a child (dashboard)
 // ═══════════════════════════════════════
 router.get("/children/:childId/attempts", async (req, res) => {
   try {
-    await connectDB(); // ✅ Gap 3
+    await connectDB();
     const childId = req.params.childId;
 
     const isChild = String(req.user.childId) === childId;
@@ -751,9 +646,7 @@ router.get("/children/:childId/attempts", async (req, res) => {
 
     const attempts = await QuizAttempt.find({ child_id: childId })
       .sort({ submitted_at: -1 })
-      .select(
-        "attempt_id quiz_id quiz_name subject year_level status score.percentage score.grade submitted_at duration_sec attempt_number ai_feedback_meta.status"
-      )
+      .select("attempt_id quiz_id quiz_name subject year_level status score.percentage score.grade submitted_at duration_sec attempt_number ai_feedback_meta.status")
       .lean();
 
     res.json(attempts);
