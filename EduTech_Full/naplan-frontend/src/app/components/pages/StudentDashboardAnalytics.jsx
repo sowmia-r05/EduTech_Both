@@ -17,7 +17,6 @@ import {
   ReferenceLine,
 } from "recharts";
 
-// ✅ Lucide icons for subjects
 import { BookOpen, PenLine, Hash, Languages, Library, LayoutDashboard, ClipboardList } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════
@@ -57,7 +56,6 @@ const SUBJECT_BORDER = {
   Language: "border-amber-300",
 };
 
-// ✅ Lucide icon map — replaces SUBJECT_EMOJI
 const SUBJECT_ICON = {
   Reading:  BookOpen,
   Writing:  PenLine,
@@ -67,7 +65,6 @@ const SUBJECT_ICON = {
   All:      LayoutDashboard,
 };
 
-/* ─── Helper: renders a subject icon safely as JSX ─── */
 function SubjectIconEl({ subject, className = "w-4 h-4" }) {
   const Icon = SUBJECT_ICON[subject] || Library;
   return <Icon className={className} />;
@@ -261,14 +258,16 @@ function FeedbackSection({ icon, title, children, color = "text-slate-700" }) {
   );
 }
 
-function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing }) {
+// ✅ FIX 1: Accept `loading` prop
+function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, loading }) {
   const status = feedbackDoc?.status;
   const feedback = feedbackDoc?.feedback;
   const subjectColor = subject !== "All" ? SUBJECT_TEXT[subject] : "text-indigo-600";
   const subjectBgLight = subject !== "All" ? SUBJECT_LIGHT_BG[subject] : "bg-indigo-50";
   const subjectBorderColor = subject !== "All" ? SUBJECT_BORDER[subject] : "border-indigo-200";
 
-  if (!feedbackDoc || status === "pending" || status === "generating" || refreshing) {
+  // ✅ FIX 2: Only spin while actively loading OR API says generating — NOT when feedbackDoc is simply null
+  if (loading || status === "pending" || status === "generating" || refreshing) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2 text-slate-500 text-sm">
@@ -282,6 +281,16 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing })
         <p className="text-xs text-slate-400">
           {status === "generating" ? "Analysing your quiz history with Gemini…" : "Starting up — this takes a moment on first load"}
         </p>
+      </div>
+    );
+  }
+
+  // ✅ FIX 3: Loading done but no doc for this subject — show empty state instead of spinning forever
+  if (!feedbackDoc) {
+    return (
+      <div className="text-center py-6 text-slate-400 text-sm space-y-2">
+        <div className="text-3xl">🤖</div>
+        <p>No feedback available yet for {subject !== "All" ? subject : "overall"}. Take more quizzes to unlock your AI coaching report!</p>
       </div>
     );
   }
@@ -552,7 +561,7 @@ export default function StudentDashboardAnalytics({
   onBack = null,
   onLogout = null,
   embedded = false,
-  childId: childIdProp = null,   // ✅ FIX: accept childId as prop (needed for parent viewing child)
+  childId: childIdProp = null,
 }) {
   const navigate = useNavigate();
   const { logout, logoutChild, childToken, parentToken, user } = useAuth();
@@ -565,7 +574,6 @@ export default function StudentDashboardAnalytics({
   const [refreshing, setRefreshing] = useState(false);
   const pollTimerRef = useRef(null);
 
-  // ✅ FIX: prop takes priority — fixes parent viewing child's analytics (user.childId is null for parents)
   const childId = useMemo(() => {
     if (childIdProp) return childIdProp;
     if (user?.childId) return user.childId;
@@ -576,9 +584,13 @@ export default function StudentDashboardAnalytics({
   const activeToken = childToken || parentToken || null;
 
   const loadCumulativeFeedback = useCallback(async () => {
-    if (!childId || !activeToken) return;
+    if (!childId || !activeToken) {
+      console.warn("⚠️ Missing childId or token:", { childId, activeToken });
+      return;
+    }
     try {
       const data = await fetchCumulativeFeedback(activeToken, childId);
+      console.log("✅ Cumulative feedback response:", data);
       setCumulativeFeedback(data || {});
       const stillGenerating = Object.values(data || {}).some(
         (d) => d.status === "generating" || d.status === "pending"
@@ -753,7 +765,6 @@ export default function StudentDashboardAnalytics({
             </div>
           </div>
 
-          {/* Subject context banner */}
           {selectedSubject !== "All" && (
             <div className={`mt-4 flex items-center gap-3 px-5 py-3 rounded-xl ${subjectBg} border ${SUBJECT_BORDER[selectedSubject]}`}>
               <span className={`${subjectTextClass}`}>
@@ -1081,7 +1092,6 @@ export default function StudentDashboardAnalytics({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {/* Subject quick-switch pills */}
                 <div className="hidden sm:flex gap-1.5 flex-wrap">
                   {[{ key: "All", label: "Overall" }, ...SUBJECTS.map((s) => ({ key: s, label: s }))].map(({ key, label }) => {
                     const isActive = (selectedSubject === "All" && key === "All") || selectedSubject === key;
@@ -1117,14 +1127,15 @@ export default function StudentDashboardAnalytics({
               </div>
             </div>
 
+            {/* ✅ FIX: loading prop passed correctly — no inline comment */}
             <AICumulativeCoachPanel
               feedbackDoc={activeFeedbackDoc}
               subject={selectedSubject}
               onRefresh={handleRefreshFeedback}
               refreshing={refreshing}
+              loading={feedbackLoading}
             />
 
-            {/* Subject feedback overview pills (only in "All" view) */}
             {selectedSubject === "All" && Object.keys(cumulativeFeedback).length > 0 && (
               <div className="mt-6 pt-5 border-t border-slate-100">
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Subject Feedback Status</p>
