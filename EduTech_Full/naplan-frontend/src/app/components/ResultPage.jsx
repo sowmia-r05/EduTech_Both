@@ -268,7 +268,7 @@ export default function ResultPage() {
 
   /* ── Fetch ── */
   useEffect(() => {
-    if (!responseId) { navigate("/"); return; }
+    if (!responseId) { navigate("/child-dashboard"); return; }
     let cancelled = false;
     const load = async () => {
       try {

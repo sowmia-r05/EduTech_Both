@@ -226,7 +226,7 @@ export default function Dashboard() {
       ? "parent_viewing_child"
       : "parent";
 
-  useEffect(() => { if (!hasResponseId) navigate("/", { replace: true }); }, [hasResponseId, navigate]);
+  useEffect(() => { if (!hasResponseId) navigate("/child-dashboard", { replace: true }); }, [hasResponseId, navigate]);
 
   useEffect(() => {
     if (!hasResponseId || isInitializing) return;
