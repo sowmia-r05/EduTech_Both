@@ -15,6 +15,13 @@ import {
   BarChart,
   Bar,
   ReferenceLine,
+  Cell,
+  Legend,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Radar,
 } from "recharts";
 
 import {
@@ -974,11 +981,12 @@ export default function StudentDashboardAnalytics({
                         formatter={(value) => [`${value}%`, "Average"]}
                         contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 10px 40px rgba(0,0,0,0.08)" }}
                       />
-                      <Bar dataKey="score" radius={[8, 8, 0, 0]}>
-                        {comparisonData.map((entry) => (
-                          <rect key={entry.subject} fill={entry.color} />
-                        ))}
-                      </Bar>
+              <Bar dataKey="score" radius={[8, 8, 0, 0]}>
+                    {comparisonData.map((entry) => (
+                      <Cell key={entry.subject} fill={entry.color} />
+                    ))}
+                  </Bar>
+
                     </BarChart>
                   </ResponsiveContainer>
                   <div className="mt-4 space-y-2">
