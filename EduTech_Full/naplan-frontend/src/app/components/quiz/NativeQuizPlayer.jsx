@@ -85,7 +85,7 @@ function QuizMediaPanel({ voiceUrl, videoUrl }) {
 /* ═══════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════ */
-export default function NativeQuizPlayer({ quiz, onClose, proctored = true, childId }) {
+export default function NativeQuizPlayer({ quiz, onClose, proctored = true, childId, onViewAnalytics, onViewAIFeedback, childStatus }) {
   const { activeToken } = useAuth();
 
   const [phase, setPhase] = useState("proctoring");
@@ -393,15 +393,18 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
 
   // ═══ RENDER: RESULT ═══
   if (phase === "result") {
-    return (
-      <QuizResult
-        result={result}
-        quizName={quizMeta?.quiz_name || quiz.quiz_name}
-        violations={violations}
-        onClose={() => onClose?.(result)}
-      />
-    );
-  }
+  return (
+    <QuizResult
+      result={result}
+      quizName={quizMeta?.quiz_name || quiz.quiz_name}
+      violations={violations}
+      childStatus={childStatus}
+      onClose={() => onClose?.(result)}
+      onViewAnalytics={onViewAnalytics}
+      onViewAIFeedback={onViewAIFeedback}
+    />
+  );
+}
 
   // ═══ RENDER: QUIZ CONTENT ═══
   const quizContent = (() => {
