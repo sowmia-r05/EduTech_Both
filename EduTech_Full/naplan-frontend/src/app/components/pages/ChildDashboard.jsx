@@ -57,16 +57,16 @@ function getTimeGreeting() {
 }
 
 const MOTIVATIONAL_MESSAGES = [
-  { emoji: "🌟", text: "Every expert was once a beginner. Keep going — you're building something amazing!" },
-  { emoji: "🚀", text: "Your brain gets stronger every time you try. Let's make today count!" },
-  { emoji: "💪", text: "Mistakes are proof you're trying. Each quiz makes you smarter!" },
-  { emoji: "🎯", text: "Small steps every day lead to big results. You've got this!" },
-  { emoji: "⭐", text: "Champions aren't made in a day — they're made one quiz at a time!" },
-  { emoji: "🧠", text: "The more you practise, the easier it gets. Your future self will thank you!" },
-  { emoji: "🏆", text: "You don't have to be perfect, you just have to be better than yesterday!" },
-  { emoji: "🔥", text: "Hard work beats talent when talent doesn't work hard. Keep pushing!" },
-  { emoji: "🌈", text: "Every quiz you finish is a step closer to your goals. Let's do this!" },
-  { emoji: "💡", text: "Curious minds go far. Keep asking questions and exploring!" },
+  {  text: "Every expert was once a beginner. Keep going — you're building something amazing!" },
+  { text: "Your brain gets stronger every time you try. Let's make today count!" },
+  {  text: "Mistakes are proof you're trying. Each quiz makes you smarter!" },
+  {  text: "Small steps every day lead to big results. You've got this!" },
+  {  text: "Champions aren't made in a day — they're made one quiz at a time!" },
+  {  text: "The more you practise, the easier it gets. Your future self will thank you!" },
+  {  text: "You don't have to be perfect, you just have to be better than yesterday!" },
+  {  text: "Hard work beats talent when talent doesn't work hard. Keep pushing!" },
+  {  text: "Every quiz you finish is a step closer to your goals. Let's do this!" },
+  {  text: "Curious minds go far. Keep asking questions and exploring!" },
 ];
 
 function getDailyMotivation() {
@@ -386,7 +386,27 @@ export default function ChildDashboard() {
   );
 
   /* ─── Early returns ─── */
-  if (activeQuiz) return <NativeQuizPlayer quiz={activeQuiz} onClose={handleQuizClose} childId={childId} />;
+  if (activeQuiz) return (
+  <NativeQuizPlayer
+    quiz={activeQuiz}
+    onClose={handleQuizClose}
+    childId={childId}
+    childStatus={childStatus}
+    onViewAnalytics={() => setShowAnalytics(true)}
+    onViewAIFeedback={(attemptId, subject, name) => {
+      const params = new URLSearchParams({ r: attemptId });
+      const username = childInfo?.username || childProfile?.username || searchParams.get("username") || null;
+      if (username) params.set("username", username);
+      if (subject) params.set("subject", subject);
+      if (name) params.set("quiz_name", name);
+      params.set("status", childStatus);
+      navigate((subject || "").toLowerCase() === "writing"
+        ? `/writing-feedback/result?${params}`
+        : `/NonWritingLookupQuizResults/results?${params}`
+      );
+    }}
+  />
+);
 
   if (resultLoading) return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white flex items-center justify-center">
@@ -405,7 +425,29 @@ export default function ChildDashboard() {
           () => setSelectedQuizResult(null)   
         )}
         </DashboardHeader>
-        <QuizResult result={selectedQuizResult.result} quizName={selectedQuizResult.quizName} onClose={() => setSelectedQuizResult(null)} />
+        <QuizResult
+  result={selectedQuizResult.result}
+  quizName={selectedQuizResult.quizName}
+  childStatus={childStatus}
+  onClose={() => setSelectedQuizResult(null)}
+  onViewAnalytics={() => {
+    setSelectedQuizResult(null);
+    setTimeout(() => setShowAnalytics(true), 50);
+  }}
+  onViewAIFeedback={(attemptId, subject, name) => {
+    setSelectedQuizResult(null);
+    const params = new URLSearchParams({ r: attemptId });
+    const username = childInfo?.username || childProfile?.username || searchParams.get("username") || null;
+    if (username) params.set("username", username);
+    if (subject) params.set("subject", subject);
+    if (name) params.set("quiz_name", name);
+    params.set("status", childStatus);
+    navigate((subject || "").toLowerCase() === "writing"
+      ? `/writing-feedback/result?${params}`
+      : `/NonWritingLookupQuizResults/results?${params}`
+    );
+  }}
+/>
       </div>
     );
   }
