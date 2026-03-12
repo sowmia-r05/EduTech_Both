@@ -24,11 +24,14 @@ export default function WelcomePage() {
   const bypassRedirect = searchParams.get("welcome") === "1";
 
   useEffect(() => {
-    if (bypassRedirect) return;        // ← user chose to view this page
-    if (isInitializing) return;        // ← wait for localStorage to load
-    if (isParent) navigate("/parent-dashboard", { replace: true });
-    else if (isChild) navigate("/child-dashboard", { replace: true });
-  }, [isParent, isChild, isInitializing, navigate, bypassRedirect]);
+  if (bypassRedirect) return;
+  if (isInitializing) return;
+  // Only auto-redirect if genuinely on the root "/" — not if navigated here by mistake
+  const currentHash = window.location.hash.replace("#", "") || "/";
+  if (currentHash !== "/" && currentHash !== "") return;
+  if (isParent) navigate("/parent-dashboard", { replace: true });
+  else if (isChild) navigate("/child-dashboard", { replace: true });
+}, [isParent, isChild, isInitializing, navigate, bypassRedirect]);
 
   return (
     <div>
