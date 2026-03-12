@@ -103,7 +103,7 @@ router.get("/", async (req, res) => {
     );
 
     // Trigger generation when: nothing is done yet OR there's an error, AND nothing is actively running
-    const shouldTrigger = (!hasAnyDone || hasError) && !isCurrentlyGenerating;
+    const shouldTrigger = !hasAnyDone && !isCurrentlyGenerating;
 
     if (shouldTrigger) {
       console.log(`🚀 Triggering cumulative feedback for child ${childId}`);
