@@ -21,7 +21,7 @@ const Parent = require("../models/parent");
 
 const BRAND_COLOR = "#4F46E5"; // indigo-600
 const BRAND_GRADIENT = "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)"; // indigo → violet
-const DASHBOARD_URL = process.env.FRONTEND_URL || "https://edu-tech-both.vercel.app/#/";
+const DASHBOARD_URL = process.env.FRONTEND_URL || "https://naplan.kaisolutions.ai/#/";
 
 function emailWrapper(title, bodyContent) {
   return `
@@ -191,7 +191,7 @@ async function sendQuizCompletionEmail(opts) {
 
     <!-- CTA Button -->
     <div style="text-align:center;margin:28px 0 16px;">
-      <a href="${DASHBOARD_URL}/parent-dashboard"
+      <a href="${DASHBOARD_URL}parent-dashboard"
          style="display:inline-block;background:${BRAND_GRADIENT};color:#ffffff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:8px;text-decoration:none;">
         View Full Results →
       </a>

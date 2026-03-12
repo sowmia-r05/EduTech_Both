@@ -10,17 +10,16 @@ import {
 } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
 import {
-  ArrowLeft,
   CheckCircle2,
   AlertCircle,
   AlertTriangle,
   Target,
   Lightbulb,
   FileText,
+  LogOut,
+  RefreshCw,
 } from "lucide-react";
 
-import waitingGif from "@/app/components/Public/dragon_play.gif";
-import AvatarMenu from "@/app/components/ResultComponents/AvatarMenu";
 import DateRangeWritingFilter from "@/app/components/dashboardComponents/DateRangeWritingFilter";
 import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
 import { useAuth } from "@/app/context/AuthContext";
@@ -31,7 +30,7 @@ import {
   fetchWritingsByChildId,
 } from "@/app/utils/api";
 
-/* -------------------- Helpers -------------------- */
+/* ─── Helpers ─── */
 const unwrapDate = (d) =>
   d && typeof d === "object" && "$date" in d ? d.$date : d;
 
@@ -42,21 +41,19 @@ const isAiPending = (d) => {
   return true;
 };
 
-/* -------------------- No Data Modal -------------------- */
+/* ─── No Data Modal ─── */
 const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = "hidden";
-    const handleEsc = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handleEsc);
-    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", handleEsc); };
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", h); };
   }, [isOpen, onClose]);
-
   if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3">
           <div className="text-2xl">📅</div>
           <div>
@@ -69,56 +66,207 @@ const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
           <button onClick={onClearFilter} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">Clear Filter</button>
         </div>
       </div>
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .animate-fadeIn { animation: fadeIn 0.2s ease-out forwards; }
-        .animate-scaleIn { animation: scaleIn 0.2s ease-out forwards; }
-      `}</style>
     </div>
   );
 };
+
+/* ─────────────────────────────────────────────────────────────
+   TOP BAR — KAI Solutions logo (left) + child avatar (right)
+───────────────────────────────────────────────────────────── */
+const TopBar = ({ displayName, onLogout, onBackToChildDashboard, onBackToParentDashboard, isParentViewing }) => {
+  const [open, setOpen] = useState(false);
+
+  const initials = displayName
+    ? displayName.split(" ").map((n) => n[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()
+    : "?";
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (!e.target.closest("[data-avatar-menu]")) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  return (
+    <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+      <div className="flex items-center justify-between px-5 h-14">
+
+        {/* LEFT — KAI Solutions logo */}
+        <button
+          onClick={onBackToChildDashboard}
+          className="flex items-center gap-3 hover:opacity-80 transition focus:outline-none"
+        >
+          <div className="w-9 h-9 rounded-xl bg-purple-600 flex items-center justify-center flex-shrink-0">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <rect x="1"    y="1"    width="6.5" height="6.5" rx="1.2" fill="white"/>
+              <rect x="10.5" y="1"    width="6.5" height="6.5" rx="1.2" fill="white"/>
+              <rect x="1"    y="10.5" width="6.5" height="6.5" rx="1.2" fill="white"/>
+              <rect x="10.5" y="10.5" width="6.5" height="6.5" rx="1.2" fill="white"/>
+            </svg>
+          </div>
+          <div className="text-left leading-none">
+            <p className="text-[15px] font-bold text-gray-900 tracking-tight">KAI Solutions</p>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.18em] mt-0.5">NAPLAN PREP</p>
+          </div>
+        </button>
+
+        {/* RIGHT — Avatar pill + dropdown */}
+        <div className="relative" data-avatar-menu>
+          {/* Trigger pill — matches screenshot: border, rounded-full, avatar + name + chevron */}
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className={`flex items-center gap-2 pl-1 pr-3 py-1 rounded-full border-2 transition
+              ${open
+                ? "border-purple-400 bg-purple-50 shadow-sm"
+                : "border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50"
+              }`}
+          >
+            <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+              {initials}
+            </div>
+            <span className="text-sm font-semibold text-gray-800 max-w-[110px] truncate">
+              {displayName || "Student"}
+            </span>
+            <svg
+              className={`w-4 h-4 text-gray-500 transition-transform flex-shrink-0 ${open ? "rotate-180" : ""}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {/* Dropdown */}
+          {open && (
+            <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-gray-150 z-50 overflow-hidden">
+
+              {/* Profile header */}
+              <div className="flex items-center gap-3 px-4 py-4">
+                <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                  {initials}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-gray-900 truncate">{displayName || "Student"}</p>
+                  <p className="text-xs text-gray-400">{isParentViewing ? "Viewing as parent" : "Student Account"}</p>
+                </div>
+              </div>
+
+              {/* Back to Child Dashboard */}
+              <button
+                onClick={() => { setOpen(false); onBackToChildDashboard?.(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition"
+              >
+                <svg className="w-4 h-4 text-teal-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+                <span className="text-sm font-semibold text-teal-600">Back to Child Dashboard</span>
+              </button>
+
+              {/* Back to Parent Dashboard — only when parent is viewing */}
+              {isParentViewing && onBackToParentDashboard && (
+                <button
+                  onClick={() => { setOpen(false); onBackToParentDashboard?.(); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition"
+                >
+                  <svg className="w-4 h-4 text-teal-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span className="text-sm font-semibold text-teal-600">Back to Parent Dashboard</span>
+                </button>
+              )}
+
+              <div className="border-t border-gray-100 mx-0 my-1" />
+
+              {/* Log Out */}
+              <button
+                onClick={() => { setOpen(false); onLogout?.(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-red-50 transition mb-1"
+              >
+                <LogOut className="w-4 h-4 text-red-500 flex-shrink-0" />
+                <span className="text-sm font-semibold text-red-500">Log Out</span>
+              </button>
+
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────
+   PAGE TITLE ROW
+   "child – Year3 Writing Report    [↺ Viewing N of M attempts]  [Select date]"
+───────────────────────────────────────────────────────────── */
+const PageTitleRow = ({
+  displayName, displayQuizName,
+  currentPosition, totalAttempts,
+  selectedDate, onDateChange,
+  testTakenDates, quizAttempts, onAttemptSelect,
+}) => (
+  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    {/* Title */}
+    <h1 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight min-w-0 truncate">
+      <span className="text-gray-900">{displayName}</span>
+      <span className="text-gray-400 font-light mx-2">–</span>
+      <span className="text-teal-600">{displayQuizName || "Writing Evaluation"}</span>
+    </h1>
+
+    {/* Right controls */}
+    <div className="flex items-center gap-3 flex-shrink-0">
+      {/* Viewing N of M attempts */}
+      <div className="flex items-center gap-1.5 text-sm whitespace-nowrap">
+        <RefreshCw className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />
+        <span className="text-gray-600">
+          Viewing{" "}
+          <span className="font-semibold text-gray-900">{currentPosition ?? "—"}</span>
+          {" "}of{" "}
+          <span className="font-semibold text-gray-900">{totalAttempts}</span>
+          {" "}
+          <span className="text-teal-600 font-medium">attempts</span>
+        </span>
+      </div>
+
+      {/* Date picker */}
+      <DateRangeWritingFilter
+        selectedDate={selectedDate}
+        onChange={onDateChange}
+        testTakenDates={testTakenDates}
+        quizAttempts={quizAttempts}
+        onAttemptSelect={onAttemptSelect}
+      />
+    </div>
+  </div>
+);
 
 /* ==================== ResultPage ==================== */
 export default function ResultPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const responseId = String(searchParams.get("r") || "").trim();
-  const usernameParam = String(searchParams.get("username") || "").trim();
+  const responseId    = String(searchParams.get("r")         || "").trim();
+  const usernameParam = String(searchParams.get("username")   || "").trim();
+  const childIdParam  = String(searchParams.get("childId")    || "").trim();
+  const childNameParam= String(searchParams.get("childName")  || "").trim();
+  const yearLevelParam= String(searchParams.get("yearLevel")  || "").trim();
 
-  // ✅ Child dashboard params passed via URL when navigating to result page
-  const childIdParam = String(searchParams.get("childId") || "").trim();
-  const childNameParam = String(searchParams.get("childName") || "").trim();
-  const yearLevelParam = String(searchParams.get("yearLevel") || "").trim();
-
-  const [doc, setDoc] = useState(null);
-  const [writingsList, setWritingsList] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [doc, setDoc]                       = useState(null);
+  const [writingsList, setWritingsList]     = useState([]);
+  const [loading, setLoading]               = useState(true);
+  const [error, setError]                   = useState(null);
+  const [selectedDate, setSelectedDate]     = useState(null);
   const [showNoDataModal, setShowNoDataModal] = useState(false);
   const [selectedAttemptOverride, setSelectedAttemptOverride] = useState(null);
 
-  const { childToken, childProfile, parentToken } = useAuth();
+  const { childToken, childProfile, parentToken, logout } = useAuth();
   const activeToken = childToken || parentToken || null;
-
-  const authOpts = activeToken
-    ? { headers: { Authorization: `Bearer ${activeToken}` } }
-    : {};
+  const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
 
   const isParentViewing = !childToken && !!parentToken;
   const childStatus = searchParams.get("status") || childProfile?.status || "trial";
-  const yearLevel = yearLevelParam || childProfile?.yearLevel || null;
+  const yearLevel   = yearLevelParam || childProfile?.yearLevel || null;
+  const viewerType  = childToken && !isParentViewing ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
 
-  const viewerType = childToken && !isParentViewing
-    ? "child"
-    : isParentViewing
-      ? "parent_viewing_child"
-      : "parent";
-
-  // --- Fetch ---
+  /* ── Fetch ── */
   useEffect(() => {
     if (!responseId) { navigate("/"); return; }
     let cancelled = false;
@@ -129,22 +277,13 @@ export default function ResultPage() {
         if (cancelled) return;
         if (!data) { setError("No writing document found."); setLoading(false); return; }
         setDoc(data);
-
         const effectiveUsername = usernameParam || data?.user?.user_name || "";
         if (effectiveUsername) {
-          try {
-            const all = await fetchWritingsByUsername(effectiveUsername, authOpts);
-            if (!cancelled) setWritingsList(all || []);
-          } catch {
-            if (!cancelled) setWritingsList([]);
-          }
+          try { const all = await fetchWritingsByUsername(effectiveUsername, authOpts); if (!cancelled) setWritingsList(all || []); }
+          catch { if (!cancelled) setWritingsList([]); }
         } else if (data?.child_id) {
-          try {
-            const all = await fetchWritingsByChildId(String(data.child_id), authOpts);
-            if (!cancelled) setWritingsList(all || []);
-          } catch {
-            if (!cancelled) setWritingsList([]);
-          }
+          try { const all = await fetchWritingsByChildId(String(data.child_id), authOpts); if (!cancelled) setWritingsList(all || []); }
+          catch { if (!cancelled) setWritingsList([]); }
         }
         setLoading(false);
       } catch (err) {
@@ -155,7 +294,7 @@ export default function ResultPage() {
     return () => { cancelled = true; };
   }, [responseId, usernameParam, navigate]);
 
-  // AI polling
+  /* ── AI polling ── */
   useEffect(() => {
     if (!doc || !isAiPending(doc)) return;
     let cancelled = false; let timer; let pollCount = 0;
@@ -172,6 +311,7 @@ export default function ResultPage() {
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [responseId, doc]);
 
+  /* ── Derived lists ── */
   const quizAttempts = useMemo(() => {
     if (!doc) return [];
     const subjectParam = searchParams.get("subject") || "";
@@ -182,10 +322,11 @@ export default function ResultPage() {
   const filteredResults = useMemo(() => {
     if (!selectedDate) return quizAttempts;
     const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
-    const end = new Date(selectedDate); end.setHours(23, 59, 59, 999);
+    const end   = new Date(selectedDate); end.setHours(23, 59, 59, 999);
     return quizAttempts.filter((w) => {
       const raw = unwrapDate(w?.submitted_at || w?.date_submitted || w?.date_created || w?.createdAt);
-      if (!raw) return false; const dt = new Date(raw); return dt >= start && dt <= end;
+      if (!raw) return false;
+      const dt = new Date(raw); return dt >= start && dt <= end;
     });
   }, [quizAttempts, selectedDate]);
 
@@ -200,18 +341,15 @@ export default function ResultPage() {
     )[0];
   }, [filteredResults, doc, selectedAttemptOverride]);
 
-  const testTakenDates = useMemo(() => {
-    return quizAttempts.map((w) => {
-      const raw = unwrapDate(w?.submitted_at || w?.date_submitted || w?.date_created || w?.createdAt);
-      if (!raw) return null; const date = new Date(raw);
-      if (isNaN(date.getTime())) return null; date.setHours(0, 0, 0, 0); return date;
-    }).filter(Boolean);
-  }, [quizAttempts]);
+  const testTakenDates = useMemo(() => quizAttempts.map((w) => {
+    const raw = unwrapDate(w?.submitted_at || w?.date_submitted || w?.date_created || w?.createdAt);
+    if (!raw) return null;
+    const d = new Date(raw); if (isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0); return d;
+  }).filter(Boolean), [quizAttempts]);
 
-  // ✅ activeDoc before any useMemo that depends on it
   const activeDoc = selectedDoc || doc;
 
-  // ✅ Global attempt position across ALL attempts
   const currentAttemptPosition = useMemo(() => {
     if (!activeDoc || !quizAttempts.length) return null;
     const sorted = [...quizAttempts].sort((a, b) => {
@@ -220,176 +358,151 @@ export default function ResultPage() {
       return da - db;
     });
     const idx = sorted.findIndex(
-      (w) =>
-        (w._id && String(w._id) === String(activeDoc._id)) ||
-        (w.response_id && w.response_id === activeDoc.response_id)
+      (w) => (w._id && String(w._id) === String(activeDoc._id)) ||
+             (w.response_id && w.response_id === activeDoc.response_id)
     );
     return idx >= 0 ? idx + 1 : null;
   }, [activeDoc, quizAttempts]);
 
-  // ✅ Back to THIS specific child's dashboard — before early returns
   const backToDashboard = useMemo(() => {
-    const childId = childIdParam || childProfile?._id || doc?.child_id || "";
+    const childId   = childIdParam  || childProfile?._id || doc?.child_id || "";
     const childName = childNameParam || activeDoc?.user?.first_name || "";
-    const year = yearLevelParam || yearLevel || "";
-    const username = usernameParam || activeDoc?.user?.user_name || "";
-    const params = new URLSearchParams();
-    if (childId) params.set("childId", childId);
-    if (childName) params.set("childName", childName);
-    if (year) params.set("yearLevel", year);
-    if (username) params.set("username", username);
-    return `/child-dashboard?${params.toString()}`;
+    const year      = yearLevelParam || yearLevel || "";
+    const username  = usernameParam  || activeDoc?.user?.user_name || "";
+    const p = new URLSearchParams();
+    if (childId)   p.set("childId",   childId);
+    if (childName) p.set("childName", childName);
+    if (year)      p.set("yearLevel", year);
+    if (username)  p.set("username",  username);
+    return `/child-dashboard?${p.toString()}`;
   }, [childIdParam, childNameParam, yearLevelParam, childProfile, activeDoc, yearLevel, usernameParam, doc]);
 
-  const feedback = activeDoc?.ai?.feedback;
-  const aiStatus = activeDoc?.ai?.status;
-  const aiMessage = activeDoc?.ai?.message;
-  const isAiError = aiStatus === "error";
-  const isProcessing = loading || (activeDoc && isAiPending(activeDoc));
-  const hasAiFailed = isAiError;
+  const handleLogout = () => { logout?.(); navigate("/login"); };
 
-  // --- Loading UI --- (ALL hooks above, early returns below)
+  const displayName     = `${activeDoc?.user?.first_name || ""} ${activeDoc?.user?.last_name || ""}`.trim() || childNameParam || "Student";
+  const displayQuizName = activeDoc?.quiz_name || doc?.quiz_name || "";
+  const totalAttempts   = quizAttempts.length || "—";
+  const attemptsUsed    = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
+
+  const feedback       = activeDoc?.ai?.feedback;
+  const aiMessage      = activeDoc?.ai?.message;
+  const isAiError      = activeDoc?.ai?.status === "error";
+  const isProcessing   = loading || (activeDoc && isAiPending(activeDoc));
+
+  /* ── Loading ── */
   if (isProcessing) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-2 sm:p-3">
+  return (
+    <>
+      <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate(backToDashboard)} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")} />
+      <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-2xl shadow-lg">
-          <CardContent className="flex flex-col items-center justify-center py-6 px-4 sm:py-8 sm:px-6">
-            <img src={waitingGif} alt="Loading animation" className="w-50 h-50 sm:w-56 sm:h-56 object-contain mb-4" />
-            <div className="text-center space-y-2">
-              <p className="text-xl sm:text-2xl font-semibold text-gray-900">Almost there!</p>
-              <p className="text-sm text-gray-500">{aiMessage || "We're analysing your writing — hang tight!"}</p>
+          <CardContent className="flex flex-col items-center justify-center py-12 px-6">
+            {/* Purple spinner */}
+            <div className="relative w-16 h-16 mb-6">
+              <div className="absolute inset-0 rounded-full border-4 border-purple-100" />
+              <div className="absolute inset-0 rounded-full border-4 border-purple-600 border-t-transparent animate-spin" />
             </div>
+            <p className="text-2xl font-semibold text-gray-900">Almost there!</p>
+            <p className="text-sm text-gray-500 mt-1">{aiMessage || "We're analysing your writing — hang tight!"}</p>
           </CardContent>
         </Card>
       </div>
-    );
-  }
+    </>
+  );
+}
 
-  // --- Error UI ---
-  if (error || hasAiFailed) {
+  /* ── Error ── */
+  if (error || isAiError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="w-full max-w-lg shadow-lg">
-          <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-            <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Evaluation Error</h2>
-            <p className="text-sm text-gray-600 mb-6">{error || aiMessage || "Something went wrong during evaluation."}</p>
-            <button
-              onClick={() => navigate(backToDashboard)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition"
-            >
-              <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-            </button>
-          </CardContent>
-        </Card>
-      </div>
+      <>
+        <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate(backToDashboard)} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")} />
+        <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
+          <Card className="w-full max-w-lg shadow-lg">
+            <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+              <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">Evaluation Error</h2>
+              <p className="text-sm text-gray-600 mb-6">{error || aiMessage || "Something went wrong during evaluation."}</p>
+              <button onClick={() => navigate(backToDashboard)} className="px-5 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition">
+                Back to Dashboard
+              </button>
+            </CardContent>
+          </Card>
+        </div>
+      </>
     );
   }
 
   if (!activeDoc) return null;
 
-  // --- Derived values ---
-  const evaluatedAtRaw = unwrapDate(feedback?.meta?.evaluated_at || activeDoc?.ai?.evaluated_at);
+  /* ── Derived values ── */
+  const evaluatedAtRaw   = unwrapDate(feedback?.meta?.evaluated_at || activeDoc?.ai?.evaluated_at);
   const evaluatedAtLabel = evaluatedAtRaw && !isNaN(new Date(evaluatedAtRaw).getTime())
     ? new Date(evaluatedAtRaw).toLocaleDateString() : null;
-  const criteria = feedback?.criteria || [];
-  const reviewSections = feedback?.review_sections || [];
-  const strengths = feedback?.overall?.strengths || [];
-  const weaknesses = feedback?.overall?.weaknesses || [];
-  const oneLineSummary = feedback?.overall?.one_line_summary;
-  const band = feedback?.overall?.band;
-  const totalScore = feedback?.overall?.total_score || 0;
-  const maxScore = feedback?.overall?.max_score || 0;
-  const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
-  const wordCount = feedback?.meta?.word_count ?? feedback?.word_count;
-  const wordCountReview = feedback?.meta?.word_count_review || feedback?.meta?.word_count_feedback;
-  const isLocalEval = feedback?.local_eval === true;
-  const feedbackStatus = feedback?.status;
-  const feedbackMessage = feedback?.message;
-  const attemptsUsed = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
-  const displayQuizName = activeDoc?.quiz_name || "";
-  const displayName = `${activeDoc?.user?.first_name || ""} ${activeDoc?.user?.last_name || ""}`.trim()
-    || childNameParam || "Student";
 
-  // --- Main UI ---
-  return (
-    <TrialGateOverlay
-      isTrialUser={childStatus === "trial"}
-      preset="writing"
-      viewerType={viewerType}
-      yearLevel={yearLevel}
-    >
+  const criteria       = feedback?.criteria || [];
+  const reviewSections = feedback?.review_sections || [];
+  const strengths      = feedback?.overall?.strengths || [];
+  const weaknesses     = feedback?.overall?.weaknesses || [];
+  const oneLineSummary = feedback?.overall?.one_line_summary;
+  const band           = feedback?.overall?.band;
+  const totalScore     = feedback?.overall?.total_score || 0;
+  const maxScore       = feedback?.overall?.max_score   || 0;
+  const percentage     = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
+  const wordCount      = feedback?.meta?.word_count ?? feedback?.word_count;
+  const wordCountReview= feedback?.meta?.word_count_review || feedback?.meta?.word_count_feedback;
+  const isLocalEval    = feedback?.local_eval === true;
+  const feedbackStatus = feedback?.status;
+  const feedbackMessage= feedback?.message;
+
+  /* ── Main UI ── */
+return (
+  <>
+    <TopBar
+      displayName={displayName}
+      onLogout={handleLogout}
+      onBackToChildDashboard={() => navigate(backToDashboard)} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")}
+    />
+    <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="writing" viewerType={viewerType} yearLevel={yearLevel}>
       <div className="relative min-h-screen bg-gray-100">
+
         <NoDataModal
           isOpen={showNoDataModal}
           onClose={() => setShowNoDataModal(false)}
           onClearFilter={() => { setSelectedDate(null); setSelectedAttemptOverride(null); setShowNoDataModal(false); }}
         />
 
-        {/* ═══════════════ STICKY HEADER ═══════════════ */}
-        <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-gray-200/70 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3 gap-2 sm:gap-0">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                {/* ✅ Back arrow → navigates to THIS specific child's dashboard */}
-                <button
-                  onClick={() => navigate(backToDashboard)}
-                  className="p-1 rounded-full hover:bg-gray-100 transition text-gray-400 hover:text-blue-600"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <p className="text-xs text-gray-400 truncate max-w-[300px]">
-                  {displayQuizName || "Writing"}
-                </p>
-              </div>
-              <h1 className="text-lg sm:text-xl font-bold leading-tight truncate">
-                <span className="text-blue-600">{displayName}</span>
-                <span className="text-gray-400 font-normal mx-1.5">—</span>
-                <span className="text-purple-600">Writing Evaluation</span>
-              </h1>
-            </div>
+        {/* ── Page Body ── */}
+        <div className="px-4 sm:px-6 lg:px-8 py-6 space-y-5">
 
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="hidden sm:flex items-center gap-1.5 text-xs text-gray-500 mr-2">
-                <span className="font-semibold text-gray-700">{attemptsUsed}</span>
-                <span>attempt{attemptsUsed !== 1 && attemptsUsed !== "1" ? "s" : ""}</span>
-              </div>
-              <DateRangeWritingFilter
-                selectedDate={selectedDate}
-                onChange={(date) => { setSelectedDate(date); setSelectedAttemptOverride(null); }}
-                testTakenDates={testTakenDates}
-                quizAttempts={quizAttempts}
-                onAttemptSelect={(attempt) => { setSelectedAttemptOverride(attempt); }}
-              />
-              <AvatarMenu />
-            </div>
-          </div>
-        </header>
+          {/* ① Page title + attempts counter + date filter (all in page, NOT in header) */}
+          <PageTitleRow
+            displayName={displayName}
+            displayQuizName={displayQuizName}
+            currentPosition={currentAttemptPosition}
+            totalAttempts={totalAttempts}
+            selectedDate={selectedDate}
+            onDateChange={(d) => { setSelectedDate(d); setSelectedAttemptOverride(null); }}
+            testTakenDates={testTakenDates}
+            quizAttempts={quizAttempts}
+            onAttemptSelect={(a) => setSelectedAttemptOverride(a)}
+          />
 
-        {/* ═══════════════ DASHBOARD CONTENT ═══════════════ */}
-        <div className="px-4 sm:px-6 lg:px-8 py-5 space-y-5">
-
-          {/* KPI Cards */}
+          {/* ② KPI Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200/60 p-5 hover:shadow-md transition-shadow">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Score</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">{totalScore}<span className="text-lg text-gray-400 font-normal"> / {maxScore}</span></p>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200/60 p-5 hover:shadow-md transition-shadow">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Percentage</p>
-              <p className={`text-3xl font-bold mt-1 ${percentage >= 70 ? "text-green-600" : percentage >= 50 ? "text-yellow-600" : "text-red-600"}`}>{percentage}%</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200/60 p-5 hover:shadow-md transition-shadow">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Band</p>
-              <p className={`text-xl font-bold mt-1 ${band?.includes("Above") ? "text-green-600" : band?.includes("Below") ? "text-red-600" : "text-yellow-600"}`}>{band || "—"}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200/60 p-5 hover:shadow-md transition-shadow">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Attempts</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">{attemptsUsed}</p>
-            </div>
+            {[
+              { label: "Score",      value: <>{totalScore}<span className="text-lg text-gray-400 font-normal"> / {maxScore}</span></>, className: "text-gray-900" },
+              { label: "Percentage", value: `${percentage}%`, className: percentage >= 70 ? "text-green-600" : percentage >= 50 ? "text-yellow-600" : "text-red-600" },
+              { label: "Band",       value: band || "—",      className: band?.includes("Above") ? "text-green-600" : band?.includes("Below") ? "text-red-600" : "text-yellow-600", small: true },
+              { label: "Attempts",   value: attemptsUsed,     className: "text-gray-900" },
+            ].map(({ label, value, className, small }) => (
+              <div key={label} className="bg-white rounded-xl shadow-sm border border-gray-200/60 p-5 hover:shadow-md transition-shadow">
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">{label}</p>
+                <p className={`${small ? "text-xl" : "text-3xl"} font-bold mt-1 ${className}`}>{value}</p>
+              </div>
+            ))}
           </div>
 
-          {/* Warning for local eval */}
+          {/* ③ Local eval warning */}
           {isLocalEval && (feedbackStatus === "not_enough_response" || feedbackMessage) && (
             <div className="bg-orange-50 rounded-xl border border-orange-200 shadow-sm p-5">
               <div className="flex items-start gap-3">
@@ -399,21 +512,18 @@ export default function ResultPage() {
                     {feedbackStatus === "not_enough_response" ? "Insufficient Response" : "Evaluation Notice"}
                   </h3>
                   <p className="text-orange-800 mb-3">{feedbackMessage || "Your response did not meet the minimum requirements for a full evaluation."}</p>
-                  {wordCount !== undefined && wordCount !== null && (
-                    <p className="text-sm text-orange-700">
-                      Word count: <span className="font-semibold">{wordCount}</span>
-                      {wordCount < 20 && " (minimum ~20 words recommended for evaluation)"}
-                    </p>
+                  {wordCount != null && (
+                    <p className="text-sm text-orange-700">Word count: <span className="font-semibold">{wordCount}</span>{wordCount < 20 && " (minimum ~20 words recommended)"}</p>
                   )}
                   <div className="mt-4 p-3 bg-white rounded-lg border border-orange-200">
-                    <p className="text-sm text-gray-700"><span className="font-semibold">💡 Tip: </span>Please provide a more detailed response to receive comprehensive feedback on your writing.</p>
+                    <p className="text-sm text-gray-700"><span className="font-semibold">💡 Tip: </span>Please provide a more detailed response to receive comprehensive feedback.</p>
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Two-column: Overall Performance + Strengths/Weaknesses */}
+          {/* ④ Overall Performance + Strengths/Weaknesses */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             <Card className="lg:col-span-7 shadow-sm hover:shadow-md transition-shadow">
               <CardHeader>
@@ -432,28 +542,21 @@ export default function ResultPage() {
                   <p className="text-gray-700 italic bg-gray-50 rounded-lg p-3 border border-gray-100">{oneLineSummary}</p>
                 )}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div><p className="text-sm text-gray-500">Year Level</p><p className="font-medium">{feedback?.meta?.year_level || feedback?.year_level ? `Year ${feedback?.meta?.year_level || feedback?.year_level}` : "-"}</p></div>
+                  <div><p className="text-sm text-gray-500">Year Level</p><p className="font-medium">{(feedback?.meta?.year_level || feedback?.year_level) ? `Year ${feedback?.meta?.year_level || feedback?.year_level}` : "-"}</p></div>
                   <div><p className="text-sm text-gray-500">Text Type</p><p className="font-medium">{feedback?.meta?.text_type || "-"}</p></div>
                   {!isLocalEval && <div><p className="text-sm text-gray-500">Valid Response</p><p className="font-medium">{feedback?.meta?.valid_response ? "✓ Yes" : "✗ No"}</p></div>}
-                  {wordCount !== undefined && wordCount !== null && <div><p className="text-sm text-gray-500">Word Count</p><p className="font-medium">{wordCount}</p></div>}
+                  {wordCount != null && <div><p className="text-sm text-gray-500">Word Count</p><p className="font-medium">{wordCount}</p></div>}
                 </div>
-
                 {!isLocalEval && (
                   <div className="grid md:grid-cols-2 gap-4">
                     {feedback?.meta?.prompt_relevance && (
                       <div className={`p-3 border-l-4 rounded-lg ${feedback.meta.prompt_relevance.verdict === "on_topic" ? "bg-green-50 border-green-500" : "bg-red-50 border-red-500"}`}>
                         <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-semibold">
-                            Prompt Relevance: {feedback.meta.prompt_relevance.verdict === "on_topic" ? "On Topic ✓" : "Off Topic ✗"}
-                          </p>
-                          <Badge variant={feedback.meta.prompt_relevance.verdict === "on_topic" ? "default" : "destructive"}>
-                            {feedback.meta.prompt_relevance.score}%
-                          </Badge>
+                          <p className="text-sm font-semibold">Prompt Relevance: {feedback.meta.prompt_relevance.verdict === "on_topic" ? "On Topic ✓" : "Off Topic ✗"}</p>
+                          <Badge variant={feedback.meta.prompt_relevance.verdict === "on_topic" ? "default" : "destructive"}>{feedback.meta.prompt_relevance.score}%</Badge>
                         </div>
                         <p className="text-sm text-gray-700 mb-2">{feedback.meta.prompt_relevance.note}</p>
-                        {feedback.meta.prompt_relevance.evidence && (
-                          <p className="text-sm text-gray-600 italic">Evidence: "{feedback.meta.prompt_relevance.evidence}"</p>
-                        )}
+                        {feedback.meta.prompt_relevance.evidence && <p className="text-sm text-gray-600 italic">Evidence: "{feedback.meta.prompt_relevance.evidence}"</p>}
                       </div>
                     )}
                     {wordCountReview && (
@@ -472,34 +575,24 @@ export default function ResultPage() {
               <div className="lg:col-span-5 flex flex-col gap-5">
                 <Card className="border-green-200 shadow-sm hover:shadow-md transition-shadow flex-1">
                   <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2 text-green-700 text-base">
-                      <CheckCircle2 className="w-5 h-5" />Strengths
-                    </CardTitle>
+                    <CardTitle className="flex items-center gap-2 text-green-700 text-base"><CheckCircle2 className="w-5 h-5" />Strengths</CardTitle>
                   </CardHeader>
                   <CardContent>
                     {strengths.length === 0 ? <p className="text-sm text-gray-600">No strengths listed.</p> : (
                       <ul className="space-y-2">{strengths.map((s, i) => (
-                        <li key={i} className="flex items-start gap-2">
-                          <span className="text-green-600 mt-0.5">✓</span>
-                          <span className="text-sm text-gray-700">{s}</span>
-                        </li>
+                        <li key={i} className="flex items-start gap-2"><span className="text-green-600 mt-0.5">✓</span><span className="text-sm text-gray-700">{s}</span></li>
                       ))}</ul>
                     )}
                   </CardContent>
                 </Card>
                 <Card className="border-orange-200 shadow-sm hover:shadow-md transition-shadow flex-1">
                   <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2 text-orange-700 text-base">
-                      <AlertTriangle className="w-5 h-5" />Areas for Improvement
-                    </CardTitle>
+                    <CardTitle className="flex items-center gap-2 text-orange-700 text-base"><AlertTriangle className="w-5 h-5" />Areas for Improvement</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {weaknesses.length === 0 ? <p className="text-sm text-gray-600">No areas for improvement listed.</p> : (
+                    {weaknesses.length === 0 ? <p className="text-sm text-gray-600">No areas listed.</p> : (
                       <ul className="space-y-2">{weaknesses.map((w, i) => (
-                        <li key={i} className="flex items-start gap-2">
-                          <span className="text-orange-600 mt-0.5">→</span>
-                          <span className="text-sm text-gray-700">{w}</span>
-                        </li>
+                        <li key={i} className="flex items-start gap-2"><span className="text-orange-600 mt-0.5">→</span><span className="text-sm text-gray-700">{w}</span></li>
                       ))}</ul>
                     )}
                   </CardContent>
@@ -508,29 +601,24 @@ export default function ResultPage() {
             )}
           </div>
 
-          {/* Review Sections */}
+          {/* ⑤ Detailed Feedback */}
           {!isLocalEval && reviewSections.length > 0 && (
             <Card className="shadow-sm hover:shadow-md transition-shadow">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Target className="w-5 h-5 text-blue-600" />Detailed Feedback & Suggestions
-                </CardTitle>
+                <CardTitle className="flex items-center gap-2"><Target className="w-5 h-5 text-blue-600" />Detailed Feedback & Suggestions</CardTitle>
                 <CardDescription>Targeted recommendations to improve your writing</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {reviewSections.map((section, index) => (
-                    <div key={index} className="border rounded-xl p-4 bg-gradient-to-r from-blue-50 to-white hover:from-blue-100/60 transition-colors">
+                  {reviewSections.map((section, i) => (
+                    <div key={i} className="border rounded-xl p-4 bg-gradient-to-r from-blue-50 to-white hover:from-blue-100/60 transition-colors">
                       <div className="flex items-start gap-3 mb-3">
                         <Lightbulb className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
                         <h3 className="font-bold text-base text-gray-900">{section?.title || "Feedback"}</h3>
                       </div>
-                      {section?.items && section.items.length > 0 ? (
-                        <ul className="space-y-2 ml-8">{section.items.map((item, i) => (
-                          <li key={i} className="flex items-start gap-2">
-                            <span className="text-blue-600 mt-1 flex-shrink-0">•</span>
-                            <span className="text-sm text-gray-700">{item}</span>
-                          </li>
+                      {section?.items?.length > 0 ? (
+                        <ul className="space-y-2 ml-8">{section.items.map((item, j) => (
+                          <li key={j} className="flex items-start gap-2"><span className="text-blue-600 mt-1 flex-shrink-0">•</span><span className="text-sm text-gray-700">{item}</span></li>
                         ))}</ul>
                       ) : section?.feedback ? (
                         <p className="text-gray-700 ml-8 whitespace-pre-line text-sm">{section.feedback}</p>
@@ -542,7 +630,7 @@ export default function ResultPage() {
             </Card>
           )}
 
-          {/* Scores Breakdown */}
+          {/* ⑥ Scores by Criterion */}
           {!isLocalEval && (
             <Card className="shadow-sm hover:shadow-md transition-shadow">
               <CardHeader>
@@ -550,32 +638,25 @@ export default function ResultPage() {
                 <CardDescription>Breakdown of each assessment area</CardDescription>
               </CardHeader>
               <CardContent>
-                {criteria.length === 0 ? (
-                  <p className="text-sm text-gray-600">No detailed score breakdown found.</p>
-                ) : (
+                {criteria.length === 0 ? <p className="text-sm text-gray-600">No detailed score breakdown found.</p> : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4">
-                    {criteria.map((criterion, index) => {
+                    {criteria.map((criterion, i) => {
                       if (criterion?.score === null) return null;
                       const score = criterion?.score ?? 0;
-                      const max = criterion?.max ?? 0;
-                      const pct = max > 0 ? Math.max(0, Math.min(100, (score / max) * 100)) : 0;
+                      const max   = criterion?.max ?? 0;
+                      const pct   = max > 0 ? Math.max(0, Math.min(100, (score / max) * 100)) : 0;
                       return (
-                        <div key={`${criterion?.name || "c"}-${index}`} className="border rounded-xl p-4 hover:border-gray-300 transition-colors">
+                        <div key={`${criterion?.name}-${i}`} className="border rounded-xl p-4 hover:border-gray-300 transition-colors">
                           <div className="flex justify-between items-start mb-3">
-                            <p className="font-semibold text-base flex-1">{criterion?.name || "Unknown Criterion"}</p>
+                            <p className="font-semibold text-base flex-1">{criterion?.name || "Unknown"}</p>
                             <p className="text-xl font-bold ml-4">{score} / {max}</p>
                           </div>
                           <div className="w-full h-2 bg-gray-200 rounded-full mb-3">
-                            <div
-                              className={`h-full rounded-full transition-all ${pct >= 70 ? "bg-green-500" : pct >= 50 ? "bg-yellow-500" : "bg-red-500"}`}
-                              style={{ width: `${pct}%` }}
-                            />
+                            <div className={`h-full rounded-full ${pct >= 70 ? "bg-green-500" : pct >= 50 ? "bg-yellow-500" : "bg-red-500"}`} style={{ width: `${pct}%` }} />
                           </div>
                           {criterion?.evidence_quote?.trim() && (
                             <div className="p-2.5 bg-gray-50 border-l-4 border-gray-300 rounded italic mb-2">
-                              <p className="text-xs text-gray-600">
-                                <span className="font-semibold not-italic">Evidence: </span>"{criterion.evidence_quote}"
-                              </p>
+                              <p className="text-xs text-gray-600"><span className="font-semibold not-italic">Evidence: </span>"{criterion.evidence_quote}"</p>
                             </div>
                           )}
                           {criterion?.suggestion && (
@@ -592,13 +673,11 @@ export default function ResultPage() {
             </Card>
           )}
 
-          {/* Student Writing */}
+          {/* ⑦ Student Writing */}
           {activeDoc?.qna?.[0]?.answer_text && (
             <Card className="shadow-sm hover:shadow-md transition-shadow">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-gray-600" />Your Writing
-                </CardTitle>
+                <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5 text-gray-600" />Your Writing</CardTitle>
                 <CardDescription>The text you submitted</CardDescription>
               </CardHeader>
               <CardContent>
@@ -608,8 +687,10 @@ export default function ResultPage() {
               </CardContent>
             </Card>
           )}
-        </div>
+
+       </div>
       </div>
     </TrialGateOverlay>
+  </>       
   );
 }
