@@ -6,14 +6,28 @@ import AICoachPanel from "@/app/components/dashboardComponents/AICoachPanel";
 import DonutScoreChart from "@/app/components/dashboardComponents/DonutScoreChart";
 import WeakTopicsBarChart from "@/app/components/dashboardComponents/WeakTopicsBarChart";
 import AISuggestionPanel from "@/app/components/dashboardComponents/AISuggestionPanel";
-import DashboardAvatarMenu from "@/app/components/dashboardComponents/DashboardAvatarMenu";
+import ChildAvatarMenu from "@/app/components/ui/ChildAvatarMenu";
+import {
+  BarChart2,
+  PieChart,
+  TrendingUp,
+  Lightbulb,
+  Bot,
+  Trophy,
+  Clock,
+  Target,
+  RefreshCw,
+} from "lucide-react";
 import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopicsFunnelChart";
 import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
 import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
 import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
-import { useAuth } from "@/app/context/AuthContext";
 
+// ✅ KAI Solutions standard header
+import DashboardHeader from "@/app/components/layout/DashboardHeader";
+
+import { useAuth } from "@/app/context/AuthContext";
 
 import {
   fetchResultsByEmail,
@@ -33,8 +47,6 @@ const formatDuration = (seconds) => {
   const s = Math.round(secs % 60);
   return m <= 0 ? `${s}s` : `${m}m ${s}s`;
 };
-
-
 
 const buildTopicStrength = (topicBreakdown = {}) => {
   const strong = [];
@@ -88,18 +100,11 @@ const getResultStatus = (percentage) => {
 
 const isAiPending = (doc) => {
   if (!doc) return false;
-
-  // Check legacy Result format (FlexiQuiz results)
   const legacyStatus = String(doc?.ai?.status || "").toLowerCase();
   if (["queued", "fetching", "generating", "verifying", "pending"].includes(legacyStatus))
     return true;
-
-  // ✅ FIX: Also check native QuizAttempt format (ai_feedback_meta.status)
-  const nativeStatus = String(
-    doc?.ai_feedback_meta?.status || ""
-  ).toLowerCase();
+  const nativeStatus = String(doc?.ai_feedback_meta?.status || "").toLowerCase();
   if (["pending", "queued", "generating"].includes(nativeStatus)) return true;
-
   return false;
 };
 
@@ -168,40 +173,22 @@ const AiPendingOverlay = ({ aiMessage }) => (
   </div>
 );
 
-// ✅ FIX 1: New component — shown instead of a blank white page when result can't load.
-// Previously `if (!selectedResult) return null` gave zero feedback to the user.
-// Detect if a string looks like raw HTML (e.g. Express 404 page, nginx error)
-// so we never render it as the error message.
 const isHtmlString = (str) => typeof str === "string" && /<!DOCTYPE|<html|<body|<pre>/i.test(str);
 
 const ResultNotFound = ({ errorMessage, onGoBack }) => {
-  // If the error is raw HTML (e.g. "Cannot GET /api/results/...") show a clean message instead
   const friendlyMessage = errorMessage && !isHtmlString(errorMessage)
     ? errorMessage
     : "We couldn't load this quiz result. It may still be processing or the link may be incorrect.";
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white rounded-2xl shadow-lg max-w-md w-full mx-4 p-8 text-center">
         <div className="text-5xl mb-4">📋</div>
         <h2 className="text-xl font-bold text-gray-800 mb-2">Result Not Found</h2>
         <p className="text-sm text-gray-500 mb-2">{friendlyMessage}</p>
-        <p className="text-xs text-gray-400 mb-6">
-          If you just submitted the quiz, wait a few seconds and try again.
-        </p>
+        <p className="text-xs text-gray-400 mb-6">If you just submitted the quiz, wait a few seconds and try again.</p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <button
-            onClick={() => window.location.reload()}
-            className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition"
-          >
-            Try Again
-          </button>
-          <button
-            onClick={onGoBack}
-            className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition"
-          >
-            Go Back
-          </button>
+          <button onClick={() => window.location.reload()} className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition">Try Again</button>
+          <button onClick={onGoBack} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition">Go Back</button>
         </div>
       </div>
     </div>
@@ -213,8 +200,6 @@ export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // ✅ FIX 2: Single useAuth() call — your file called it twice (duplicate destructure below).
-  // Added isInitializing so we wait for auth to rehydrate from localStorage before fetching.
   const { activeToken, isInitializing, childToken, childProfile, parentToken } = useAuth();
 
   const responseId = String(searchParams.get("r") || "").trim();
@@ -223,7 +208,6 @@ export default function Dashboard() {
   const [latestResult, setLatestResult] = useState(null);
   const [resultsList, setResultsList] = useState([]);
   const [loadingLatest, setLoadingLatest] = useState(true);
-  // ✅ FIX 3: Track fetch failures so we can show an error UI instead of a blank page.
   const [loadError, setLoadError] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [showNoDataModal, setShowNoDataModal] = useState(false);
@@ -233,8 +217,6 @@ export default function Dashboard() {
   const [aiPending, setAiPending] = useState(false);
 
   const isParentViewing = !childToken && !!parentToken;
-  // ✅ FIX: Prefer status passed via URL (from ChildDashboard which fetches live DB value)
-  // Fallback to JWT token value — but JWT can be stale after a purchase
   const childStatus = searchParams.get("status") || childProfile?.status || "trial";
   const yearLevel = childProfile?.yearLevel || null;
 
@@ -247,50 +229,32 @@ export default function Dashboard() {
   useEffect(() => { if (!hasResponseId) navigate("/", { replace: true }); }, [hasResponseId, navigate]);
 
   useEffect(() => {
-    // ✅ FIX 4: Wait for AuthContext to finish rehydrating from localStorage.
-    // Without this, activeToken is null on the first render tick even though
-    // the token exists — causing a 401 → doc=null → blank page.
     if (!hasResponseId || isInitializing) return;
-
     let cancelled = false;
     const load = async () => {
       try {
         setLoadingLatest(true);
         setLoadError(null);
-        const authOpts = activeToken
-          ? { headers: { Authorization: `Bearer ${activeToken}` } }
-          : {};
+        const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
         const doc = await fetchResultByResponseId(responseId, authOpts);
-
-        // ✅ FIX 5: Handle null doc — set loadError instead of silently returning.
-        // Old code: `if (!doc) return` → latestResult never set → selectedResult=null → blank page.
         if (!doc) {
           if (!cancelled) setLoadError("Result not found or still being processed.");
           return;
         }
-
         if (!cancelled) {
           setLatestResult(doc);
           if (isAiPending(doc)) setAiPending(true);
-          const username =
-            searchParams.get("username") || doc.user?.user_name || "";
+          const username = searchParams.get("username") || doc.user?.user_name || "";
           const subject = searchParams.get("subject") || "";
           let all;
           if (username) {
-            all = await fetchResultsByUsername(username, {
-              subject: subject || undefined,
-              headers: { Authorization: `Bearer ${activeToken}` },
-            });
+            all = await fetchResultsByUsername(username, { subject: subject || undefined, headers: { Authorization: `Bearer ${activeToken}` } });
           } else {
-            all = await fetchResultsByEmail(doc.user.email_address, {
-              quiz_name: doc.quiz_name,
-              headers: { Authorization: `Bearer ${activeToken}` },
-            });
+            all = await fetchResultsByEmail(doc.user.email_address, { quiz_name: doc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
           }
           if (!cancelled) setResultsList(all || [doc]);
         }
       } catch (err) {
-        // ✅ FIX 6: Catch and surface errors (401, network failure) instead of silent fail.
         console.error("Dashboard load error:", err.message);
         if (!cancelled) setLoadError(err.message || "Failed to load result.");
       } finally {
@@ -307,49 +271,32 @@ export default function Dashboard() {
     let pollCount = 0;
     const MAX_POLLS = 30;
     const poll = async () => {
-      if (cancelled || pollCount >= MAX_POLLS) {
-        setAiPending(false);
-        return;
-      }
+      if (cancelled || pollCount >= MAX_POLLS) { setAiPending(false); return; }
       pollCount++;
       try {
-        const authOpts = activeToken
-          ? { headers: { Authorization: `Bearer ${activeToken}` } }
-          : {};
+        const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
         const freshDoc = await fetchResultByResponseId(responseId, authOpts);
         if (cancelled) return;
         if (freshDoc && !isAiPending(freshDoc)) {
           setLatestResult(freshDoc);
           setAiPending(false);
-          const username =
-            searchParams.get("username") || freshDoc.user?.user_name || "";
+          const username = searchParams.get("username") || freshDoc.user?.user_name || "";
           const subject = searchParams.get("subject") || "";
           let all;
           if (username) {
-            all = await fetchResultsByUsername(username, {
-              subject: subject || undefined,
-              headers: { Authorization: `Bearer ${activeToken}` },
-            });
+            all = await fetchResultsByUsername(username, { subject: subject || undefined, headers: { Authorization: `Bearer ${activeToken}` } });
           } else {
-            all = await fetchResultsByEmail(freshDoc.user.email_address, {
-              quiz_name: freshDoc.quiz_name,
-              headers: { Authorization: `Bearer ${activeToken}` },
-            });
+            all = await fetchResultsByEmail(freshDoc.user.email_address, { quiz_name: freshDoc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
           }
           if (!cancelled) setResultsList(all || [freshDoc]);
           return;
         }
         if (freshDoc && !cancelled) setLatestResult(freshDoc);
-      } catch (err) {
-        console.warn("Polling error:", err.message);
-      }
+      } catch (err) { console.warn("Polling error:", err.message); }
       if (!cancelled) setTimeout(poll, 4000);
     };
     const timer = setTimeout(poll, 2000);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [aiPending, responseId, searchParams, activeToken]);
 
   useEffect(() => { if (!localStorage.getItem("dashboardTourPrompted")) setShowTourModal(true); }, []);
@@ -404,7 +351,6 @@ export default function Dashboard() {
     }).filter(Boolean);
   }, [quizAttempts]);
 
-  /* --- Attempt position (derived from list, not FlexiQuiz field) --- */
   const currentAttemptPosition = useMemo(() => {
     if (!selectedResult || !quizAttempts.length) return 1;
     const sorted = [...quizAttempts].sort((a, b) => {
@@ -417,7 +363,6 @@ export default function Dashboard() {
     return idx >= 0 ? idx + 1 : 1;
   }, [selectedResult, quizAttempts]);
 
-  // ── Loading: wait for auth init + data fetch ──
   if (loadingLatest || isInitializing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -426,8 +371,6 @@ export default function Dashboard() {
     );
   }
 
-  // ✅ FIX 7: Show ResultNotFound instead of blank page when result couldn't load.
-  // This replaces the old `if (!selectedResult) return null` — pure white screen.
   if (loadError || !selectedResult) {
     return <ResultNotFound errorMessage={loadError} onGoBack={() => navigate(-1)} />;
   }
@@ -444,43 +387,59 @@ export default function Dashboard() {
 
   return (
     <TrialGateOverlay
-    isTrialUser={childStatus === "trial"}
-    preset="nonwriting"
-    viewerType={viewerType}
-    yearLevel={yearLevel}>
-    <div className="relative min-h-screen bg-gray-100">
-      {aiPending && <AiPendingOverlay aiMessage={latestResult?.ai?.message} />}
-      <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
-      <DashboardTourModal isOpen={showTourModal}
-        onStart={() => { setShowTourModal(false); setTimeout(() => setIsTourActive(true), 150); localStorage.setItem("dashboardTourPrompted", "true"); }}
-        onSkip={() => { setShowTourModal(false); localStorage.setItem("dashboardTourPrompted", "true"); }} />
-      <NoDataModal isOpen={showNoDataModal} onClose={() => setShowNoDataModal(false)}
-        onClearFilter={() => { setSelectedDate(null); setSelectedAttemptOverride(null); setShowNoDataModal(false); }} />
+      isTrialUser={childStatus === "trial"}
+      preset="nonwriting"
+      viewerType={viewerType}
+      yearLevel={yearLevel}
+    >
+      <div className="relative min-h-screen bg-gray-100">
+        {aiPending && <AiPendingOverlay aiMessage={latestResult?.ai?.message} />}
+        <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
+        <DashboardTourModal
+          isOpen={showTourModal}
+          onStart={() => { setShowTourModal(false); setTimeout(() => setIsTourActive(true), 150); localStorage.setItem("dashboardTourPrompted", "true"); }}
+          onSkip={() => { setShowTourModal(false); localStorage.setItem("dashboardTourPrompted", "true"); }}
+        />
+        <NoDataModal
+          isOpen={showNoDataModal}
+          onClose={() => setShowNoDataModal(false)}
+          onClearFilter={() => { setSelectedDate(null); setSelectedAttemptOverride(null); setShowNoDataModal(false); }}
+        />
 
-      {/* ═══════════════ HEADER — unchanged from your version ═══════════════ */}
-      <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-gray-200/70 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3 gap-2 sm:gap-0">
+        {/* ══════════════════════════════════════════════
+            HEADER — KAI Solutions brand bar
+        ══════════════════════════════════════════════ */}
+        <DashboardHeader>
+          <ChildAvatarMenu
+            displayName={displayName}
+            isParentViewing={isParentViewing}
+            isOnAnalyticsPage={true}
+            onBackToParent={() => navigate("/parent-dashboard")}
+            onBackToChildDashboard={() => {
+              const username = searchParams.get("username") || selectedResult?.user?.user_name || "";
+              const childId = searchParams.get("childId") || childProfile?.childId || "";
+              const yearLevelParam = childProfile?.yearLevel || searchParams.get("yearLevel") || "";
+              navigate(
+                `/child-dashboard?childId=${childId}` +
+                `&childName=${encodeURIComponent(displayName)}` +
+                `&yearLevel=${yearLevelParam}` +
+                `&username=${encodeURIComponent(username)}`
+              );
+            }}
+          />
+        </DashboardHeader>
 
-          {/* Left: breadcrumb + title */}
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-0.5">
-              <button onClick={() => navigate(-1)} className="hover:text-blue-600 transition flex items-center gap-1 font-medium">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                </svg>
-                Back
-              </button>
-              <span className="text-gray-300">/</span>
-              <span className="text-gray-500 truncate max-w-[200px]">{quizName}</span>
-            </div>
-            <h1 className="text-2xl font-bold leading-tight">
-              <span className="text-slate-800">{displayName} - </span>
-              <span className="text-teal-600">{quizName} Report</span>
-            </h1>
-          </div>
+        {/* ══════════════════════════════════════════════
+            PAGE TITLE ROW
+        ══════════════════════════════════════════════ */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-3 gap-4 flex-wrap">
+          <h1 className="text-2xl font-bold leading-tight">
+            <span className="text-slate-800">{displayName} – </span>
+            <span className="text-teal-600">{quizName} Report</span>
+          </h1>
 
-          {/* Right: attempt badge + filter + avatar */}
           <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Attempt badge */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-teal-50 rounded-lg border border-teal-100 text-xs">
               <svg className="w-3.5 h-3.5 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -488,6 +447,8 @@ export default function Dashboard() {
               <span className="font-semibold text-teal-700">Viewing {currentAttemptPosition} of {totalAttempts}</span>
               <span className="text-teal-400">attempt{totalAttempts !== 1 ? "s" : ""}</span>
             </div>
+
+            {/* Date / attempt filter */}
             <DateRangeFilter
               selectedDate={selectedDate}
               onChange={(date) => { setSelectedDate(date); setSelectedAttemptOverride(null); }}
@@ -495,56 +456,163 @@ export default function Dashboard() {
               quizAttempts={quizAttempts}
               onAttemptSelect={(attempt) => { setSelectedAttemptOverride(attempt); }}
             />
-            <DashboardAvatarMenu />
           </div>
         </div>
-      </header>
 
-      {/* ═══════════════ DASHBOARD GRID — original layout preserved ═══════════════ */}
-      <div className="grid grid-cols-12 gap-4 px-6 py-5 min-h-[80vh]">
+        {/* ══════════════════════════════════════════════
+            DASHBOARD GRID
+        ══════════════════════════════════════════════ */}
+        <div className="px-6 py-4 space-y-4">
 
-        {/* Row 1: 4 Stat Cards (span 7) */}
-        <div className="col-span-12 lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div id="overall-score">
-            <StatCard title="Overall Score" value={`${percentage}%`} />
+          {/* ── ROW 1: 4 Stat Cards ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div id="overall-score" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col items-center justify-center gap-1 h-24">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Trophy className="w-3.5 h-3.5 text-indigo-400" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Overall Score</p>
+              </div>
+              <p className="text-2xl font-bold text-indigo-700">{percentage}%</p>
+            </div>
+
+            <div id="time-spent" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col items-center justify-center gap-1 h-24">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Clock className="w-3.5 h-3.5 text-sky-400" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Time Spent</p>
+              </div>
+              <p className="text-2xl font-bold text-sky-600">{duration}</p>
+            </div>
+
+            <div className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col items-center justify-center gap-1 h-24">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Target className="w-3.5 h-3.5 text-amber-400" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Result</p>
+              </div>
+              <p className={`text-xl font-bold text-center leading-tight ${
+                resultStatus.status === "needs attention" ? "text-red-600" :
+                resultStatus.status === "med" || resultStatus.status === "medium" ? "text-amber-600" :
+                resultStatus.status === "pass" || resultStatus.status === "successful" ? "text-green-600" :
+                "text-indigo-700"
+              }`}>{resultStatus.label}</p>
+            </div>
+
+            <div className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col items-center justify-center gap-1 h-24">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <RefreshCw className="w-3.5 h-3.5 text-violet-400" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Attempts Used</p>
+              </div>
+              <p className="text-2xl font-bold text-violet-600">{attemptsUsed}</p>
+            </div>
           </div>
-          <div id="time-spent">
-            <StatCard title="Time Spent" value={duration} />
+
+          {/* ── ROWS 2+3: Left charts | Right AI Coach ── */}
+          <div className="flex flex-col lg:flex-row gap-4 items-stretch">
+
+            {/* Left column: two chart rows */}
+            <div className="flex flex-col gap-4 flex-1 min-w-0">
+
+              {/* Row 2: Donut (2/5) + Weak Topics Bar (3/5) */}
+              <div className="grid grid-cols-5 gap-4">
+                <div id="donut-chart" className="col-span-5 sm:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
+                      <PieChart className="w-4 h-4 text-indigo-500" />
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">Performance Overview</span>
+                  </div>
+                  <div className="flex-1 p-4">
+                    {/* ✅ showTitle={false} removes the duplicate inner title */}
+                    <DonutScoreChart
+                      correctPercent={percentage}
+                      incorrectPercent={100 - percentage}
+                      height={220}
+                      showTitle={false}
+                    />
+                  </div>
+                </div>
+
+                <div id="weak-topics" className="col-span-5 sm:col-span-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                    <div className="w-7 h-7 rounded-lg bg-rose-50 flex items-center justify-center">
+                      <TrendingUp className="w-4 h-4 text-rose-500" />
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">Priority Improvement Areas</span>
+                  </div>
+                  <div className="flex-1 p-4">
+                    {/* ✅ showTitle={false} removes the duplicate inner title */}
+                    <WeakTopicsBarChart
+                      topics={weakTopics}
+                      height={220}
+                      showTitle={false}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 3: Top Topics Funnel (2/5) + AI Suggestions (3/5) */}
+              <div className="grid grid-cols-5 gap-4">
+                <div id="top-topics" className="col-span-5 sm:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
+                      <BarChart2 className="w-4 h-4 text-emerald-500" />
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">Top 5 Topics Overview</span>
+                  </div>
+                  <div className="flex-1 p-4">
+                    {/* title="" already suppresses inner title — unchanged */}
+                    <TopTopicsFunnelChart
+                      topicBreakdown={selectedResult?.topicBreakdown}
+                      topN={5}
+                      height={220}
+                      title=""
+                    />
+                  </div>
+                </div>
+
+                <div id="suggestions" className="col-span-5 sm:col-span-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                    <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
+                      <Lightbulb className="w-4 h-4 text-amber-500" />
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">AI Study Recommendations</span>
+                  </div>
+                  <div className="flex-1 p-4 overflow-y-auto">
+                    {/* ✅ showTitle={false} removes the duplicate inner title */}
+                    <AISuggestionPanel
+                      suggestions={suggestions}
+                      studyTips={selectedResult?.ai_feedback?.study_tips || []}
+                      topicWiseTips={selectedResult?.ai_feedback?.topic_wise_tips || []}
+                      showTitle={false}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right column: AI Coach — full height */}
+            <div
+              id="ai-coach"
+              className="w-full lg:w-[460px] flex-shrink-0 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden"
+            >
+              <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                <div className="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center">
+                  <Bot className="w-4 h-4 text-teal-500" />
+                </div>
+                <span className="text-sm font-semibold text-slate-700">AI Coach Feedback</span>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                {/* ✅ showTitle={false} removes the duplicate inner title */}
+                <AICoachPanel
+                  feedback={selectedResult?.ai_feedback}
+                  strongTopics={strongTopics}
+                  weakTopics={weakTopics}
+                  showTitle={false}
+                />
+              </div>
+            </div>
+
           </div>
-          <StatCard title="Result" value={resultStatus.label} status={resultStatus.status} />
-          <StatCard title="Attempts Used" value={attemptsUsed} />
-        </div>
-
-        {/* AI Coach Panel (span 5, row-span 3) */}
-        <div id="ai-coach" className="col-span-12 lg:col-span-5 lg:row-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-          <AICoachPanel feedback={selectedResult?.ai_feedback} strongTopics={strongTopics} weakTopics={weakTopics} />
-        </div>
-
-        {/* Donut Chart (span 3) */}
-        <div id="donut-chart" className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-          <DonutScoreChart correctPercent={percentage} incorrectPercent={100 - percentage} height="100%" />
-        </div>
-
-        {/* Weak Topics Bar Chart (span 4) */}
-        <div id="weak-topics" className="col-span-12 sm:col-span-6 lg:col-span-4 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-          <WeakTopicsBarChart topics={weakTopics} height="100%" />
-        </div>
-
-        {/* Top Topics Funnel (span 3) */}
-        <div id="top-topics" className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-          <TopTopicsFunnelChart topicBreakdown={selectedResult?.topicBreakdown} topN={5} height={250} title="Top 5 Topics Overview" />
-        </div>
-
-        {/* AI Suggestions (span 4) */}
-        <div id="suggestions" className="col-span-12 sm:col-span-6 lg:col-span-4 bg-white rounded-xl shadow-md p-4 flex flex-col min-h-0">
-          <AISuggestionPanel
-            suggestions={suggestions}
-            studyTips={selectedResult?.ai_feedback?.study_tips || []}
-            topicWiseTips={selectedResult?.ai_feedback?.topic_wise_tips || []}
-          />
         </div>
       </div>
-    </div>
     </TrialGateOverlay>
   );
 }

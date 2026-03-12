@@ -24,10 +24,7 @@ const WeakTopicsBarChart = ({ topics = [] }) => {
   return (
     <div className="flex flex-col h-full">
       {/* Header — rose instead of blue */}
-      <h3 className="font-semibold mb-3 text-rose-600">
-        Priority Improvement Areas
-      </h3>
-
+     
       {/* Chart */}
       <div className="flex-1">
         <ResponsiveContainer width="100%" height="100%">
