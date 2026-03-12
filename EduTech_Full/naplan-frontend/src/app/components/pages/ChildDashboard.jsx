@@ -151,7 +151,9 @@ export default function ChildDashboard() {
   const [search, setSearch] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: "subject", direction: "asc" });
   const [childInfo, setChildInfo] = useState(null);
-  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(
+  () => searchParams.get("tab") === "analytics"
+);
   const [activeQuiz, setActiveQuiz] = useState(null);
   const [selectedQuizResult, setSelectedQuizResult] = useState(null);
   const [resultLoading, setResultLoading] = useState(false);
@@ -363,7 +365,24 @@ export default function ChildDashboard() {
     .catch(() => {});
 }, [activeToken, childId]);
 
-  const handleQuizClose = () => { setActiveQuiz(null); refreshData(); };
+      const handleQuizClose = useCallback((result) => {
+      setActiveQuiz(null);
+      refreshData();
+      if (result?.attempt_id || result?.response_id) {
+        setSelectedQuizResult({
+          result: {
+            score:           result.score || {},
+            topic_breakdown: result.topic_breakdown || {},
+            is_writing:      result.is_writing || false,
+            ai_status:       result.ai_status || "queued",
+            attempt_id:      result.attempt_id,
+            response_id:     result.attempt_id || result.response_id,
+            subject:         result.subject || "",
+          },
+          quizName: result.quiz_name || "Quiz",
+        });
+      }
+    }, [refreshData]);
 
   const displayName = childInfo?.display_name || childProfile?.displayName || "Student";
   const yearLevel = childInfo?.year_level || childProfile?.yearLevel || null;
@@ -430,9 +449,15 @@ export default function ChildDashboard() {
   quizName={selectedQuizResult.quizName}
   childStatus={childStatus}
   onClose={() => setSelectedQuizResult(null)}
-  onViewAnalytics={() => {
-    setSelectedQuizResult(null);
-    setTimeout(() => setShowAnalytics(true), 50);
+  onRetake={() => {
+    const quiz = mergedQuizzes.find(
+      (q) => q.quiz_id === selectedQuizResult.result?.quiz_id ||
+             (q.name || "").toLowerCase() === (selectedQuizResult.quizName || "").toLowerCase()
+    );
+    if (quiz) {
+      setSelectedQuizResult(null);
+      setActiveQuiz(quiz);
+    }
   }}
   onViewAIFeedback={(attemptId, subject, name) => {
     setSelectedQuizResult(null);

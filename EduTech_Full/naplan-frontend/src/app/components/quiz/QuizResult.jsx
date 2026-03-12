@@ -135,8 +135,9 @@ export default function QuizResult({
   quizName,
   violations = 0,
   onClose,
-  onViewAnalytics,    // ✅ FIX 4: from ChildDashboard
-  onViewAIFeedback,   // ✅ FIX 5: from ChildDashboard
+  onRetake,
+  onViewAnalytics,
+  onViewAIFeedback,
   childStatus: childStatusProp,
 }) {
   const navigate = useNavigate();
@@ -400,6 +401,25 @@ export default function QuizResult({
                 </span>
               </span>
               {icons.chevron}
+            </button>
+          )}
+          {/* Retake Quiz button */}
+          {onRetake && (
+            <button
+              onClick={onRetake}
+              className="group w-full inline-flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm"
+            >
+              <span className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover:bg-slate-200 flex items-center justify-center transition-colors text-slate-600">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                </span>
+                <span className="text-sm font-semibold text-slate-700">Retake Quiz</span>
+              </span>
+              <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
             </button>
           )}
 

@@ -392,19 +392,11 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
   }
 
   // ═══ RENDER: RESULT ═══
+  // ═══ RENDER: RESULT ═══
   if (phase === "result") {
-  return (
-    <QuizResult
-      result={result}
-      quizName={quizMeta?.quiz_name || quiz.quiz_name}
-      violations={violations}
-      childStatus={childStatus}
-      onClose={() => onClose?.(result)}
-      onViewAnalytics={onViewAnalytics}
-      onViewAIFeedback={onViewAIFeedback}
-    />
-  );
-}
+    onClose?.(result);
+    return null;
+  }
 
   // ═══ RENDER: QUIZ CONTENT ═══
   const quizContent = (() => {
