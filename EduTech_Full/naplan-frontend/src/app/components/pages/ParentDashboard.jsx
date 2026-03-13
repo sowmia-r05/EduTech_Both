@@ -1227,7 +1227,7 @@ export default function ParentDashboard() {
 
 
   return (
-    <div style={{ minHeight: "100vh", background: PURPLE[50], fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
+      <div style={{ minHeight: "100vh", background: "linear-gradient(to bottom, #EEF2FF, #ffffff)", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
       {loading && <LoadingOverlay />}
 
       <DashboardHeader>
