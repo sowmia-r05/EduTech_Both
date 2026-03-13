@@ -403,29 +403,30 @@ function ChildCard({ child, colorIndex, onEdit, onDelete, onViewResults, onFreeS
       <div style={{ display: "flex", gap: "10px", marginTop: "auto" }}>
         {isActive ? (
           <>
-            {/* PRIMARY: Open Dashboard with grid icon */}
+            {/* PRIMARY: Child's Dashboard */}
             <button
               onClick={() => onViewResults?.(child)}
               style={{
-                flex: 1, padding: "10px 0", borderRadius: "9px",
+                flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: "9px",
                 background: "linear-gradient(135deg, #059669, #0D9488)",
-                border: "none", cursor: "pointer", fontSize: "13px", fontWeight: 700,
+                border: "none", cursor: "pointer", fontSize: "12px", fontWeight: 700,
                 color: "#fff", display: "flex", alignItems: "center",
-                justifyContent: "center", gap: "7px",
+                justifyContent: "center", gap: "6px", overflow: "hidden",
                 boxShadow: "0 2px 8px rgba(5,150,105,0.35)",
                 transition: "opacity 0.15s, transform 0.1s",
               }}
               onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.88"; e.currentTarget.style.transform = "translateY(-1px)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = "1";    e.currentTarget.style.transform = "translateY(0)"; }}
             >
-              {/* 4-square dashboard icon */}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                 <rect x="3"  y="3"  width="7" height="7" rx="1.5"/>
                 <rect x="14" y="3"  width="7" height="7" rx="1.5"/>
                 <rect x="3"  y="14" width="7" height="7" rx="1.5"/>
                 <rect x="14" y="14" width="7" height="7" rx="1.5"/>
               </svg>
-              Open Dashboard
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {(() => { const first = cap(child.name).split(" ")[0]; return (first.length > 10 ? first.slice(0, 9) + "…" : first) + "'s Dashboard"; })()}
+              </span>
             </button>
 
             {/* SECONDARY: Buy Bundle */}
@@ -741,7 +742,7 @@ function AddChildModal({ onClose, onAdd, loading }) {
     if (!pin || !/^\d{6}$/.test(pin))  return setError("PIN must be exactly 6 digits");
     if (pin !== confirmPin)             return setError("PINs do not match");
     if (!consent)                       return setError("Please agree to the Child Data Collection Policy");
-    try { await onAdd({ display_name: displayName.trim(), username: username.trim().toLowerCase(), year_level: Number(yearLevel), pin, email_notifications: emailNotifications }); }
+    try { await onAdd({ display_name: displayName.trim(), username: username.trim().toLowerCase(), year_level: Number(yearLevel), pin, email_notifications: emailNotifications, parental_consent: consent }); }
     catch (err) { setError(err?.message || "Failed to add child"); }
   };
 
@@ -1086,7 +1087,30 @@ export default function ParentDashboard() {
   };
 
   const handleDeleteRequest = (childId) => { const raw = rawChildren.find((c) => String(c._id) === String(childId)); if (raw) setDeleteTarget(raw); };
-  const handleEditRequest   = (mc) => { const raw = rawChildren.find((c) => String(c._id) === String(mc._id || mc.id)); if (raw) setEditTarget(raw); };
+
+  // ── Fix: summaries endpoint omits email_notifications, so fetch full child record before opening edit modal ──
+  const handleEditRequest = async (mc) => {
+    const childId = mc._id || mc.id;
+    try {
+      // Fetch full child record which includes email_notifications
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+      const res = await fetch(`${API_BASE}/api/children/${childId}`, {
+        headers: { Authorization: `Bearer ${parentToken}`, Accept: "application/json" },
+      });
+      if (res.ok) {
+        const full = await res.json();
+        setEditTarget(full);
+      } else {
+        // Fallback to summaries data if full fetch fails
+        const raw = rawChildren.find((c) => String(c._id) === String(childId));
+        if (raw) setEditTarget(raw);
+      }
+    } catch {
+      // Fallback to summaries data
+      const raw = rawChildren.find((c) => String(c._id) === String(childId));
+      if (raw) setEditTarget(raw);
+    }
+  };
 
 
   return (
