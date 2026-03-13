@@ -579,121 +579,131 @@ const getInitialTab = () => {
       <DashboardHeader>{sharedNav(activeTab !== "quizzes")}</DashboardHeader>
 
       {/* Greeting + KPI strip — always visible above tabs */}
-      {activeTab === "quizzes" && (
-      <div className="px-4 pt-6 pb-4 md:px-8">
-        <div className="max-w-6xl mx-auto space-y-4">
+      {/* ── SHARED PAGE HEADER — always visible on all tabs ── */}
+<div className="px-4 pt-6 pb-3 md:px-8">
+  <div className="max-w-6xl mx-auto">
+    <div className="flex items-center gap-2 flex-wrap">
+      <h1 className="text-2xl font-bold text-slate-900">
+        {isParentViewing
+          ? `${displayName}'s Progress`
+          : `Welcome back, ${displayName}!`}
+      </h1>
+      {yearLevel && (
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+          {isParentViewing ? `Year ${yearLevel} · Parent View` : `Year ${yearLevel}`}
+        </span>
+      )}
+    </div>
+    <p className="text-slate-500 text-sm font-medium mt-1 max-w-xl">
+      {activeTab === "quizzes"
+        ? (isParentViewing ? getDailyParentMessage() : motivation)
+        : activeTab === "cumulative"
+          ? (isParentViewing
+              ? `Subject-by-subject performance trends and AI coaching for ${displayName}`
+              : "Your detailed analytics and AI coaching report")
+          : (isParentViewing
+              ? `All quiz attempts across every subject`
+              : `Every quiz you've attempted, all in one place`)}
+    </p>
+  </div>
+</div>
 
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-3xl font-bold text-slate-900">
-                {isParentViewing
-                  ? `${displayName}'s Progress`
-                  : `Welcome back, ${displayName}!`}
-              </h1>
-              {yearLevel && (
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
-                  {isParentViewing ? `Year ${yearLevel} · Parent View` : `Year ${yearLevel}`}
-                </span>
+{/* ── KPI STRIP — quizzes tab only ── */}
+{activeTab === "quizzes" && (
+  <div className="px-4 pb-4 md:px-8">
+    <div className="max-w-6xl mx-auto space-y-4">
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-xl">{error}</div>
+      )}
+
+      {/* KPI Cards — context-aware */}
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white rounded-xl p-5 border shadow-sm">
+        {isParentViewing ? (
+          <>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Completed</p>
+              <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-indigo-600" : "text-slate-300"}`}>
+                {hasTests ? `${completedCount} / ${mergedQuizzes.length}` : "—"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">quizzes done</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Avg Score</p>
+              <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-slate-800" : "text-slate-300"}`}>
+                {hasTests ? `${overallAverage}%` : "—"}
+              </p>
+              {hasTests && (
+                <>
+                  <div className="mt-1.5 h-1.5 bg-slate-200 rounded-full overflow-hidden w-full max-w-[120px]">
+                    <div className="h-full bg-indigo-500 transition-all duration-700" style={{ width: `${overallAverage}%` }} />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">across all subjects</p>
+                </>
               )}
             </div>
-            <p className="text-slate-500 text-sm font-medium mt-1 max-w-xl">
-              {isParentViewing ? getDailyParentMessage() : motivation}
-            </p>
-          </div>
-
-          {error && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-xl">{error}</div>
-          )}
-
-          {/* KPI Cards — context-aware */}
-          <section className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white rounded-xl p-5 border shadow-sm">
-            {isParentViewing ? (
-              /* ── PARENT VIEW ── */
-              <>
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Completed</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-indigo-600" : "text-slate-300"}`}>
-                    {hasTests ? `${completedCount} / ${mergedQuizzes.length}` : "—"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">quizzes done</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Avg Score</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-slate-800" : "text-slate-300"}`}>
-                    {hasTests ? `${overallAverage}%` : "—"}
-                  </p>
-                  {hasTests && (
-                    <>
-                      <div className="mt-1.5 h-1.5 bg-slate-200 rounded-full overflow-hidden w-full max-w-[120px]">
-                        <div className="h-full bg-indigo-500 transition-all duration-700" style={{ width: `${overallAverage}%` }} />
-                      </div>
-                      <p className="text-xs text-slate-400 mt-0.5">across all subjects</p>
-                    </>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Streak</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-amber-500" : "text-slate-300"}`}>
-                    {hasTests ? `${streak} days` : "—"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">consecutive days</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Top Subject</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${topSubject ? "text-emerald-600" : "text-slate-300"}`}>
-                    {topSubject ? topSubject.subject : "—"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {topSubject ? `${topSubject.avg}% avg` : "no data yet"}
-                  </p>
-                </div>
-              </>
-            ) : (
-              /* ── CHILD VIEW — clean labels, no emoji icons ── */
-              <>
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">My Level</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-indigo-600" : "text-slate-300"}`}>
-                    {hasTests ? level : "—"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">{hasTests ? "keep going to level up!" : "take a quiz to start!"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Stars Earned</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-slate-800" : "text-slate-300"}`}>
-                    {hasTests ? totalXP.toLocaleString() : "—"}
-                  </p>
-                  {hasTests && (
-                    <>
-                      <div className="mt-1.5 h-1.5 bg-slate-200 rounded-full overflow-hidden w-full max-w-[120px]">
-                        <div className="h-full bg-indigo-500 transition-all duration-700" style={{ width: `${xpProgress}%` }} />
-                      </div>
-                      <p className="text-xs text-slate-400 mt-0.5">{500 - (totalXP % 500)} more to next level!</p>
-                    </>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Day Streak</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-amber-500" : "text-slate-300"}`}>
-                    {hasTests ? `${streak} days` : "—"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">{hasTests && streak > 0 ? "don't break the chain!" : "start your streak today!"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Best Subject</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${topSubject ? "text-emerald-600" : "text-slate-300"}`}>
-                    {topSubject ? topSubject.subject : "—"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {topSubject ? `${topSubject.avg}% avg score` : "take more quizzes!"}
-                  </p>
-                </div>
-              </>
-            )}
-          </section>
-        </div>
-      </div>
-      )}
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Streak</p>
+              <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-amber-500" : "text-slate-300"}`}>
+                {hasTests ? `${streak} days` : "—"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">consecutive days</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Top Subject</p>
+              <p className={`text-2xl font-bold mt-0.5 ${topSubject ? "text-emerald-600" : "text-slate-300"}`}>
+                {topSubject ? topSubject.subject : "—"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {topSubject ? `${topSubject.avg}% avg` : "no data yet"}
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">My Level</p>
+              <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-indigo-600" : "text-slate-300"}`}>
+                {hasTests ? level : "—"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">{hasTests ? "keep going to level up!" : "take a quiz to start!"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Stars Earned</p>
+              <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-slate-800" : "text-slate-300"}`}>
+                {hasTests ? totalXP.toLocaleString() : "—"}
+              </p>
+              {hasTests && (
+                <>
+                  <div className="mt-1.5 h-1.5 bg-slate-200 rounded-full overflow-hidden w-full max-w-[120px]">
+                    <div className="h-full bg-indigo-500 transition-all duration-700" style={{ width: `${xpProgress}%` }} />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">{500 - (totalXP % 500)} more to next level!</p>
+                </>
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Day Streak</p>
+              <p className={`text-2xl font-bold mt-0.5 ${hasTests ? "text-amber-500" : "text-slate-300"}`}>
+                {hasTests ? `${streak} days` : "—"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">{hasTests && streak > 0 ? "don't break the chain!" : "start your streak today!"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Best Subject</p>
+              <p className={`text-2xl font-bold mt-0.5 ${topSubject ? "text-emerald-600" : "text-slate-300"}`}>
+                {topSubject ? topSubject.subject : "—"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {topSubject ? `${topSubject.avg}% avg score` : "take more quizzes!"}
+              </p>
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  </div>
+)}
 
       {/* Tab Slider */}
       <TabSlider activeTab={activeTab} onChange={(t) => {
