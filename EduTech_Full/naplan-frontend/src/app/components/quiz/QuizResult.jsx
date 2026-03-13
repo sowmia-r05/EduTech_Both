@@ -537,32 +537,28 @@ export default function QuizResult({
       })()}
  
       {/* TAB 1 — AI FEEDBACK for writing quizzes (opens full writing feedback page) */}
-      {activeTab === 1 && isWriting && (
-        <div className="px-4 py-8">
-          <div className="max-w-xl mx-auto">
-            <div className="bg-violet-50 border border-violet-200 rounded-2xl p-8 text-center space-y-4">
-              <div className="w-14 h-14 bg-violet-100 rounded-full flex items-center justify-center mx-auto">
-                <svg className="w-7 h-7 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-              </div>
-              <div>
-                <p className="text-lg font-bold text-violet-900">Writing AI Feedback</p>
-                <p className="text-sm text-violet-600 mt-1">Your writing has been submitted for AI evaluation.</p>
-              </div>
-              <button
-                onClick={handleViewAIFeedback}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl transition-colors"
-              >
-                View Full Writing Feedback
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {activeTab === 1 && isWriting && attemptId && (() => {
+        const cp = authRef.current?.childProfile;
+        const s  = liveStatus || childStatusProp || cp?.status || "trial";
+        const p  = new URLSearchParams({ r: attemptId });
+        if (cp?.username) p.set("username",  cp.username);
+        if (quizName)     p.set("quiz_name", quizName);
+        p.set("status", s);
+        const iframeSrc = `${window.location.origin}${window.location.pathname}#/writing-feedback/result?${p.toString()}`;
+        return (
+          <iframe
+            key={iframeSrc}
+            src={iframeSrc}
+            title="Writing AI Feedback"
+            style={{
+              width:   "100%",
+              height:  "calc(100vh - 58px)",
+              border:  "none",
+              display: "block",
+            }}
+          />
+        );
+      })()}
  
       {showAnswers && !isWriting && (
         <AnswersModal
