@@ -957,44 +957,156 @@ function DeleteConfirmModal({ child, onCancel, onConfirm, loading }) {
 }
 
 // ── BundleSelectionModal ────────────────────────────────────────
-function BundleSelectionModal({ child, bundles, loadingBundleId, onSelect, onClose }) {
+function BundleSelectionModal({ child, bundles, loadingBundleId, onSelect, onClose, onExploreBundles }) {
+  const childName  = child.name || child.display_name || "your child";
+  const yearLabel  = child.yearLevel || `Year ${child.year_level}`;
+
   return (
-    <ModalOverlay onClose={onClose} maxWidth="520px">
+    <ModalOverlay onClose={onClose} maxWidth="860px">
+      {/* ── Header ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
         <div>
           <h3 style={{ fontSize: "17px", fontWeight: 700, color: "#111827", margin: "0 0 3px" }}>Choose a Bundle</h3>
-          <p style={{ fontSize: "13px", color: "#9CA3AF", margin: 0 }}>For {child.name} · {child.yearLevel}</p>
+          <p style={{ fontSize: "13px", color: "#9CA3AF", margin: 0 }}>For {childName} · {yearLabel}</p>
         </div>
         <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px", color: "#9CA3AF" }}>✕</button>
       </div>
-      {bundles.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "32px", color: "#9CA3AF", fontSize: "14px" }}>No bundles available for {child.yearLevel}.</div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {bundles.map((bundle) => {
-            const isLoading    = loadingBundleId === bundle.bundle_id;
-            const alreadyOwned = (child.entitled_bundle_ids || []).includes(bundle.bundle_id);
-            const price = `$${(Number(bundle.price_cents || 0) / 100).toFixed(2)} ${(bundle.currency || "AUD").toUpperCase()}`;
-            return (
-              <div key={bundle.bundle_id} style={{ border: `1px solid ${alreadyOwned ? "#E5E7EB" : PURPLE[200]}`, borderRadius: "12px", padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", background: alreadyOwned ? "#F9FAFB" : PURPLE[50] }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: alreadyOwned ? "#9CA3AF" : "#111827", marginBottom: "3px" }}>{bundle.bundle_name}</div>
-                  {bundle.description && <div style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px" }}>{bundle.description}</div>}
-                  <div style={{ fontSize: "15px", fontWeight: 800, color: alreadyOwned ? "#9CA3AF" : PURPLE[700] }}>{price}</div>
-                </div>
-                {alreadyOwned ? (
-                  <span style={{ fontSize: "12px", fontWeight: 600, color: "#9CA3AF", background: "#F3F4F6", padding: "6px 14px", borderRadius: "8px" }}>Owned</span>
-                ) : (
-                  <button onClick={() => onSelect(bundle)} disabled={isLoading}
-                    style={{ padding: "9px 18px", borderRadius: "9px", background: isLoading ? PURPLE[400] : PURPLE[600], border: "none", cursor: isLoading ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 600, color: "#fff", flexShrink: 0 }}>
-                    {isLoading ? "Loading…" : "Buy"}
-                  </button>
-                )}
-              </div>
-            );
-          })}
+
+      {/* ── Two-column body ── */}
+      <div style={{ display: "flex", gap: "20px", alignItems: "flex-start" }}>
+
+        {/* ── LEFT: Suggested bundles ── */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Suggested label */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: "7px",
+            marginBottom: "14px",
+          }}>
+            <span style={{
+              fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em",
+              textTransform: "uppercase", color: PURPLE[600],
+              background: PURPLE[50], border: `1px solid ${PURPLE[200]}`,
+              padding: "3px 10px", borderRadius: "99px",
+            }}>
+              ✨ Suggested for {childName}
+            </span>
+          </div>
+
+          {bundles.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "32px", color: "#9CA3AF", fontSize: "14px" }}>
+              No bundles available for {yearLabel}.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {bundles.map((bundle) => {
+                const isLoading    = loadingBundleId === bundle.bundle_id;
+                const alreadyOwned = (child.entitled_bundle_ids || []).includes(bundle.bundle_id);
+                const price = `$${(Number(bundle.price_cents || 0) / 100).toFixed(2)} ${(bundle.currency || "AUD").toUpperCase()}`;
+
+                return (
+                  <div
+                    key={bundle.bundle_id}
+                    style={{
+                      border: `1px solid ${alreadyOwned ? "#E5E7EB" : PURPLE[200]}`,
+                      borderRadius: "12px", padding: "16px 18px",
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      gap: "12px", background: alreadyOwned ? "#F9FAFB" : PURPLE[50],
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: "15px", fontWeight: 700, color: alreadyOwned ? "#9CA3AF" : "#111827", marginBottom: "3px" }}>
+                        {bundle.bundle_name}
+                      </div>
+                      {bundle.description && (
+                        <div style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px" }}>
+                          {bundle.description}
+                        </div>
+                      )}
+                      <div style={{ fontSize: "15px", fontWeight: 800, color: alreadyOwned ? "#9CA3AF" : PURPLE[700] }}>
+                        {price}
+                      </div>
+                    </div>
+
+                    {alreadyOwned ? (
+                      <span style={{ fontSize: "12px", fontWeight: 600, color: "#9CA3AF", background: "#F3F4F6", padding: "6px 14px", borderRadius: "8px" }}>
+                        Owned
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => onSelect(bundle)}
+                        disabled={isLoading}
+                        style={{
+                          padding: "9px 18px", borderRadius: "9px",
+                          background: isLoading ? PURPLE[400] : PURPLE[600],
+                          border: "none", cursor: isLoading ? "not-allowed" : "pointer",
+                          fontSize: "13px", fontWeight: 600, color: "#fff", flexShrink: 0,
+                        }}
+                      >
+                        {isLoading ? "Loading…" : "Buy"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* ── Divider ── */}
+        <div style={{ width: "1px", alignSelf: "stretch", background: "#E5E7EB", flexShrink: 0 }} />
+
+        {/* ── RIGHT: Explore more bundles ── */}
+        <div style={{ width: "220px", flexShrink: 0 }}>
+          <div style={{
+            background: "linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)",
+            border: `1px solid ${PURPLE[200]}`,
+            borderRadius: "16px",
+            padding: "22px 18px",
+            display: "flex", flexDirection: "column", gap: "14px",
+          }}>
+            {/* Icon */}
+            <div style={{
+              width: "44px", height: "44px", borderRadius: "12px",
+              background: PURPLE[600], display: "flex", alignItems: "center",
+              justifyContent: "center",
+            }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </div>
+
+            <div>
+              <p style={{ fontSize: "14px", fontWeight: 700, color: "#111827", margin: "0 0 6px" }}>
+                Explore more bundles
+              </p>
+              <p style={{ fontSize: "12px", color: "#6B7280", margin: 0, lineHeight: 1.5 }}>
+                Browse the full NAPLAN Mock Exam catalogue — all year levels, topics &amp; difficulty tiers.
+              </p>
+            </div>
+
+            <button
+              onClick={onExploreBundles}
+              style={{
+                width: "100%", padding: "10px 0", borderRadius: "9px",
+                background: PURPLE[600], border: "none", cursor: "pointer",
+                fontSize: "13px", fontWeight: 600, color: "#fff",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                transition: "opacity 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.88"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+            >
+              View all bundles
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+      </div>
     </ModalOverlay>
   );
 }
@@ -1169,10 +1281,22 @@ export default function ParentDashboard() {
       {bundleModalChild && (
         <BundleSelectionModal
           child={bundleModalChild}
-          bundles={BUNDLE_CATALOG.filter((b) => Number(b.year_level) === Number(bundleModalChild.year_level || bundleModalChild.yearLevel?.replace("Year ", "")) && b.is_active)}
+          bundles={BUNDLE_CATALOG.filter(
+            (b) =>
+              Number(b.year_level) ===
+                Number(bundleModalChild.year_level || bundleModalChild.yearLevel?.replace("Year ", "")) &&
+              b.is_active
+          )}
           loadingBundleId={checkoutLoadingBundle}
           onSelect={(bundle) => handleCheckout(bundleModalChild, bundle)}
           onClose={() => setBundleModalChild(null)}
+          onExploreBundles={() => {
+            setBundleModalChild(null);               // close the modal first
+            const yr = bundleModalChild.year_level
+              || bundleModalChild.yearLevel?.replace("Year ", "");
+            const cid = bundleModalChild._id || bundleModalChild.id || "";
+            navigate(`/bundles?year=${yr}&childId=${encodeURIComponent(cid)}`);
+          }}
         />
       )}
 
