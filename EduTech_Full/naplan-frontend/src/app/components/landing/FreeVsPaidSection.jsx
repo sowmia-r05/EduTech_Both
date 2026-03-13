@@ -182,7 +182,7 @@ export default function FreeVsPaidSection() {
                 onClick={() => navigate("/bundles")}
                 className="w-full mt-6 flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-white font-semibold text-sm bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200"
               >
-                <SparkleIcon /> View Practice Packs
+                <SparkleIcon /> View Bundles
               </button>
             </div>
           </motion.div>

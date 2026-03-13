@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import { fetchBundles, createCheckout } from "@/app/utils/api-payments";
 import { fetchChildren, createChild, checkUsername } from "@/app/utils/api-children";
+import DashboardHeader from "@/app/components/layout/DashboardHeader";
+import ParentAvatarMenu from "@/app/components/ui/ParentAvatarMenu";
 
 /* ═══════════════════════════════════════════
    BUNDLE SELECTION PAGE
@@ -340,27 +342,9 @@ export default function BundleSelectionPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       {/* HEADER */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-semibold text-slate-900">
-              Bundles & Plans
-            </h1>
-            <p className="text-sm text-slate-500">
-              Choose a year-level bundle and complete checkout
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => navigate("/parent-dashboard")}
-              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
-            >
-              Parent Dashboard
-            </button>
-          </div>
-        </div>
-      </header>
+      <DashboardHeader>
+        <ParentAvatarMenu variant="bundles"/>
+      </DashboardHeader>
 
       <main className="max-w-6xl mx-auto px-6 py-10 space-y-10">
         {/* PAGE TITLE */}
