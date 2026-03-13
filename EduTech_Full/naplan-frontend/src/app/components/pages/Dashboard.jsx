@@ -25,8 +25,7 @@ import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
 import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
 
-// ✅ KAI Solutions standard header
-import DashboardHeader from "@/app/components/layout/DashboardHeader";
+
 
 import { useAuth } from "@/app/context/AuthContext";
 
@@ -408,28 +407,7 @@ export default function Dashboard() {
           onClearFilter={() => { setSelectedDate(null); setSelectedAttemptOverride(null); setShowNoDataModal(false); }}
         />
 
-        {/* ══════════════════════════════════════════════
-            HEADER — KAI Solutions brand bar
-        ══════════════════════════════════════════════ */}
-        <DashboardHeader>
-          <ChildAvatarMenu
-            displayName={displayName}
-            isParentViewing={isParentViewing}
-            isOnAnalyticsPage={true}
-            onBackToParent={() => navigate("/parent-dashboard")}
-            onBackToChildDashboard={() => {
-              const username = searchParams.get("username") || selectedResult?.user?.user_name || "";
-              const childId = searchParams.get("childId") || childProfile?.childId || "";
-              const yearLevelParam = childProfile?.yearLevel || searchParams.get("yearLevel") || "";
-              navigate(
-                `/child-dashboard?childId=${childId}` +
-                `&childName=${encodeURIComponent(displayName)}` +
-                `&yearLevel=${yearLevelParam}` +
-                `&username=${encodeURIComponent(username)}`
-              );
-            }}
-          />
-        </DashboardHeader>
+
 
         {/* ══════════════════════════════════════════════
             PAGE TITLE ROW
@@ -619,7 +597,7 @@ export default function Dashboard() {
                 </div>
                 <span className="text-sm font-semibold text-slate-700">AI Coach Feedback</span>
               </div>
-              <div className="flex-1 overflow-hidden max-h-52">
+              <div className="flex-1 overflow-y-auto min-h-0">
                 {/* ✅ showTitle={false} removes the duplicate inner title */}
                 <AICoachPanel
                   feedback={selectedResult?.ai_feedback}
