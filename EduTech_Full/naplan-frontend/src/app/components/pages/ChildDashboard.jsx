@@ -916,6 +916,7 @@ const getInitialTab = () => {
           childId={childId}
           onLogout={handleLogout}
           viewerType={viewerType}
+          isParentViewing={isParentViewing}
         />
       </TrialGateOverlay>
     )}

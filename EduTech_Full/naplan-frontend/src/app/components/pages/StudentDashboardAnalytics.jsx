@@ -220,6 +220,71 @@ function SummaryRow({ label, value, positive }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   PARENT TONE REFRAMER
+   Transforms child-addressed text ("You've", "your") into
+   parent-addressed text ("Liam has", "Liam's") when a parent
+   is viewing the dashboard.
+   ═══════════════════════════════════════════════════════════ */
+
+function reframeForParent(text, childName) {
+  if (!text || !childName) return text;
+
+  // ── Step 1: Contractions FIRST (must come before bare "you" replacement)
+  text = text
+    .replace(/\bYou'll\b/g,   `${childName} will`)
+    .replace(/\byou'll\b/g,   `${childName} will`)
+    .replace(/\bYou'd\b/g,    `${childName} would`)
+    .replace(/\byou'd\b/g,    `${childName} would`)
+    .replace(/\bYou've\b/g,   `${childName} has`)
+    .replace(/\byou've\b/g,   `${childName} has`)
+    .replace(/\bYou're\b/g,   `${childName} is`)
+    .replace(/\byou're\b/g,   `${childName} is`)
+    .replace(/\bYou've\b/g,   `${childName} has`);
+
+  // ── Step 2: Multi-word patterns
+  text = text
+    .replace(/\bYou are\b/g,  `${childName} is`)
+    .replace(/\byou are\b/g,  `${childName} is`)
+    .replace(/\bYou have\b/g, `${childName} has`)
+    .replace(/\byou have\b/g, `${childName} has`);
+
+  // ── Step 3: Possessive
+  text = text
+    .replace(/\bYour\b/g, `${childName}'s`)
+    .replace(/\byour\b/g, `${childName}'s`);
+
+  // ── Step 4: Bare "You" / "you"
+  text = text
+    .replace(/\bYou\b/g, childName)
+    .replace(/\byou\b/g, childName);
+
+  // ── Step 5: Remove doubled name from vocative patterns
+  // e.g. "Liam is doing great, Liam!" → "Liam is doing great!"
+  // Gemini often writes "You're doing great, [name]!" — after replacement the
+  // name appears twice. Strip the trailing comma-name address.
+  const escapedName = childName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  text = text
+    .replace(new RegExp(`,\\s*${escapedName}([!.?]|\\b)`, "gi"), "$1")
+    .replace(new RegExp(`^${escapedName},\\s*${escapedName}\\b`, "gi"), childName);
+
+  // ── Step 6: Fix subject–verb agreement edge cases left behind
+  // "Before [name] start" → "Before [name] starts"
+  text = text
+    .replace(
+      new RegExp(`(Before\\s+${escapedName}\\s+)(start)\\b`, "gi"),
+      (_, prefix) => `${prefix}starts`
+    );
+
+  // ── Step 7: Common phrase replacements
+  text = text
+    .replace(/\bkeep practising\b/gi,  `encourage ${childName} to keep practising`)
+    .replace(/\bKeep going!\b/g,       `${childName} is on a great track!`)
+    .replace(/\bKeep it up!\b/g,       `Encourage ${childName} to keep it up!`);
+
+  return text;
+}
+
+/* ═══════════════════════════════════════════════════════════
    AI COACH PANEL
    ═══════════════════════════════════════════════════════════ */
 
@@ -265,13 +330,43 @@ function ChipList({ items, color }) {
   );
 }
 
-function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, loading }) {
-  const status = feedbackDoc?.status;
-  const feedback = feedbackDoc?.feedback;
-  const subjectColor = subject !== "All" ? SUBJECT_TEXT[subject] : "text-indigo-600";
-  const subjectBgLight = subject !== "All" ? SUBJECT_LIGHT_BG[subject] : "bg-indigo-50";
-  const subjectBorderColor = subject !== "All" ? SUBJECT_BORDER[subject] : "border-indigo-200";
+/* ─── AICumulativeCoachPanel ───────────────────────────────
+   Now accepts isParentViewing + displayName to adapt all
+   feedback text to the correct audience tone.
+─────────────────────────────────────────────────────────── */
+function AICumulativeCoachPanel({
+  feedbackDoc,
+  subject,
+  onRefresh,
+  refreshing,
+  loading,
+  isParentViewing = false,   // ← NEW
+  displayName = "Student",   // ← NEW
+}) {
+  const status      = feedbackDoc?.status;
+  const rawFeedback = feedbackDoc?.feedback;
 
+  // ── Reframe stored child-tone text into parent tone when needed ──
+  const feedback = isParentViewing && rawFeedback
+    ? {
+        ...rawFeedback,
+        summary:       reframeForParent(rawFeedback.summary, displayName),
+        encouragement: reframeForParent(rawFeedback.encouragement, displayName),
+        strengths:     rawFeedback.strengths?.map((s) => reframeForParent(s, displayName)),
+        study_tips:    rawFeedback.study_tips?.map((t) => reframeForParent(t, displayName)),
+        areas_for_improvement: rawFeedback.areas_for_improvement?.map((a) => ({
+          ...a,
+          issue:          reframeForParent(a.issue, displayName),
+          how_to_improve: reframeForParent(a.how_to_improve, displayName),
+        })),
+      }
+    : rawFeedback;
+
+  const subjectColor      = subject !== "All" ? SUBJECT_TEXT[subject]    : "text-indigo-600";
+  const subjectBgLight    = subject !== "All" ? SUBJECT_LIGHT_BG[subject] : "bg-indigo-50";
+  const subjectBorderColor= subject !== "All" ? SUBJECT_BORDER[subject]  : "border-indigo-200";
+
+  /* ── Loading / generating states ── */
   if (loading || status === "pending" || status === "generating" || refreshing) {
     return (
       <div className="space-y-4">
@@ -280,23 +375,33 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <span>Generating AI coaching report…</span>
+          <span>
+            {isParentViewing
+              ? `Generating coaching report for ${displayName}…`
+              : "Generating AI coaching report…"}
+          </span>
         </div>
         <FeedbackSkeleton />
       </div>
     );
   }
 
+  /* ── No feedback doc yet ── */
   if (!feedbackDoc) {
     return (
       <div className="text-center py-6 text-slate-400 text-sm space-y-1">
         <BookOpen className="w-8 h-8 mx-auto text-slate-200 mb-2" />
         <p>No AI feedback yet for {subject !== "All" ? subject : "overall"}.</p>
-        <p className="text-xs">Complete more quizzes to unlock your coaching report.</p>
+        <p className="text-xs">
+          {isParentViewing
+            ? `${displayName} needs to complete more quizzes to unlock this report.`
+            : "Complete more quizzes to unlock your coaching report."}
+        </p>
       </div>
     );
   }
 
+  /* ── Error state ── */
   if (status === "error") {
     return (
       <div className="space-y-3">
@@ -304,24 +409,35 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
           <AlertTriangle className="w-4 h-4" />
           <span className="font-medium">Feedback generation failed</span>
         </div>
-        <button onClick={onRefresh} className="text-xs px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition">
+        <button
+          onClick={onRefresh}
+          className="text-xs px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition"
+        >
           Try Again
         </button>
       </div>
     );
   }
 
+  /* ── Empty feedback ── */
   if (!feedback || (!feedback.summary && !feedback.strengths?.length)) {
     return (
       <div className="text-center py-6 text-slate-400 text-sm">
         <BookOpen className="w-8 h-8 mx-auto text-slate-200 mb-2" />
-        <p>Take more {subject !== "All" ? subject : ""} quizzes to unlock your coaching report.</p>
+        <p>
+          {isParentViewing
+            ? `${displayName} needs to take more ${subject !== "All" ? subject : ""} quizzes to unlock this report.`
+            : `Take more ${subject !== "All" ? subject : ""} quizzes to unlock your coaching report.`}
+        </p>
       </div>
     );
   }
 
+  /* ── Full feedback panel ── */
   return (
     <div className="space-y-4">
+
+      {/* Trend badge + meta */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <TrendBadge trend={feedback.trend || "new"} />
         {feedbackDoc.attempt_count > 0 && (
@@ -331,21 +447,34 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
           </span>
         )}
       </div>
+
+      {/* Summary */}
       {feedback.summary && (
-        <p className="text-sm text-slate-700 leading-relaxed line-clamp-3">{feedback.summary}</p>
+        <p className="text-sm text-slate-700 leading-relaxed line-clamp-3">
+          {feedback.summary}
+        </p>
       )}
+
+      {/* Strengths */}
       {feedback.strengths?.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Strengths
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            {isParentViewing ? `${displayName}'s Strengths` : "Strengths"}
           </p>
-          <ChipList items={feedback.strengths} color="bg-emerald-50 border-emerald-200 text-emerald-700" />
+          <ChipList
+            items={feedback.strengths}
+            color="bg-emerald-50 border-emerald-200 text-emerald-700"
+          />
         </div>
       )}
+
+      {/* Focus areas */}
       {feedback.areas_for_improvement?.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1">
-            <Target className="w-3.5 h-3.5" /> Focus Areas
+            <Target className="w-3.5 h-3.5" />
+            {isParentViewing ? `Areas for ${displayName} to Focus On` : "Focus Areas"}
           </p>
           <ChipList
             items={feedback.areas_for_improvement.map((a) => a.issue || a)}
@@ -353,20 +482,32 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
           />
         </div>
       )}
+
+      {/* Study tip */}
       {feedback.study_tips?.[0] && (
         <div className={`flex items-start gap-2.5 rounded-xl p-3 ${subjectBgLight} border ${subjectBorderColor}`}>
           <Lightbulb className={`w-4 h-4 mt-0.5 flex-shrink-0 ${subjectColor}`} />
-          <p className={`text-xs leading-relaxed ${subjectColor}`}>{feedback.study_tips[0]}</p>
+          <p className={`text-xs leading-relaxed ${subjectColor}`}>
+            {isParentViewing
+              ? `💡 Tip for supporting ${displayName}: ${feedback.study_tips[0]}`
+              : feedback.study_tips[0]}
+          </p>
         </div>
       )}
+
+      {/* Encouragement */}
       {feedback.encouragement && (
         <p className="text-xs text-slate-500 italic border-l-2 border-slate-200 pl-3">
           "{feedback.encouragement}"
         </p>
       )}
+
+      {/* Timestamp */}
       {feedbackDoc.generated_at && (
         <p className="text-[10px] text-slate-400 text-right">
-          Updated {new Date(feedbackDoc.generated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
+          Updated {new Date(feedbackDoc.generated_at).toLocaleDateString("en-AU", {
+            day: "numeric", month: "short", year: "numeric",
+          })}
           {feedbackDoc.model ? ` · ${feedbackDoc.model}` : ""}
         </p>
       )}
@@ -401,7 +542,10 @@ function SubjectTabBar({ selectedSubject, onChange, tests }) {
                 : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
               }`}
           >
-            <SubjectIconEl subject={opt.value} className={`w-3.5 h-3.5 ${isActive ? "text-white" : opt.value !== "All" ? SUBJECT_TEXT[opt.value] : "text-slate-500"}`} />
+            <SubjectIconEl
+              subject={opt.value}
+              className={`w-3.5 h-3.5 ${isActive ? "text-white" : opt.value !== "All" ? SUBJECT_TEXT[opt.value] : "text-slate-500"}`}
+            />
             <span>{opt.label}</span>
             {count > 0 && (
               <span className={`text-[10px] px-1 py-0.5 rounded-full ${isActive ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>
@@ -456,12 +600,11 @@ export default function StudentDashboardAnalytics({
   const navigate = useNavigate();
   const { logout, logoutChild, childToken, parentToken, user } = useAuth();
 
-  const [timeFilter, setTimeFilter] = useState(3);
+  const [timeFilter, setTimeFilter]         = useState(3);
   const [selectedSubject, setSelectedSubject] = useState("All");
-
   const [cumulativeFeedback, setCumulativeFeedback] = useState({});
   const [feedbackLoading, setFeedbackLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing]         = useState(false);
   const pollTimerRef = useRef(null);
 
   const childId = useMemo(() => {
@@ -472,6 +615,8 @@ export default function StudentDashboardAnalytics({
   }, [childIdProp, user]);
 
   const activeToken = childToken || parentToken || null;
+
+  // Derive whether a parent (not the child) is currently viewing
   const isParentView = viewerType
     ? viewerType !== "child"
     : Boolean(parentToken && !childToken);
@@ -483,7 +628,9 @@ export default function StudentDashboardAnalytics({
       setCumulativeFeedback(feedback || {});
       const stillGenerating =
         generating ||
-        Object.values(feedback || {}).some((d) => d.status === "generating" || d.status === "pending");
+        Object.values(feedback || {}).some(
+          (d) => d.status === "generating" || d.status === "pending"
+        );
       if (stillGenerating) {
         pollTimerRef.current = setTimeout(loadCumulativeFeedback, 4000);
       }
@@ -563,7 +710,7 @@ export default function StudentDashboardAnalytics({
     return Math.round(avgSecond - avgFirst);
   }, [subjectTests]);
 
-  const comparisonData  = useMemo(() => buildSubjectComparison(timeFilteredTests), [timeFilteredTests]);
+  const comparisonData = useMemo(() => buildSubjectComparison(timeFilteredTests), [timeFilteredTests]);
 
   const strongest = useMemo(() => {
     const withData = comparisonData.filter((c) => c.count > 0 && c.score >= 50);
@@ -577,11 +724,10 @@ export default function StudentDashboardAnalytics({
     return withData.reduce((p, c) => (c.score < p.score ? c : p)).subject;
   }, [comparisonData]);
 
-  const subjectTrendData = useMemo(() => buildSubjectTrendData(subjectTests), [subjectTests]);
+  const subjectTrendData = useMemo(() => buildSubjectTrendData(subjectTests),         [subjectTests]);
   const allSubjectsTrend = useMemo(() => buildAllSubjectsTrendData(timeFilteredTests), [timeFilteredTests]);
-  const topicData        = useMemo(() => buildTopicBreakdown(subjectTests).slice(0, 8), [subjectTests]);
-
-  const activeSubjects = useMemo(() => comparisonData.filter((c) => c.count > 0).length, [comparisonData]);
+  const topicData        = useMemo(() => buildTopicBreakdown(subjectTests).slice(0, 8),[subjectTests]);
+  const activeSubjects   = useMemo(() => comparisonData.filter((c) => c.count > 0).length, [comparisonData]);
 
   const subjectColor     = selectedSubject !== "All" ? SUBJECT_COLORS[selectedSubject] : "#6366F1";
   const subjectBg        = selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] : "bg-indigo-50";
@@ -594,7 +740,7 @@ export default function StudentDashboardAnalytics({
     <div className={embedded ? "" : "min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40"}>
       <div className={`${embedded ? "" : "max-w-screen-2xl mx-auto px-4 sm:px-8 py-8"} space-y-5`}>
 
-        {/* ── HEADER — only shown when NOT embedded ── */}
+        {/* ── HEADER — standalone (not embedded) ── */}
         {!embedded && (
           <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200">
             <div>
@@ -648,9 +794,13 @@ export default function StudentDashboardAnalytics({
           </div>
         )}
 
-        {/* ── FILTER BAR — subject tabs + optional active subject pill ── */}
+        {/* ── FILTER BAR ── */}
         <div className="flex flex-col gap-2">
-          <SubjectTabBar selectedSubject={selectedSubject} onChange={setSelectedSubject} tests={timeFilteredTests} />
+          <SubjectTabBar
+            selectedSubject={selectedSubject}
+            onChange={setSelectedSubject}
+            tests={timeFilteredTests}
+          />
           {selectedSubject !== "All" && (
             <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${subjectBg} border ${SUBJECT_BORDER[selectedSubject]} text-xs`}>
               <SubjectIconEl subject={selectedSubject} className={`w-4 h-4 ${subjectTextClass}`} />
@@ -673,13 +823,19 @@ export default function StudentDashboardAnalytics({
                 subject={selectedSubject !== "All" ? selectedSubject : null}
                 accent={selectedSubject === "All"}
               />
-              <KPI title="Best Score" value={`${bestScore}%`} subject={selectedSubject !== "All" ? selectedSubject : null} />
+              <KPI
+                title="Best Score"
+                value={`${bestScore}%`}
+                subject={selectedSubject !== "All" ? selectedSubject : null}
+              />
               {selectedSubject === "All" ? (
                 <>
                   <KPI
                     title="Strongest Subject"
                     value={strongest || "—"}
-                    subtext={!strongest || strongest === "—" ? (isParentView ? "Still exploring" : "Keep practising!") : null}
+                    subtext={!strongest || strongest === "—"
+                      ? (isParentView ? "Still exploring" : "Keep practising!")
+                      : null}
                     accent
                   />
                   <KPI
@@ -711,7 +867,9 @@ export default function StudentDashboardAnalytics({
           {/* Performance Trend */}
           <Card className="xl:col-span-2">
             <CardTitle>
-              {selectedSubject === "All" ? "Performance Trend (All Subjects)" : `${selectedSubject} Score History`}
+              {selectedSubject === "All"
+                ? "Performance Trend (All Subjects)"
+                : `${selectedSubject} Score History`}
             </CardTitle>
 
             {selectedSubject === "All" ? (
@@ -745,7 +903,11 @@ export default function StudentDashboardAnalytics({
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
-                <ChartSkeleton message="Take some tests to see your performance trend over time" />
+                <ChartSkeleton message={
+                  isParentView
+                    ? `${displayName} hasn't taken enough tests yet to show a trend`
+                    : "Take some tests to see your performance trend over time"
+                } />
               )
             ) : (
               hasData && subjectTrendData.length > 1 ? (
@@ -771,10 +933,18 @@ export default function StudentDashboardAnalytics({
                   <div className={`w-16 h-16 rounded-full ${subjectBg} flex items-center justify-center`}>
                     <span className={`text-2xl font-bold ${subjectTextClass}`}>{subjectTrendData[0].score}%</span>
                   </div>
-                  <p className="text-sm text-slate-400">Take more {selectedSubject} tests to see your trend!</p>
+                  <p className="text-sm text-slate-400">
+                    {isParentView
+                      ? `${displayName} needs more ${selectedSubject} tests to show a trend`
+                      : `Take more ${selectedSubject} tests to see your trend!`}
+                  </p>
                 </div>
               ) : (
-                <ChartSkeleton message={`No ${selectedSubject} tests yet — take a quiz to see your score history!`} />
+                <ChartSkeleton message={
+                  isParentView
+                    ? `${displayName} hasn't taken any ${selectedSubject} tests yet`
+                    : `No ${selectedSubject} tests yet — take a quiz to see your score history!`
+                } />
               )
             )}
 
@@ -832,7 +1002,11 @@ export default function StudentDashboardAnalytics({
                   </div>
                 </>
               ) : (
-                <ChartSkeleton message="Complete tests in different subjects to compare" />
+                <ChartSkeleton message={
+                  isParentView
+                    ? `${displayName} needs to complete tests in different subjects`
+                    : "Complete tests in different subjects to compare"
+                } />
               )
             ) : (
               hasData ? (
@@ -853,7 +1027,11 @@ export default function StudentDashboardAnalytics({
                   ))}
                 </div>
               ) : (
-                <ChartSkeleton message={`No ${selectedSubject} quizzes taken yet`} />
+                <ChartSkeleton message={
+                  isParentView
+                    ? `${displayName} hasn't taken any ${selectedSubject} quizzes yet`
+                    : `No ${selectedSubject} quizzes taken yet`
+                } />
               )
             )}
           </Card>
@@ -864,28 +1042,46 @@ export default function StudentDashboardAnalytics({
 
           {/* Academic Summary */}
           <Card>
-            <CardTitle>{selectedSubject === "All" ? "Academic Summary" : `${selectedSubject} Summary`}</CardTitle>
+            <CardTitle>
+              {selectedSubject === "All" ? "Academic Summary" : `${selectedSubject} Summary`}
+            </CardTitle>
             {hasData ? (
               <>
                 <div className="space-y-0.5 text-sm">
-                  <SummaryRow label={selectedSubject === "All" ? "Overall Average" : "Subject Average"} value={`${avgScore}%`} />
+                  <SummaryRow
+                    label={selectedSubject === "All" ? "Overall Average" : "Subject Average"}
+                    value={`${avgScore}%`}
+                  />
                   <SummaryRow label="Best Score" value={`${bestScore}%`} />
                   {improvement !== null && (
-                    <SummaryRow label="Improvement" value={`${improvement >= 0 ? "+" : ""}${improvement}%`} positive={improvement >= 0} />
+                    <SummaryRow
+                      label="Improvement"
+                      value={`${improvement >= 0 ? "+" : ""}${improvement}%`}
+                      positive={improvement >= 0}
+                    />
                   )}
-                  <SummaryRow label={selectedSubject === "All" ? "Total Tests" : `${selectedSubject} Tests`} value={String(subjectTests.length)} />
-                  {selectedSubject === "All" && <SummaryRow label="Subjects Active" value={String(activeSubjects)} />}
+                  <SummaryRow
+                    label={selectedSubject === "All" ? "Total Tests" : `${selectedSubject} Tests`}
+                    value={String(subjectTests.length)}
+                  />
+                  {selectedSubject === "All" && (
+                    <SummaryRow label="Subjects Active" value={String(activeSubjects)} />
+                  )}
                 </div>
                 <div className="mt-4">
                   <p className="text-xs text-slate-500 mb-1.5">
-                    {isParentView ? "Progress Toward Target (85%)" : "Your Goal: 85%"}
+                    {isParentView
+                      ? `Progress Toward Target (85%)`
+                      : "Your Goal: 85%"}
                   </p>
                   <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-700"
                       style={{
                         width: `${Math.min((avgScore / 85) * 100, 100)}%`,
-                        background: selectedSubject !== "All" ? subjectColor : "linear-gradient(to right, #6366F1, #8B5CF6)",
+                        background: selectedSubject !== "All"
+                          ? subjectColor
+                          : "linear-gradient(to right, #6366F1, #8B5CF6)",
                       }}
                     />
                   </div>
@@ -909,11 +1105,13 @@ export default function StudentDashboardAnalytics({
             {hasData ? (
               <div className="space-y-3.5">
                 {[
-                  { label: "High (80%+)",          tests: subjectTests.filter((t) => t.score >= 80),                  color: "bg-emerald-400" },
-                  { label: "Mid (50–79%)",          tests: subjectTests.filter((t) => t.score >= 50 && t.score < 80), color: "bg-amber-400" },
-                  { label: "Learning Zone (<50%)",  tests: subjectTests.filter((t) => t.score < 50),                  color: "bg-rose-400" },
+                  { label: "High (80%+)",         tests: subjectTests.filter((t) => t.score >= 80),                  color: "bg-emerald-400" },
+                  { label: "Mid (50–79%)",         tests: subjectTests.filter((t) => t.score >= 50 && t.score < 80), color: "bg-amber-400"   },
+                  { label: "Learning Zone (<50%)", tests: subjectTests.filter((t) => t.score < 50),                  color: "bg-rose-400"    },
                 ].map((bucket) => {
-                  const pct = subjectTests.length ? Math.round((bucket.tests.length / subjectTests.length) * 100) : 0;
+                  const pct = subjectTests.length
+                    ? Math.round((bucket.tests.length / subjectTests.length) * 100)
+                    : 0;
                   return (
                     <div key={bucket.label}>
                       <div className="flex justify-between text-xs text-slate-500 mb-1">
@@ -921,7 +1119,10 @@ export default function StudentDashboardAnalytics({
                         <span>{bucket.tests.length} ({pct}%)</span>
                       </div>
                       <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-700 ${bucket.color}`} style={{ width: `${pct}%` }} />
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ${bucket.color}`}
+                          style={{ width: `${pct}%` }}
+                        />
                       </div>
                     </div>
                   );
@@ -932,7 +1133,7 @@ export default function StudentDashboardAnalytics({
             )}
           </Card>
 
-          {/* ── PERFORMANCE INSIGHTS — clean, light design ── */}
+          {/* Performance Insights */}
           <Card className="border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-slate-50">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -940,7 +1141,9 @@ export default function StudentDashboardAnalytics({
                   <Star className="w-3.5 h-3.5 text-indigo-500" />
                 </div>
                 <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Performance Insights</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Performance Insights
+                  </h3>
                   <span className="text-[10px] text-indigo-400 font-medium">AI-powered</span>
                 </div>
               </div>
@@ -948,9 +1151,13 @@ export default function StudentDashboardAnalytics({
 
             {!hasData ? (
               <p className="text-sm text-slate-400 py-4 text-center">
-                {selectedSubject === "All"
-                  ? "Take some tests to see your insights"
-                  : `Take a ${selectedSubject} test to unlock insights`}
+                {isParentView
+                  ? selectedSubject === "All"
+                    ? `${displayName} needs to take some tests to unlock insights`
+                    : `${displayName} needs to take a ${selectedSubject} test to unlock insights`
+                  : selectedSubject === "All"
+                    ? "Take some tests to see your insights"
+                    : `Take a ${selectedSubject} test to unlock insights`}
               </p>
 
             ) : feedbackLoading ? (
@@ -972,19 +1179,40 @@ export default function StudentDashboardAnalytics({
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <span>Analysing your quiz history…</span>
+                <span>
+                  {isParentView
+                    ? `Analysing ${displayName}'s quiz history…`
+                    : "Analysing your quiz history…"}
+                </span>
               </div>
 
             ) : activeFeedbackDoc?.feedback ? (() => {
-              const fb = activeFeedbackDoc.feedback;
+              const rawFb = activeFeedbackDoc.feedback;
+              // Apply parent reframe to insight snippets too
+              const fb = isParentView
+                ? {
+                    ...rawFb,
+                    summary:      reframeForParent(rawFb.summary, displayName),
+                    strengths:    rawFb.strengths?.map((s) => reframeForParent(s, displayName)),
+                    areas_for_improvement: rawFb.areas_for_improvement?.map((a) => ({
+                      ...a,
+                      issue: reframeForParent(a.issue, displayName),
+                    })),
+                    study_tips:   rawFb.study_tips?.map((t) => reframeForParent(t, displayName)),
+                    encouragement: reframeForParent(rawFb.encouragement, displayName),
+                  }
+                : rawFb;
+
               const rows = [
                 fb.trend && {
                   Icon: fb.trend === "improving" ? TrendingUp : fb.trend === "declining" ? TrendingDown : Minus,
                   bg:   fb.trend === "improving" ? "bg-emerald-100" : fb.trend === "declining" ? "bg-rose-100" : "bg-slate-100",
                   iconColor: fb.trend === "improving" ? "text-emerald-600" : fb.trend === "declining" ? "text-rose-500" : "text-slate-400",
-                  text: fb.trend === "improving" ? "Scores trending upward — great momentum!" :
-                        fb.trend === "declining" ? "Recent scores have dipped — time to refocus." :
-                        "Performance is holding steady.",
+                  text: fb.trend === "improving"
+                    ? (isParentView ? `${displayName}'s scores are trending upward — great momentum!` : "Scores trending upward — great momentum!")
+                    : fb.trend === "declining"
+                      ? (isParentView ? `${displayName}'s recent scores have dipped — time to refocus.` : "Recent scores have dipped — time to refocus.")
+                      : (isParentView ? `${displayName}'s performance is holding steady.` : "Performance is holding steady."),
                 },
                 fb.summary && {
                   Icon: Lightbulb, bg: "bg-cyan-100", iconColor: "text-cyan-600",
@@ -1021,20 +1249,27 @@ export default function StudentDashboardAnalytics({
                   {activeFeedbackDoc.generated_at && (
                     <li className="pt-1">
                       <span className="text-[10px] text-slate-400">
-                        Updated {new Date(activeFeedbackDoc.generated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                        Updated {new Date(activeFeedbackDoc.generated_at).toLocaleDateString("en-AU", {
+                          day: "numeric", month: "short",
+                        })}
                       </span>
                     </li>
                   )}
                 </ul>
               );
             })() : (
+              // Fallback static insights (no AI feedback yet)
               <ul className="space-y-2.5">
                 {[
                   {
                     Icon: Trophy, bg: "bg-amber-100", iconColor: "text-amber-600",
                     text: strongest !== "—"
-                      ? `${strongest} is your strongest at ${comparisonData.find((c) => c.subject === strongest)?.score}%`
-                      : "Keep completing tests to reveal your strongest subject",
+                      ? (isParentView
+                          ? `${strongest} is ${displayName}'s strongest at ${comparisonData.find((c) => c.subject === strongest)?.score}%`
+                          : `${strongest} is your strongest at ${comparisonData.find((c) => c.subject === strongest)?.score}%`)
+                      : (isParentView
+                          ? `Keep encouraging ${displayName} to reveal their strongest subject`
+                          : "Keep completing tests to reveal your strongest subject"),
                   },
                   {
                     Icon: Target, bg: "bg-blue-100", iconColor: "text-blue-600",
@@ -1046,11 +1281,15 @@ export default function StudentDashboardAnalytics({
                     iconColor: improvement !== null && improvement > 0 ? "text-emerald-600" : improvement !== null && improvement < 0 ? "text-rose-500" : "text-slate-400",
                     text: improvement !== null
                       ? `Scores ${improvement >= 0 ? "up" : "down"} ${Math.abs(improvement)}% comparing recent vs earlier tests`
-                      : "Take more tests to track your improvement trend",
+                      : (isParentView
+                          ? `${displayName} needs more tests to track the improvement trend`
+                          : "Take more tests to track your improvement trend"),
                   },
                   {
                     Icon: Lightbulb, bg: "bg-cyan-100", iconColor: "text-cyan-600",
-                    text: `${subjectTests.length || timeFilteredTests.length} test${(subjectTests.length || timeFilteredTests.length) !== 1 ? "s" : ""} done — take more quizzes to unlock AI insights`,
+                    text: isParentView
+                      ? `${subjectTests.length || timeFilteredTests.length} test${(subjectTests.length || timeFilteredTests.length) !== 1 ? "s" : ""} done — more quizzes will unlock AI insights`
+                      : `${subjectTests.length || timeFilteredTests.length} test${(subjectTests.length || timeFilteredTests.length) !== 1 ? "s" : ""} done — take more quizzes to unlock AI insights`,
                   },
                 ].map((item, i) => (
                   <li key={i} className="flex items-start gap-2.5">
@@ -1075,9 +1314,15 @@ export default function StudentDashboardAnalytics({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-800">
-                    AI Coach — {selectedSubject === "All" ? "Overall Summary" : `${selectedSubject} Analysis`}
+                    {isParentView
+                      ? `AI Coach — ${displayName}'s ${selectedSubject === "All" ? "Overall Summary" : `${selectedSubject} Analysis`}`
+                      : `AI Coach — ${selectedSubject === "All" ? "Overall Summary" : `${selectedSubject} Analysis`}`}
                   </h3>
-                  <p className="text-xs text-slate-500">Powered by AI · updates after every quiz</p>
+                  <p className="text-xs text-slate-500">
+                    {isParentView
+                      ? `Powered by AI · updates after every quiz ${displayName} completes`
+                      : "Powered by AI · updates after every quiz"}
+                  </p>
                 </div>
               </div>
 
@@ -1093,13 +1338,20 @@ export default function StudentDashboardAnalytics({
                         onClick={() => setSelectedSubject(key)}
                         className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all
                           ${isActive
-                            ? key === "All" ? "bg-indigo-600 text-white border-indigo-600" : `${SUBJECT_BG[key]} text-white border-transparent`
+                            ? key === "All"
+                              ? "bg-indigo-600 text-white border-indigo-600"
+                              : `${SUBJECT_BG[key]} text-white border-transparent`
                             : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
                           }`}
                       >
-                        <SubjectIconEl subject={key} className={`w-3 h-3 ${isActive ? "text-white" : key !== "All" ? SUBJECT_TEXT[key] : "text-slate-500"}`} />
+                        <SubjectIconEl
+                          subject={key}
+                          className={`w-3 h-3 ${isActive ? "text-white" : key !== "All" ? SUBJECT_TEXT[key] : "text-slate-500"}`}
+                        />
                         {label}
-                        {isDone && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5" />}
+                        {isDone && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5" />
+                        )}
                       </button>
                     );
                   })}
@@ -1109,7 +1361,10 @@ export default function StudentDashboardAnalytics({
                   disabled={refreshing || feedbackLoading}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-700 transition-all disabled:opacity-50"
                 >
-                  <svg className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg
+                    className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                  >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                   {refreshing ? "Refreshing…" : "Refresh"}
@@ -1117,17 +1372,22 @@ export default function StudentDashboardAnalytics({
               </div>
             </div>
 
+            {/* ── Pass isParentViewing + displayName so panel adapts its tone ── */}
             <AICumulativeCoachPanel
               feedbackDoc={activeFeedbackDoc}
               subject={selectedSubject}
               onRefresh={handleRefreshFeedback}
               refreshing={refreshing}
               loading={feedbackLoading}
+              isParentViewing={isParentView}
+              displayName={displayName}
             />
 
             {selectedSubject === "All" && Object.keys(cumulativeFeedback).length > 0 && (
               <div className="mt-5 pt-4 border-t border-slate-100">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Subject Feedback Status</p>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  Subject Feedback Status
+                </p>
                 <div className="flex flex-wrap gap-2">
                   {SUBJECTS.map((s) => {
                     const doc = cumulativeFeedback[s];
