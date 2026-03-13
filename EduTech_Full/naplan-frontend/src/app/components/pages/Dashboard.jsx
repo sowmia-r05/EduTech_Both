@@ -17,6 +17,7 @@ import {
   Clock,
   Target,
   RefreshCw,
+  ShieldAlert,
 } from "lucide-react";
 import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopicsFunnelChart";
 import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
@@ -379,6 +380,7 @@ export default function Dashboard() {
   const duration = formatDuration(selectedResult?.duration);
   const attemptsUsed = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
   const { strongTopics, weakTopics } = buildTopicStrength(selectedResult?.topicBreakdown || {});
+  const violations = selectedResult?.proctoring_summary?.total_violations || 0;
   const suggestions = buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
   const displayName = `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim() || "Student";
   const resultStatus = getResultStatus(percentage);
@@ -465,7 +467,7 @@ export default function Dashboard() {
         <div className="px-6 py-3 space-y-3">
 
           {/* ── ROW 1: 4 Stat Cards ── */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-5 gap-3">
             <div id="overall-score" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
               <div className="flex items-center gap-1.5 mb-0.5">
                 <Trophy className="w-3.5 h-3.5 text-indigo-400" />
@@ -503,7 +505,24 @@ export default function Dashboard() {
               </div>
               <p className="text-2xl font-bold text-violet-600">{attemptsUsed}</p>
             </div>
+            {/* Violation Card */}
+            <div className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Violations</p>
+              </div>
+              <p className={`text-2xl font-bold ${violations > 0 ? "text-rose-600" : "text-slate-400"}`}>
+                {violations}
+              </p>
+              {violations > 0 && (
+                <p className="text-[10px] text-rose-400 font-medium">
+                  {(selectedResult?.proctoring_summary?.tab_switches || 0)} tab · {(selectedResult?.proctoring_summary?.fullscreen_exits || 0)} fs
+                </p>
+              )}
+            </div>
           </div>
+
+          
 
           {/* ── ROWS 2+3: Left charts | Right AI Coach ── */}
           <div className="flex flex-col lg:flex-row gap-4 items-stretch">

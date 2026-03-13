@@ -1,55 +1,13 @@
-/**
- * QuizResult.jsx  (v8 — TABS INSIDE KAI HEADER)
- *
- * The component owns its own full-page header:
- *
- *   ┌──────────────────────────────────────────────────────────────┐
- *   │  [KAI Logo]    [📋 Results | 📊 Dashboard]    [Name  Avatar] │  ← one sticky bar
- *   └──────────────────────────────────────────────────────────────┘
- *
- * Dashboard tab = pixel-perfect copy of Dashboard.jsx layout.
- *
- * ────────────────────────────────────────────────────────────────
- * REQUIRED CHANGE in ChildDashboard.jsx  (see patch file)
- *
- *   REMOVE the entire wrapper:
- *     <div className="min-h-screen bg-slate-100">
- *       <DashboardHeader> … </DashboardHeader>
- *       <QuizResult … />
- *     </div>
- *
- *   REPLACE WITH:
- *     <QuizResult
- *       result={selectedQuizResult.result}
- *       quizName={selectedQuizResult.quizName}
- *       childStatus={childStatus}
- *       displayName={displayName}
- *       isParentViewing={isParentViewing}
- *       onClose={() => setSelectedQuizResult(null)}
- *       onRetake={…}
- *       onViewAnalytics={…}
- *       onViewAIFeedback={…}
- *     />
- * ────────────────────────────────────────────────────────────────
- */
-
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth }     from "@/app/context/AuthContext";
 import AnswersModal    from "./AnswersModal";
 import ChildAvatarMenu from "@/app/components/ui/ChildAvatarMenu";
-import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
 
-import DonutScoreChart      from "@/app/components/dashboardComponents/DonutScoreChart";
-import WeakTopicsBarChart   from "@/app/components/dashboardComponents/WeakTopicsBarChart";
-import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopicsFunnelChart";
-import AICoachPanel         from "@/app/components/dashboardComponents/AICoachPanel";
-import AISuggestionPanel    from "@/app/components/dashboardComponents/AISuggestionPanel";
 
-import {
-  Trophy, Clock, Target, RefreshCw,
-  BarChart2, PieChart, TrendingUp, Lightbulb, Bot, ShieldAlert,
-} from "lucide-react";
+
+
+
 
 /* ═══════════════════════════════════════════
    SELF-CONTAINED HEADER
@@ -99,16 +57,36 @@ function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentVie
 
       {/* ── Centre: Tab pills ── */}
       <div style={{
+        position:"absolute",
+        left:"50%",
+        transform:"translateX(-50%)",
         display:"flex", alignItems:"center",
         background:"#F1F5F9", borderRadius:10, padding:4, gap:4,
+        zIndex:1,
       }}>
         {[
-          { id:0, emoji:"📋", label:"Results"   },
-          { id:1, emoji:"📊", label:"Dashboard" },
+          {
+            id: 0, label: "Results",
+            icon: (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+              </svg>
+            ),
+          },
+          {
+            id: 1, label: "AI Feedback",
+            icon: (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3c-1 2.5-3.5 4-3.5 4S12 8.5 12 12c0-3.5 3.5-5 3.5-5S13 5.5 12 3z"/>
+                <path d="M5 14c-.5 1.5-2 2.5-2 2.5S5 18 5 20c0-2 2.5-3 2.5-3S5.5 15.5 5 14z"/>
+                <path d="M19 14c.5 1.5 2 2.5 2 2.5S19 18 19 20c0-2-2.5-3-2.5-3S18.5 15.5 19 14z"/>
+              </svg>
+            ),
+          },
         ].map(tab => (
           <button key={tab.id} onClick={() => onTabChange(tab.id)} style={{
             display:"flex", alignItems:"center", gap:6,
-            padding:"6px 20px", borderRadius:8,
+            padding:"6px 16px", borderRadius:8,
             border:     activeTab === tab.id ? "1px solid #E2E8F0" : "1px solid transparent",
             background: activeTab === tab.id ? "#fff" : "transparent",
             boxShadow:  activeTab === tab.id ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
@@ -116,8 +94,18 @@ function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentVie
             fontWeight: 600, fontSize:14, cursor:"pointer",
             transition:"all 0.15s", whiteSpace:"nowrap",
           }}>
-            <span style={{ fontSize:16, lineHeight:1 }}>{tab.emoji}</span>
+            <span style={{ color: activeTab === tab.id ? (tab.id === 1 ? "#7C3AED" : "#2563EB") : "#94A3B8" }}>
+              {tab.icon}
+            </span>
             {tab.label}
+            {tab.id === 1 && (
+              <span style={{
+                fontSize:9, fontWeight:700, letterSpacing:"0.06em",
+                padding:"2px 5px", borderRadius:4,
+                background: activeTab === 1 ? "linear-gradient(135deg,#7C3AED,#6D28D9)" : "#E5E7EB",
+                color: activeTab === 1 ? "#fff" : "#9CA3AF",
+              }}>AI</span>
+            )}
           </button>
         ))}
       </div>
@@ -220,6 +208,8 @@ const buildTopicStrength = (tb={}) => {
   return { strongTopics:strong, weakTopics:weak.sort((a,b)=>b.lostMarks-a.lostMarks) };
 };
 
+
+
 const buildSuggestions = (fb) => {
   if (!fb) return [];
   const list=[];
@@ -249,236 +239,8 @@ const getStatus = pct =>
   pct>=30?{ label:"Developing",   cls:"text-amber-600"   }:
           { label:"More Practice",cls:"text-red-600"     };
 
-/* ═══════════════════════════════════════════
-   DASHBOARD STAT CARD  (matches Dashboard.jsx)
-   ═══════════════════════════════════════════ */
-function StatCard({ id, iconEl, label, value, valueClass }) {
-  return (
-    <div id={id} className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col items-center justify-center gap-1 h-24">
-      <div className="flex items-center gap-1.5 mb-0.5">
-        {iconEl}
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      </div>
-      <p className={`text-2xl font-bold ${valueClass}`}>{value}</p>
-    </div>
-  );
-}
 
-/* ═══════════════════════════════════════════
-   DASHBOARD CHART CARD HEADER
-   ═══════════════════════════════════════════ */
-function CardHeader({ iconBg, iconEl, title }) {
-  return (
-    <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
-      <div className={`w-7 h-7 rounded-lg ${iconBg} flex items-center justify-center`}>{iconEl}</div>
-      <span className="text-sm font-semibold text-slate-700">{title}</span>
-    </div>
-  );
-}
 
-/* ═══════════════════════════════════════════
-   DASHBOARD TAB  — compact, exact Dashboard.jsx layout
-   Fixed: uses childId + apiFetch (no broken user.username)
-   ═══════════════════════════════════════════ */
-function DashboardTab({ result, quizName, score, topics, violations, childId: childIdProp }) {
-  const { childToken, parentToken, childProfile, apiFetch } = useAuth();
-
-  const [fullResult,    setFullResult]    = useState(null);
-  const [fetchingFull,  setFetchingFull]  = useState(false);
-  const [allAttempts,   setAllAttempts]   = useState([]);
-  const [selectedDate,  setSelectedDate]  = useState(null);
-  const [activeAttempt, setActiveAttempt] = useState(null);
-
-  const attemptId = result?.attempt_id || result?.response_id || null;
-  // Use childId from prop first, then from childProfile (JWT)
-  const childId   = childIdProp || childProfile?.childId || null;
-
-  // Fetch the full result (ai_feedback, duration, proctoring) on mount
-  useEffect(() => {
-    if (!attemptId) return;
-    setFetchingFull(true);
-    apiFetch(`/api/results/${encodeURIComponent(attemptId)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setFullResult(d); })
-      .catch(() => {})
-      .finally(() => setFetchingFull(false));
-  }, [attemptId, apiFetch]);
-
-  // Fetch ALL attempts for this child via proven /api/children/:id/results endpoint
-  useEffect(() => {
-    if (!childId) return;
-    apiFetch(`/api/children/${childId}/results`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (!Array.isArray(d)) return;
-        // Filter to same quiz only
-        const qn = (quizName || "").toLowerCase();
-        const filtered = qn
-          ? d.filter(a => (a.quiz_name || "").toLowerCase() === qn)
-          : d;
-        setAllAttempts(filtered);
-      })
-      .catch(() => {});
-  }, [childId, quizName, apiFetch]);
-
-  // When user selects a specific attempt from the calendar, load its full data
-  useEffect(() => {
-    if (!activeAttempt) return;
-    const rid = activeAttempt?.attempt_id || activeAttempt?.response_id;
-    if (!rid) return;
-    apiFetch(`/api/results/${encodeURIComponent(rid)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setFullResult(d); })
-      .catch(() => {});
-  }, [activeAttempt, apiFetch]);
-
-  // Merge fetched > props
-  const activeResult = fullResult || result;
-  const activeTopics = fullResult?.topicBreakdown || fullResult?.topic_breakdown || topics;
-  const activeScore  = fullResult?.score || score;
-
-  const pct       = activeScore.percentage || 0;
-  const duration  = fmtDuration(fullResult?.duration_sec || fullResult?.duration || result.duration);
-  const status    = getStatus(pct);
-  const violCount = fullResult?.proctoring?.violations ?? violations ?? 0;
-
-  const { strongTopics, weakTopics } = useMemo(() => buildTopicStrength(activeTopics), [activeTopics]);
-  const suggestions = useMemo(() => buildSuggestions(activeResult?.ai_feedback), [activeResult?.ai_feedback]);
-
-  // Calendar dots — one per attempt date
-  const testTakenDates = useMemo(() =>
-    allAttempts.map(a => {
-      const raw = a?.createdAt || a?.date_submitted || a?.submitted_at;
-      if (!raw) return null;
-      const d = new Date(typeof raw === "object" && raw.$date ? raw.$date : raw);
-      if (isNaN(d.getTime())) return null;
-      d.setHours(0, 0, 0, 0); return d;
-    }).filter(Boolean),
-    [allAttempts]
-  );
-
-  const attemptDate = useMemo(() => {
-    const raw = activeResult?.submitted_at || activeResult?.date_submitted || activeResult?.createdAt;
-    if (!raw) return null;
-    const d = new Date(typeof raw === "object" && raw.$date ? raw.$date : raw);
-    if (isNaN(d.getTime())) return null;
-    return d.toLocaleDateString("en-AU", { weekday:"short", day:"numeric", month:"short", year:"numeric" });
-  }, [activeResult]);
-
-  return (
-    <div className="min-h-screen bg-gray-100">
-
-      {/* PAGE TITLE ROW */}
-      <div className="flex items-center justify-between px-6 pt-4 pb-3 gap-4 flex-wrap">
-        <h1 className="text-xl font-bold leading-tight">
-          <span className="text-slate-800">{quizName} </span>
-          <span className="text-teal-600">– Report</span>
-        </h1>
-        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-          {/* Attempt count */}
-          <div className="flex items-center gap-1 px-2 py-1 bg-teal-50 rounded-lg border border-teal-100 text-xs">
-            <svg className="w-3 h-3 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            <span className="font-semibold text-teal-700">
-              {allAttempts.length > 0 ? `${allAttempts.length} attempt${allAttempts.length !== 1 ? "s" : ""}` : "1 attempt"}
-            </span>
-          </div>
-          {/* Subject */}
-          {activeResult?.subject && (
-            <span className="px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-100 text-xs font-semibold text-indigo-600">
-              {activeResult.subject}
-            </span>
-          )}
-          {/* Date of current attempt */}
-          {attemptDate && (
-            <div className="flex items-center gap-1 px-2 py-1 bg-teal-50 rounded-lg border border-teal-100 text-xs">
-              <svg className="w-3 h-3 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5"/>
-              </svg>
-              <span className="font-semibold text-teal-700">{attemptDate}</span>
-            </div>
-          )}
-          {/* Calendar filter */}
-          <DateRangeFilter
-            selectedDate={selectedDate}
-            onChange={(date) => { setSelectedDate(date); setActiveAttempt(null); }}
-            testTakenDates={testTakenDates}
-            quizAttempts={allAttempts}
-            onAttemptSelect={(attempt) => { setActiveAttempt(attempt); setSelectedDate(null); }}
-          />
-        </div>
-      </div>
-
-      {/* Loading bar */}
-      {fetchingFull && (
-        <div className="px-6 pb-1">
-          <div className="h-0.5 w-full bg-slate-200 rounded-full overflow-hidden">
-            <div className="h-full w-3/5 bg-indigo-400 rounded-full animate-pulse"/>
-          </div>
-        </div>
-      )}
-
-      {/* GRID */}
-      <div className="px-6 pb-6 space-y-3">
-
-        {/* ROW 1 — 5 stat cards (compact h-20) */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <StatCard id="overall-score"  iconEl={<Trophy       className="w-3 h-3 text-indigo-400"/>} label="Overall Score" value={`${pct}%`}                              valueClass="text-indigo-700"/>
-          <StatCard id="time-spent"     iconEl={<Clock        className="w-3 h-3 text-sky-400"   />} label="Time Spent"   value={duration}                                 valueClass="text-sky-600"/>
-          <StatCard id="result-label"   iconEl={<Target       className="w-3 h-3 text-amber-400" />} label="Result"       value={status.label}                             valueClass={`text-base text-center leading-tight ${status.cls}`}/>
-          <StatCard id="points-card"    iconEl={<RefreshCw    className="w-3 h-3 text-violet-400"/>} label="Points"       value={`${activeScore.points||0}/${activeScore.available||0}`} valueClass="text-violet-600"/>
-          <StatCard id="violations-card"iconEl={<ShieldAlert  className="w-3 h-3 text-rose-400"  />} label="Violations"  value={violCount}                                 valueClass={violCount > 0 ? "text-rose-600" : "text-emerald-600"}/>
-        </div>
-
-        {/* ROW 2 — Donut (2/5) + WeakTopics (3/5) — height 160 */}
-        <div className="grid grid-cols-5 gap-3">
-          <div id="donut-chart" className="col-span-5 sm:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
-            <CardHeader iconBg="bg-indigo-50" iconEl={<PieChart className="w-4 h-4 text-indigo-500"/>} title="Performance Overview"/>
-            <div className="flex-1 p-3">
-              <DonutScoreChart correctPercent={pct} incorrectPercent={100-pct} height={160} showTitle={false}/>
-            </div>
-          </div>
-          <div id="weak-topics" className="col-span-5 sm:col-span-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
-            <CardHeader iconBg="bg-rose-50" iconEl={<TrendingUp className="w-4 h-4 text-rose-500"/>} title="Priority Improvement Areas"/>
-            <div className="flex-1 p-3">
-              <WeakTopicsBarChart topics={weakTopics} height={160} showTitle={false}/>
-            </div>
-          </div>
-        </div>
-
-        {/* ROW 3 — TopTopics (2/5) + Suggestions (3/5) — height 160 */}
-        <div className="grid grid-cols-5 gap-3">
-          <div id="top-topics" className="col-span-5 sm:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
-            <CardHeader iconBg="bg-emerald-50" iconEl={<BarChart2 className="w-4 h-4 text-emerald-500"/>} title="Strong Topics"/>
-            <div className="flex-1 p-3">
-              <TopTopicsFunnelChart topicBreakdown={activeTopics} topN={5} height={160} showTitle={false}/>
-            </div>
-          </div>
-          <div id="suggestions" className="col-span-5 sm:col-span-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
-            <CardHeader iconBg="bg-amber-50" iconEl={<Lightbulb className="w-4 h-4 text-amber-500"/>} title="Study Suggestions"/>
-            <div className="flex-1 p-3">
-              <AISuggestionPanel suggestions={suggestions}
-                studyTips={activeResult?.ai_feedback?.study_tips||[]}
-                topicWiseTips={activeResult?.ai_feedback?.topic_wise_tips||[]}
-                showTitle={false}/>
-            </div>
-          </div>
-        </div>
-
-        {/* ROW 4 — AI Coach full width */}
-        <div id="ai-coach" className="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
-          <CardHeader iconBg="bg-teal-50" iconEl={<Bot className="w-4 h-4 text-teal-500"/>} title="AI Coach Feedback"/>
-          <div className="flex-1 overflow-hidden">
-            <AICoachPanel feedback={activeResult?.ai_feedback}
-              strongTopics={strongTopics} weakTopics={weakTopics} showTitle={false}/>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════════
    MAIN EXPORT
@@ -582,6 +344,19 @@ export default function QuizResult({
     );
   }, [attemptId, result?.subject, quizName, isWriting, childStatusProp, liveStatus, onViewAIFeedback, navigate]);
 
+  // Navigates to the full Dashboard.jsx for this attempt
+  const handleViewDashboard = useCallback(() => {
+    if (!attemptId) return;
+    const { childProfile: cp } = authRef.current;
+    const s = liveStatus || childStatusProp || cp?.status || "trial";
+    const p = new URLSearchParams({ r: attemptId });
+    if (cp?.username)    p.set("username",  cp.username);
+    if (result?.subject) p.set("subject",   result.subject);
+    if (quizName)        p.set("quiz_name", quizName);
+    p.set("status", s);
+    navigate(`/NonWritingLookupQuizResults/results?${p}`);
+  }, [navigate, attemptId, result?.subject, quizName, liveStatus, childStatusProp]);
+
   /* ── shared icon SVGs ── */
   const IcAnswers = () => (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -645,12 +420,21 @@ export default function QuizResult({
       {/* ONE sticky bar: logo + tabs + avatar */}
       <QuizHeader
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tabId) => {
+          if (tabId === 1 && !isWriting) { handleViewDashboard(); return; }
+          setActiveTab(tabId);
+        }}
         quizName={quizName}
         displayName={resolvedName}
         isParentViewing={isParentViewing}
-        onBack={onClose}
-        onBackToParent={() => navigate("/parent-dashboard")}
+        onBack={() => {
+          if (onClose) onClose();
+          else navigate("/child-dashboard");
+        }}
+        onBackToParent={() => {
+          if (onClose) onClose();
+          navigate("/parent-dashboard");
+        }}
       />
 
       {/* ── TAB 1: RESULTS ── */}
@@ -658,18 +442,34 @@ export default function QuizResult({
         <div className="px-4 py-8">
           <div className="max-w-xl mx-auto space-y-4">
 
-            <div className="text-center space-y-1 pb-2">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Quiz Complete</p>
-              <h1 className="text-xl font-bold text-slate-800">{quizName}</h1>
-            </div>
+            <div className="rounded-2xl overflow-hidden shadow-md border border-slate-200">
+              {/* Gradient header strip */}
+              <div style={{ background:"linear-gradient(135deg,#1E293B 0%,#334155 100%)" }} className="px-6 py-4 text-center">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-widest"
+                  style={{ background:"rgba(255,255,255,0.12)", color:"rgba(255,255,255,0.75)" }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                  QUIZ COMPLETE
+                </div>
+                <h1 className="text-white font-bold text-lg mt-2 leading-snug">{quizName}</h1>
+              </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-4">
-              <div className="flex justify-center"><ScoreRing percentage={percentage}/></div>
-              <div>
-                <p className="text-base font-bold text-slate-800">{gradeLabel}</p>
-                <p className="text-sm text-slate-500 mt-1">
-                  {score.points||0} / {score.available||0} points &middot; Grade {score.grade||"—"}
-                </p>
+              {/* Score section */}
+              <div className="bg-white px-8 py-6 text-center space-y-3">
+                <div className="flex justify-center"><ScoreRing percentage={percentage}/></div>
+                <div>
+                  <p className="text-base font-bold text-slate-800">{gradeLabel}</p>
+                  <div className="flex items-center justify-center gap-3 mt-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+                      {score.points||0} / {score.available||0} pts
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+                      Grade {score.grade||"—"}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -702,12 +502,6 @@ export default function QuizResult({
             {/* Action buttons */}
             <div className="space-y-3 pt-2">
               {!isWriting && <ActionBtn onClick={() => setShowAnswers(true)} icon={<IcAnswers/>} label="View My Answers"/>}
-              {onViewAnalytics && <ActionBtn onClick={handleViewAnalytics} icon={<IcAnalytics/>} label="View Progress"/>}
-              {attemptId && (
-                <ActionBtn onClick={handleViewAIFeedback} icon={<IcAI/>} label="View Test Insights"
-                  variant="indigo"
-                  badge={liveStatus && liveStatus!=="trial" ? liveStatus : null}/>
-              )}
               {onRetake && <ActionBtn onClick={onRetake} icon={<IcRetake/>} label="Retake Quiz"/>}
             </div>
 
@@ -715,17 +509,7 @@ export default function QuizResult({
         </div>
       )}
 
-      {/* ── TAB 2: DASHBOARD ── */}
-      {activeTab === 1 && (
-        <DashboardTab
-          result={result}
-          quizName={quizName}
-          score={score}
-          topics={topics}
-          violations={violations}
-          childId={childProfile?.childId || null}
-        />
-      )}
+
 
       {showAnswers && !isWriting && (
         <AnswersModal

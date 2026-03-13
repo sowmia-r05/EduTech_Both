@@ -162,6 +162,7 @@ export default function ChildDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { childToken, childProfile, parentToken, logoutChild, logout } = useAuth();
+  
 
   const childId     = searchParams.get("childId") || childProfile?.childId;
   const activeToken = childToken || parentToken;
@@ -190,7 +191,21 @@ const getInitialTab = () => {
   const [childInfo,            setChildInfo]            = useState(null);
   const [activeTab,            setActiveTab]            = useState(getInitialTab);
   const [activeQuiz,           setActiveQuiz]           = useState(null);
-  const [selectedQuizResult,   setSelectedQuizResult]   = useState(null);
+  const [selectedQuizResult, setSelectedQuizResult] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("quizResultState");
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+    useEffect(() => {
+    try {
+      if (selectedQuizResult) {
+        sessionStorage.setItem("quizResultState", JSON.stringify(selectedQuizResult));
+      } else {
+        sessionStorage.removeItem("quizResultState");
+      }
+    } catch {}
+  }, [selectedQuizResult]);
   const [resultLoading,        setResultLoading]        = useState(false);
   const [viewMode,             setViewMode]             = useState("all");
   const [childEntitledQuizIds, setChildEntitledQuizIds] = useState(null);
