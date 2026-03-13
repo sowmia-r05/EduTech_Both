@@ -16,7 +16,7 @@ import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
-import { AlertCircle, Loader2, ArrowLeft, LogIn, X } from "lucide-react";
+import { AlertCircle, Loader2, ArrowLeft, LogIn, X, Mail } from "lucide-react";
 
 import TermsAndConditions from "@/app/components/TermsAndConditions";
 import PrivacyPolicy from "@/app/components/PrivacyPolicy";
@@ -85,6 +85,9 @@ export default function ParentCreatePage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [step, setStep] = useState("form");        // "form" | "otp"
+  const [sentTo, setSentTo] = useState("");         // masked email from API
+  const [otpCode, setOtpCode] = useState("");
 
   const normalizedEmail = normalizeEmail(formData.email);
 
@@ -147,18 +150,15 @@ export default function ParentCreatePage() {
 
       localStorage.setItem("parent_pending_email", email);
       localStorage.setItem("parent_pending_masked", result?.otp_sent_to || "");
-
       localStorage.setItem(
         "parent_pending_profile",
         JSON.stringify({ firstName, lastName, email })
       );
-
-      // ✅ NEW: Persist the redirect intent so ParentVerifyPage can honor it
       if (redirectIntent) {
         localStorage.setItem("parent_signup_redirect", redirectIntent);
       }
-
-      navigate("/parent/verify");
+      setSentTo(result?.otp_sent_to || email);
+      setStep("otp");           // ← show OTP step inline, don't navigate yet
     } catch (err) {
       setError(err?.message || "Failed to send OTP");
     } finally {
@@ -214,8 +214,6 @@ export default function ParentCreatePage() {
           <CardHeader>
             <CardTitle className="text-2xl text-center">Create Parent Account</CardTitle>
           </CardHeader>
-
-
            <CardContent>
             {/* ── Google Sign-In ── */}
             <div className="mb-2">
@@ -257,13 +255,14 @@ export default function ParentCreatePage() {
               </div>
             </div>
 
+          {step === "form" && ( 
             <form onSubmit={onSubmit} className="space-y-5">
               {error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
-              )}
+              )} 
 
               <div className="space-y-2">
                 <Label>First Name</Label>
@@ -336,7 +335,55 @@ export default function ParentCreatePage() {
                 )}
               </Button>
             </form>
-          </CardContent>
+          )}
+          
+          {step === "otp" && (
+          <div className="mt-2">
+            {/* Success banner */}
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 mb-4 flex items-start gap-3">
+              <Mail className="h-5 w-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-indigo-800">Check your email!</p>
+                <p className="text-sm text-indigo-600 mt-0.5">
+                  A 6-digit code has been sent to <strong>{sentTo}</strong>. Please copy and paste it below.
+                </p>
+              </div>
+            </div>
+              <div className="space-y-3">
+                <Label htmlFor="otp-input">Verification Code</Label>
+                <Input
+                  id="otp-input"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="Enter 6-digit code"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  autoComplete="one-time-code"
+                />
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+                <Button
+                  onClick={() => navigate("/parent/verify")}
+                  disabled={otpCode.length !== 6 || loading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : "Verify & Continue"}
+                </Button>
+                <p className="text-center text-xs text-slate-500">
+                  Didn't receive it?{" "}
+                  <button type="button" onClick={onSubmit} className="text-indigo-600 font-medium hover:underline">
+                    Resend
+                  </button>
+                </p>
+              </div>
+            </div>
+          )}
+      </CardContent>
         </Card>
 
         <p className="text-center text-sm text-slate-500 mt-4">

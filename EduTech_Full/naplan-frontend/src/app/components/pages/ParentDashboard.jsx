@@ -957,17 +957,23 @@ function EditChildModal({ child, onClose, onSave, loading }) {
       </div>
       <form onSubmit={handleSubmit}>
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <div>
-            <label style={LABEL_STYLE}>Display Name</label>
-            <input style={INPUT_STYLE} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Emma" />
-          </div>
-          <div>
-            <label style={LABEL_STYLE}>Year Level</label>
-            <select style={INPUT_STYLE} value={yearLevel} onChange={(e) => setYearLevel(e.target.value)}>
-              <option value="">Select year level</option>
-              {YEAR_OPTIONS.map((y) => <option key={y} value={y}>Year {y}</option>)}
-            </select>
-          </div>
+        <div>
+          <label style={LABEL_STYLE}>Display Name</label>
+          <input style={INPUT_STYLE} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Emma" />
+        </div>
+        {/* ✅ ADD THIS — Username (read-only) */}
+        <div>
+          <label style={LABEL_STYLE}>
+            Username{" "}
+            <span style={{ fontWeight: 400, color: "#9CA3AF", fontSize: "12px" }}>(cannot be changed)</span>
+          </label>
+          <input
+            style={{ ...INPUT_STYLE, background: "#F9FAFB", color: "#6B7280", cursor: "not-allowed" }}
+            value={`@${child.username || child.user_name || ""}`}
+            readOnly
+            disabled
+          />
+        </div>
           <CheckboxRow checked={changePin} onChange={(e) => setChangePin(e.target.checked)}>
             Change PIN
           </CheckboxRow>
