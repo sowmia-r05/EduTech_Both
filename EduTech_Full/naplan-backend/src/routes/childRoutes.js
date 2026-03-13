@@ -141,6 +141,7 @@ router.get("/summaries", verifyToken, requireParent, async (req, res) => {
           lastActivity: stats.lastActivity,
           entitled_bundle_ids: child.entitled_bundle_ids || [],
           entitled_quiz_ids: child.entitled_quiz_ids || [],
+          email_notifications: child.email_notifications ?? false,
         };
       }),
     );
@@ -410,6 +411,30 @@ router.get("/:childId/me", verifyToken, requireAuth, async (req, res) => {
   } catch (err) {
     console.error("GET /:childId/me error:", err);
     return res.status(500).json({ error: "Failed to fetch child profile" });
+  }
+});
+
+// ────────────────────────────────────────────
+// GET /api/children/:childId
+// ────────────────────────────────────────────
+router.get("/:childId", verifyToken, requireParent, async (req, res) => {
+  try {
+    const parentId = req.user.parentId || req.user.parent_id;
+    const { childId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(childId))
+      return res.status(400).json({ error: "Invalid child ID" });
+
+    const child = await Child.findOne({ _id: childId, parent_id: parentId })
+      .select("-pin_hash")
+      .lean();
+
+    if (!child) return res.status(404).json({ error: "Child not found" });
+
+    return res.json(child);
+  } catch (err) {
+    console.error("GET /children/:childId error:", err);
+    return res.status(500).json({ error: "Failed to fetch child" });
   }
 });
 

@@ -405,6 +405,7 @@ function ChildCard({ child, colorIndex, onEdit, onDelete, onViewResults, onFreeS
           <>
             {/* PRIMARY: Child's Dashboard */}
             <button
+            title ={`${cap(child.name)}'s Dashboard`}
               onClick={() => onViewResults?.(child)}
               style={{
                 flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: "9px",
