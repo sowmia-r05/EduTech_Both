@@ -75,10 +75,10 @@ function SubjectIconEl({ subject, className = "w-4 h-4" }) {
 }
 
 const TIME_FILTERS = [
-  { label: "This Week",     days: 7 },
-  { label: "This Month",    days: 30 },
-  { label: "Last 3 Months", days: 90 },
-  { label: "All Time",      days: Infinity },
+  { label: "Week",     days: 7 },
+  { label: "Month",    days: 30 },
+  { label: "3 Months", days: 90 },
+  { label: "All Time", days: Infinity },
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -159,7 +159,7 @@ function formatDuration(seconds) {
 
 function Card({ children, className = "" }) {
   return (
-    <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-6 ${className}`}>
+    <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-5 ${className}`}>
       {children}
     </div>
   );
@@ -167,38 +167,41 @@ function Card({ children, className = "" }) {
 
 function CardTitle({ children, light = false }) {
   return (
-    <h3 className={`text-sm font-semibold uppercase tracking-wider mb-4 ${light ? "text-white/80" : "text-slate-400"}`}>
+    <h3 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${light ? "text-white/80" : "text-slate-400"}`}>
       {children}
     </h3>
   );
 }
 
-function KPI({ title, value, accent = false, warning = false, subject = null }) {
+function KPI({ title, value, accent = false, warning = false, subject = null, subtext = null }) {
   const accentColor = subject
     ? SUBJECT_TEXT[subject]
     : accent ? "text-indigo-600" : warning ? "text-rose-500" : "text-slate-900";
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col gap-1">
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col gap-0.5">
       <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</span>
-      <span className={`text-3xl font-bold ${accentColor}`}>{value}</span>
+      <span className={`text-2xl font-bold leading-tight ${value === "—" ? "text-slate-300" : accentColor}`}>
+        {value}
+      </span>
+      {subtext && <span className="text-xs text-slate-400 mt-0.5">{subtext}</span>}
     </div>
   );
 }
 
 function KPISkeleton() {
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
       <div className="h-3 w-20 bg-slate-100 rounded mb-3 animate-pulse" />
-      <div className="h-8 w-24 bg-slate-100 rounded animate-pulse" />
+      <div className="h-7 w-24 bg-slate-100 rounded animate-pulse" />
     </div>
   );
 }
 
 function ChartSkeleton({ message }) {
   return (
-    <div className="flex flex-col items-center justify-center h-48 text-center gap-3">
-      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-        <LayoutDashboard className="w-6 h-6 text-slate-400" />
+    <div className="flex flex-col items-center justify-center h-40 text-center gap-2">
+      <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
+        <LayoutDashboard className="w-5 h-5 text-slate-300" />
       </div>
       <p className="text-sm text-slate-400 max-w-xs">{message}</p>
     </div>
@@ -207,9 +210,9 @@ function ChartSkeleton({ message }) {
 
 function SummaryRow({ label, value, positive }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
-      <span className="text-slate-500">{label}</span>
-      <span className={`font-semibold ${positive === true ? "text-emerald-600" : positive === false ? "text-rose-500" : "text-slate-900"}`}>
+    <div className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
+      <span className="text-sm text-slate-500">{label}</span>
+      <span className={`text-sm font-semibold ${positive === true ? "text-emerald-600" : positive === false ? "text-rose-500" : "text-slate-800"}`}>
         {value}
       </span>
     </div>
@@ -217,7 +220,72 @@ function SummaryRow({ label, value, positive }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AI COACH PANEL — compact & scannable
+   PARENT TONE REFRAMER
+   Transforms child-addressed text ("You've", "your") into
+   parent-addressed text ("Liam has", "Liam's") when a parent
+   is viewing the dashboard.
+   ═══════════════════════════════════════════════════════════ */
+
+function reframeForParent(text, childName) {
+  if (!text || !childName) return text;
+
+  // ── Step 1: Contractions FIRST (must come before bare "you" replacement)
+  text = text
+    .replace(/\bYou'll\b/g,   `${childName} will`)
+    .replace(/\byou'll\b/g,   `${childName} will`)
+    .replace(/\bYou'd\b/g,    `${childName} would`)
+    .replace(/\byou'd\b/g,    `${childName} would`)
+    .replace(/\bYou've\b/g,   `${childName} has`)
+    .replace(/\byou've\b/g,   `${childName} has`)
+    .replace(/\bYou're\b/g,   `${childName} is`)
+    .replace(/\byou're\b/g,   `${childName} is`)
+    .replace(/\bYou've\b/g,   `${childName} has`);
+
+  // ── Step 2: Multi-word patterns
+  text = text
+    .replace(/\bYou are\b/g,  `${childName} is`)
+    .replace(/\byou are\b/g,  `${childName} is`)
+    .replace(/\bYou have\b/g, `${childName} has`)
+    .replace(/\byou have\b/g, `${childName} has`);
+
+  // ── Step 3: Possessive
+  text = text
+    .replace(/\bYour\b/g, `${childName}'s`)
+    .replace(/\byour\b/g, `${childName}'s`);
+
+  // ── Step 4: Bare "You" / "you"
+  text = text
+    .replace(/\bYou\b/g, childName)
+    .replace(/\byou\b/g, childName);
+
+  // ── Step 5: Remove doubled name from vocative patterns
+  // e.g. "Liam is doing great, Liam!" → "Liam is doing great!"
+  // Gemini often writes "You're doing great, [name]!" — after replacement the
+  // name appears twice. Strip the trailing comma-name address.
+  const escapedName = childName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  text = text
+    .replace(new RegExp(`,\\s*${escapedName}([!.?]|\\b)`, "gi"), "$1")
+    .replace(new RegExp(`^${escapedName},\\s*${escapedName}\\b`, "gi"), childName);
+
+  // ── Step 6: Fix subject–verb agreement edge cases left behind
+  // "Before [name] start" → "Before [name] starts"
+  text = text
+    .replace(
+      new RegExp(`(Before\\s+${escapedName}\\s+)(start)\\b`, "gi"),
+      (_, prefix) => `${prefix}starts`
+    );
+
+  // ── Step 7: Common phrase replacements
+  text = text
+    .replace(/\bkeep practising\b/gi,  `encourage ${childName} to keep practising`)
+    .replace(/\bKeep going!\b/g,       `${childName} is on a great track!`)
+    .replace(/\bKeep it up!\b/g,       `Encourage ${childName} to keep it up!`);
+
+  return text;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AI COACH PANEL
    ═══════════════════════════════════════════════════════════ */
 
 const TREND_CONFIG = {
@@ -249,16 +317,12 @@ function FeedbackSkeleton() {
   );
 }
 
-/* Compact chip list — for strengths / tips */
 function ChipList({ items, color }) {
   if (!items?.length) return null;
   return (
     <div className="flex flex-wrap gap-1.5">
       {items.slice(0, 3).map((item, i) => (
-        <span
-          key={i}
-          className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium border ${color}`}
-        >
+        <span key={i} className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium border ${color}`}>
           {typeof item === "string" ? item : item.issue || item}
         </span>
       ))}
@@ -266,13 +330,43 @@ function ChipList({ items, color }) {
   );
 }
 
-function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, loading }) {
-  const status = feedbackDoc?.status;
-  const feedback = feedbackDoc?.feedback;
-  const subjectColor = subject !== "All" ? SUBJECT_TEXT[subject] : "text-indigo-600";
-  const subjectBgLight = subject !== "All" ? SUBJECT_LIGHT_BG[subject] : "bg-indigo-50";
-  const subjectBorderColor = subject !== "All" ? SUBJECT_BORDER[subject] : "border-indigo-200";
+/* ─── AICumulativeCoachPanel ───────────────────────────────
+   Now accepts isParentViewing + displayName to adapt all
+   feedback text to the correct audience tone.
+─────────────────────────────────────────────────────────── */
+function AICumulativeCoachPanel({
+  feedbackDoc,
+  subject,
+  onRefresh,
+  refreshing,
+  loading,
+  isParentViewing = false,   // ← NEW
+  displayName = "Student",   // ← NEW
+}) {
+  const status      = feedbackDoc?.status;
+  const rawFeedback = feedbackDoc?.feedback;
 
+  // ── Reframe stored child-tone text into parent tone when needed ──
+  const feedback = isParentViewing && rawFeedback
+    ? {
+        ...rawFeedback,
+        summary:       reframeForParent(rawFeedback.summary, displayName),
+        encouragement: reframeForParent(rawFeedback.encouragement, displayName),
+        strengths:     rawFeedback.strengths?.map((s) => reframeForParent(s, displayName)),
+        study_tips:    rawFeedback.study_tips?.map((t) => reframeForParent(t, displayName)),
+        areas_for_improvement: rawFeedback.areas_for_improvement?.map((a) => ({
+          ...a,
+          issue:          reframeForParent(a.issue, displayName),
+          how_to_improve: reframeForParent(a.how_to_improve, displayName),
+        })),
+      }
+    : rawFeedback;
+
+  const subjectColor      = subject !== "All" ? SUBJECT_TEXT[subject]    : "text-indigo-600";
+  const subjectBgLight    = subject !== "All" ? SUBJECT_LIGHT_BG[subject] : "bg-indigo-50";
+  const subjectBorderColor= subject !== "All" ? SUBJECT_BORDER[subject]  : "border-indigo-200";
+
+  /* ── Loading / generating states ── */
   if (loading || status === "pending" || status === "generating" || refreshing) {
     return (
       <div className="space-y-4">
@@ -281,23 +375,33 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <span>Generating AI coaching report…</span>
+          <span>
+            {isParentViewing
+              ? `Generating coaching report for ${displayName}…`
+              : "Generating AI coaching report…"}
+          </span>
         </div>
         <FeedbackSkeleton />
       </div>
     );
   }
 
+  /* ── No feedback doc yet ── */
   if (!feedbackDoc) {
     return (
       <div className="text-center py-6 text-slate-400 text-sm space-y-1">
         <BookOpen className="w-8 h-8 mx-auto text-slate-200 mb-2" />
         <p>No AI feedback yet for {subject !== "All" ? subject : "overall"}.</p>
-        <p className="text-xs">Complete more quizzes to unlock your coaching report.</p>
+        <p className="text-xs">
+          {isParentViewing
+            ? `${displayName} needs to complete more quizzes to unlock this report.`
+            : "Complete more quizzes to unlock your coaching report."}
+        </p>
       </div>
     );
   }
 
+  /* ── Error state ── */
   if (status === "error") {
     return (
       <div className="space-y-3">
@@ -305,26 +409,35 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
           <AlertTriangle className="w-4 h-4" />
           <span className="font-medium">Feedback generation failed</span>
         </div>
-        <button onClick={onRefresh} className="text-xs px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition">
+        <button
+          onClick={onRefresh}
+          className="text-xs px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition"
+        >
           Try Again
         </button>
       </div>
     );
   }
 
+  /* ── Empty feedback ── */
   if (!feedback || (!feedback.summary && !feedback.strengths?.length)) {
     return (
       <div className="text-center py-6 text-slate-400 text-sm">
         <BookOpen className="w-8 h-8 mx-auto text-slate-200 mb-2" />
-        <p>Take more {subject !== "All" ? subject : ""} quizzes to unlock your coaching report.</p>
+        <p>
+          {isParentViewing
+            ? `${displayName} needs to take more ${subject !== "All" ? subject : ""} quizzes to unlock this report.`
+            : `Take more ${subject !== "All" ? subject : ""} quizzes to unlock your coaching report.`}
+        </p>
       </div>
     );
   }
 
+  /* ── Full feedback panel ── */
   return (
     <div className="space-y-4">
 
-      {/* ── Header row: trend + meta ── */}
+      {/* Trend badge + meta */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <TrendBadge trend={feedback.trend || "new"} />
         {feedbackDoc.attempt_count > 0 && (
@@ -335,18 +448,19 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
         )}
       </div>
 
-      {/* ── One-line summary ── */}
+      {/* Summary */}
       {feedback.summary && (
         <p className="text-sm text-slate-700 leading-relaxed line-clamp-3">
           {feedback.summary}
         </p>
       )}
 
-      {/* ── Strengths as chips ── */}
+      {/* Strengths */}
       {feedback.strengths?.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Strengths
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            {isParentViewing ? `${displayName}'s Strengths` : "Strengths"}
           </p>
           <ChipList
             items={feedback.strengths}
@@ -355,11 +469,12 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
         </div>
       )}
 
-      {/* ── Focus areas as chips ── */}
+      {/* Focus areas */}
       {feedback.areas_for_improvement?.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1">
-            <Target className="w-3.5 h-3.5" /> Focus Areas
+            <Target className="w-3.5 h-3.5" />
+            {isParentViewing ? `Areas for ${displayName} to Focus On` : "Focus Areas"}
           </p>
           <ChipList
             items={feedback.areas_for_improvement.map((a) => a.issue || a)}
@@ -368,88 +483,33 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
         </div>
       )}
 
-      {/* ── Top study tip (just one) ── */}
+      {/* Study tip */}
       {feedback.study_tips?.[0] && (
         <div className={`flex items-start gap-2.5 rounded-xl p-3 ${subjectBgLight} border ${subjectBorderColor}`}>
           <Lightbulb className={`w-4 h-4 mt-0.5 flex-shrink-0 ${subjectColor}`} />
-          <p className={`text-xs leading-relaxed ${subjectColor}`}>{feedback.study_tips[0]}</p>
+          <p className={`text-xs leading-relaxed ${subjectColor}`}>
+            {isParentViewing
+              ? `💡 Tip for supporting ${displayName}: ${feedback.study_tips[0]}`
+              : feedback.study_tips[0]}
+          </p>
         </div>
       )}
 
-      {/* ── Encouragement quote ── */}
+      {/* Encouragement */}
       {feedback.encouragement && (
         <p className="text-xs text-slate-500 italic border-l-2 border-slate-200 pl-3">
           "{feedback.encouragement}"
         </p>
       )}
 
-      {/* ── Timestamp ── */}
+      {/* Timestamp */}
       {feedbackDoc.generated_at && (
         <p className="text-[10px] text-slate-400 text-right">
-          Updated {new Date(feedbackDoc.generated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
+          Updated {new Date(feedbackDoc.generated_at).toLocaleDateString("en-AU", {
+            day: "numeric", month: "short", year: "numeric",
+          })}
           {feedbackDoc.model ? ` · ${feedbackDoc.model}` : ""}
         </p>
-      )}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   SUBJECT DROPDOWN
-   ═══════════════════════════════════════════════════════════ */
-
-function SubjectDropdown({ selectedSubject, onChange, tests }) {
-  const [open, setOpen] = useState(false);
-
-  const options = [
-    { value: "All", label: "All Subjects", count: tests.length },
-    ...SUBJECTS.map((s) => ({
-      value: s,
-      label: s,
-      count: tests.filter((t) => t.subject === s).length,
-    })),
-  ];
-
-  const selected = options.find((o) => o.value === selectedSubject) || options[0];
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border-2 shadow-sm font-semibold text-sm transition-all
-          ${selectedSubject !== "All"
-            ? `${SUBJECT_LIGHT_BG[selectedSubject]} ${SUBJECT_BORDER[selectedSubject]} ${SUBJECT_TEXT[selectedSubject]}`
-            : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
-          }`}
-      >
-        <SubjectIconEl subject={selected.value} className="w-4 h-4" />
-        <span>{selected.label}</span>
-        {selected.count > 0 && (
-          <span className={`text-xs px-1.5 py-0.5 rounded-full font-normal ${selectedSubject !== "All" ? "bg-white/60" : "bg-slate-100"}`}>
-            {selected.count}
-          </span>
-        )}
-        <svg className={`w-4 h-4 ml-1 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-slate-100 rounded-2xl shadow-xl z-50 overflow-hidden">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors text-left
-                ${opt.value === selectedSubject ? "bg-slate-50 font-semibold" : "hover:bg-slate-50"}
-                ${opt.value !== "All" && opt.value === selectedSubject ? SUBJECT_TEXT[opt.value] : "text-slate-700"}`}
-            >
-              <SubjectIconEl subject={opt.value} className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1">{opt.label}</span>
-              <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">{opt.count}</span>
-            </button>
-          ))}
-        </div>
       )}
     </div>
   );
@@ -461,12 +521,12 @@ function SubjectDropdown({ selectedSubject, onChange, tests }) {
 
 function SubjectTabBar({ selectedSubject, onChange, tests }) {
   const options = [
-    { value: "All", label: "All Subjects" },
+    { value: "All", label: "All" },
     ...SUBJECTS.map((s) => ({ value: s, label: s })),
   ];
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-1.5">
       {options.map((opt) => {
         const count = opt.value === "All" ? tests.length : tests.filter((t) => t.subject === opt.value).length;
         const isActive = opt.value === selectedSubject;
@@ -474,18 +534,21 @@ function SubjectTabBar({ selectedSubject, onChange, tests }) {
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border-2 transition-all
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all
               ${isActive
                 ? opt.value === "All"
-                  ? "bg-slate-800 text-white border-slate-800 shadow-md"
-                  : `${SUBJECT_BG[opt.value]} text-white border-transparent shadow-md`
+                  ? "bg-slate-800 text-white border-slate-800 shadow-sm"
+                  : `${SUBJECT_BG[opt.value]} text-white border-transparent shadow-sm`
                 : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
               }`}
           >
-            <SubjectIconEl subject={opt.value} className={`w-4 h-4 ${isActive ? "text-white" : opt.value !== "All" ? SUBJECT_TEXT[opt.value] : "text-slate-500"}`} />
+            <SubjectIconEl
+              subject={opt.value}
+              className={`w-3.5 h-3.5 ${isActive ? "text-white" : opt.value !== "All" ? SUBJECT_TEXT[opt.value] : "text-slate-500"}`}
+            />
             <span>{opt.label}</span>
             {count > 0 && (
-              <span className={`text-xs px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>
+              <span className={`text-[10px] px-1 py-0.5 rounded-full ${isActive ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>
                 {count}
               </span>
             )}
@@ -507,10 +570,6 @@ function ScoreBadge({ score }) {
     "bg-rose-100 text-rose-700";
   return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${color}`}>{score}%</span>;
 }
-
-/* ═══════════════════════════════════════════════════════════
-   CUSTOM TOOLTIP
-   ═══════════════════════════════════════════════════════════ */
 
 function SubjectTrendTooltip({ active, payload, label, subject }) {
   if (!active || !payload?.length) return null;
@@ -536,16 +595,16 @@ export default function StudentDashboardAnalytics({
   onLogout = null,
   embedded = false,
   childId: childIdProp = null,
+  viewerType = null,
 }) {
   const navigate = useNavigate();
   const { logout, logoutChild, childToken, parentToken, user } = useAuth();
 
-  const [timeFilter, setTimeFilter] = useState(3);
+  const [timeFilter, setTimeFilter]         = useState(3);
   const [selectedSubject, setSelectedSubject] = useState("All");
-
   const [cumulativeFeedback, setCumulativeFeedback] = useState({});
   const [feedbackLoading, setFeedbackLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing]         = useState(false);
   const pollTimerRef = useRef(null);
 
   const childId = useMemo(() => {
@@ -557,6 +616,11 @@ export default function StudentDashboardAnalytics({
 
   const activeToken = childToken || parentToken || null;
 
+  // Derive whether a parent (not the child) is currently viewing
+  const isParentView = viewerType
+    ? viewerType !== "child"
+    : Boolean(parentToken && !childToken);
+
   const loadCumulativeFeedback = useCallback(async () => {
     if (!childId || !activeToken) return;
     try {
@@ -564,7 +628,9 @@ export default function StudentDashboardAnalytics({
       setCumulativeFeedback(feedback || {});
       const stillGenerating =
         generating ||
-        Object.values(feedback || {}).some((d) => d.status === "generating" || d.status === "pending");
+        Object.values(feedback || {}).some(
+          (d) => d.status === "generating" || d.status === "pending"
+        );
       if (stillGenerating) {
         pollTimerRef.current = setTimeout(loadCumulativeFeedback, 4000);
       }
@@ -644,7 +710,7 @@ export default function StudentDashboardAnalytics({
     return Math.round(avgSecond - avgFirst);
   }, [subjectTests]);
 
-  const comparisonData  = useMemo(() => buildSubjectComparison(timeFilteredTests), [timeFilteredTests]);
+  const comparisonData = useMemo(() => buildSubjectComparison(timeFilteredTests), [timeFilteredTests]);
 
   const strongest = useMemo(() => {
     const withData = comparisonData.filter((c) => c.count > 0 && c.score >= 50);
@@ -658,51 +724,61 @@ export default function StudentDashboardAnalytics({
     return withData.reduce((p, c) => (c.score < p.score ? c : p)).subject;
   }, [comparisonData]);
 
-  const subjectTrendData = useMemo(() => buildSubjectTrendData(subjectTests),        [subjectTests]);
-  const allSubjectsTrend = useMemo(() => buildAllSubjectsTrendData(timeFilteredTests),[timeFilteredTests]);
+  const subjectTrendData = useMemo(() => buildSubjectTrendData(subjectTests),         [subjectTests]);
+  const allSubjectsTrend = useMemo(() => buildAllSubjectsTrendData(timeFilteredTests), [timeFilteredTests]);
   const topicData        = useMemo(() => buildTopicBreakdown(subjectTests).slice(0, 8),[subjectTests]);
+  const activeSubjects   = useMemo(() => comparisonData.filter((c) => c.count > 0).length, [comparisonData]);
 
-  const recentAssessments = useMemo(() => (
-    [...subjectTests].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10)
-  ), [subjectTests]);
-
-  const activeSubjects = useMemo(() => comparisonData.filter((c) => c.count > 0).length, [comparisonData]);
-
-  const subjectColor    = selectedSubject !== "All" ? SUBJECT_COLORS[selectedSubject] : "#6366F1";
-  const subjectBg       = selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] : "bg-indigo-50";
+  const subjectColor     = selectedSubject !== "All" ? SUBJECT_COLORS[selectedSubject] : "#6366F1";
+  const subjectBg        = selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] : "bg-indigo-50";
   const subjectTextClass = selectedSubject !== "All" ? SUBJECT_TEXT[selectedSubject] : "text-indigo-600";
 
   /* ══════════════════════════════════════════════════════════
      RENDER
      ══════════════════════════════════════════════════════════ */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
-      <div className="max-w-screen-2xl mx-auto px-4 sm:px-8 py-8 space-y-8">
+    <div className={embedded ? "" : "min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40"}>
+      <div className={`${embedded ? "" : "max-w-screen-2xl mx-auto px-4 sm:px-8 py-8"} space-y-5`}>
 
-        {/* ── HEADER ── */}
-        <header className="flex flex-col lg:flex-row justify-between gap-6 pb-6 border-b border-slate-200">
-          <div className="flex items-start gap-4">
-            {!embedded && (
-              <button
-                onClick={handleBack}
-                className="mt-1 inline-flex items-center justify-center w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all"
-                title="Back to Dashboard"
-              >
-                <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-            )}
+        {/* ── HEADER — standalone (not embedded) ── */}
+        {!embedded && (
+          <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900">{displayName}</h1>
-              <p className="text-sm text-slate-500 mt-1">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">{displayName}</h1>
+              <p className="text-sm text-slate-500 mt-0.5">
                 {yearLevel ? `Year ${yearLevel} · ` : ""}Analytics Dashboard
               </p>
             </div>
-          </div>
+            <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm self-start sm:self-auto">
+              {TIME_FILTERS.map((f, i) => (
+                <button
+                  key={f.label}
+                  onClick={() => setTimeFilter(i)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    timeFilter === i ? "bg-slate-800 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </header>
+        )}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+        {/* ── EMBEDDED HEADER — compact single bar ── */}
+        {embedded && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+            <div>
+              <h2 className="text-base font-bold text-slate-800">
+                {isParentView ? `${displayName}'s Learning Progress` : "Your Learning Progress"}
+              </h2>
+              {yearLevel && (
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {isParentView ? `Year ${yearLevel} · Parent View` : `Year ${yearLevel} Dashboard`}
+                </p>
+              )}
+            </div>
+            <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm self-start sm:self-auto">
               {TIME_FILTERS.map((f, i) => (
                 <button
                   key={f.label}
@@ -716,53 +792,58 @@ export default function StudentDashboardAnalytics({
               ))}
             </div>
           </div>
-        </header>
+        )}
 
-        {/* ── SUBJECT FILTER BAR ── */}
-        <section>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Filter by Subject</span>
-            <div className="hidden sm:block">
-              <SubjectTabBar selectedSubject={selectedSubject} onChange={setSelectedSubject} tests={timeFilteredTests} />
-            </div>
-            <div className="sm:hidden">
-              <SubjectDropdown selectedSubject={selectedSubject} onChange={setSelectedSubject} tests={timeFilteredTests} />
-            </div>
-          </div>
-
+        {/* ── FILTER BAR ── */}
+        <div className="flex flex-col gap-2">
+          <SubjectTabBar
+            selectedSubject={selectedSubject}
+            onChange={setSelectedSubject}
+            tests={timeFilteredTests}
+          />
           {selectedSubject !== "All" && (
-            <div className={`mt-4 flex items-center gap-3 px-5 py-3 rounded-xl ${subjectBg} border ${SUBJECT_BORDER[selectedSubject]}`}>
-              <span className={subjectTextClass}>
-                <SubjectIconEl subject={selectedSubject} className="w-6 h-6" />
-              </span>
-              <div>
-                <p className={`font-bold text-base ${subjectTextClass}`}>{selectedSubject}</p>
-                <p className="text-xs text-slate-500">
-                  Showing analytics for {selectedSubject} only · {subjectTests.length} assessment{subjectTests.length !== 1 ? "s" : ""}
-                </p>
-              </div>
-              <button onClick={() => setSelectedSubject("All")} className="ml-auto text-xs text-slate-400 hover:text-slate-700 underline">
-                Clear filter
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${subjectBg} border ${SUBJECT_BORDER[selectedSubject]} text-xs`}>
+              <SubjectIconEl subject={selectedSubject} className={`w-4 h-4 ${subjectTextClass}`} />
+              <span className={`font-semibold ${subjectTextClass}`}>{selectedSubject}</span>
+              <span className="text-slate-500">· {subjectTests.length} assessment{subjectTests.length !== 1 ? "s" : ""}</span>
+              <button onClick={() => setSelectedSubject("All")} className="ml-auto text-slate-400 hover:text-slate-600 underline text-xs">
+                Clear
               </button>
             </div>
           )}
-        </section>
+        </div>
 
         {/* ── KPI CARDS ── */}
-        <section className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
           {hasData ? (
             <>
               <KPI
-                title={selectedSubject === "All" ? "Overall Average" : `${selectedSubject} Average`}
+                title={selectedSubject === "All" ? "Overall Average" : `${selectedSubject} Avg`}
                 value={`${avgScore}%`}
                 subject={selectedSubject !== "All" ? selectedSubject : null}
                 accent={selectedSubject === "All"}
               />
-              <KPI title="Best Score" value={`${bestScore}%`} subject={selectedSubject !== "All" ? selectedSubject : null} />
+              <KPI
+                title="Best Score"
+                value={`${bestScore}%`}
+                subject={selectedSubject !== "All" ? selectedSubject : null}
+              />
               {selectedSubject === "All" ? (
                 <>
-                  <KPI title="Strongest Subject" value={strongest} accent />
-                  <KPI title="Needs Attention"   value={weakest}   warning />
+                  <KPI
+                    title="Strongest Subject"
+                    value={strongest || "—"}
+                    subtext={!strongest || strongest === "—"
+                      ? (isParentView ? "Still exploring" : "Keep practising!")
+                      : null}
+                    accent
+                  />
+                  <KPI
+                    title={isParentView ? "Needs Attention" : "Next Focus"}
+                    value={weakest || "—"}
+                    subtext={!weakest || weakest === "—" ? "All looking good!" : null}
+                    warning
+                  />
                 </>
               ) : (
                 <>
@@ -781,15 +862,19 @@ export default function StudentDashboardAnalytics({
         </section>
 
         {/* ── CHARTS ROW ── */}
-        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <section className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+
+          {/* Performance Trend */}
           <Card className="xl:col-span-2">
             <CardTitle>
-              {selectedSubject === "All" ? "Performance Trend (All Subjects)" : `${selectedSubject} Score History`}
+              {selectedSubject === "All"
+                ? "Performance Trend (All Subjects)"
+                : `${selectedSubject} Score History`}
             </CardTitle>
 
             {selectedSubject === "All" ? (
               hasData && allSubjectsTrend.length > 0 ? (
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer width="100%" height={260}>
                   <AreaChart data={allSubjectsTrend}>
                     <defs>
                       {SUBJECTS.map((key) => (
@@ -800,10 +885,10 @@ export default function StudentDashboardAnalytics({
                       ))}
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="month" stroke="#94a3b8" fontSize={12} />
-                    <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={12} />
+                    <XAxis dataKey="month" stroke="#94a3b8" fontSize={11} />
+                    <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={11} />
                     <Tooltip
-                      contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 10px 40px rgba(0,0,0,0.08)", padding: "12px 16px" }}
+                      contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 10px 40px rgba(0,0,0,0.08)", padding: "10px 14px" }}
                       formatter={(value, name) => [`${value}%`, name]}
                     />
                     {SUBJECTS.map((key) => (
@@ -811,60 +896,73 @@ export default function StudentDashboardAnalytics({
                         key={key} type="monotone" dataKey={key}
                         stroke={SUBJECT_COLORS[key]} strokeWidth={2.5}
                         fill={`url(#gradient-${key})`}
-                        dot={{ r: 4, fill: SUBJECT_COLORS[key] }}
-                        activeDot={{ r: 6 }} connectNulls={false}
+                        dot={{ r: 3, fill: SUBJECT_COLORS[key] }}
+                        activeDot={{ r: 5 }} connectNulls={false}
                       />
                     ))}
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
-                <ChartSkeleton message="Take some tests to see your performance trend over time" />
+                <ChartSkeleton message={
+                  isParentView
+                    ? `${displayName} hasn't taken enough tests yet to show a trend`
+                    : "Take some tests to see your performance trend over time"
+                } />
               )
             ) : (
               hasData && subjectTrendData.length > 1 ? (
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={subjectTrendData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="attempt" stroke="#94a3b8" fontSize={12}
-                      label={{ value: "Attempt #", position: "insideBottom", offset: -2, fontSize: 11, fill: "#94a3b8" }} />
-                    <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={12} />
+                    <XAxis dataKey="attempt" stroke="#94a3b8" fontSize={11}
+                      label={{ value: "Attempt #", position: "insideBottom", offset: -2, fontSize: 10, fill: "#94a3b8" }} />
+                    <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={11} />
                     <ReferenceLine y={avgScore} stroke={subjectColor} strokeDasharray="4 4" strokeOpacity={0.5}
-                      label={{ value: `Avg: ${avgScore}%`, position: "right", fontSize: 11, fill: subjectColor }} />
+                      label={{ value: `Avg: ${avgScore}%`, position: "right", fontSize: 10, fill: subjectColor }} />
                     <Tooltip content={(props) => <SubjectTrendTooltip {...props} subject={selectedSubject} />} />
                     <Line
                       type="monotone" dataKey="score"
                       stroke={subjectColor} strokeWidth={3}
-                      dot={{ r: 5, fill: subjectColor, strokeWidth: 2, stroke: "#fff" }}
-                      activeDot={{ r: 7 }}
+                      dot={{ r: 4, fill: subjectColor, strokeWidth: 2, stroke: "#fff" }}
+                      activeDot={{ r: 6 }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
               ) : hasData && subjectTrendData.length === 1 ? (
-                <div className="flex flex-col items-center justify-center h-48 gap-3">
-                  <div className={`w-20 h-20 rounded-full ${subjectBg} flex items-center justify-center`}>
-                    <span className={`text-3xl font-bold ${subjectTextClass}`}>{subjectTrendData[0].score}%</span>
+                <div className="flex flex-col items-center justify-center h-40 gap-3">
+                  <div className={`w-16 h-16 rounded-full ${subjectBg} flex items-center justify-center`}>
+                    <span className={`text-2xl font-bold ${subjectTextClass}`}>{subjectTrendData[0].score}%</span>
                   </div>
-                  <p className="text-sm text-slate-400">Only 1 attempt — take more {selectedSubject} tests to see your trend!</p>
+                  <p className="text-sm text-slate-400">
+                    {isParentView
+                      ? `${displayName} needs more ${selectedSubject} tests to show a trend`
+                      : `Take more ${selectedSubject} tests to see your trend!`}
+                  </p>
                 </div>
               ) : (
-                <ChartSkeleton message={`No ${selectedSubject} tests yet — take a quiz to see your score history!`} />
+                <ChartSkeleton message={
+                  isParentView
+                    ? `${displayName} hasn't taken any ${selectedSubject} tests yet`
+                    : `No ${selectedSubject} tests yet — take a quiz to see your score history!`
+                } />
               )
             )}
 
             {selectedSubject === "All" && hasData && (
-              <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-slate-50">
+              <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-slate-50">
                 {SUBJECTS.map((s) => (
                   <button key={s} onClick={() => setSelectedSubject(s)}
                     className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 transition-colors">
-                    <span className="inline-block w-3 h-3 rounded-full" style={{ background: SUBJECT_COLORS[s] }} />
+                    <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: SUBJECT_COLORS[s] }} />
                     {s}
                   </button>
                 ))}
-                <span className="text-xs text-slate-300 ml-auto">Click a subject to drill down →</span>
+                <span className="text-xs text-slate-300 ml-auto">Click to drill down →</span>
               </div>
             )}
           </Card>
 
+          {/* Subject Comparison */}
           <Card>
             <CardTitle>
               {selectedSubject === "All" ? "Subject Comparison" : `${selectedSubject} Quiz Scores`}
@@ -873,50 +971,54 @@ export default function StudentDashboardAnalytics({
             {selectedSubject === "All" ? (
               hasData ? (
                 <>
-                  <ResponsiveContainer width="100%" height={220}>
+                  <ResponsiveContainer width="100%" height={180}>
                     <BarChart data={comparisonData} barCategoryGap="30%">
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                      <XAxis dataKey="subject" stroke="#94a3b8" fontSize={11} />
-                      <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={11} />
+                      <XAxis dataKey="subject" stroke="#94a3b8" fontSize={10} />
+                      <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={10} />
                       <Tooltip
                         formatter={(value) => [`${value}%`, "Average"]}
                         contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 10px 40px rgba(0,0,0,0.08)" }}
                       />
-                      <Bar dataKey="score" radius={[8, 8, 0, 0]}>
+                      <Bar dataKey="score" radius={[6, 6, 0, 0]}>
                         {comparisonData.map((entry) => (
                           <rect key={entry.subject} fill={entry.color} />
                         ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-3 space-y-1.5">
                     {comparisonData.filter((c) => c.count > 0).map((c) => (
                       <button key={c.subject} onClick={() => setSelectedSubject(c.subject)}
-                        className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition text-left">
+                        className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-50 transition text-left">
                         <span className={`flex-shrink-0 ${SUBJECT_TEXT[c.subject]}`}>
-                          <SubjectIconEl subject={c.subject} className="w-4 h-4" />
+                          <SubjectIconEl subject={c.subject} className="w-3.5 h-3.5" />
                         </span>
                         <span className="text-sm text-slate-700 flex-1">{c.subject}</span>
                         <ScoreBadge score={c.score} />
-                        <span className="text-xs text-slate-400">{c.count} tests</span>
+                        <span className="text-xs text-slate-400">{c.count}</span>
                       </button>
                     ))}
                   </div>
                 </>
               ) : (
-                <ChartSkeleton message="Complete tests in different subjects to compare" />
+                <ChartSkeleton message={
+                  isParentView
+                    ? `${displayName} needs to complete tests in different subjects`
+                    : "Complete tests in different subjects to compare"
+                } />
               )
             ) : (
               hasData ? (
-                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
                   {topicData.map((q, i) => (
-                    <div key={i} className="flex items-center gap-3 py-2 border-b border-slate-50 last:border-0">
-                      <div className={`w-6 h-6 rounded-full ${i === 0 ? SUBJECT_BG[selectedSubject] : "bg-slate-100"} flex items-center justify-center flex-shrink-0`}>
-                        <span className={`text-xs font-bold ${i === 0 ? "text-white" : "text-slate-400"}`}>{i + 1}</span>
+                    <div key={i} className="flex items-center gap-2.5 py-2 border-b border-slate-50 last:border-0">
+                      <div className={`w-5 h-5 rounded-full ${i === 0 ? SUBJECT_BG[selectedSubject] : "bg-slate-100"} flex items-center justify-center flex-shrink-0`}>
+                        <span className={`text-[10px] font-bold ${i === 0 ? "text-white" : "text-slate-400"}`}>{i + 1}</span>
                       </div>
-                      <span className="text-sm text-slate-700 flex-1 truncate" title={q.name}>{q.name}</span>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <span className="text-sm text-slate-700 flex-1 truncate">{q.name}</span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                           <div className="h-full rounded-full" style={{ width: `${q.score}%`, background: subjectColor }} />
                         </div>
                         <ScoreBadge score={q.score} />
@@ -925,42 +1027,70 @@ export default function StudentDashboardAnalytics({
                   ))}
                 </div>
               ) : (
-                <ChartSkeleton message={`No ${selectedSubject} quizzes taken yet`} />
+                <ChartSkeleton message={
+                  isParentView
+                    ? `${displayName} hasn't taken any ${selectedSubject} quizzes yet`
+                    : `No ${selectedSubject} quizzes taken yet`
+                } />
               )
             )}
           </Card>
         </section>
 
-        {/* ── SECOND ROW ── */}
-        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* ── BOTTOM ROW: Summary + Distribution + Insights ── */}
+        <section className="grid grid-cols-1 xl:grid-cols-3 gap-4">
 
           {/* Academic Summary */}
           <Card>
-            <CardTitle>{selectedSubject === "All" ? "Academic Summary" : `${selectedSubject} Summary`}</CardTitle>
+            <CardTitle>
+              {selectedSubject === "All" ? "Academic Summary" : `${selectedSubject} Summary`}
+            </CardTitle>
             {hasData ? (
               <>
-                <div className="space-y-1 text-sm">
-                  <SummaryRow label={selectedSubject === "All" ? "Overall Average" : "Subject Average"} value={`${avgScore}%`} />
+                <div className="space-y-0.5 text-sm">
+                  <SummaryRow
+                    label={selectedSubject === "All" ? "Overall Average" : "Subject Average"}
+                    value={`${avgScore}%`}
+                  />
                   <SummaryRow label="Best Score" value={`${bestScore}%`} />
                   {improvement !== null && (
-                    <SummaryRow label="Improvement" value={`${improvement >= 0 ? "+" : ""}${improvement}%`} positive={improvement >= 0} />
+                    <SummaryRow
+                      label="Improvement"
+                      value={`${improvement >= 0 ? "+" : ""}${improvement}%`}
+                      positive={improvement >= 0}
+                    />
                   )}
-                  <SummaryRow label={selectedSubject === "All" ? "Total Tests" : `${selectedSubject} Tests`} value={String(subjectTests.length)} />
-                  {selectedSubject === "All" && <SummaryRow label="Subjects Active" value={String(activeSubjects)} />}
+                  <SummaryRow
+                    label={selectedSubject === "All" ? "Total Tests" : `${selectedSubject} Tests`}
+                    value={String(subjectTests.length)}
+                  />
+                  {selectedSubject === "All" && (
+                    <SummaryRow label="Subjects Active" value={String(activeSubjects)} />
+                  )}
                 </div>
-                <div className="mt-5">
-                  <p className="text-xs text-slate-500 mb-2">Progress Toward Target (85%)</p>
-                  <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                <div className="mt-4">
+                  <p className="text-xs text-slate-500 mb-1.5">
+                    {isParentView
+                      ? `Progress Toward Target (85%)`
+                      : "Your Goal: 85%"}
+                  </p>
+                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-700"
                       style={{
                         width: `${Math.min((avgScore / 85) * 100, 100)}%`,
-                        background: selectedSubject !== "All" ? subjectColor : "linear-gradient(to right, #6366F1, #8B5CF6)",
+                        background: selectedSubject !== "All"
+                          ? subjectColor
+                          : "linear-gradient(to right, #6366F1, #8B5CF6)",
                       }}
                     />
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    {avgScore >= 85 ? "Target reached!" : `${85 - avgScore}% to go`}
+                    {avgScore >= 85
+                      ? "🎉 Goal reached!"
+                      : isParentView
+                        ? `${85 - avgScore}% to go`
+                        : `You're ${avgScore}% there — keep going!`}
                   </p>
                 </div>
               </>
@@ -973,21 +1103,26 @@ export default function StudentDashboardAnalytics({
           <Card>
             <CardTitle>Score Distribution</CardTitle>
             {hasData ? (
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 {[
-                  { label: "High (80%+)",       tests: subjectTests.filter((t) => t.score >= 80),                  color: "bg-emerald-500" },
-                  { label: "Mid (50–79%)",       tests: subjectTests.filter((t) => t.score >= 50 && t.score < 80), color: "bg-amber-500" },
-                  { label: "Needs Work (<50%)",  tests: subjectTests.filter((t) => t.score < 50),                  color: "bg-rose-500" },
+                  { label: "High (80%+)",         tests: subjectTests.filter((t) => t.score >= 80),                  color: "bg-emerald-400" },
+                  { label: "Mid (50–79%)",         tests: subjectTests.filter((t) => t.score >= 50 && t.score < 80), color: "bg-amber-400"   },
+                  { label: "Learning Zone (<50%)", tests: subjectTests.filter((t) => t.score < 50),                  color: "bg-rose-400"    },
                 ].map((bucket) => {
-                  const pct = subjectTests.length ? Math.round((bucket.tests.length / subjectTests.length) * 100) : 0;
+                  const pct = subjectTests.length
+                    ? Math.round((bucket.tests.length / subjectTests.length) * 100)
+                    : 0;
                   return (
                     <div key={bucket.label}>
-                      <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+                      <div className="flex justify-between text-xs text-slate-500 mb-1">
                         <span className="font-medium">{bucket.label}</span>
-                        <span>{bucket.tests.length} tests ({pct}%)</span>
+                        <span>{bucket.tests.length} ({pct}%)</span>
                       </div>
-                      <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-700 ${bucket.color}`} style={{ width: `${pct}%` }} />
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ${bucket.color}`}
+                          style={{ width: `${pct}%` }}
+                        />
                       </div>
                     </div>
                   );
@@ -998,132 +1133,170 @@ export default function StudentDashboardAnalytics({
             )}
           </Card>
 
-          {/* ── PERFORMANCE INSIGHTS (AI-powered) ── */}
-          <Card className={hasData ? "bg-gradient-to-br from-indigo-600/95 to-purple-600/95 text-white shadow-xl" : ""}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80">
-                Performance Insights
-              </h3>
-              {hasData && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 text-[10px] font-semibold uppercase tracking-wider text-white/70">
-                  <Star className="w-3 h-3" /> AI Insights
-                </span>
-              )}
+          {/* Performance Insights */}
+          <Card className="border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-slate-50">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center">
+                  <Star className="w-3.5 h-3.5 text-indigo-500" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Performance Insights
+                  </h3>
+                  <span className="text-[10px] text-indigo-400 font-medium">AI-powered</span>
+                </div>
+              </div>
             </div>
 
             {!hasData ? (
               <p className="text-sm text-slate-400 py-4 text-center">
-                {selectedSubject === "All"
-                  ? "Take some tests to see your insights"
-                  : `Take a ${selectedSubject} test to unlock insights`}
+                {isParentView
+                  ? selectedSubject === "All"
+                    ? `${displayName} needs to take some tests to unlock insights`
+                    : `${displayName} needs to take a ${selectedSubject} test to unlock insights`
+                  : selectedSubject === "All"
+                    ? "Take some tests to see your insights"
+                    : `Take a ${selectedSubject} test to unlock insights`}
               </p>
 
             ) : feedbackLoading ? (
-              <div className="space-y-3">
+              <div className="space-y-2.5 animate-pulse">
                 {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="flex items-start gap-3 animate-pulse">
-                    <div className="w-7 h-7 rounded-lg bg-white/20 flex-shrink-0" />
+                  <div key={i} className="flex items-start gap-2.5">
+                    <div className="w-6 h-6 rounded-lg bg-slate-200 flex-shrink-0" />
                     <div className="flex-1 space-y-1.5 pt-1">
-                      <div className="h-3 bg-white/20 rounded w-full" />
-                      <div className="h-3 bg-white/10 rounded w-4/5" />
+                      <div className="h-2.5 bg-slate-200 rounded w-full" />
+                      <div className="h-2.5 bg-slate-100 rounded w-4/5" />
                     </div>
                   </div>
                 ))}
               </div>
 
             ) : activeFeedbackDoc?.status === "generating" || activeFeedbackDoc?.status === "pending" ? (
-              <div className="flex items-center gap-3 py-4 text-white/70 text-sm">
+              <div className="flex items-center gap-2 py-4 text-slate-500 text-sm">
                 <svg className="w-4 h-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <span>AI is analysing your quiz history…</span>
+                <span>
+                  {isParentView
+                    ? `Analysing ${displayName}'s quiz history…`
+                    : "Analysing your quiz history…"}
+                </span>
               </div>
 
             ) : activeFeedbackDoc?.feedback ? (() => {
-              const fb = activeFeedbackDoc.feedback;
+              const rawFb = activeFeedbackDoc.feedback;
+              // Apply parent reframe to insight snippets too
+              const fb = isParentView
+                ? {
+                    ...rawFb,
+                    summary:      reframeForParent(rawFb.summary, displayName),
+                    strengths:    rawFb.strengths?.map((s) => reframeForParent(s, displayName)),
+                    areas_for_improvement: rawFb.areas_for_improvement?.map((a) => ({
+                      ...a,
+                      issue: reframeForParent(a.issue, displayName),
+                    })),
+                    study_tips:   rawFb.study_tips?.map((t) => reframeForParent(t, displayName)),
+                    encouragement: reframeForParent(rawFb.encouragement, displayName),
+                  }
+                : rawFb;
+
               const rows = [
                 fb.trend && {
                   Icon: fb.trend === "improving" ? TrendingUp : fb.trend === "declining" ? TrendingDown : Minus,
-                  bg:   fb.trend === "improving" ? "bg-emerald-400/20" : fb.trend === "declining" ? "bg-rose-400/20" : "bg-slate-400/20",
-                  iconColor: fb.trend === "improving" ? "text-emerald-300" : fb.trend === "declining" ? "text-rose-300" : "text-slate-300",
-                  text: fb.trend === "improving" ? "Scores trending upward — great momentum!" :
-                        fb.trend === "declining" ? "Recent scores have dipped — time to refocus." :
-                        "Performance is holding steady.",
+                  bg:   fb.trend === "improving" ? "bg-emerald-100" : fb.trend === "declining" ? "bg-rose-100" : "bg-slate-100",
+                  iconColor: fb.trend === "improving" ? "text-emerald-600" : fb.trend === "declining" ? "text-rose-500" : "text-slate-400",
+                  text: fb.trend === "improving"
+                    ? (isParentView ? `${displayName}'s scores are trending upward — great momentum!` : "Scores trending upward — great momentum!")
+                    : fb.trend === "declining"
+                      ? (isParentView ? `${displayName}'s recent scores have dipped — time to refocus.` : "Recent scores have dipped — time to refocus.")
+                      : (isParentView ? `${displayName}'s performance is holding steady.` : "Performance is holding steady."),
                 },
                 fb.summary && {
-                  Icon: Lightbulb, bg: "bg-cyan-400/20", iconColor: "text-cyan-300",
+                  Icon: Lightbulb, bg: "bg-cyan-100", iconColor: "text-cyan-600",
                   text: fb.summary.split(" ").slice(0, 18).join(" ") + (fb.summary.split(" ").length > 18 ? "…" : ""),
                 },
                 fb.strengths?.[0] && {
-                  Icon: Trophy, bg: "bg-amber-400/20", iconColor: "text-amber-300",
+                  Icon: Trophy, bg: "bg-amber-100", iconColor: "text-amber-600",
                   text: fb.strengths[0],
                 },
                 fb.areas_for_improvement?.[0] && {
-                  Icon: Target, bg: "bg-blue-400/20", iconColor: "text-blue-300",
+                  Icon: Target, bg: "bg-blue-100", iconColor: "text-blue-600",
                   text: fb.areas_for_improvement[0].issue || fb.areas_for_improvement[0],
                 },
                 fb.study_tips?.[0] && {
-                  Icon: Award, bg: "bg-purple-400/20", iconColor: "text-purple-300",
+                  Icon: Award, bg: "bg-purple-100", iconColor: "text-purple-600",
                   text: fb.study_tips[0],
                 },
                 fb.encouragement && {
-                  Icon: Star, bg: "bg-yellow-400/20", iconColor: "text-yellow-300",
+                  Icon: Star, bg: "bg-yellow-100", iconColor: "text-yellow-600",
                   text: fb.encouragement,
                 },
               ].filter(Boolean).slice(0, 4);
 
               return (
-                <ul className="space-y-3">
+                <ul className="space-y-2.5">
                   {rows.map((item, i) => (
-                    <li key={i} className="flex items-start gap-3">
-                      <div className={`w-7 h-7 rounded-lg ${item.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                        <item.Icon className={`w-3.5 h-3.5 ${item.iconColor}`} />
+                    <li key={i} className="flex items-start gap-2.5">
+                      <div className={`w-6 h-6 rounded-lg ${item.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                        <item.Icon className={`w-3 h-3 ${item.iconColor}`} />
                       </div>
-                      <span className="text-sm leading-relaxed text-white/90">{item.text}</span>
+                      <span className="text-sm leading-relaxed text-slate-700">{item.text}</span>
                     </li>
                   ))}
                   {activeFeedbackDoc.generated_at && (
                     <li className="pt-1">
-                      <span className="text-[10px] text-white/40">
-                        Updated {new Date(activeFeedbackDoc.generated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                      <span className="text-[10px] text-slate-400">
+                        Updated {new Date(activeFeedbackDoc.generated_at).toLocaleDateString("en-AU", {
+                          day: "numeric", month: "short",
+                        })}
                       </span>
                     </li>
                   )}
                 </ul>
               );
             })() : (
-              /* Fallback: AI doc missing, derive from raw data */
-              <ul className="space-y-3">
+              // Fallback static insights (no AI feedback yet)
+              <ul className="space-y-2.5">
                 {[
                   {
-                    Icon: Trophy, bg: "bg-amber-400/20", iconColor: "text-amber-300",
+                    Icon: Trophy, bg: "bg-amber-100", iconColor: "text-amber-600",
                     text: strongest !== "—"
-                      ? `${strongest} is your strongest at ${comparisonData.find((c) => c.subject === strongest)?.score}%`
-                      : "Keep completing tests to reveal your strongest subject",
+                      ? (isParentView
+                          ? `${strongest} is ${displayName}'s strongest at ${comparisonData.find((c) => c.subject === strongest)?.score}%`
+                          : `${strongest} is your strongest at ${comparisonData.find((c) => c.subject === strongest)?.score}%`)
+                      : (isParentView
+                          ? `Keep encouraging ${displayName} to reveal their strongest subject`
+                          : "Keep completing tests to reveal your strongest subject"),
                   },
                   {
-                    Icon: Target, bg: "bg-blue-400/20", iconColor: "text-blue-300",
+                    Icon: Target, bg: "bg-blue-100", iconColor: "text-blue-600",
                     text: `Averaging ${avgScore}% — ${avgScore >= 85 ? "target reached!" : `${85 - avgScore}% away from the 85% target`}`,
                   },
                   {
                     Icon: improvement !== null && improvement > 0 ? TrendingUp : improvement !== null && improvement < 0 ? TrendingDown : Minus,
-                    bg:   improvement !== null && improvement > 0 ? "bg-emerald-400/20" : improvement !== null && improvement < 0 ? "bg-rose-400/20" : "bg-slate-400/20",
-                    iconColor: improvement !== null && improvement > 0 ? "text-emerald-300" : improvement !== null && improvement < 0 ? "text-rose-300" : "text-slate-300",
+                    bg:   improvement !== null && improvement > 0 ? "bg-emerald-100" : improvement !== null && improvement < 0 ? "bg-rose-100" : "bg-slate-100",
+                    iconColor: improvement !== null && improvement > 0 ? "text-emerald-600" : improvement !== null && improvement < 0 ? "text-rose-500" : "text-slate-400",
                     text: improvement !== null
                       ? `Scores ${improvement >= 0 ? "up" : "down"} ${Math.abs(improvement)}% comparing recent vs earlier tests`
-                      : "Take more tests to track your improvement trend",
+                      : (isParentView
+                          ? `${displayName} needs more tests to track the improvement trend`
+                          : "Take more tests to track your improvement trend"),
                   },
                   {
-                    Icon: Lightbulb, bg: "bg-cyan-400/20", iconColor: "text-cyan-300",
-                    text: `${subjectTests.length || timeFilteredTests.length} test${(subjectTests.length || timeFilteredTests.length) !== 1 ? "s" : ""} done — take more quizzes to unlock AI insights`,
+                    Icon: Lightbulb, bg: "bg-cyan-100", iconColor: "text-cyan-600",
+                    text: isParentView
+                      ? `${subjectTests.length || timeFilteredTests.length} test${(subjectTests.length || timeFilteredTests.length) !== 1 ? "s" : ""} done — more quizzes will unlock AI insights`
+                      : `${subjectTests.length || timeFilteredTests.length} test${(subjectTests.length || timeFilteredTests.length) !== 1 ? "s" : ""} done — take more quizzes to unlock AI insights`,
                   },
                 ].map((item, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <div className={`w-7 h-7 rounded-lg ${item.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                      <item.Icon className={`w-3.5 h-3.5 ${item.iconColor}`} />
+                  <li key={i} className="flex items-start gap-2.5">
+                    <div className={`w-6 h-6 rounded-lg ${item.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                      <item.Icon className={`w-3 h-3 ${item.iconColor}`} />
                     </div>
-                    <span className="text-sm leading-relaxed text-white/90">{item.text}</span>
+                    <span className="text-sm leading-relaxed text-slate-700">{item.text}</span>
                   </li>
                 ))}
               </ul>
@@ -1133,24 +1306,28 @@ export default function StudentDashboardAnalytics({
 
         {/* ── AI CUMULATIVE COACH ── */}
         <section>
-          <Card className="border-2 border-indigo-100 bg-gradient-to-br from-white to-indigo-50/30">
-            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <Card className="border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/30">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
-                  <Lightbulb className="w-5 h-5 text-indigo-600" />
+                <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center">
+                  <Lightbulb className="w-4 h-4 text-indigo-600" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    AI Coach — {selectedSubject === "All" ? "Overall Summary" : `${selectedSubject} Analysis`}
+                  <h3 className="text-sm font-bold text-slate-800">
+                    {isParentView
+                      ? `AI Coach — ${displayName}'s ${selectedSubject === "All" ? "Overall Summary" : `${selectedSubject} Analysis`}`
+                      : `AI Coach — ${selectedSubject === "All" ? "Overall Summary" : `${selectedSubject} Analysis`}`}
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Powered by AI · updates after every quiz
+                  <p className="text-xs text-slate-500">
+                    {isParentView
+                      ? `Powered by AI · updates after every quiz ${displayName} completes`
+                      : "Powered by AI · updates after every quiz"}
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="hidden sm:flex gap-1.5 flex-wrap">
+                <div className="hidden sm:flex gap-1 flex-wrap">
                   {[{ key: "All", label: "Overall" }, ...SUBJECTS.map((s) => ({ key: s, label: s }))].map(({ key, label }) => {
                     const isActive = (selectedSubject === "All" && key === "All") || selectedSubject === key;
                     const doc = cumulativeFeedback[key === "All" ? "Overall" : key];
@@ -1161,13 +1338,20 @@ export default function StudentDashboardAnalytics({
                         onClick={() => setSelectedSubject(key)}
                         className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all
                           ${isActive
-                            ? key === "All" ? "bg-indigo-600 text-white border-indigo-600" : `${SUBJECT_BG[key]} text-white border-transparent`
+                            ? key === "All"
+                              ? "bg-indigo-600 text-white border-indigo-600"
+                              : `${SUBJECT_BG[key]} text-white border-transparent`
                             : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
                           }`}
                       >
-                        <SubjectIconEl subject={key} className={`w-3.5 h-3.5 ${isActive ? "text-white" : key !== "All" ? SUBJECT_TEXT[key] : "text-slate-500"}`} />
+                        <SubjectIconEl
+                          subject={key}
+                          className={`w-3 h-3 ${isActive ? "text-white" : key !== "All" ? SUBJECT_TEXT[key] : "text-slate-500"}`}
+                        />
                         {label}
-                        {isDone && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5" title="Ready" />}
+                        {isDone && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5" />
+                        )}
                       </button>
                     );
                   })}
@@ -1177,7 +1361,10 @@ export default function StudentDashboardAnalytics({
                   disabled={refreshing || feedbackLoading}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-700 transition-all disabled:opacity-50"
                 >
-                  <svg className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg
+                    className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                  >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                   {refreshing ? "Refreshing…" : "Refresh"}
@@ -1185,17 +1372,22 @@ export default function StudentDashboardAnalytics({
               </div>
             </div>
 
+            {/* ── Pass isParentViewing + displayName so panel adapts its tone ── */}
             <AICumulativeCoachPanel
               feedbackDoc={activeFeedbackDoc}
               subject={selectedSubject}
               onRefresh={handleRefreshFeedback}
               refreshing={refreshing}
               loading={feedbackLoading}
+              isParentViewing={isParentView}
+              displayName={displayName}
             />
 
             {selectedSubject === "All" && Object.keys(cumulativeFeedback).length > 0 && (
-              <div className="mt-6 pt-5 border-t border-slate-100">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Subject Feedback Status</p>
+              <div className="mt-5 pt-4 border-t border-slate-100">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  Subject Feedback Status
+                </p>
                 <div className="flex flex-wrap gap-2">
                   {SUBJECTS.map((s) => {
                     const doc = cumulativeFeedback[s];
@@ -1211,9 +1403,9 @@ export default function StudentDashboardAnalytics({
                       <button
                         key={s}
                         onClick={() => setSelectedSubject(s)}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium transition-all hover:shadow-sm ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border}`}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-all hover:shadow-sm ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border}`}
                       >
-                        <SubjectIconEl subject={s} className="w-3.5 h-3.5" />
+                        <SubjectIconEl subject={s} className="w-3 h-3" />
                         <span>{s}</span>
                         <span className="font-bold">{statusConfig.icon}</span>
                         {doc?.attempt_count > 0 && (
@@ -1227,62 +1419,6 @@ export default function StudentDashboardAnalytics({
             )}
           </Card>
         </section>
-
-        {/* ── RECENT ASSESSMENTS ── */}
-        <Card>
-          <CardTitle>
-            {selectedSubject === "All" ? "Recent Assessments" : `Recent ${selectedSubject} Assessments`}
-          </CardTitle>
-          {hasData ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="text-left py-3 pr-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Quiz</th>
-                    {selectedSubject === "All" && (
-                      <th className="text-left py-3 pr-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Subject</th>
-                    )}
-                    <th className="text-left py-3 pr-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Score</th>
-                    <th className="text-left py-3 pr-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Date</th>
-                    <th className="text-left py-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Duration</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentAssessments.map((t) => (
-                    <tr key={t.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
-                      <td className="py-3 pr-4 text-slate-700 font-medium max-w-xs truncate">{t.name}</td>
-                      {selectedSubject === "All" && (
-                        <td className="py-3 pr-4">
-                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${SUBJECT_LIGHT_BG[t.subject] || "bg-slate-100"} ${SUBJECT_TEXT[t.subject] || "text-slate-600"}`}>
-                            <SubjectIconEl subject={t.subject} className="w-3 h-3" />
-                            {t.subject}
-                          </span>
-                        </td>
-                      )}
-                      <td className="py-3 pr-4"><ScoreBadge score={t.score} /></td>
-                      <td className="py-3 pr-4 text-slate-500">
-                        {new Date(t.date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" })}
-                      </td>
-                      <td className="py-3 text-slate-400">{formatDuration(t.duration)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
-              <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center">
-                <SubjectIconEl subject={selectedSubject !== "All" ? selectedSubject : "All"} className="w-7 h-7 text-slate-400" />
-              </div>
-              <p className="text-slate-500 font-medium">No assessments yet</p>
-              <p className="text-sm text-slate-400">
-                {selectedSubject === "All"
-                  ? "Take a quiz to see your results here"
-                  : `Take a ${selectedSubject} quiz to see your results here`}
-              </p>
-            </div>
-          )}
-        </Card>
 
       </div>
     </div>
