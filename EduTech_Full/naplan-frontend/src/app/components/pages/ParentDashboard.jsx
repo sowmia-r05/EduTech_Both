@@ -190,7 +190,7 @@ function ChildrenCard({ childList }) {
           )}
           {trial > 0 && (
             <div>
-              <span style={{ fontSize: "12px", fontWeight: 600, color: PURPLE[400], marginBottom: "5px", display: "block" }}>{trial} Trial</span>
+              <span style={{ fontSize: "12px", fontWeight: 600, color: PURPLE[400], marginBottom: "5px", display: "block" }}>{trial} Free</span>
               {childList.filter((c) => c.status === "trial").map((c) => (
                 <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
                   <div style={{ width: "22px", height: "22px", borderRadius: "50%", background: AVATAR_COLORS[childList.indexOf(c) % AVATAR_COLORS.length], display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "9px", fontWeight: 700, flexShrink: 0 }}>{ini(c.name)}</div>
@@ -375,7 +375,7 @@ function ChildCard({ child, colorIndex, onEdit, onDelete, onViewResults, onFreeS
           color:      isActive ? PURPLE[700] : "#D97706",
           border:     `1px solid ${isActive ? PURPLE[200] : "#FDE68A"}`,
           flexShrink: 0,
-        }}>{isActive ? "Active" : "Trial"}</span>
+        }}>{isActive ? "Active" : "Free"}</span>
         {isActive
           ? <span style={{ fontSize: "13px", color: "#6B7280" }}>Bundle purchased ✓</span>
           : <span style={{ fontSize: "13px", color: PURPLE[600], fontWeight: 600, cursor: "pointer" }} onClick={() => onBuyBundle?.(child)}>Upgrade to Full Access →</span>
