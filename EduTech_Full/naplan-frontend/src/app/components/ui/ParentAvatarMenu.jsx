@@ -53,7 +53,7 @@ function getDisplayName(profile) {
 
 /* ── component ───────────────────────────────────────────── */
 
-export default function ParentAvatarMenu({ onAddChild, onChildLogin }) {
+export default function ParentAvatarMenu({ onAddChild, onChildLogin, variant = "default" }) {
   const { parentProfile, logout } = useAuth();
   const navigate  = useNavigate();
   const [open, setOpen] = useState(false);
@@ -153,29 +153,47 @@ export default function ParentAvatarMenu({ onAddChild, onChildLogin }) {
           {/* ── Actions ── */}
           <div className="py-1">
 
-            {/* Add Child */}
-            <button
-              onClick={handleAddChild}
-              role="menuitem"
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group"
-            >
-              <span className="w-7 h-7 rounded-lg bg-indigo-50 group-hover:bg-indigo-100 flex items-center justify-center transition-colors flex-shrink-0">
-                <UserPlus className="w-3.5 h-3.5 text-indigo-600" strokeWidth={2} />
-              </span>
-              <span className="font-medium">Add Child</span>
-            </button>
+            {variant === "bundles" ? (
+              /* Back to Parent Dashboard */
+              <button
+                onClick={() => { setOpen(false); navigate("/parent-dashboard"); }}
+                role="menuitem"
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group"
+              >
+                <span className="w-7 h-7 rounded-lg bg-indigo-50 group-hover:bg-indigo-100 flex items-center justify-center transition-colors flex-shrink-0">
+                  <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                </span>
+                <span className="font-medium">Back to Parent Dashboard</span>
+              </button>
+            ) : (
+              <>
+                {/* Add Child */}
+                <button
+                  onClick={handleAddChild}
+                  role="menuitem"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group"
+                >
+                  <span className="w-7 h-7 rounded-lg bg-indigo-50 group-hover:bg-indigo-100 flex items-center justify-center transition-colors flex-shrink-0">
+                    <UserPlus className="w-3.5 h-3.5 text-indigo-600" strokeWidth={2} />
+                  </span>
+                  <span className="font-medium">Add Child</span>
+                </button>
 
-            {/* Child Login */}
-            <button
-              onClick={handleChildLogin}
-              role="menuitem"
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group"
-            >
-              <span className="w-7 h-7 rounded-lg bg-violet-50 group-hover:bg-violet-100 flex items-center justify-center transition-colors flex-shrink-0">
-                <LogIn className="w-3.5 h-3.5 text-violet-600" strokeWidth={2} />
-              </span>
-              <span className="font-medium">Child Login</span>
-            </button>
+                {/* Child Login */}
+                <button
+                  onClick={handleChildLogin}
+                  role="menuitem"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group"
+                >
+                  <span className="w-7 h-7 rounded-lg bg-violet-50 group-hover:bg-violet-100 flex items-center justify-center transition-colors flex-shrink-0">
+                    <LogIn className="w-3.5 h-3.5 text-violet-600" strokeWidth={2} />
+                  </span>
+                  <span className="font-medium">Child Login</span>
+                </button>
+              </>
+            )}
           </div>
 
           {/* ── Divider + Logout ── */}
