@@ -120,13 +120,14 @@ function DifficultyBadge({ difficulty }) {
 const TABS = [
   { id: "quizzes",    label: "My Quizzes",         icon: ClipboardList },
   { id: "cumulative", label: "Cumulative Analysis", icon: BarChart2     },
+  { id: "history",    label: "Quiz History",        icon: Library       },
 ];
 
 function TabSlider({ activeTab, onChange }) {
   return (
     <div className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
       <div className="max-w-6xl mx-auto px-4 md:px-8">
-        <div className="flex overflow-x-hidden">
+        <div className="flex overflow-hidden">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -167,13 +168,15 @@ export default function ChildDashboard() {
   const isParentViewing = !childToken && !!parentToken;
 
   /* ─── Initial tab from URL ─── */
-  const getInitialTab = () => {
-    const t = searchParams.get("tab");
-    if (t === "cumulative") return "cumulative";
-    if (t === "overall")    return "cumulative"; // backwards-compat
-    if (t === "analytics")  return "cumulative"; // backwards-compat
-    return "quizzes";
-  };
+// ✅ AFTER:
+const getInitialTab = () => {
+  const t = searchParams.get("tab");
+  if (t === "cumulative") return "cumulative";
+  if (t === "overall")    return "cumulative";
+  if (t === "analytics")  return "cumulative";
+  if (t === "history")    return "history";
+  return "quizzes";
+};
 
   /* ─── STATE ─── */
   const [tests,                setTests]                = useState([]);
@@ -193,6 +196,13 @@ export default function ChildDashboard() {
   const [childEntitledQuizIds, setChildEntitledQuizIds] = useState(null);
   const [availableQuizzes,     setAvailableQuizzes]     = useState([]);
   const [quizzesLoading,       setQuizzesLoading]       = useState(true);
+  const [historySubject, setHistorySubject] = useState("All");
+  const [historySearch,  setHistorySearch]  = useState("");
+  const [historyScore,   setHistoryScore]   = useState("All");
+  const [historyDate,    setHistoryDate]    = useState("All");
+  const [historySort,    setHistorySort]    = useState("newest");
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PER_PAGE = 10;
 
   const testsPerPage = 8;
 
@@ -513,44 +523,50 @@ export default function ChildDashboard() {
     />
   );
 
-  if (selectedQuizResult) return (
-    <div className="min-h-screen bg-slate-100">
-      <DashboardHeader>
-        <span className="text-sm text-slate-500 hidden sm:inline">{selectedQuizResult.quizName}</span>
-        {sharedNav(true, () => setSelectedQuizResult(null))}
-      </DashboardHeader>
-      <QuizResult
-        result={selectedQuizResult.result}
-        quizName={selectedQuizResult.quizName}
-        childStatus={childStatus}
-        onClose={() => setSelectedQuizResult(null)}
-        onRetake={() => {
-          const quiz = mergedQuizzes.find(
-            (q) => q.quiz_id === selectedQuizResult.result?.quiz_id ||
-                   (q.name || "").toLowerCase() === (selectedQuizResult.quizName || "").toLowerCase()
-          );
-          if (quiz) { setSelectedQuizResult(null); setActiveQuiz(quiz); }
-        }}
-        onViewAnalytics={() => {
+   if (selectedQuizResult) return (
+    <QuizResult
+      result={selectedQuizResult.result}
+      quizName={selectedQuizResult.quizName}
+      childStatus={childStatus}
+      displayName={displayName}
+      isParentViewing={isParentViewing}
+      onClose={() => setSelectedQuizResult(null)}
+      onRetake={() => {
+        const quiz = mergedQuizzes.find(
+          (q) =>
+            q.quiz_id === selectedQuizResult.result?.quiz_id ||
+            (q.name || "").toLowerCase() === (selectedQuizResult.quizName || "").toLowerCase()
+        );
+        if (quiz) {
           setSelectedQuizResult(null);
-          setActiveTab("cumulative");
-        }}
-        onViewAIFeedback={(attemptId, subject, name) => {
-          setSelectedQuizResult(null);
-          const params = new URLSearchParams({ r: attemptId });
-          const username = childInfo?.username || childProfile?.username || searchParams.get("username") || null;
-          if (username) params.set("username", username);
-          if (subject) params.set("subject", subject);
-          if (name) params.set("quiz_name", name);
-          params.set("status", childStatus);
-          navigate((subject || "").toLowerCase() === "writing"
+          setActiveQuiz(quiz);
+        }
+      }}
+      onViewAnalytics={() => {
+        setSelectedQuizResult(null);
+        setActiveTab("cumulative");
+      }}
+      onViewAIFeedback={(attemptId, subject, name) => {
+        setSelectedQuizResult(null);
+        const params = new URLSearchParams({ r: attemptId });
+        const username =
+          childInfo?.username ||
+          childProfile?.username ||
+          searchParams.get("username") ||
+          null;
+        if (username) params.set("username", username);
+        if (subject)  params.set("subject",  subject);
+        if (name)     params.set("quiz_name", name);
+        params.set("status", childStatus);
+        navigate(
+          (subject || "").toLowerCase() === "writing"
             ? `/writing-feedback/result?${params}`
             : `/NonWritingLookupQuizResults/results?${params}`
-          );
-        }}
-      />
-    </div>
+        );
+      }}
+    />
   );
+ 
 
   /* ════════════════════════════════
      MAIN DASHBOARD — TAB LAYOUT
@@ -563,6 +579,7 @@ export default function ChildDashboard() {
       <DashboardHeader>{sharedNav(activeTab !== "quizzes")}</DashboardHeader>
 
       {/* Greeting + KPI strip — always visible above tabs */}
+      {activeTab === "quizzes" && (
       <div className="px-4 pt-6 pb-4 md:px-8">
         <div className="max-w-6xl mx-auto space-y-4">
 
@@ -676,11 +693,20 @@ export default function ChildDashboard() {
           </section>
         </div>
       </div>
+      )}
 
       {/* Tab Slider */}
-      <TabSlider activeTab={activeTab} onChange={(t) => { setActiveTab(t); setCurrentPage(1); }} />
+      <TabSlider activeTab={activeTab} onChange={(t) => {
+        setActiveTab(t);
+        setCurrentPage(1);
+        // Update URL so reload returns to same tab
+        const newParams = new URLSearchParams(searchParams);
+        newParams.set("tab", t);
+        navigate(`?${newParams.toString()}`, { replace: true });
+      }} />
 
       {/* Tab Content */}
+      
       <div className="px-4 py-4 md:px-8">
         <div className="max-w-6xl mx-auto">
 
@@ -873,28 +899,303 @@ export default function ChildDashboard() {
           {/* ══════════════════════════════════════════════
               TAB 2 — CUMULATIVE ANALYSIS (all subjects, per-subject drill-down)
           ══════════════════════════════════════════════ */}
-          {activeTab === "cumulative" && (
-            <TrialGateOverlay
-              isTrialUser={childStatus === "trial"}
-              preset="analytics"
-              viewerType={viewerType}
-              onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")}
-              onBack={() => setActiveTab("quizzes")}
-              yearLevel={yearLevel}
-            >
-              <StudentDashboardAnalytics
-                tests={entitledTests}
-                displayName={displayName}
-                yearLevel={yearLevel}
-                embedded={true}
-                childId={childId}
-                onLogout={handleLogout}
-              />
-            </TrialGateOverlay>
-          )}
+         {activeTab === "cumulative" && (
+      <TrialGateOverlay
+        isTrialUser={childStatus === "trial"}
+        preset="analytics"
+        viewerType={viewerType}
+        onUpgrade={() => navigate(yearLevel ? `/bundles?year=${yearLevel}` : "/bundles")}
+        onBack={() => setActiveTab("quizzes")}
+        yearLevel={yearLevel}
+      >
+        <StudentDashboardAnalytics
+          tests={entitledTests}
+          displayName={displayName}
+          yearLevel={yearLevel}
+          embedded={true}
+          childId={childId}
+          onLogout={handleLogout}
+        />
+      </TrialGateOverlay>
+    )}
+     {/* ══════════════════════════════════════════════
+    TAB 3 — QUIZ HISTORY
+══════════════════════════════════════════════ */}
 
+{activeTab === "history" && (
+  <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+
+    {/* ── LATEST ATTEMPT BANNER ── */}
+    {entitledTests.length > 0 && (() => {
+      const latest = [...entitledTests].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      const style = SUBJECT_STYLE[latest.subject] || SUBJECT_STYLE.Other;
+      const Icon = style.icon;
+      const scoreInfo =
+        latest.score >= 60 ? { label: "Excellent",       color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200", dot: "bg-emerald-500" } :
+        latest.score >= 40 ? { label: "Good Progress",   color: "text-blue-600",    bg: "bg-blue-50",    border: "border-blue-200",    dot: "bg-blue-500"    } :
+        latest.score >= 20 ? { label: "Improving",       color: "text-amber-600",   bg: "bg-amber-50",   border: "border-amber-200",   dot: "bg-amber-500"   } :
+                             { label: "Keep Practicing", color: "text-rose-600",    bg: "bg-rose-50",    border: "border-rose-200",    dot: "bg-rose-400"    };
+      return (
+        <div className={`mx-5 mt-5 rounded-xl border ${scoreInfo.border} ${scoreInfo.bg} overflow-hidden`}>
+          <div className="flex items-center gap-3 px-4 py-3">
+            {/* Icon */}
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${style.bg}`}>
+              <Icon className={`w-4 h-4 ${style.text}`} />
+            </div>
+            {/* Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">⭐ Latest Attempt</span>
+                <span className="text-slate-200 text-xs">·</span>
+                <span className="text-xs text-slate-500">{new Date(latest.date).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</span>
+              </div>
+              <p className="font-semibold text-slate-800 text-sm truncate mt-0.5">{latest.name}</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className={`text-xs font-bold ${scoreInfo.color}`}>{latest.score}%</span>
+                <span className="text-slate-200">·</span>
+                <span className={`text-xs ${scoreInfo.color}`}>{scoreInfo.label}</span>
+              </div>
+            </div>
+            {/* CTA */}
+            {latest.response_id && (
+              <button
+                onClick={() => handleViewResult(latest)}
+                className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${scoreInfo.border} ${scoreInfo.color} hover:opacity-80 transition bg-white`}
+              >
+                View Result
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    })()}
+
+    {/* ── HEADER + FILTERS + PAGINATION ── */}
+    <div className="px-5 py-4 border-b border-slate-100">
+
+      {/* Title + stats */}
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">All Attempts</h2>
+          <div className="flex items-center gap-3 mt-0.5">
+            <span className="text-xs text-slate-400">
+              <span className="font-semibold text-slate-600">{completedCount}</span> of {mergedQuizzes.length} quizzes practised
+            </span>
+            <span className="text-slate-200">|</span>
+            <span className="text-xs text-slate-400">
+              <span className="font-semibold text-slate-600">{entitledTests.length}</span> attempts across all quizzes
+            </span>
+          </div>
         </div>
       </div>
+
+      {/* Filters + Pagination on same row */}
+      <div className="flex flex-wrap items-center gap-2">
+
+        {/* Search */}
+        <input
+          type="text"
+          placeholder="Search quizzes..."
+          value={historySearch}
+          onChange={(e) => { setHistorySearch(e.target.value); setHistoryPage(1); }}
+          className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:ring-2 focus:ring-indigo-400 outline-none w-40"
+        />
+
+        {/* Subject dropdown */}
+        <select value={historySubject} onChange={(e) => { setHistorySubject(e.target.value); setHistoryPage(1); }}
+          className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-600 focus:ring-2 focus:ring-indigo-400 outline-none">
+          <option value="All">All Subjects</option>
+          {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+
+        {/* Score dropdown */}
+        <select value={historyScore} onChange={(e) => { setHistoryScore(e.target.value); setHistoryPage(1); }}
+          className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-600 focus:ring-2 focus:ring-indigo-400 outline-none">
+          <option value="All">All Scores</option>
+          <option value="excellent">⭐ Excellent (60%+)</option>
+          <option value="good">🟢 Good (40–59%)</option>
+          <option value="improving">🟡 Improving (20–39%)</option>
+          <option value="practice">🔴 Keep Trying (0–19%)</option>
+        </select>
+
+        {/* Clear filters */}
+        {(historySubject !== "All" || historySearch || historyScore !== "All") && (
+          <button
+            onClick={() => { setHistorySubject("All"); setHistorySearch(""); setHistoryScore("All"); setHistoryPage(1); }}
+            className="text-xs text-indigo-600 hover:underline font-medium px-1"
+          >
+            Clear
+          </button>
+        )}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Pagination controls — top right */}
+        <div id="history-pagination-top" />
+      </div>
+    </div>
+
+    {/* ── TABLE ── */}
+    {(() => {
+      const attemptCountMap = {};
+      [...entitledTests]
+        .sort((a, b) => new Date(a.date) - new Date(b.date))
+        .forEach((t) => {
+          attemptCountMap[t.name] = (attemptCountMap[t.name] || 0) + 1;
+          t._attemptNum = attemptCountMap[t.name];
+        });
+
+      const getScoreInfo = (score) => {
+        if (score >= 60) return { label: "Excellent",      stars: 3, color: "bg-emerald-100 text-emerald-700", bar: "bg-emerald-500" };
+        if (score >= 40) return { label: "Good Progress",  stars: 2, color: "bg-blue-100 text-blue-700",       bar: "bg-blue-500"    };
+        if (score >= 20) return { label: "Improving",      stars: 1, color: "bg-amber-100 text-amber-700",     bar: "bg-amber-500"   };
+        return              { label: "Keep Practicing", stars: 0, color: "bg-rose-100 text-rose-600",       bar: "bg-rose-400"    };
+      };
+
+      let filtered = [...entitledTests].sort((a, b) => new Date(b.date) - new Date(a.date));
+      if (historySearch)            filtered = filtered.filter((t) => (t.name || "").toLowerCase().includes(historySearch.toLowerCase()));
+      if (historySubject !== "All") filtered = filtered.filter((t) => t.subject === historySubject);
+      if (historyScore === "excellent") filtered = filtered.filter((t) => t.score >= 60);
+      if (historyScore === "good")      filtered = filtered.filter((t) => t.score >= 40 && t.score < 60);
+      if (historyScore === "improving") filtered = filtered.filter((t) => t.score >= 20 && t.score < 40);
+      if (historyScore === "practice")  filtered = filtered.filter((t) => t.score < 20);
+
+      const totalHistoryPages = Math.ceil(filtered.length / HISTORY_PER_PAGE);
+      const paginated = filtered.slice((historyPage - 1) * HISTORY_PER_PAGE, historyPage * HISTORY_PER_PAGE);
+
+      // Pagination component reused top + bottom
+      const PaginationBar = ({ className = "" }) => totalHistoryPages <= 1 ? null : (
+        <div className={`flex items-center gap-1 ${className}`}>
+          <button onClick={() => setHistoryPage((p) => Math.max(1, p - 1))} disabled={historyPage === 1}
+            className="px-2.5 py-1 text-xs rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 text-slate-600">‹</button>
+          {Array.from({ length: totalHistoryPages }, (_, i) => i + 1).map((pg) => (
+            <button key={pg} onClick={() => setHistoryPage(pg)}
+              className={`px-2.5 py-1 text-xs rounded-lg border font-medium ${pg === historyPage ? "bg-indigo-600 text-white border-indigo-600" : "border-slate-200 hover:bg-slate-100 text-slate-600"}`}>
+              {pg}
+            </button>
+          ))}
+          <button onClick={() => setHistoryPage((p) => Math.min(totalHistoryPages, p + 1))} disabled={historyPage === totalHistoryPages}
+            className="px-2.5 py-1 text-xs rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 text-slate-600">›</button>
+        </div>
+      );
+
+      if (filtered.length === 0) return (
+        <div className="px-5 py-12 text-center">
+          <p className="text-slate-400 text-sm">No attempts match your filters.</p>
+          <button onClick={() => { setHistorySubject("All"); setHistorySearch(""); setHistoryScore("All"); setHistoryPage(1); }}
+            className="text-indigo-600 text-sm font-medium mt-2 hover:underline">Clear filters</button>
+        </div>
+      );
+
+      return (
+        <>
+          {/* Count + pagination top */}
+          <div className="px-5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <p className="text-xs text-slate-400">
+              Showing <span className="font-semibold text-slate-600">{(historyPage - 1) * HISTORY_PER_PAGE + 1}–{Math.min(historyPage * HISTORY_PER_PAGE, filtered.length)}</span> of <span className="font-semibold text-slate-600">{filtered.length}</span> attempts
+            </p>
+            <PaginationBar />
+          </div>
+
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Quiz</th>
+                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Subject</th>
+                <th className="px-5 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Score</th>
+                <th className="px-5 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Progress</th>
+                <th className="px-5 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
+                <th className="px-5 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Duration</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {paginated.map((t) => {
+                const style = SUBJECT_STYLE[t.subject] || SUBJECT_STYLE.Other;
+                const Icon = style.icon;
+                const scoreInfo = getScoreInfo(t.score);
+                const mins = t.duration ? Math.floor(t.duration / 60) : 0;
+                const secs = t.duration ? t.duration % 60 : 0;
+                const durationLabel = t.duration ? (mins > 0 ? `${mins}m ${secs}s` : `${secs}s`) : "—";
+
+                return (
+                  <tr key={t.id}
+                    onClick={() => t.response_id && handleViewResult(t)}
+                    className={`transition group ${t.response_id ? "cursor-pointer hover:bg-indigo-50/40" : "hover:bg-slate-50/60"}`}
+                  >
+                    <td className="px-5 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                        <p className="font-medium text-slate-800">{t.name}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Attempt #{t._attemptNum}</p>
+                        
+                      </div>
+                        {t.response_id && (
+                          <span className="text-[10px] text-indigo-400 font-medium opacity-0 group-hover:opacity-100 transition flex items-center gap-0.5 flex-shrink-0">
+                            Tap to view results
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                            </svg>
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-6 h-6 rounded-md flex items-center justify-center ${style.bg}`}>
+                          <Icon className={`w-3.5 h-3.5 ${style.text}`} />
+                        </span>
+                        <span className={`text-sm font-medium ${style.text}`}>{t.subject}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${scoreInfo.color}`}>{t.score}%</span>
+                        <span className="text-[10px] text-slate-400">{scoreInfo.label}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex flex-col gap-1.5 items-center">
+                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${scoreInfo.bar}`} style={{ width: `${t.score}%` }} />
+                        </div>
+                        <div className="flex gap-0.5">
+                          {[1, 2, 3].map((star) => (
+                            <svg key={star} className={`w-3 h-3 ${star <= scoreInfo.stars ? "text-amber-400" : "text-slate-200"}`}
+                              fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                          ))}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-center text-xs text-slate-400">
+                      {new Date(t.date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" })}
+                    </td>
+                    <td className="px-5 py-3 text-center text-xs text-slate-400">{durationLabel}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {/* Pagination bottom */}
+          {totalHistoryPages > 1 && (
+            <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50">
+              <p className="text-xs text-slate-400">Page {historyPage} of {totalHistoryPages}</p>
+              <PaginationBar />
+            </div>
+          )}
+        </>
+      );
+    })()}
+  </section>
+)}
+          </div>
+        </div>
     </div>
   );
 }
