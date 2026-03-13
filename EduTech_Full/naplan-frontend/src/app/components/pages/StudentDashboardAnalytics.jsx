@@ -15,13 +15,6 @@ import {
   BarChart,
   Bar,
   ReferenceLine,
-  Cell,
-  Legend,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
 } from "recharts";
 
 import {
@@ -224,7 +217,7 @@ function SummaryRow({ label, value, positive }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AI COACH PANEL
+   AI COACH PANEL — compact & scannable
    ═══════════════════════════════════════════════════════════ */
 
 const TREND_CONFIG = {
@@ -256,19 +249,19 @@ function FeedbackSkeleton() {
   );
 }
 
+/* Compact chip list — for strengths / tips */
 function ChipList({ items, color }) {
   if (!items?.length) return null;
   return (
     <div className="flex flex-wrap gap-1.5">
-      {items.slice(0, 2).map((item, i) => {
-        const label = typeof item === "string" ? item : item.issue || item;
-        const short = label.split(" ").slice(0, 7).join(" ") + (label.split(" ").length > 7 ? "…" : "");
-        return (
-          <span key={i} className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium border ${color}`}>
-            {short}
-          </span>
-        );
-      })}
+      {items.slice(0, 3).map((item, i) => (
+        <span
+          key={i}
+          className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium border ${color}`}
+        >
+          {typeof item === "string" ? item : item.issue || item}
+        </span>
+      ))}
     </div>
   );
 }
@@ -330,6 +323,8 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
 
   return (
     <div className="space-y-4">
+
+      {/* ── Header row: trend + meta ── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <TrendBadge trend={feedback.trend || "new"} />
         {feedbackDoc.attempt_count > 0 && (
@@ -340,19 +335,27 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
         )}
       </div>
 
+      {/* ── One-line summary ── */}
       {feedback.summary && (
-        <p className="text-sm text-slate-700 leading-relaxed line-clamp-2">{feedback.summary}</p>
+        <p className="text-sm text-slate-700 leading-relaxed line-clamp-3">
+          {feedback.summary}
+        </p>
       )}
 
+      {/* ── Strengths as chips ── */}
       {feedback.strengths?.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5" /> Strengths
           </p>
-          <ChipList items={feedback.strengths} color="bg-emerald-50 border-emerald-200 text-emerald-700" />
+          <ChipList
+            items={feedback.strengths}
+            color="bg-emerald-50 border-emerald-200 text-emerald-700"
+          />
         </div>
       )}
 
+      {/* ── Focus areas as chips ── */}
       {feedback.areas_for_improvement?.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1">
@@ -365,17 +368,22 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
         </div>
       )}
 
+      {/* ── Top study tip (just one) ── */}
       {feedback.study_tips?.[0] && (
-        <div className={`flex items-start gap-2 rounded-lg p-2.5 ${subjectBgLight} border ${subjectBorderColor}`}>
-          <Lightbulb className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${subjectColor}`} />
-          <p className={`text-xs leading-snug line-clamp-2 ${subjectColor}`}>{feedback.study_tips[0]}</p>
+        <div className={`flex items-start gap-2.5 rounded-xl p-3 ${subjectBgLight} border ${subjectBorderColor}`}>
+          <Lightbulb className={`w-4 h-4 mt-0.5 flex-shrink-0 ${subjectColor}`} />
+          <p className={`text-xs leading-relaxed ${subjectColor}`}>{feedback.study_tips[0]}</p>
         </div>
       )}
 
+      {/* ── Encouragement quote ── */}
       {feedback.encouragement && (
-        <p className="text-xs text-slate-500 italic border-l-2 border-slate-200 pl-3 line-clamp-2">"{feedback.encouragement}"</p>
+        <p className="text-xs text-slate-500 italic border-l-2 border-slate-200 pl-3">
+          "{feedback.encouragement}"
+        </p>
       )}
 
+      {/* ── Timestamp ── */}
       {feedbackDoc.generated_at && (
         <p className="text-[10px] text-slate-400 text-right">
           Updated {new Date(feedbackDoc.generated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
@@ -392,10 +400,16 @@ function AICumulativeCoachPanel({ feedbackDoc, subject, onRefresh, refreshing, l
 
 function SubjectDropdown({ selectedSubject, onChange, tests }) {
   const [open, setOpen] = useState(false);
+
   const options = [
     { value: "All", label: "All Subjects", count: tests.length },
-    ...SUBJECTS.map((s) => ({ value: s, label: s, count: tests.filter((t) => t.subject === s).length })),
+    ...SUBJECTS.map((s) => ({
+      value: s,
+      label: s,
+      count: tests.filter((t) => t.subject === s).length,
+    })),
   ];
+
   const selected = options.find((o) => o.value === selectedSubject) || options[0];
 
   return (
@@ -521,7 +535,6 @@ export default function StudentDashboardAnalytics({
   onBack = null,
   onLogout = null,
   embedded = false,
-  coachOnly = false,
   childId: childIdProp = null,
 }) {
   const navigate = useNavigate();
@@ -529,6 +542,7 @@ export default function StudentDashboardAnalytics({
 
   const [timeFilter, setTimeFilter] = useState(3);
   const [selectedSubject, setSelectedSubject] = useState("All");
+
   const [cumulativeFeedback, setCumulativeFeedback] = useState({});
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -644,118 +658,31 @@ export default function StudentDashboardAnalytics({
     return withData.reduce((p, c) => (c.score < p.score ? c : p)).subject;
   }, [comparisonData]);
 
-  const subjectTrendData  = useMemo(() => buildSubjectTrendData(subjectTests),         [subjectTests]);
-  const allSubjectsTrend  = useMemo(() => buildAllSubjectsTrendData(timeFilteredTests), [timeFilteredTests]);
-  const topicData         = useMemo(() => buildTopicBreakdown(subjectTests).slice(0, 8), [subjectTests]);
+  const subjectTrendData = useMemo(() => buildSubjectTrendData(subjectTests),        [subjectTests]);
+  const allSubjectsTrend = useMemo(() => buildAllSubjectsTrendData(timeFilteredTests),[timeFilteredTests]);
+  const topicData        = useMemo(() => buildTopicBreakdown(subjectTests).slice(0, 8),[subjectTests]);
 
   const recentAssessments = useMemo(() => (
     [...subjectTests].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10)
   ), [subjectTests]);
 
-  const activeSubjects    = useMemo(() => comparisonData.filter((c) => c.count > 0).length, [comparisonData]);
+  const activeSubjects = useMemo(() => comparisonData.filter((c) => c.count > 0).length, [comparisonData]);
 
-  const subjectColor     = selectedSubject !== "All" ? SUBJECT_COLORS[selectedSubject] : "#6366F1";
-  const subjectBg        = selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] : "bg-indigo-50";
+  const subjectColor    = selectedSubject !== "All" ? SUBJECT_COLORS[selectedSubject] : "#6366F1";
+  const subjectBg       = selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] : "bg-indigo-50";
   const subjectTextClass = selectedSubject !== "All" ? SUBJECT_TEXT[selectedSubject] : "text-indigo-600";
-
-  /* ── Pre-compute Performance Insights bullets (avoids IIFE in JSX) ── */
-  const truncateWords = (str, words = 12) => {
-    if (!str) return "";
-    const w = str.split(" ");
-    return w.length > words ? w.slice(0, words).join(" ") + "\u2026" : str;
-  };
-  const _fb = activeFeedbackDoc?.feedback;
-  const insightBullets = !hasData ? [] : _fb ? [
-    _fb.trend && {
-      Icon: _fb.trend === "improving" ? TrendingUp : _fb.trend === "declining" ? TrendingDown : Minus,
-      bg: _fb.trend === "improving" ? "bg-emerald-400/20" : _fb.trend === "declining" ? "bg-rose-400/20" : "bg-slate-400/20",
-      iconColor: _fb.trend === "improving" ? "text-emerald-300" : _fb.trend === "declining" ? "text-rose-300" : "text-slate-300",
-      text: _fb.trend === "improving" ? "Scores trending upward \u2014 great momentum!" : _fb.trend === "declining" ? "Recent scores have dipped \u2014 time to refocus." : "Performance is holding steady.",
-    },
-    _fb.strengths?.[0] && { Icon: Trophy, bg: "bg-amber-400/20", iconColor: "text-amber-300", text: truncateWords(_fb.strengths[0]) },
-    _fb.areas_for_improvement?.[0] && { Icon: Target, bg: "bg-blue-400/20", iconColor: "text-blue-300", text: truncateWords(_fb.areas_for_improvement[0].issue || _fb.areas_for_improvement[0]) },
-    _fb.encouragement && { Icon: Star, bg: "bg-yellow-400/20", iconColor: "text-yellow-300", text: truncateWords(_fb.encouragement) },
-  ].filter(Boolean).slice(0, 4) : [
-    { Icon: Trophy, bg: "bg-amber-400/20", iconColor: "text-amber-300", text: strongest !== "\u2014" ? `${strongest} is your strongest subject at ${comparisonData.find((c) => c.subject === strongest)?.score}%` : "Complete more tests to reveal your strongest subject" },
-    { Icon: Target, bg: "bg-blue-400/20", iconColor: "text-blue-300", text: `Averaging ${avgScore}% \u2014 ${avgScore >= 85 ? "target reached!" : `${85 - avgScore}% away from the 85% target`}` },
-    {
-      Icon: improvement !== null && improvement > 0 ? TrendingUp : improvement !== null && improvement < 0 ? TrendingDown : Minus,
-      bg: improvement !== null && improvement > 0 ? "bg-emerald-400/20" : improvement !== null && improvement < 0 ? "bg-rose-400/20" : "bg-slate-400/20",
-      iconColor: improvement !== null && improvement > 0 ? "text-emerald-300" : improvement !== null && improvement < 0 ? "text-rose-300" : "text-slate-300",
-      text: improvement !== null ? `Scores ${improvement >= 0 ? "up" : "down"} ${Math.abs(improvement)}% vs earlier tests` : "Take more tests to track your improvement",
-    },
-    { Icon: Lightbulb, bg: "bg-cyan-400/20", iconColor: "text-cyan-300", text: `${timeFilteredTests.length} test${timeFilteredTests.length !== 1 ? "s" : ""} completed \u2014 keep going to unlock full AI insights!` },
-  ];
-
-
-  /* ══════════════════════════════════════════════════════════
-     COACH-ONLY MODE (used when embedded in ChildDashboard accordion)
-     ══════════════════════════════════════════════════════════ */
-  if (coachOnly) {
-    return (
-      <div className="p-5 space-y-5">
-        {/* Subject tabs */}
-        <div className="flex flex-wrap gap-2">
-          {["All", ...SUBJECTS].map((s) => {
-            const count = s === "All" ? tests.length : tests.filter((t) => t.subject === s).length;
-            const isActive = s === selectedSubject;
-            return (
-              <button key={s} onClick={() => setSelectedSubject(s)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
-                  ${isActive
-                    ? s === "All" ? "bg-slate-800 text-white border-slate-800" : `${SUBJECT_BG[s]} text-white border-transparent`
-                    : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}`}>
-                <SubjectIconEl subject={s} className={`w-3.5 h-3.5 ${isActive ? "text-white" : s !== "All" ? SUBJECT_TEXT[s] : "text-slate-400"}`} />
-                {s} <span className="opacity-60">({count})</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* AI Coach panel */}
-        <div className="bg-white rounded-xl border border-indigo-100 p-5">
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-700">
-                {selectedSubject === "All" ? "Overall Coaching Report" : `${selectedSubject} Coaching Report`}
-              </span>
-              {hasData && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-semibold border border-indigo-100">
-                  <Star className="w-2.5 h-2.5" /> AI Powered
-                </span>
-              )}
-            </div>
-            <button onClick={handleRefreshFeedback} disabled={refreshing || feedbackLoading}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-indigo-200 transition disabled:opacity-50">
-              <svg className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {refreshing ? "Refreshing…" : "Refresh"}
-            </button>
-          </div>
-          <AICumulativeCoachPanel
-            feedbackDoc={activeFeedbackDoc}
-            subject={selectedSubject}
-            onRefresh={handleRefreshFeedback}
-            refreshing={refreshing}
-            loading={feedbackLoading}
-          />
-        </div>
-      </div>
-    );
-  }
 
   /* ══════════════════════════════════════════════════════════
      RENDER
      ══════════════════════════════════════════════════════════ */
   return (
-    <div className={embedded ? "" : "min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40"}>
-      <div className={embedded ? "space-y-8" : "max-w-screen-2xl mx-auto px-4 sm:px-8 py-8 space-y-8"}>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40">
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-8 py-8 space-y-8">
 
-        {/* ── HEADER — hidden when embedded ── */}
-        {!embedded && (
-          <header className="flex flex-col lg:flex-row justify-between gap-6 pb-6 border-b border-slate-200">
-            <div className="flex items-start gap-4">
+        {/* ── HEADER ── */}
+        <header className="flex flex-col lg:flex-row justify-between gap-6 pb-6 border-b border-slate-200">
+          <div className="flex items-start gap-4">
+            {!embedded && (
               <button
                 onClick={handleBack}
                 className="mt-1 inline-flex items-center justify-center w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all"
@@ -765,54 +692,31 @@ export default function StudentDashboardAnalytics({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <div>
-                <h1 className="text-3xl font-bold tracking-tight text-slate-900">{displayName}</h1>
-                <p className="text-sm text-slate-500 mt-1">
-                  {yearLevel ? `Year ${yearLevel} · ` : ""}Analytics Dashboard
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                {TIME_FILTERS.map((f, i) => (
-                  <button
-                    key={f.label}
-                    onClick={() => setTimeFilter(i)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      timeFilter === i ? "bg-slate-800 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </header>
-        )}
-
-        {/* ── TIME FILTER — shown inline when embedded ── */}
-        {embedded && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-4">
-                <div className="flex gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                  {TIME_FILTERS.map((f, i) => (
-                    <button
-                      key={f.label}
-                      onClick={() => setTimeFilter(i)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        timeFilter === i ? "bg-slate-800 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            )}
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">{displayName}</h1>
+              <p className="text-sm text-slate-500 mt-1">
+                {yearLevel ? `Year ${yearLevel} · ` : ""}Analytics Dashboard
+              </p>
             </div>
           </div>
-        )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+              {TIME_FILTERS.map((f, i) => (
+                <button
+                  key={f.label}
+                  onClick={() => setTimeFilter(i)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    timeFilter === i ? "bg-slate-800 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
 
         {/* ── SUBJECT FILTER BAR ── */}
         <section>
@@ -876,10 +780,8 @@ export default function StudentDashboardAnalytics({
           )}
         </section>
 
-        {/* ── ROW 1: Performance Trend + Subject Comparison ── */}
+        {/* ── CHARTS ROW ── */}
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-
-          {/* Performance Trend — 2/3 width */}
           <Card className="xl:col-span-2">
             <CardTitle>
               {selectedSubject === "All" ? "Performance Trend (All Subjects)" : `${selectedSubject} Score History`}
@@ -963,7 +865,6 @@ export default function StudentDashboardAnalytics({
             )}
           </Card>
 
-          {/* Subject Comparison / Quiz Scores — 1/3 width */}
           <Card>
             <CardTitle>
               {selectedSubject === "All" ? "Subject Comparison" : `${selectedSubject} Quiz Scores`}
@@ -981,12 +882,11 @@ export default function StudentDashboardAnalytics({
                         formatter={(value) => [`${value}%`, "Average"]}
                         contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 10px 40px rgba(0,0,0,0.08)" }}
                       />
-              <Bar dataKey="score" radius={[8, 8, 0, 0]}>
-                    {comparisonData.map((entry) => (
-                      <Cell key={entry.subject} fill={entry.color} />
-                    ))}
-                  </Bar>
-
+                      <Bar dataKey="score" radius={[8, 8, 0, 0]}>
+                        {comparisonData.map((entry) => (
+                          <rect key={entry.subject} fill={entry.color} />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                   <div className="mt-4 space-y-2">
@@ -1031,39 +931,26 @@ export default function StudentDashboardAnalytics({
           </Card>
         </section>
 
-        {/* ── ROW 2: Academic Summary + Performance Insights ── */}
+        {/* ── SECOND ROW ── */}
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
-          {/* Academic Summary — 1/3 */}
+          {/* Academic Summary */}
           <Card>
             <CardTitle>{selectedSubject === "All" ? "Academic Summary" : `${selectedSubject} Summary`}</CardTitle>
             {hasData ? (
               <>
-                {/* Exactly 4 rows — no duplication */}
-                <div className="text-sm divide-y divide-slate-50">
-                  <SummaryRow
-                    label={selectedSubject === "All" ? "Overall Average" : "Subject Average"}
-                    value={`${avgScore}%`}
-                  />
+                <div className="space-y-1 text-sm">
+                  <SummaryRow label={selectedSubject === "All" ? "Overall Average" : "Subject Average"} value={`${avgScore}%`} />
                   <SummaryRow label="Best Score" value={`${bestScore}%`} />
-                  <SummaryRow
-                    label="Improvement"
-                    value={improvement !== null ? `${improvement >= 0 ? "+" : ""}${improvement}%` : "—"}
-                    positive={improvement !== null ? improvement >= 0 : undefined}
-                  />
-                  <SummaryRow
-                    label={selectedSubject === "All" ? "Total Tests" : `${selectedSubject} Tests`}
-                    value={String(selectedSubject === "All" ? timeFilteredTests.length : subjectTests.length)}
-                  />
+                  {improvement !== null && (
+                    <SummaryRow label="Improvement" value={`${improvement >= 0 ? "+" : ""}${improvement}%`} positive={improvement >= 0} />
+                  )}
+                  <SummaryRow label={selectedSubject === "All" ? "Total Tests" : `${selectedSubject} Tests`} value={String(subjectTests.length)} />
+                  {selectedSubject === "All" && <SummaryRow label="Subjects Active" value={String(activeSubjects)} />}
                 </div>
-
-                {/* Progress bar */}
                 <div className="mt-5">
-                  <div className="flex justify-between text-xs text-slate-400 mb-1.5">
-                    <span>Progress to Target (85%)</span>
-                    <span>{avgScore >= 85 ? "✓ Reached!" : `${85 - avgScore}% to go`}</span>
-                  </div>
-                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                  <p className="text-xs text-slate-500 mb-2">Progress Toward Target (85%)</p>
+                  <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-700"
                       style={{
@@ -1072,17 +959,49 @@ export default function StudentDashboardAnalytics({
                       }}
                     />
                   </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {avgScore >= 85 ? "Target reached!" : `${85 - avgScore}% to go`}
+                  </p>
                 </div>
               </>
             ) : (
-              <div className="text-sm text-slate-400 py-8 text-center">No data yet</div>
+              <div className="text-sm text-slate-400 py-4 text-center">No data yet</div>
             )}
           </Card>
 
-          {/* Performance Insights — 2/3 */}
-          <Card className={`xl:col-span-2 ${hasData ? "bg-gradient-to-br from-indigo-600/95 to-purple-600/95 text-white shadow-xl" : ""}`}>
+          {/* Score Distribution */}
+          <Card>
+            <CardTitle>Score Distribution</CardTitle>
+            {hasData ? (
+              <div className="space-y-4">
+                {[
+                  { label: "High (80%+)",       tests: subjectTests.filter((t) => t.score >= 80),                  color: "bg-emerald-500" },
+                  { label: "Mid (50–79%)",       tests: subjectTests.filter((t) => t.score >= 50 && t.score < 80), color: "bg-amber-500" },
+                  { label: "Needs Work (<50%)",  tests: subjectTests.filter((t) => t.score < 50),                  color: "bg-rose-500" },
+                ].map((bucket) => {
+                  const pct = subjectTests.length ? Math.round((bucket.tests.length / subjectTests.length) * 100) : 0;
+                  return (
+                    <div key={bucket.label}>
+                      <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+                        <span className="font-medium">{bucket.label}</span>
+                        <span>{bucket.tests.length} tests ({pct}%)</span>
+                      </div>
+                      <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all duration-700 ${bucket.color}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-sm text-slate-400 py-4 text-center">No data yet</div>
+            )}
+          </Card>
+
+          {/* ── PERFORMANCE INSIGHTS (AI-powered) ── */}
+          <Card className={hasData ? "bg-gradient-to-br from-indigo-600/95 to-purple-600/95 text-white shadow-xl" : ""}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className={`text-sm font-semibold uppercase tracking-wider ${hasData ? "text-white/80" : "text-slate-400"}`}>
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80">
                 Performance Insights
               </h3>
               {hasData && (
@@ -1094,11 +1013,13 @@ export default function StudentDashboardAnalytics({
 
             {!hasData ? (
               <p className="text-sm text-slate-400 py-4 text-center">
-                {selectedSubject === "All" ? "Take some tests to see your insights" : `Take a ${selectedSubject} test to unlock insights`}
+                {selectedSubject === "All"
+                  ? "Take some tests to see your insights"
+                  : `Take a ${selectedSubject} test to unlock insights`}
               </p>
 
             ) : feedbackLoading ? (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
                 {[1, 2, 3, 4].map((i) => (
                   <div key={i} className="flex items-start gap-3 animate-pulse">
                     <div className="w-7 h-7 rounded-lg bg-white/20 flex-shrink-0" />
@@ -1119,24 +1040,93 @@ export default function StudentDashboardAnalytics({
                 <span>AI is analysing your quiz history…</span>
               </div>
 
-            ) : (
-              <div>
-                <ul className="grid grid-cols-2 gap-x-5 gap-y-3">
-                  {insightBullets.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <div className={`w-6 h-6 rounded-lg ${item.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                        <item.Icon className={`w-3 h-3 ${item.iconColor}`} />
+            ) : activeFeedbackDoc?.feedback ? (() => {
+              const fb = activeFeedbackDoc.feedback;
+              const rows = [
+                fb.trend && {
+                  Icon: fb.trend === "improving" ? TrendingUp : fb.trend === "declining" ? TrendingDown : Minus,
+                  bg:   fb.trend === "improving" ? "bg-emerald-400/20" : fb.trend === "declining" ? "bg-rose-400/20" : "bg-slate-400/20",
+                  iconColor: fb.trend === "improving" ? "text-emerald-300" : fb.trend === "declining" ? "text-rose-300" : "text-slate-300",
+                  text: fb.trend === "improving" ? "Scores trending upward — great momentum!" :
+                        fb.trend === "declining" ? "Recent scores have dipped — time to refocus." :
+                        "Performance is holding steady.",
+                },
+                fb.summary && {
+                  Icon: Lightbulb, bg: "bg-cyan-400/20", iconColor: "text-cyan-300",
+                  text: fb.summary.split(" ").slice(0, 18).join(" ") + (fb.summary.split(" ").length > 18 ? "…" : ""),
+                },
+                fb.strengths?.[0] && {
+                  Icon: Trophy, bg: "bg-amber-400/20", iconColor: "text-amber-300",
+                  text: fb.strengths[0],
+                },
+                fb.areas_for_improvement?.[0] && {
+                  Icon: Target, bg: "bg-blue-400/20", iconColor: "text-blue-300",
+                  text: fb.areas_for_improvement[0].issue || fb.areas_for_improvement[0],
+                },
+                fb.study_tips?.[0] && {
+                  Icon: Award, bg: "bg-purple-400/20", iconColor: "text-purple-300",
+                  text: fb.study_tips[0],
+                },
+                fb.encouragement && {
+                  Icon: Star, bg: "bg-yellow-400/20", iconColor: "text-yellow-300",
+                  text: fb.encouragement,
+                },
+              ].filter(Boolean).slice(0, 4);
+
+              return (
+                <ul className="space-y-3">
+                  {rows.map((item, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <div className={`w-7 h-7 rounded-lg ${item.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                        <item.Icon className={`w-3.5 h-3.5 ${item.iconColor}`} />
                       </div>
-                      <span className="text-xs leading-snug text-white/90 line-clamp-2">{item.text}</span>
+                      <span className="text-sm leading-relaxed text-white/90">{item.text}</span>
                     </li>
                   ))}
+                  {activeFeedbackDoc.generated_at && (
+                    <li className="pt-1">
+                      <span className="text-[10px] text-white/40">
+                        Updated {new Date(activeFeedbackDoc.generated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                      </span>
+                    </li>
+                  )}
                 </ul>
-                {activeFeedbackDoc?.generated_at && (
-                  <p className="text-[10px] text-white/40 mt-4">
-                    Updated {new Date(activeFeedbackDoc.generated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
-                  </p>
-                )}
-              </div>
+              );
+            })() : (
+              /* Fallback: AI doc missing, derive from raw data */
+              <ul className="space-y-3">
+                {[
+                  {
+                    Icon: Trophy, bg: "bg-amber-400/20", iconColor: "text-amber-300",
+                    text: strongest !== "—"
+                      ? `${strongest} is your strongest at ${comparisonData.find((c) => c.subject === strongest)?.score}%`
+                      : "Keep completing tests to reveal your strongest subject",
+                  },
+                  {
+                    Icon: Target, bg: "bg-blue-400/20", iconColor: "text-blue-300",
+                    text: `Averaging ${avgScore}% — ${avgScore >= 85 ? "target reached!" : `${85 - avgScore}% away from the 85% target`}`,
+                  },
+                  {
+                    Icon: improvement !== null && improvement > 0 ? TrendingUp : improvement !== null && improvement < 0 ? TrendingDown : Minus,
+                    bg:   improvement !== null && improvement > 0 ? "bg-emerald-400/20" : improvement !== null && improvement < 0 ? "bg-rose-400/20" : "bg-slate-400/20",
+                    iconColor: improvement !== null && improvement > 0 ? "text-emerald-300" : improvement !== null && improvement < 0 ? "text-rose-300" : "text-slate-300",
+                    text: improvement !== null
+                      ? `Scores ${improvement >= 0 ? "up" : "down"} ${Math.abs(improvement)}% comparing recent vs earlier tests`
+                      : "Take more tests to track your improvement trend",
+                  },
+                  {
+                    Icon: Lightbulb, bg: "bg-cyan-400/20", iconColor: "text-cyan-300",
+                    text: `${subjectTests.length || timeFilteredTests.length} test${(subjectTests.length || timeFilteredTests.length) !== 1 ? "s" : ""} done — take more quizzes to unlock AI insights`,
+                  },
+                ].map((item, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <div className={`w-7 h-7 rounded-lg ${item.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                      <item.Icon className={`w-3.5 h-3.5 ${item.iconColor}`} />
+                    </div>
+                    <span className="text-sm leading-relaxed text-white/90">{item.text}</span>
+                  </li>
+                ))}
+              </ul>
             )}
           </Card>
         </section>
@@ -1144,51 +1134,53 @@ export default function StudentDashboardAnalytics({
         {/* ── AI CUMULATIVE COACH ── */}
         <section>
           <Card className="border-2 border-indigo-100 bg-gradient-to-br from-white to-indigo-50/30">
-            {/* Compact single-line header */}
-            <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                  <Lightbulb className="w-4 h-4 text-indigo-600" />
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
+                  <Lightbulb className="w-5 h-5 text-indigo-600" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800">
+                  <h3 className="text-base font-bold text-slate-800">
                     AI Coach — {selectedSubject === "All" ? "Overall Summary" : `${selectedSubject} Analysis`}
                   </h3>
-                  <p className="text-xs text-slate-400">Powered by AI · updates after every quiz</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Powered by AI · updates after every quiz
+                  </p>
                 </div>
               </div>
 
-              {/* Subject tabs + refresh in one compact row */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {[{ key: "All", label: "Overall" }, ...SUBJECTS.map((s) => ({ key: s, label: s }))].map(({ key, label }) => {
-                  const isActive = (selectedSubject === "All" && key === "All") || selectedSubject === key;
-                  const doc = cumulativeFeedback[key === "All" ? "Overall" : key];
-                  const isDone = doc?.status === "done";
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setSelectedSubject(key)}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border transition-all
-                        ${isActive
-                          ? key === "All" ? "bg-indigo-600 text-white border-indigo-600" : `${SUBJECT_BG[key]} text-white border-transparent`
-                          : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
-                        }`}
-                    >
-                      <SubjectIconEl subject={key} className={`w-3 h-3 ${isActive ? "text-white" : key !== "All" ? SUBJECT_TEXT[key] : "text-slate-400"}`} />
-                      {label}
-                      {isDone && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />}
-                    </button>
-                  );
-                })}
+              <div className="flex items-center gap-2">
+                <div className="hidden sm:flex gap-1.5 flex-wrap">
+                  {[{ key: "All", label: "Overall" }, ...SUBJECTS.map((s) => ({ key: s, label: s }))].map(({ key, label }) => {
+                    const isActive = (selectedSubject === "All" && key === "All") || selectedSubject === key;
+                    const doc = cumulativeFeedback[key === "All" ? "Overall" : key];
+                    const isDone = doc?.status === "done";
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setSelectedSubject(key)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all
+                          ${isActive
+                            ? key === "All" ? "bg-indigo-600 text-white border-indigo-600" : `${SUBJECT_BG[key]} text-white border-transparent`
+                            : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+                          }`}
+                      >
+                        <SubjectIconEl subject={key} className={`w-3.5 h-3.5 ${isActive ? "text-white" : key !== "All" ? SUBJECT_TEXT[key] : "text-slate-500"}`} />
+                        {label}
+                        {isDone && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5" title="Ready" />}
+                      </button>
+                    );
+                  })}
+                </div>
                 <button
                   onClick={handleRefreshFeedback}
                   disabled={refreshing || feedbackLoading}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-500 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-700 transition-all disabled:opacity-50 ml-1"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-700 transition-all disabled:opacity-50"
                 >
-                  <svg className={`w-3 h-3 ${refreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
-                  {refreshing ? "…" : "Refresh"}
+                  {refreshing ? "Refreshing…" : "Refresh"}
                 </button>
               </div>
             </div>
@@ -1200,6 +1192,39 @@ export default function StudentDashboardAnalytics({
               refreshing={refreshing}
               loading={feedbackLoading}
             />
+
+            {selectedSubject === "All" && Object.keys(cumulativeFeedback).length > 0 && (
+              <div className="mt-6 pt-5 border-t border-slate-100">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Subject Feedback Status</p>
+                <div className="flex flex-wrap gap-2">
+                  {SUBJECTS.map((s) => {
+                    const doc = cumulativeFeedback[s];
+                    const status = doc?.status || "none";
+                    const statusConfig = {
+                      done:       { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", icon: "✓" },
+                      generating: { bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-200",   icon: "⏳" },
+                      error:      { bg: "bg-rose-50",    text: "text-rose-700",    border: "border-rose-200",    icon: "✗" },
+                      none:       { bg: "bg-slate-50",   text: "text-slate-400",   border: "border-slate-200",   icon: "○" },
+                      pending:    { bg: "bg-slate-50",   text: "text-slate-400",   border: "border-slate-200",   icon: "○" },
+                    }[status] || { bg: "bg-slate-50", text: "text-slate-400", border: "border-slate-200", icon: "○" };
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => setSelectedSubject(s)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium transition-all hover:shadow-sm ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border}`}
+                      >
+                        <SubjectIconEl subject={s} className="w-3.5 h-3.5" />
+                        <span>{s}</span>
+                        <span className="font-bold">{statusConfig.icon}</span>
+                        {doc?.attempt_count > 0 && (
+                          <span className="text-slate-400 font-normal">{doc.attempt_count} tests</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </Card>
         </section>
 
