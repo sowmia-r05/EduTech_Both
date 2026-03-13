@@ -1,0 +1,894 @@
+/**
+ * ManualQuizCreator.jsx  (v10.1 — SHORT ANSWER SUPPORT + FIXES)
+ *
+ * Fixes included:
+ * ✅ Fixed broken grid layout (was grid-cols-4 but had 5+ cells + duplicate Time Limit label)
+ * ✅ Better validation for Picture Choice (allows image-only options)
+ * ✅ Safer numeric parsing for Points / Time Limit / Set Number
+ * ✅ Cleaner adminFetch (keeps JSON default, allows overrides)
+ *
+ * Requires: POST /api/admin/upload endpoint (uploadRoutes.js)
+ * Place in: src/app/components/admin/ManualQuizCreator.jsx
+ */
+
+import { useState, useRef } from "react";
+import CollapsibleImageResize from "./CollapsibleImageResize";
+import FreeTextPreview from "./FreeTextPreview";
+
+const API = import.meta.env.VITE_API_BASE_URL || "";
+
+function adminFetch(url, opts = {}) {
+  const token = localStorage.getItem("admin_token");
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    ...(opts.headers || {}),
+  };
+
+  // Default JSON content-type only if body is a string (we JSON.stringify below)
+  if (!headers["Content-Type"] && typeof opts.body === "string") {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return fetch(`${API}${url}`, {
+    ...opts,
+    headers,
+  });
+}
+
+/* ═══════════════════════════════════════
+   FILE UPLOAD BUTTON — reusable
+   ═══════════════════════════════════════ */
+function FileUploadButton({ onUploaded, accept = "image/*,.pdf", label = "Upload" }) {
+  const inputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  const uploadFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const token = localStorage.getItem("admin_token");
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch(`${API}/api/admin/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Upload failed");
+      }
+
+      const data = await res.json();
+      const fullUrl = data.url?.startsWith("http") ? data.url : `${API}${data.url}`;
+      onUploaded(fullUrl, data);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) uploadFile(file);
+  };
+
+  return (
+    <div
+      className={`relative ${dragOver ? "ring-2 ring-indigo-500" : ""}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+    >
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs text-slate-300 rounded-lg border border-slate-600 transition flex items-center gap-1.5"
+      >
+        {uploading ? (
+          <>
+            <span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" />{" "}
+            Uploading...
+          </>
+        ) : (
+          <>
+            <span className="text-sm">📎</span> {label}
+          </>
+        )}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => {
+          uploadFile(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════
+   IMAGE FIELD — URL input + upload button + preview
+   ═══════════════════════════════════════ */
+function ImageField({ value, onChange, label = "Image" }) {
+  const isPdf = value && value.toLowerCase().endsWith(".pdf");
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs text-slate-400 mb-1">{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="https://... or upload →"
+          className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+        />
+        <FileUploadButton accept="image/*,.pdf" label="Upload" onUploaded={(url) => onChange(url)} />
+      </div>
+
+      {value && (
+        <div className="mt-1">
+          {isPdf ? (
+            <a
+              href={value}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 hover:bg-red-500/20 transition"
+            >
+              📄 PDF uploaded — click to preview
+            </a>
+          ) : (
+            <img
+              src={value}
+              alt="Preview"
+              className="max-w-[200px] max-h-32 rounded-lg border border-slate-700 object-contain"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════
+   ADD QUESTION FORM
+   ═══════════════════════════════════════ */
+function AddQuestionForm({ onAdd, onCancel }) {
+  const [q, setQ] = useState({
+    question_text: "",
+    type: "radio_button",
+    options: [
+      { label: "A", text: "", image_url: "", correct: false },
+      { label: "B", text: "", image_url: "", correct: false },
+    ],
+    points: 1,
+    category: "",
+    image_url: "",
+    image_size: "medium",
+    image_width: null,
+    image_height: null,
+    explanation: "",
+    voice_url: "",
+    video_url: "",
+    shuffle_options: false,
+    correct_answer: "",
+    case_sensitive: false,
+  });
+
+  const updateOption = (idx, field, value) => {
+    setQ((prev) => {
+      const opts = [...prev.options];
+      opts[idx] = { ...opts[idx], [field]: value };
+
+      // If single choice, enforce only one correct
+      if (field === "correct" && value && prev.type === "radio_button") {
+        opts.forEach((o, i) => {
+          if (i !== idx) o.correct = false;
+        });
+      }
+      return { ...prev, options: opts };
+    });
+  };
+
+  const addOption = () => {
+    if (q.options.length >= 6) return;
+    setQ((prev) => ({
+      ...prev,
+      options: [
+        ...prev.options,
+        { label: String.fromCharCode(65 + prev.options.length), text: "", image_url: "", correct: false },
+      ],
+    }));
+  };
+
+  const removeOption = (idx) => {
+    if (q.type !== "free_text" && q.type !== "short_answer" && q.options.length <= 2) return;
+
+    setQ((prev) => ({
+      ...prev,
+      options: prev.options
+        .filter((_, i) => i !== idx)
+        .map((o, i) => ({ ...o, label: String.fromCharCode(65 + i) })),
+    }));
+  };
+
+  const hasValidOption = (o) => {
+    // For picture_choice allow image-only options
+    if (q.type === "picture_choice") return Boolean((o.image_url || "").trim() || (o.text || "").trim());
+    // For other MCQ types, require text
+    return Boolean((o.text || "").trim());
+  };
+
+  const handleSave = () => {
+    if (!q.question_text.trim()) return alert("Question text is required");
+
+    if (q.type === "short_answer") {
+      if (!q.correct_answer.trim()) return alert("Correct answer is required for Short Answer questions");
+    } else if (q.type !== "free_text") {
+      const validCount = q.options.filter(hasValidOption).length;
+      if (validCount < 2) return alert("At least 2 options required");
+      if (!q.options.some((o) => o.correct)) return alert("Mark at least one correct answer");
+    }
+
+    const cleanedOptions =
+      q.type === "free_text" || q.type === "short_answer"
+        ? []
+        : q.options
+            .filter(hasValidOption)
+            .map((o) => ({
+              label: o.label,
+              text: (o.text || "").trim() || null,
+              image_url: (o.image_url || "").trim() || null,
+            }));
+
+    onAdd({
+      question_text: q.question_text.trim(),
+      type: q.type,
+      options: cleanedOptions,
+
+      // correct_answer:
+      // - short_answer: admin string
+      // - free_text: ""
+      // - others: "A" or "A,B" labels
+      correct_answer:
+        q.type === "short_answer"
+          ? q.correct_answer.trim()
+          : q.type === "free_text"
+          ? ""
+          : q.options
+              .filter((o) => o.correct)
+              .map((o) => o.label)
+              .join(","),
+
+      case_sensitive: Boolean(q.case_sensitive),
+
+      points: Number.isFinite(Number(q.points)) && Number(q.points) > 0 ? Number(q.points) : 1,
+      category: (q.category || "").trim(),
+
+      image_url: (q.image_url || "").trim(),
+      image_size: q.image_size,
+      image_width: q.image_width,
+      image_height: q.image_height,
+
+      explanation: (q.explanation || "").trim(),
+      voice_url: (q.voice_url || "").trim() || null,
+      video_url: (q.video_url || "").trim() || null,
+      shuffle_options: Boolean(q.shuffle_options),
+    });
+  };
+
+  return (
+    <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-white">Add New Question</h4>
+        <button onClick={onCancel} className="text-slate-400 hover:text-white text-sm">
+          Cancel
+        </button>
+      </div>
+
+      {/* Question text */}
+      <div>
+        <label className="block text-xs text-slate-400 mb-1">Question Text *</label>
+        <textarea
+          rows={3}
+          value={q.question_text}
+          onChange={(e) => setQ((p) => ({ ...p, question_text: e.target.value }))}
+          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white resize-none focus:ring-2 focus:ring-indigo-500 outline-none"
+          placeholder="Enter the question..."
+        />
+      </div>
+
+      {/* Type / Points / Category */}
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Type *</label>
+          <select
+            value={q.type}
+            onChange={(e) => setQ((p) => ({ ...p, type: e.target.value }))}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+          >
+            <option value="radio_button">Single Choice (MCQ)</option>
+            <option value="checkbox">Multiple Choice</option>
+            <option value="picture_choice">Picture Choice</option>
+            <option value="free_text">Free Text / Writing</option>
+            <option value="short_answer">Short Answer</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Points</label>
+          <input
+            type="number"
+            min={1}
+            value={q.points}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setQ((p) => ({ ...p, points: Number.isFinite(v) && v > 0 ? v : 1 }));
+            }}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Category</label>
+          <input
+            type="text"
+            value={q.category}
+            onChange={(e) => setQ((p) => ({ ...p, category: e.target.value }))}
+            placeholder="e.g. Number patterns"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+          />
+        </div>
+      </div>
+
+      {/* Question Image — URL + Upload */}
+      <ImageField
+        value={q.image_url}
+        onChange={(url) => setQ((p) => ({ ...p, image_url: url }))}
+        label="Question Image (paste URL or upload)"
+      />
+
+      <CollapsibleImageResize form={q} setForm={setQ} />
+
+      {/* Explanation */}
+      <div>
+        <label className="block text-xs text-slate-400 mb-1">Explanation (shown after answer)</label>
+        <input
+          type="text"
+          value={q.explanation}
+          onChange={(e) => setQ((p) => ({ ...p, explanation: e.target.value }))}
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+        />
+      </div>
+
+      {/* Per-question settings */}
+      <div className="pt-3 border-t border-slate-700 space-y-3">
+        <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Question Settings</p>
+
+        <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={q.shuffle_options}
+            onChange={(e) => setQ((p) => ({ ...p, shuffle_options: e.target.checked }))}
+            className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+          />
+          🔀 Shuffle Options
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">🔊 Audio File</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="url"
+                value={q.voice_url}
+                onChange={(e) => setQ((p) => ({ ...p, voice_url: e.target.value }))}
+                placeholder="Paste URL or upload →"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+              />
+              <FileUploadButton
+                accept="audio/*"
+                label="Upload"
+                onUploaded={(url) => setQ((p) => ({ ...p, voice_url: url }))}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">🎬 Video File</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="url"
+                value={q.video_url}
+                onChange={(e) => setQ((p) => ({ ...p, video_url: e.target.value }))}
+                placeholder="Paste URL or upload →"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+              />
+              <FileUploadButton
+                accept="video/*"
+                label="Upload"
+                onUploaded={(url) => setQ((p) => ({ ...p, video_url: url }))}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Free Text — Student Writing Area Preview */}
+      <FreeTextPreview form={q} />
+
+      {/* Short Answer — Correct Answer Input */}
+      {q.type === "short_answer" && (
+        <div className="pt-3 border-t border-slate-700 space-y-3">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">✍️ Correct Answer</p>
+
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">
+              Expected Answer(s){" "}
+              <span className="text-slate-600">— separate multiple accepted answers with | (pipe)</span>
+            </label>
+
+            <input
+              type="text"
+              value={q.correct_answer}
+              onChange={(e) => setQ((p) => ({ ...p, correct_answer: e.target.value }))}
+              placeholder='e.g. "1025" or "1 025|1025|one thousand twenty-five"'
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-orange-500"
+            />
+
+            {q.correct_answer && q.correct_answer.includes("|") && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {q.correct_answer
+                  .split("|")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                  .map((a, i) => (
+                    <span
+                      key={i}
+                      className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-[10px] font-medium"
+                    >
+                      ✓ {a}
+                    </span>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={q.case_sensitive}
+              onChange={(e) => setQ((p) => ({ ...p, case_sensitive: e.target.checked }))}
+              className="rounded border-slate-600 bg-slate-800 text-orange-500 focus:ring-orange-500"
+            />
+            Case-sensitive grading <span className="text-[10px] text-slate-500">(default: ignores case)</span>
+          </label>
+
+          {/* Student preview */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-3">
+            <p className="text-[10px] text-slate-500 mb-2 uppercase tracking-wider">Student View Preview:</p>
+            <div className="bg-white rounded-lg px-4 py-3 border border-slate-300">
+              <p className="text-xs text-slate-400 mb-1">Your Answer:</p>
+              <div className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 flex items-center text-sm text-slate-400">
+                Type your answer here...
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Options (hidden for free_text and short_answer) */}
+      {q.type !== "free_text" && q.type !== "short_answer" && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-medium text-slate-400">Options * (click ✓ for correct)</label>
+            <button onClick={addOption} className="text-xs text-indigo-400 hover:text-indigo-300">
+              + Add Option
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {q.options.map((opt, i) => (
+              <div key={i} className="space-y-1.5 bg-slate-900/40 border border-slate-800 rounded-lg p-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => updateOption(i, "correct", !opt.correct)}
+                    className={`w-6 h-6 rounded flex-shrink-0 flex items-center justify-center border text-xs transition ${
+                      opt.correct
+                        ? "bg-emerald-600 border-emerald-500 text-white"
+                        : "bg-slate-900 border-slate-600 text-slate-500"
+                    }`}
+                    type="button"
+                  >
+                    {opt.correct ? "✓" : opt.label}
+                  </button>
+
+                  <input
+                    type="text"
+                    value={opt.text}
+                    onChange={(e) => updateOption(i, "text", e.target.value)}
+                    placeholder={`Option ${opt.label} text...`}
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+                  />
+
+                  {q.options.length > 2 && (
+                    <button
+                      type="button"
+                      onClick={() => removeOption(i)}
+                      className="text-red-500 hover:text-red-400 text-sm font-bold"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 ml-8">
+                  <input
+                    type="text"
+                    value={opt.image_url}
+                    onChange={(e) => updateOption(i, "image_url", e.target.value)}
+                    placeholder="Option image URL (optional)"
+                    className="flex-1 bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1 text-xs text-slate-300 outline-none"
+                  />
+                  <FileUploadButton accept="image/*" label="Upload" onUploaded={(url) => updateOption(i, "image_url", url)} />
+                </div>
+
+                {opt.image_url && (
+                  <div className="ml-8">
+                    <img
+                      src={opt.image_url}
+                      alt={`Option ${opt.label}`}
+                      className="max-w-[120px] max-h-20 rounded border border-slate-700 object-contain"
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-end gap-3 pt-2">
+        <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-400 hover:text-white" type="button">
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg"
+          type="button"
+        >
+          Add Question
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════
+   MAIN: ManualQuizCreator Modal
+   ═══════════════════════════════════════ */
+export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
+  const [meta, setMeta] = useState({
+    quiz_name: "",
+    year_level: "",
+    subject: "",
+    time_limit_minutes: 30,
+    difficulty: "",
+    set_number: 1,
+    is_trial: false,
+  });
+
+  const [questions, setQuestions] = useState([]);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingIdx, setEditingIdx] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleAddQuestion = (newQ) => {
+    if (editingIdx !== null) {
+      setQuestions((prev) => prev.map((old, i) => (i === editingIdx ? newQ : old)));
+      setEditingIdx(null);
+    } else {
+      setQuestions((prev) => [...prev, newQ]);
+    }
+    setShowAddForm(false);
+  };
+
+  const handleRemoveQuestion = (idx) => setQuestions((prev) => prev.filter((_, i) => i !== idx));
+
+  const moveQuestion = (idx, dir) => {
+    setQuestions((prev) => {
+      const arr = [...prev];
+      const t = idx + dir;
+      if (t < 0 || t >= arr.length) return arr;
+      [arr[idx], arr[t]] = [arr[t], arr[idx]];
+      return arr;
+    });
+  };
+
+  const handleSubmit = async () => {
+    setError("");
+    if (!meta.quiz_name.trim()) return setError("Quiz title is required");
+    if (questions.length === 0) return setError("Add at least 1 question");
+
+    setSubmitting(true);
+    try {
+      const payload = {
+        quiz: {
+          quiz_name: meta.quiz_name.trim(),
+          year_level: meta.year_level.trim() || null,
+          subject: meta.subject || null,
+          time_limit_minutes:
+            meta.time_limit_minutes === "" || meta.time_limit_minutes === null
+              ? null
+              : Number(meta.time_limit_minutes),
+          difficulty: meta.difficulty || null,
+          set_number: Number(meta.set_number) || 1,
+          is_trial: Boolean(meta.is_trial),
+        },
+        questions,
+      };
+
+      const res = await adminFetch("/api/admin/quizzes/upload", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Upload failed (${res.status})`);
+      }
+
+      onSuccess?.();
+      onClose?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 pb-10 overflow-y-auto">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+          <h2 className="text-lg font-semibold text-white">Create New Quiz</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition" type="button">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-4 py-3">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Quiz Title *</label>
+            <input
+              type="text"
+              value={meta.quiz_name}
+              onChange={(e) => setMeta((m) => ({ ...m, quiz_name: e.target.value }))}
+              placeholder="e.g. Year 5 Maths — Set 1"
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          {/* FIXED: grid now matches the number of fields */}
+          {/* Meta row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Year Level</label>
+              <input
+                type="text"
+                value={meta.year_level}
+                onChange={(e) => setMeta((m) => ({ ...m, year_level: e.target.value }))}
+                placeholder="e.g. 5"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Subject</label>
+              <select
+                value={meta.subject}
+                onChange={(e) => setMeta((m) => ({ ...m, subject: e.target.value }))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white outline-none h-11"
+              >
+                <option value="">Select...</option>
+                <option value="Maths">Maths</option>
+                <option value="Reading">Reading</option>
+                <option value="Writing">Writing</option>
+                <option value="Conventions">Language Conventions</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Time Limit (min)</label>
+              <input
+                type="number"
+                min={0}
+                value={meta.time_limit_minutes}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setMeta((m) => ({ ...m, time_limit_minutes: v === "" ? "" : Number(v) }));
+                }}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Difficulty</label>
+              <select
+                value={meta.difficulty}
+                onChange={(e) => setMeta((m) => ({ ...m, difficulty: e.target.value }))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+              >
+                <option value="">Auto</option>
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Checkbox aligned under grid */}
+          <div className="pt-1">
+            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={meta.is_trial}
+                onChange={(e) => setMeta((m) => ({ ...m, is_trial: e.target.checked }))}
+                className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+              />
+              Mark as Trial Quiz
+            </label>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-slate-800 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-white">Questions</h3>
+              {!showAddForm && (
+                <button
+                  onClick={() => {
+                    setShowAddForm(true);
+                    setEditingIdx(null);
+                  }}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition"
+                  type="button"
+                >
+                  + Add Question
+                </button>
+              )}
+            </div>
+
+            {showAddForm && (
+              <AddQuestionForm
+                onAdd={handleAddQuestion}
+                onCancel={() => {
+                  setShowAddForm(false);
+                  setEditingIdx(null);
+                }}
+              />
+            )}
+
+            {questions.length > 0 ? (
+              <div className="space-y-2 mt-3">
+                {questions.map((qq, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between bg-slate-800/50 border border-slate-700/50 rounded-lg px-4 py-2.5 group hover:border-slate-600 transition"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white truncate">
+                        {i + 1}. {qq.question_text}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            qq.type === "radio_button"
+                              ? "bg-blue-500/10 text-blue-400"
+                              : qq.type === "checkbox"
+                              ? "bg-amber-500/10 text-amber-400"
+                              : qq.type === "free_text"
+                              ? "bg-emerald-500/10 text-emerald-400"
+                              : qq.type === "short_answer"
+                              ? "bg-orange-500/10 text-orange-400"
+                              : "bg-purple-500/10 text-purple-400"
+                          }`}
+                        >
+                          {qq.type}
+                        </span>
+                        <span className="text-[10px] text-slate-500">
+                          {qq.points} pt{qq.points !== 1 ? "s" : ""}
+                        </span>
+                        {qq.image_url && (
+                          <span className="text-[10px] text-sky-400">{qq.image_url.endsWith(".pdf") ? "📄" : "🖼️"}</span>
+                        )}
+                        {qq.shuffle_options && <span className="text-[10px] text-cyan-400">🔀</span>}
+                        {qq.voice_url && <span className="text-[10px] text-violet-400">🔊</span>}
+                        {qq.video_url && <span className="text-[10px] text-pink-400">🎬</span>}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                      <button
+                        type="button"
+                        onClick={() => moveQuestion(i, -1)}
+                        disabled={i === 0}
+                        className="text-slate-500 hover:text-white text-xs disabled:opacity-30"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveQuestion(i, 1)}
+                        disabled={i === questions.length - 1}
+                        className="text-slate-500 hover:text-white text-xs disabled:opacity-30"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveQuestion(i)}
+                        className="text-red-500 hover:text-red-400 text-xs ml-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : !showAddForm ? (
+              <div className="text-center py-10 text-slate-500 text-sm">No questions yet. Click "Add Question" above.</div>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-between">
+          <span className="text-xs text-slate-500">
+            {questions.length} question{questions.length !== 1 ? "s" : ""} added
+          </span>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white" type="button">
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg"
+              type="button"
+            >
+              {submitting ? "Creating..." : "Create Quiz"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

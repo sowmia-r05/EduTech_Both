@@ -1,13 +1,5 @@
 const mongoose = require("mongoose");
 
-/**
- * WritingResults: one document per *submitted* FlexiQuiz response
- * for any quiz whose name contains the word "writing".
- *
- * Writing quizzes usually have no numeric score, so we store the full
- * question + answer text payload for downstream AI evaluation.
- */
-
 const QnaSchema = new mongoose.Schema(
   {
     question_id: { type: String },
@@ -18,54 +10,72 @@ const QnaSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const ProctoringSchema = new mongoose.Schema(
+  {
+    violations: { type: Number, default: 0 },
+    fullscreen_enforced: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const WritingSchema = new mongoose.Schema(
   {
-    // webhook metadata
-    event_id: { type: String, index: true },
-    event_type: { type: String },
-    delivery_attempt: { type: Number },
+    // ─── Identifiers ───
+    response_id: { type: String, required: true, index: true }, // = QuizAttempt.attempt_id (UUID)
+    attempt_id:  { type: String, index: true },                 // mirror of response_id for clarity
+    quiz_id:     { type: String, index: true },
+    quiz_name:   { type: String },
 
-    // identifiers
-    response_id: { type: String, required: true, index: true },
-    quiz_id: { type: String, index: true },
-    quiz_name: { type: String },
+    // ─── Ownership ───
+    child_id:  { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+    parent_id: { type: mongoose.Schema.Types.ObjectId, default: null, index: true }, // ✅ NEW
 
-    // user fields (best-effort)
+    // ─── Quiz meta ───
+    subject:    { type: String, default: "Writing" },
+    year_level: { type: mongoose.Schema.Types.Mixed, default: null, index: true },
+
+    // ─── User fields (kept for legacy UI compatibility) ───
     user: {
-      user_id: { type: String, default: null, index: true },
-      user_name: { type: String, default: null },
-      user_type: { type: String, default: "" },
+      user_name:     { type: String, default: null },
+      first_name:    { type: String, default: "" },
+      last_name:     { type: String, default: "" },
       email_address: { type: String, default: "" },
-      first_name: { type: String, default: "" },
-      last_name: { type: String, default: "" },
     },
 
-    // meta
-    date_created: { type: Date, index: true },
+    // ─── Timing ───
+    started_at:   { type: Date, default: null },   // ✅ NEW
     submitted_at: { type: Date, index: true },
-    status: { type: String },
+    expires_at:   { type: Date, default: null },   // ✅ NEW
     duration_sec: { type: Number },
-    attempt: { type: Number },
+    timer_expired: { type: Boolean, default: false }, // ✅ NEW
 
-    // questions + answers
+    // ─── Attempt tracking ───
+    status:  { type: String },
+    attempt: { type: Number }, // attempt number: 1, 2, 3...
+
+    // ─── Proctoring ───
+    proctoring: { type: ProctoringSchema, default: null }, // ✅ NEW
+
+    // ─── Questions + answers ───
     qna: { type: [QnaSchema], default: [] },
 
-
-
-// AI evaluation (Gemini)
-ai: {
-  status: { type: String, default: "pending", index: true }, // pending|verifying|generating|done|error
-  message: { type: String, default: "" },
-  evaluated_at: { type: Date, default: null },
-  feedback: { type: mongoose.Schema.Types.Mixed, default: null },
-  error: { type: String, default: null },
-},
-
+    // ─── AI evaluation ───
+    ai: {
+      status:       { type: String, default: "pending", index: true },
+      message:      { type: String, default: "" },
+      evaluated_at: { type: Date, default: null },
+      feedback:     { type: mongoose.Schema.Types.Mixed, default: null },
+      error:        { type: String, default: null },
+    },
 
     createdAt: { type: Date, default: Date.now },
   },
-
   { versionKey: false }
 );
+
+// Compound indexes for common queries
+WritingSchema.index({ child_id: 1, quiz_id: 1 });
+WritingSchema.index({ child_id: 1, submitted_at: -1 });
+WritingSchema.index({ parent_id: 1, child_id: 1 });
 
 module.exports = mongoose.model("Writing", WritingSchema);

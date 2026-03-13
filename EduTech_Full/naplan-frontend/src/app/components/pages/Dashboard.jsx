@@ -6,114 +6,37 @@ import AICoachPanel from "@/app/components/dashboardComponents/AICoachPanel";
 import DonutScoreChart from "@/app/components/dashboardComponents/DonutScoreChart";
 import WeakTopicsBarChart from "@/app/components/dashboardComponents/WeakTopicsBarChart";
 import AISuggestionPanel from "@/app/components/dashboardComponents/AISuggestionPanel";
-import AvatarMenu from "@/app/components/dashboardComponents/AvatarMenu";
+import ChildAvatarMenu from "@/app/components/ui/ChildAvatarMenu";
+import {
+  BarChart2,
+  PieChart,
+  TrendingUp,
+  Lightbulb,
+  Bot,
+  Trophy,
+  Clock,
+  Target,
+  RefreshCw,
+} from "lucide-react";
 import TopTopicsFunnelChart from "@/app/components/dashboardComponents/TopTopicsFunnelChart";
 import DateRangeFilter from "@/app/components/dashboardComponents/DateRangeFilter";
 import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
+import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
 
-import { fetchResultsByEmail, fetchResultByResponseId } from "@/app/utils/api";
+// ✅ KAI Solutions standard header
+import DashboardHeader from "@/app/components/layout/DashboardHeader";
 
-/* -------------------- Loader -------------------- */
-const DotLoader = ({ label = "Loading" }) => (
-  <div className="flex flex-col items-center justify-center">
-    <div className="flex items-center gap-2" aria-label={label} role="status">
-      <span className="dot-loader dot1">.</span>
-      <span className="dot-loader dot2">.</span>
-      <span className="dot-loader dot3">.</span>
-    </div>
-    <style>{`
-      .dot-loader {
-        font-size: 64px;
-        font-weight: 700;
-        opacity: 0.25;
-        animation: dotPulse 1s infinite ease-in-out;
-      }
-      .dot1 { animation-delay: 0s; }
-      .dot2 { animation-delay: 0.15s; }
-      .dot3 { animation-delay: 0.3s; }
-      @keyframes dotPulse {
-        0%, 80%, 100% { opacity: 0.2; }
-        40% { opacity: 1; }
-      }
-    `}</style>
-  </div>
-);
+import { useAuth } from "@/app/context/AuthContext";
 
-/* -------------------- No Data Modal -------------------- */
-const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
-  useEffect(() => {
-    if (!isOpen) return;
+import {
+  fetchResultsByEmail,
+  fetchResultsByUsername,
+  fetchResultByResponseId,
+} from "@/app/utils/api";
 
-    document.body.style.overflow = "hidden";
-    const handleEsc = (e) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleEsc);
+/* ═══════════════════ Helpers (unchanged) ═══════════════════ */
 
-    return () => {
-      document.body.style.overflow = "";
-      window.removeEventListener("keydown", handleEsc);
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-scaleIn"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start gap-3">
-          <div className="text-2xl">📅</div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-800">
-              No Results Found
-            </h2>
-            <p className="text-sm text-gray-600 mt-1">
-              There are no quiz attempts recorded for the selected date.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 mt-6">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-100 transition"
-          >
-            Close
-          </button>
-
-          <button
-            onClick={onClearFilter}
-            className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
-          >
-            Clear Filter
-          </button>
-        </div>
-      </div>
-
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes scaleIn {
-          from { transform: scale(0.95); opacity: 0; }
-          to { transform: scale(1); opacity: 1; }
-        }
-        .animate-fadeIn { animation: fadeIn 0.2s ease-out forwards; }
-        .animate-scaleIn { animation: scaleIn 0.2s ease-out forwards; }
-      `}</style>
-    </div>
-  );
-};
-
-/* -------------------- Helpers -------------------- */
 const unwrapDate = (d) =>
   d && typeof d === "object" && "$date" in d ? d.$date : d;
 
@@ -128,71 +51,156 @@ const formatDuration = (seconds) => {
 const buildTopicStrength = (topicBreakdown = {}) => {
   const strong = [];
   const weak = [];
-
   Object.entries(topicBreakdown).forEach(([topic, v]) => {
     const total = Number(v?.total) || 0;
     const scored = Number(v?.scored) || 0;
     if (!total) return;
-
     const accuracy = scored / total;
     if (accuracy >= 0.75) strong.push({ topic, accuracy });
-    else if (accuracy <= 0.5)
-      weak.push({ topic, lostMarks: total - scored });
+    else if (accuracy <= 0.5) weak.push({ topic, lostMarks: total - scored });
   });
-
-  return {
-    strongTopics: strong,
-    weakTopics: weak.sort((a, b) => b.lostMarks - a.lostMarks),
-  };
+  return { strongTopics: strong, weakTopics: weak.sort((a, b) => b.lostMarks - a.lostMarks) };
 };
 
-/**
- * Build the "suggestions" list used by AISuggestionPanel.
- * Important:
- * - Supports NEW fields: growth_areas
- * - Still supports old fields: areas_of_improvement
- */
 const buildSuggestionsFromFeedback = (feedback) => {
   if (!feedback) return [];
   const list = [];
-
-  if (feedback.overall_feedback) {
-    list.push({
-      title: "Overall Feedback",
-      description: feedback.overall_feedback,
-    });
-  }
-
-  (feedback.strengths || []).forEach((s) =>
-    list.push({ title: "Strength", description: s })
-  );
-
-  (feedback.weaknesses || []).forEach((w) =>
-    list.push({ title: "Weak Area", description: w })
-  );
-
-  // ✅ NEW: growth_areas (array of strings)
-  (feedback.growth_areas || []).forEach((g) => {
-    if (g) list.push({ title: "Improvement", description: g });
-  });
-
-  // ✅ OLD SUPPORT: areas_of_improvement (objects)
+  if (feedback.overall_feedback) list.push({ title: "Overall Feedback", description: feedback.overall_feedback });
+  (feedback.strengths || []).forEach((s) => list.push({ title: "Strength", description: s }));
+  (feedback.weaknesses || []).forEach((w) => list.push({ title: "Weak Area", description: w }));
+  (feedback.growth_areas || []).forEach((g) => { if (g) list.push({ title: "Improvement", description: g }); });
   (feedback.areas_of_improvement || []).forEach((a) => {
     const desc = [a?.issue, a?.how_to_improve].filter(Boolean).join(" — ");
     if (desc) list.push({ title: "Improvement", description: desc });
   });
-
-  if (feedback.encouragement) {
-    list.push({ title: "Encouragement", description: feedback.encouragement });
-  }
-
+  if (feedback.encouragement) list.push({ title: "Encouragement", description: feedback.encouragement });
   return list;
 };
 
-/* -------------------- Dashboard -------------------- */
+const deduplicateAttempts = (attempts) => {
+  const seen = new Set();
+  return attempts.filter((r) => {
+    const respId = r?.response_id || r?.responseId || "";
+    const attempt = r?.attempt ?? "";
+    const key = `${respId}__${attempt}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const getResultStatus = (percentage) => {
+  const pct = Math.round(Number(percentage || 0));
+  if (pct > 90) return { label: "Outstanding", status: "successful" };
+  if (pct > 70) return { label: "Well Done", status: "pass" };
+  if (pct > 50) return { label: "On Track", status: "medium" };
+  if (pct > 30) return { label: "Developing", status: "med" };
+  return { label: "Needs Practice", status: "needs attention" };
+};
+
+const isAiPending = (doc) => {
+  if (!doc) return false;
+  const legacyStatus = String(doc?.ai?.status || "").toLowerCase();
+  if (["queued", "fetching", "generating", "verifying", "pending"].includes(legacyStatus))
+    return true;
+  const nativeStatus = String(doc?.ai_feedback_meta?.status || "").toLowerCase();
+  if (["pending", "queued", "generating"].includes(nativeStatus)) return true;
+  return false;
+};
+
+/* ═══════════════════ Inline Components ═══════════════════ */
+
+const DotLoader = ({ label = "Loading" }) => (
+  <div className="flex flex-col items-center justify-center">
+    <div className="flex items-center gap-2" aria-label={label} role="status">
+      <span className="dot-loader dot1">.</span>
+      <span className="dot-loader dot2">.</span>
+      <span className="dot-loader dot3">.</span>
+    </div>
+    <style>{`
+      .dot-loader { font-size: 64px; font-weight: 700; opacity: 0.25; animation: dotPulse 1s infinite ease-in-out; }
+      .dot1 { animation-delay: 0s; } .dot2 { animation-delay: 0.15s; } .dot3 { animation-delay: 0.3s; }
+      @keyframes dotPulse { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+    `}</style>
+  </div>
+);
+
+const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.style.overflow = "hidden";
+    const handleEsc = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleEsc);
+    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", handleEsc); };
+  }, [isOpen, onClose]);
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start gap-3">
+          <div className="text-2xl">📅</div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">No Results Found</h2>
+            <p className="text-sm text-gray-600 mt-1">There are no quiz attempts recorded for the selected date.</p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 mt-6">
+          <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-100 transition">Close</button>
+          <button onClick={onClearFilter} className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">Clear Filter</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AiPendingOverlay = ({ aiMessage }) => (
+  <div className="fixed inset-0 z-40 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 text-center">
+      <div className="mx-auto mb-6 w-16 h-16 relative">
+        <div className="absolute inset-0 rounded-full border-4 border-purple-100" />
+        <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-purple-600 animate-spin" />
+        <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-blue-500 animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
+      </div>
+      <h3 className="text-xl font-bold text-gray-800 mb-2">Preparing Your Results</h3>
+      <p className="text-sm text-gray-500 mb-4">{aiMessage || "Our AI is analysing your performance — this usually takes 15–30 seconds."}</p>
+      <div className="flex justify-center gap-1.5">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <span key={i} className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
+        ))}
+      </div>
+      <p className="text-xs text-gray-400 mt-4">Please wait — your dashboard will update automatically</p>
+    </div>
+  </div>
+);
+
+const isHtmlString = (str) => typeof str === "string" && /<!DOCTYPE|<html|<body|<pre>/i.test(str);
+
+const ResultNotFound = ({ errorMessage, onGoBack }) => {
+  const friendlyMessage = errorMessage && !isHtmlString(errorMessage)
+    ? errorMessage
+    : "We couldn't load this quiz result. It may still be processing or the link may be incorrect.";
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="bg-white rounded-2xl shadow-lg max-w-md w-full mx-4 p-8 text-center">
+        <div className="text-5xl mb-4">📋</div>
+        <h2 className="text-xl font-bold text-gray-800 mb-2">Result Not Found</h2>
+        <p className="text-sm text-gray-500 mb-2">{friendlyMessage}</p>
+        <p className="text-xs text-gray-400 mb-6">If you just submitted the quiz, wait a few seconds and try again.</p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <button onClick={() => window.location.reload()} className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition">Try Again</button>
+          <button onClick={onGoBack} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition">Go Back</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ═══════════════════ DASHBOARD ═══════════════════ */
 export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const { activeToken, isInitializing, childToken, childProfile, parentToken } = useAuth();
 
   const responseId = String(searchParams.get("r") || "").trim();
   const hasResponseId = Boolean(responseId && responseId !== "[ResponseId]");
@@ -200,96 +208,162 @@ export default function Dashboard() {
   const [latestResult, setLatestResult] = useState(null);
   const [resultsList, setResultsList] = useState([]);
   const [loadingLatest, setLoadingLatest] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [showNoDataModal, setShowNoDataModal] = useState(false);
-
   const [isTourActive, setIsTourActive] = useState(false);
   const [showTourModal, setShowTourModal] = useState(false);
+  const [selectedAttemptOverride, setSelectedAttemptOverride] = useState(null);
+  const [aiPending, setAiPending] = useState(false);
 
-  /* -------------------- Redirect if no responseId -------------------- */
-  useEffect(() => {
-    if (!hasResponseId) navigate("/", { replace: true });
-  }, [hasResponseId, navigate]);
+  const isParentViewing = !childToken && !!parentToken;
+  const childStatus = searchParams.get("status") || childProfile?.status || "trial";
+  const yearLevel = childProfile?.yearLevel || null;
 
-  /* -------------------- Load results -------------------- */
+  const viewerType = childToken && !isParentViewing
+    ? "child"
+    : isParentViewing
+      ? "parent_viewing_child"
+      : "parent";
+
+  useEffect(() => { if (!hasResponseId) navigate("/child-dashboard", { replace: true }); }, [hasResponseId, navigate]);
+
   useEffect(() => {
-    if (!hasResponseId) return;
+    if (!hasResponseId || isInitializing) return;
     let cancelled = false;
-
     const load = async () => {
       try {
         setLoadingLatest(true);
-
-        const doc = await fetchResultByResponseId(responseId);
-        if (!doc) return;
-
+        setLoadError(null);
+        const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
+        const doc = await fetchResultByResponseId(responseId, authOpts);
+        if (!doc) {
+          if (!cancelled) setLoadError("Result not found or still being processed.");
+          return;
+        }
         if (!cancelled) {
           setLatestResult(doc);
-
-          const all = await fetchResultsByEmail(doc.user.email_address, {
-            quiz_name: doc.quiz_name,
-          });
-
-          setResultsList(all || [doc]);
+          if (isAiPending(doc)) setAiPending(true);
+          const username = searchParams.get("username") || doc.user?.user_name || "";
+          const subject = searchParams.get("subject") || "";
+          let all;
+          if (username) {
+            all = await fetchResultsByUsername(username, { subject: subject || undefined, headers: { Authorization: `Bearer ${activeToken}` } });
+          } else {
+            all = await fetchResultsByEmail(doc.user.email_address, { quiz_name: doc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
+          }
+          if (!cancelled) setResultsList(all || [doc]);
         }
+      } catch (err) {
+        console.error("Dashboard load error:", err.message);
+        if (!cancelled) setLoadError(err.message || "Failed to load result.");
       } finally {
         if (!cancelled) setLoadingLatest(false);
       }
     };
-
     load();
     return () => (cancelled = true);
-  }, [responseId, hasResponseId]);
+  }, [responseId, hasResponseId, searchParams, activeToken, isInitializing]);
 
-  /* -------------------- Tour -------------------- */
   useEffect(() => {
-    if (!localStorage.getItem("dashboardTourPrompted")) setShowTourModal(true);
-  }, []);
+    if (!aiPending || !responseId) return;
+    let cancelled = false;
+    let pollCount = 0;
+    const MAX_POLLS = 30;
+    const poll = async () => {
+      if (cancelled || pollCount >= MAX_POLLS) { setAiPending(false); return; }
+      pollCount++;
+      try {
+        const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
+        const freshDoc = await fetchResultByResponseId(responseId, authOpts);
+        if (cancelled) return;
+        if (freshDoc && !isAiPending(freshDoc)) {
+          setLatestResult(freshDoc);
+          setAiPending(false);
+          const username = searchParams.get("username") || freshDoc.user?.user_name || "";
+          const subject = searchParams.get("subject") || "";
+          let all;
+          if (username) {
+            all = await fetchResultsByUsername(username, { subject: subject || undefined, headers: { Authorization: `Bearer ${activeToken}` } });
+          } else {
+            all = await fetchResultsByEmail(freshDoc.user.email_address, { quiz_name: freshDoc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
+          }
+          if (!cancelled) setResultsList(all || [freshDoc]);
+          return;
+        }
+        if (freshDoc && !cancelled) setLatestResult(freshDoc);
+      } catch (err) { console.warn("Polling error:", err.message); }
+      if (!cancelled) setTimeout(poll, 4000);
+    };
+    const timer = setTimeout(poll, 2000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [aiPending, responseId, searchParams, activeToken]);
 
-  /* -------------------- Filtered results by date -------------------- */
-  const filteredResults = useMemo(() => {
+  useEffect(() => { if (!localStorage.getItem("dashboardTourPrompted")) setShowTourModal(true); }, []);
+
+  const quizAttempts = useMemo(() => {
     if (!latestResult) return [];
+    const subject = searchParams.get("subject") || "";
+    const quizName = searchParams.get("quiz_name") || "";
+    let attempts;
+    if (quizName) {
+      attempts = resultsList.filter((r) => r.quiz_name === quizName);
+    } else if (subject) {
+      attempts = resultsList;
+    } else {
+      attempts = resultsList.filter((r) => r.quiz_name === latestResult.quiz_name);
+    }
+    return deduplicateAttempts(attempts);
+  }, [resultsList, latestResult, searchParams]);
 
-    const quizAttempts = resultsList.filter(
-      (r) => r.quiz_name === latestResult.quiz_name
-    );
-
+  const filteredResults = useMemo(() => {
     if (!selectedDate) return quizAttempts;
-
-    const start = new Date(selectedDate);
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(selectedDate);
-    end.setHours(23, 59, 59, 999);
-
+    const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
+    const end = new Date(selectedDate); end.setHours(23, 59, 59, 999);
     return quizAttempts.filter((r) => {
       const raw = unwrapDate(r?.createdAt || r?.date_submitted);
       if (!raw) return false;
       const dt = new Date(raw);
       return dt >= start && dt <= end;
     });
-  }, [resultsList, selectedDate, latestResult]);
+  }, [quizAttempts, selectedDate]);
 
-  /* -------------------- NoDataModal trigger -------------------- */
-  useEffect(() => {
-    if (selectedDate) {
-      setShowNoDataModal(filteredResults.length === 0);
-    }
-  }, [selectedDate, filteredResults]);
+  useEffect(() => { if (selectedDate) setShowNoDataModal(filteredResults.length === 0); }, [selectedDate, filteredResults]);
 
-  /* -------------------- Pick selected result (latest in filter) -------------------- */
   const selectedResult = useMemo(() => {
-    if (!filteredResults.length) return latestResult;
-
-    return [...filteredResults].sort(
-      (a, b) =>
-        new Date(unwrapDate(b.createdAt || b.date_submitted)) -
-        new Date(unwrapDate(a.createdAt || a.date_submitted))
+    if (selectedAttemptOverride) return selectedAttemptOverride;
+    if (latestResult) return latestResult;
+    if (!filteredResults.length) return null;
+    return [...filteredResults].sort((a, b) =>
+      new Date(unwrapDate(b.createdAt || b.date_submitted)) -
+      new Date(unwrapDate(a.createdAt || a.date_submitted))
     )[0];
-  }, [filteredResults, latestResult]);
+  }, [filteredResults, latestResult, selectedAttemptOverride]);
 
-  /* -------------------- Loading / empty -------------------- */
-  if (loadingLatest) {
+  const testTakenDates = useMemo(() => {
+    return quizAttempts.map((r) => {
+      const raw = unwrapDate(r?.createdAt || r?.date_submitted);
+      if (!raw) return null;
+      const date = new Date(raw);
+      if (isNaN(date.getTime())) return null;
+      date.setHours(0, 0, 0, 0);
+      return date;
+    }).filter(Boolean);
+  }, [quizAttempts]);
+
+  const currentAttemptPosition = useMemo(() => {
+    if (!selectedResult || !quizAttempts.length) return 1;
+    const sorted = [...quizAttempts].sort((a, b) => {
+      const da = new Date(unwrapDate(a?.createdAt || a?.date_submitted) || 0);
+      const db = new Date(unwrapDate(b?.createdAt || b?.date_submitted) || 0);
+      return da - db;
+    });
+    const selId = selectedResult?._id;
+    const idx = sorted.findIndex((r) => r._id === selId);
+    return idx >= 0 ? idx + 1 : 1;
+  }, [selectedResult, quizAttempts]);
+
+  if (loadingLatest || isInitializing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <DotLoader label="Loading dashboard" />
@@ -297,143 +371,249 @@ export default function Dashboard() {
     );
   }
 
-  if (!selectedResult) return null;
+  if (loadError || !selectedResult) {
+    return <ResultNotFound errorMessage={loadError} onGoBack={() => navigate(-1)} />;
+  }
 
-  /* -------------------- Derived stats -------------------- */
   const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
-  const grade = selectedResult?.score?.grade || "—";
   const duration = formatDuration(selectedResult?.duration);
-  const attemptsUsed = filteredResults.length || "—";
-
-  const { strongTopics, weakTopics } = buildTopicStrength(
-    selectedResult?.topicBreakdown || {}
-  );
-
+  const attemptsUsed = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
+  const { strongTopics, weakTopics } = buildTopicStrength(selectedResult?.topicBreakdown || {});
   const suggestions = buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
-
-  const displayName =
-    `${selectedResult?.user?.first_name || ""} ${
-      selectedResult?.user?.last_name || ""
-    }`.trim() || "Student";
+  const displayName = `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim() || "Student";
+  const resultStatus = getResultStatus(percentage);
+  const quizName = selectedResult?.quiz_name || "Quiz";
+  const totalAttempts = quizAttempts.length;
 
   return (
-    <div className="relative min-h-screen bg-gray-100">
-      {/* Dashboard Tour */}
-      <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
+    <TrialGateOverlay
+      isTrialUser={childStatus === "trial"}
+      preset="nonwriting"
+      viewerType={viewerType}
+      yearLevel={yearLevel}
+    >
+      <div className="relative min-h-screen bg-gray-100">
+        {aiPending && <AiPendingOverlay aiMessage={latestResult?.ai?.message} />}
+        <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
+        <DashboardTourModal
+          isOpen={showTourModal}
+          onStart={() => { setShowTourModal(false); setTimeout(() => setIsTourActive(true), 150); localStorage.setItem("dashboardTourPrompted", "true"); }}
+          onSkip={() => { setShowTourModal(false); localStorage.setItem("dashboardTourPrompted", "true"); }}
+        />
+        <NoDataModal
+          isOpen={showNoDataModal}
+          onClose={() => setShowNoDataModal(false)}
+          onClearFilter={() => { setSelectedDate(null); setSelectedAttemptOverride(null); setShowNoDataModal(false); }}
+        />
 
-      <DashboardTourModal
-        isOpen={showTourModal}
-        onStart={() => {
-          setShowTourModal(false);
-          setTimeout(() => setIsTourActive(true), 150);
-          localStorage.setItem("dashboardTourPrompted", "true");
-        }}
-        onSkip={() => {
-          setShowTourModal(false);
-          localStorage.setItem("dashboardTourPrompted", "true");
-        }}
-      />
-
-      {/* No Data Modal */}
-      <NoDataModal
-        isOpen={showNoDataModal}
-        onClose={() => setShowNoDataModal(false)}
-        onClearFilter={() => {
-          setSelectedDate(null);
-          setShowNoDataModal(false);
-        }}
-      />
-
-      {/* Header */}
-      <div className="flex justify-between items-center px-6 py-4 mb-4">
-        <h1 className="text-3xl font-bold">
-          <span className="text-blue-600">{displayName} - </span>
-          <span className="text-purple-600">
-            {selectedResult?.quiz_name || "Quiz"} Report
-          </span>
-        </h1>
-
-        <div className="flex items-center gap-4">
-          <DateRangeFilter
-            selectedDate={selectedDate}
-            onChange={setSelectedDate}
-            testTakenDates={resultsList
-              .map((r) => {
-                const raw = r?.createdAt || r?.date_submitted;
-                if (!raw) return null;
-                const date = new Date(
-                  typeof raw === "object" && raw.$date ? raw.$date : raw
-                );
-                date.setHours(0, 0, 0, 0);
-                return date;
-              })
-              .filter(Boolean)}
+        {/* ══════════════════════════════════════════════
+            HEADER — KAI Solutions brand bar
+        ══════════════════════════════════════════════ */}
+        <DashboardHeader>
+          <ChildAvatarMenu
+            displayName={displayName}
+            isParentViewing={isParentViewing}
+            isOnAnalyticsPage={true}
+            onBackToParent={() => navigate("/parent-dashboard")}
+            onBackToChildDashboard={() => {
+              const username = searchParams.get("username") || selectedResult?.user?.user_name || "";
+              const childId = searchParams.get("childId") || childProfile?.childId || "";
+              const yearLevelParam = childProfile?.yearLevel || searchParams.get("yearLevel") || "";
+              navigate(
+                `/child-dashboard?childId=${childId}` +
+                `&childName=${encodeURIComponent(displayName)}` +
+                `&yearLevel=${yearLevelParam}` +
+                `&username=${encodeURIComponent(username)}`
+              );
+            }}
           />
-          <AvatarMenu />
-        </div>
-      </div>
+        </DashboardHeader>
 
-      {/* Dashboard Grid */}
-      <div className="grid grid-cols-12 gap-4 px-6 pb-6 min-h-[80vh]">
-        {/* Stat Cards */}
-        <div className="col-span-7 grid grid-cols-4 gap-4">
-          {["Overall Score", "Time Spent", "Result", "Attempts Used"].map(
-            (title, idx) => {
-              const valueMap = {
-                "Overall Score": `${percentage}%`,
-                "Time Spent": duration,
-                Result: grade,
-                "Attempts Used": attemptsUsed,
-              };
-              return <StatCard key={idx} title={title} value={valueMap[title]} />;
-            }
-          )}
-        </div>
+        {/* ══════════════════════════════════════════════
+            PAGE TITLE ROW
+        ══════════════════════════════════════════════ */}
+        <div className="flex items-center justify-between px-6 pt-3 pb-2 gap-4 flex-wrap">
+          <h1 className="text-2xl font-bold leading-tight">
+            <span className="text-slate-800">{displayName} – </span>
+            <span className="text-teal-600">{quizName} Report</span>
+          </h1>
 
-        {/* AI Coach Panel */}
-        <div className="col-span-5 row-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-          <AICoachPanel
-            feedback={selectedResult?.ai_feedback}
-            strongTopics={strongTopics}
-            weakTopics={weakTopics}
-          />
-        </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Attempt badge */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-teal-50 rounded-lg border border-teal-100 text-xs">
+              <svg className="w-3.5 h-3.5 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="font-semibold text-teal-700">Viewing {currentAttemptPosition} of {totalAttempts}</span>
+              <span className="text-teal-400">attempt{totalAttempts !== 1 ? "s" : ""}</span>
+            </div>
 
-        {/* Donut Chart */}
-        <div className="col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-          <DonutScoreChart
-            correctPercent={percentage}
-            incorrectPercent={100 - percentage}
-            height="100%"
-          />
-        </div>
-
-        {/* Weak Topics Bar Chart */}
-        <div className="col-span-4 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-          <WeakTopicsBarChart topics={weakTopics} height="100%" />
-        </div>
-
-        {/* Top Topics Funnel */}
-        <div className="col-span-3 bg-white rounded-xl shadow-md p-6 flex flex-col min-h-0">
-          <TopTopicsFunnelChart
-            topicBreakdown={selectedResult?.topicBreakdown}
-            topN={5}
-            height={250}
-            title="Top 5 Topics Overview"
-          />
-        </div>
-
-        {/* AI Suggestions */}
-        <div className="col-span-4">
-          <div className="bg-white rounded-xl shadow p-4 h-full flex flex-col min-h-0">
-            <AISuggestionPanel
-              suggestions={suggestions}
-              studyTips={selectedResult?.ai_feedback?.study_tips || []}
-              topicWiseTips={selectedResult?.ai_feedback?.topic_wise_tips || []} 
+            {/* Date / attempt filter */}
+            <DateRangeFilter
+              selectedDate={selectedDate}
+              onChange={(date) => { setSelectedDate(date); setSelectedAttemptOverride(null); }}
+              testTakenDates={testTakenDates}
+              quizAttempts={quizAttempts}
+              onAttemptSelect={(attempt) => { setSelectedAttemptOverride(attempt); }}
             />
           </div>
         </div>
+
+        {/* ══════════════════════════════════════════════
+            DASHBOARD GRID
+        ══════════════════════════════════════════════ */}
+        <div className="px-6 py-3 space-y-3">
+
+          {/* ── ROW 1: 4 Stat Cards ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div id="overall-score" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Trophy className="w-3.5 h-3.5 text-indigo-400" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Overall Score</p>
+              </div>
+              <p className="text-2xl font-bold text-indigo-700">{percentage}%</p>
+            </div>
+
+              <div id="time-spent" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Clock className="w-3.5 h-3.5 text-sky-400" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Time Spent</p>
+              </div>
+              <p className="text-2xl font-bold text-sky-600">{duration}</p>
+            </div>
+
+            
+              <div className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Target className="w-3.5 h-3.5 text-amber-400" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Result</p>
+              </div>
+              <p className={`text-xl font-bold text-center leading-tight ${
+                resultStatus.status === "needs attention" ? "text-red-600" :
+                resultStatus.status === "med" || resultStatus.status === "medium" ? "text-amber-600" :
+                resultStatus.status === "pass" || resultStatus.status === "successful" ? "text-green-600" :
+                "text-indigo-700"
+              }`}>{resultStatus.label}</p>
+            </div>
+
+              <div className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <RefreshCw className="w-3.5 h-3.5 text-violet-400" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Attempts Used</p>
+              </div>
+              <p className="text-2xl font-bold text-violet-600">{attemptsUsed}</p>
+            </div>
+          </div>
+
+          {/* ── ROWS 2+3: Left charts | Right AI Coach ── */}
+          <div className="flex flex-col lg:flex-row gap-4 items-stretch">
+
+            {/* Left column: two chart rows */}
+            <div className="flex flex-col gap-4 flex-1 min-w-0">
+
+              {/* Row 2: Donut (2/5) + Weak Topics Bar (3/5) */}
+              <div className="grid grid-cols-5 gap-4">
+                <div id="donut-chart" className="col-span-5 sm:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-slate-100">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
+                      <PieChart className="w-4 h-4 text-indigo-500" />
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">Performance Overview</span>
+                  </div>
+                  <div className="flex-1 p-3">
+                    {/* ✅ showTitle={false} removes the duplicate inner title */}
+                    <DonutScoreChart
+                      correctPercent={percentage}
+                      incorrectPercent={100 - percentage}
+                      height={180}
+                      showTitle={false}
+                    />
+                  </div>
+                </div>
+
+                <div id="weak-topics" className="col-span-5 sm:col-span-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                    <div className="w-7 h-7 rounded-lg bg-rose-50 flex items-center justify-center">
+                      <TrendingUp className="w-4 h-4 text-rose-500" />
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">Priority Improvement Areas</span>
+                  </div>
+                  <div className="flex-1 p-3">
+                    {/* ✅ showTitle={false} removes the duplicate inner title */}
+                    <WeakTopicsBarChart
+                      topics={weakTopics}
+                      height={180}
+                      showTitle={false}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 3: Top Topics Funnel (2/5) + AI Suggestions (3/5) */}
+              <div className="grid grid-cols-5 gap-4">
+                <div id="top-topics" className="col-span-5 sm:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
+                      <BarChart2 className="w-4 h-4 text-emerald-500" />
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">Top 5 Topics Overview</span>
+                  </div>
+                  <div className="flex-1 p-3">
+                    {/* title="" already suppresses inner title — unchanged */}
+                    <TopTopicsFunnelChart
+                      topicBreakdown={selectedResult?.topicBreakdown}
+                      topN={5}
+                      height={180}
+                      title=""
+                    />
+                  </div>
+                </div>
+
+                <div id="suggestions" className="col-span-5 sm:col-span-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                    <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
+                      <Lightbulb className="w-4 h-4 text-amber-500" />
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">AI Study Recommendations</span>
+                  </div>
+                  <div className="flex-1 p-3 overflow-y-auto">
+                    {/* ✅ showTitle={false} removes the duplicate inner title */}
+                    <AISuggestionPanel
+                      suggestions={suggestions}
+                      studyTips={selectedResult?.ai_feedback?.study_tips || []}
+                      topicWiseTips={selectedResult?.ai_feedback?.topic_wise_tips || []}
+                      showTitle={false}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right column: AI Coach — full height */}
+            <div
+              id="ai-coach"
+              className="w-full lg:w-[460px] flex-shrink-0 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden"
+            >
+              <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                <div className="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center">
+                  <Bot className="w-4 h-4 text-teal-500" />
+                </div>
+                <span className="text-sm font-semibold text-slate-700">AI Coach Feedback</span>
+              </div>
+              <div className="flex-1 overflow-hidden max-h-52">
+                {/* ✅ showTitle={false} removes the duplicate inner title */}
+                <AICoachPanel
+                  feedback={selectedResult?.ai_feedback}
+                  strongTopics={strongTopics}
+                  weakTopics={weakTopics}
+                  showTitle={false}
+                />
+              </div>
+            </div>
+
+          </div>
+        </div>
       </div>
-    </div>
+    </TrialGateOverlay>
   );
 }

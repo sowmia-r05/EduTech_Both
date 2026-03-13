@@ -1,63 +1,74 @@
 // ✅ Force IPv4 first (fixes ENETUNREACH to Gmail IPv6 on Render)
-
 const dns = require("dns");
-
 dns.setDefaultResultOrder("ipv4first");
 
 require("dotenv").config();
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const cors = require("cors");
+const path = require("path");
 
+// ─── Routes ───
 const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
-const webhookRoutes = require("./routes/webhookRoutes");
-const resultsRoutes = require("./routes/resultRoutes");
 const writingRoutes = require("./routes/writingRoutes");
 const catalogRoutes = require("./routes/catalogRoutes");
-const userRoutes = require("./routes/userRoutes");
-const flexiQuizRoutes = require("./routes/flexiQuizRoutes");
-
 const otpAuth = require("./routes/otpAuth");
-const flexiquizSso = require("./routes/flexiquizSso");
+const parentRoutes = require("./routes/parentRoutes");
+const googleAuthRoutes = require("./routes/googleAuthRoutes");
+const parentAuthRoutes = require("./routes/parentAuthRoutes");
+
+// ─── NEW routes ───
+const childRoutes = require("./routes/childRoutes");
+const childAuthRoutes = require("./routes/childAuthRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const quizRoutes = require("./routes/quizRoutes");
+const availableQuizzesRoute = require("./routes/availableQuizzesRoute");
+const flashcardsRoute = require("./routes/flashcardsRoute");
+const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
+const healthRoutes = require("./routes/healthRoutes");
+const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes");
+const ocrRoute = require("./routes/ocrRoute"); // ✅ OCR for handwriting upload
+
+
+// ✅ Legacy route auth middleware
+const {
+  secureLegacyResults,
+  secureLegacyWriting,
+} = require("./middleware/legacyRouteAuth");
+const resultRoutes = require("./routes/resultRoutes");
+const regenerateAiRoute = require("./routes/regenerateAiRoute");
 
 const app = express();
 
-// ✅ If you're running behind a reverse proxy (ngrok/Cloudflare Tunnel/etc.)
 app.set("trust proxy", 1);
 
-// ✅ CORS (ONLY ONCE)
+// ✅ CORS
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
-
 app.use(
   cors({
     origin: FRONTEND_ORIGIN
       ? FRONTEND_ORIGIN.split(",").map((s) => s.trim())
-      : true, // allow all in dev if not set
+      : true,
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   })
 );
 
-// ✅ JSON + keep raw body for webhook signature verification if needed
+// ✅ JSON + keep raw body for Stripe webhook signature verification
 app.use(
   express.json({
+    limit: "100mb",
     verify: (req, res, buf) => {
       req.rawBody = buf;
     },
   })
 );
 
-// 🛡️ Webhook rate limiting - allow 100 requests per minute
-const webhookLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 100,
-  message: { error: "Too many webhook requests", retryAfter: "60 seconds" },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+app.use("/api", healthRoutes);
 
-// 🛡️ General API rate limiting - allow 1000 requests per minute
+// 🛡️ General API rate limiting
 const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 1000,
@@ -65,24 +76,30 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-
-// ✅ Apply rate limiting
-app.use("/api/webhooks", webhookLimiter);
 app.use("/api", apiLimiter);
 
-// ✅ Routes
-app.use("/api/webhooks", webhookRoutes);
-
-app.use("/api/flexiquiz", flexiQuizRoutes);
-app.use("/api/flexiquiz", flexiquizSso);
-
+// ✅ Routes — Auth (no auth middleware)
 app.use("/api/auth", otpAuth);
+app.use("/api/auth", childAuthRoutes);
 
-app.use("/api/results", resultsRoutes);
-app.use("/api/writing", writingRoutes);
+// ✅ Routes — Parent
+app.use("/api/parents", parentRoutes);
+app.use("/api/parents/auth", parentAuthRoutes);
+app.use("/api/parents/auth", googleAuthRoutes);
+
+// ✅ Routes — Children
+app.use("/api/children", childRoutes);
+app.use("/api/children/:childId/cumulative-feedback", cumulativeFeedbackRoutes);
+
+// ✅ Routes — Writing (secured)
+app.use("/api/writing", secureLegacyWriting, writingRoutes);
+app.use("/api/results", secureLegacyResults, resultRoutes);     
+app.use("/api/results", secureLegacyResults, regenerateAiRoute); 
+
+// ✅ Routes — Catalog (public)
 app.use("/api/catalog", catalogRoutes);
-app.use("/api/users", userRoutes);
 
+// ✅ Routes — Legacy stubs
 app.use("/api/exams", examRoutes);
 app.use("/api/students", studentRoutes);
 
@@ -91,9 +108,33 @@ app.get("/", (req, res) => {
   res.json({ status: "NAPLAN backend alive" });
 });
 
-// ✅ Test if FlexiQuiz key is set (safe: no secret printed)
-app.get("/api/test-flexiquiz-key", (req, res) => {
-  res.json({ hasKey: !!process.env.FLEXIQUIZ_API_KEY });
-});
+// ✅ Routes — Admin, Quiz, Payments, OCR
+app.use("/api/admin", adminRoutes);
+app.use("/api/admin", adminAiFeedbackRoutes);
+app.use("/api", quizRoutes);
+app.use("/api", availableQuizzesRoute);
+app.use("/api", flashcardsRoute);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/ocr", ocrRoute); // ✅ OCR route — must be BEFORE static files
+
+// ✅ Static uploads
+app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
+
+// ═══════════════════════════════════════
+// CRON JOBS
+// ═══════════════════════════════════════
+try {
+  const { setupExpiredAttemptCleanup } = require("./cron/cleanupExpiredAttempts");
+  setupExpiredAttemptCleanup();
+} catch (err) {
+  console.warn("⚠️ Could not start expired attempt cleanup cron:", err.message);
+}
+
+try {
+  const { setupBundleExpiryCleanup } = require("./cron/cleanupExpiredBundles");
+  setupBundleExpiryCleanup();
+} catch (err) {
+  console.warn("⚠️ Could not start bundle expiry cleanup cron:", err.message);
+}
 
 module.exports = app;

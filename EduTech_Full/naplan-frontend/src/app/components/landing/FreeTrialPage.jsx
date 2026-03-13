@@ -1,18 +1,40 @@
+// src/app/components/landing/FreeTrialPage.jsx
+//
+// CHANGES FROM ORIGINAL:
+//   ✅ (Existing) Added useAuth import to check login state
+//   ✅ (Existing) Not logged in → /parent/create?redirect=free-trial
+//   ✅ NEW: Logged-in parents → /parent-dashboard?onboarding=free-trial
+//     This ensures they go through the proper child-creation flow instead
+//     of the legacy /start-test page that bypasses the parent-child model.
+//   ✅ NEW: If parent already has children, navigates to /parent-dashboard
+//     where they can pick a child and start a quiz from the child dashboard.
+
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useAuth } from "@/app/context/AuthContext";
 
 export default function FreeTrialPage() {
   const navigate = useNavigate();
+  const { parentToken } = useAuth();
 
   const steps = [
-    "Select your child’s Year Level (3, 5, 7, or 9).",
+    "Select your child's Year Level (3, 5, 7, or 9).",
     "Complete a full-length NAPLAN-style practice test online.",
     "Receive instant scoring and detailed performance feedback.",
     "Identify strengths and areas for improvement with topic-wise insights.",
   ];
 
   const handleStartTest = () => {
-    navigate("/start-test"); // 🔥 Updated route
+    if (parentToken) {
+      // ✅ UPDATED: Send logged-in parents through the onboarding flow
+      // instead of the legacy /start-test page. This ensures they create
+      // a child profile (if they don't have one) and use the proper
+      // child dashboard quiz flow.
+      navigate("/parent-dashboard?onboarding=free-trial");
+    } else {
+      // 🔒 Not logged in — funnel through registration, preserving intent
+      navigate("/parent/create?redirect=free-trial");
+    }
   };
 
   return (
@@ -69,7 +91,7 @@ export default function FreeTrialPage() {
             whileTap={{ scale: 0.97 }}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-16 py-5 rounded-2xl text-lg font-semibold shadow-lg hover:shadow-2xl transition"
           >
-            Start My Child’s Free Test
+            Start My Child's Free Test
           </motion.button>
 
           {/* Secondary Action */}

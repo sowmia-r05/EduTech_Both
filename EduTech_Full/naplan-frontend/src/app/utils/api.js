@@ -5,20 +5,20 @@
 // - Set VITE_API_BASE_URL in your frontend .env (Vite) to your backend base URL.
 //   Example:
 //     VITE_API_BASE_URL=http://localhost:3000
-//     # or your ngrok URL
 //     VITE_API_BASE_URL=https://xxxx.ngrok-free.app
 //
 // This file assumes your backend exposes these endpoints:
-//   GET /api/users/exists?email=...
-//   GET /api/writing/quizzes?email=...
-//   GET /api/writing/latest?email=...&quiz=...
-//   GET /api/writing/:responseId
-//   GET /api/results/quizzes?email=...
-//   GET /api/results/latest/by-filters?email=...&quiz_name=...&year=...&subject=...
-//   GET /api/results/by-email?email=...
-//   GET /api/results/:responseId
+//   POST /api/users/register
+//   GET  /api/writing/quizzes?email=...
+//   GET  /api/writing/latest?email=...&quiz=...
+//   GET  /api/writing/:responseId
+//   GET  /api/results/quizzes?email=...
+//   GET  /api/results/latest/by-filters?email=...&quiz_name=...&year=...&subject=...
+//   GET  /api/results/by-email?email=...
+//   GET  /api/results/by-username?username=...       ← NEW
+//   GET  /api/results/:responseId
 //
-// OTP endpoints (new requirements):
+// OTP endpoints:
 //   POST /api/auth/otp/request  { username }
 //   POST /api/auth/otp/verify   { username, otp }
 
@@ -82,7 +82,8 @@ async function getJson(path, options = {}) {
   }
 
   if (!res.ok) {
-    const msg = body?.error || body?.message || `Request failed (${res.status})`;
+    const msg =
+      body?.error || body?.message || `Request failed (${res.status})`;
     const err = new Error(msg);
     err.status = res.status;
     err.body = body;
@@ -93,27 +94,62 @@ async function getJson(path, options = {}) {
 }
 
 export function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
-export async function verifyEmailExists(email, options = {}) {
-  const e = normalizeEmail(email);
-  const data = await getJson(`/api/users/exists?email=${encodeURIComponent(e)}`, options);
-  return !!data?.exists;
+/* =========================================================
+   ✅ Registration (email NOT unique)
+   Backend:
+     POST /api/users/register
+     body: { firstName, lastName, yearLevel, email }
+========================================================= */
+export async function registerUserInFlexiQuiz({
+  firstName,
+  lastName,
+  yearLevel,
+  email,
+}) {
+  const payload = {
+    firstName: String(firstName || "").trim(),
+    lastName: String(lastName || "").trim(),
+    yearLevel: String(yearLevel || "").trim(),
+    email: normalizeEmail(email),
+  };
+
+  const r = await fetch(`${API_BASE}/api/users/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j?.ok) {
+    throw new Error(j?.detail || j?.error || "Registration failed");
+  }
+  return j; // { ok, user_id, user_name, password?, mode }
 }
 
 export async function fetchQuizNamesByEmail(email, options = {}) {
   const e = normalizeEmail(email);
-  const data = await getJson(`/api/writing/quizzes?email=${encodeURIComponent(e)}`, options);
+  const data = await getJson(
+    `/api/writing/quizzes?email=${encodeURIComponent(e)}`,
+    options,
+  );
   return Array.isArray(data?.quizNames) ? data.quizNames : [];
 }
 
-export async function fetchLatestWritingByEmailAndQuiz(email, quizName, options = {}) {
+export async function fetchLatestWritingByEmailAndQuiz(
+  email,
+  quizName,
+  options = {},
+) {
   const e = normalizeEmail(email);
   const q = String(quizName || "").trim();
   const data = await getJson(
     `/api/writing/latest?email=${encodeURIComponent(e)}&quiz=${encodeURIComponent(q)}`,
-    options
+    options,
   );
   return data;
 }
@@ -128,7 +164,10 @@ export async function fetchWritingByResponseId(responseId, options = {}) {
 // Quiz names from results collection (for non-writing dashboard lookup)
 export async function fetchResultQuizNamesByEmail(email, options = {}) {
   const e = normalizeEmail(email);
-  const data = await getJson(`/api/results/quizzes?email=${encodeURIComponent(e)}`, options);
+  const data = await getJson(
+    `/api/results/quizzes?email=${encodeURIComponent(e)}`,
+    options,
+  );
   return Array.isArray(data?.quizNames) ? data.quizNames : [];
 }
 
@@ -139,7 +178,9 @@ export async function fetchLatestResultByEmail(email, options = {}) {
   if (options.quiz_name) params.set("quiz_name", options.quiz_name);
   if (options.year) params.set("year", options.year);
   if (options.subject) params.set("subject", options.subject);
-  const data = await getJson(`/api/results/latest/by-filters?${params.toString()}`);
+  const data = await getJson(
+    `/api/results/latest/by-filters?${params.toString()}`,
+  );
   return data;
 }
 
@@ -151,8 +192,80 @@ export async function fetchResultsByEmail(email, options = {}) {
   if (options.year) params.set("year", options.year);
   if (options.subject) params.set("subject", options.subject);
 
-  const data = await getJson(`/api/results/by-email?${params.toString()}`);
+  // ✅ FIX: Forward auth headers so backend doesn't return 401
+  const fetchOpts = options.headers ? { headers: options.headers } : {};
+  const data = await getJson(
+    `/api/results/by-email?${params.toString()}`,
+    fetchOpts,
+  );
   return Array.isArray(data) ? data : [];
+}
+
+/**
+ * ✅ NEW: Fetch all results for a specific child by username (not email).
+ * This avoids mixing results from siblings who share the same parent email.
+ *
+ * @param {string} username - The child's unique username (= FlexiQuiz user_name)
+ * @param {Object} [options]
+ * @param {string} [options.quiz_name] - Filter to a specific quiz
+ * @param {string} [options.subject] - Filter by inferred subject (e.g. "Reading")
+ */
+export async function fetchResultsByUsername(username, options = {}) {
+  const u = String(username || "").trim();
+  if (!u) throw new Error("username is required");
+
+  const params = new URLSearchParams({ username: u });
+  if (options.quiz_name) params.set("quiz_name", options.quiz_name);
+  if (options.subject) params.set("subject", options.subject);
+
+  // ✅ FIX: Forward auth headers so backend doesn't return 401
+  const fetchOpts = options.headers ? { headers: options.headers } : {};
+  const data = await getJson(
+    `/api/results/by-username?${params.toString()}`,
+    fetchOpts,
+  );
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * ✅ NEW: Fetch all writing submissions for a specific child by username.
+ * Sibling-safe — doesn't mix children sharing the same parent email.
+ */
+export async function fetchWritingsByUsername(username, options = {}) {
+  const u = String(username || "").trim();
+  if (!u) throw new Error("username is required");
+  const params = new URLSearchParams({ username: u });
+  if (options.quiz_name) params.set("quiz_name", options.quiz_name);
+  const fetchOpts = options.headers ? { headers: options.headers } : {};  // ✅ ADD THIS
+  const data = await getJson(`/api/writing/by-username?${params.toString()}`, fetchOpts);
+  return Array.isArray(data) ? data : [];
+}
+/**
+ * ✅ NEW: Fetch all writing submissions by child_id.
+ * Fallback for native quiz children where user.user_name may be null.
+ */
+export async function fetchWritingsByChildId(childId, options = {}) {
+  const id = String(childId || "").trim();
+  if (!id) throw new Error("childId is required");
+
+  const fetchOpts = options.headers ? { headers: options.headers } : {};
+  const data = await getJson(
+    `/api/writing/by-child-id?child_id=${encodeURIComponent(id)}`,
+    fetchOpts,
+  );
+  return Array.isArray(data) ? data : [];
+}
+/**
+ * ✅ NEW: Fetch latest writing submission by username (sibling-safe).
+ */
+export async function fetchLatestWritingByUsername(username, options = {}) {
+  const u = String(username || "").trim();
+  if (!u) throw new Error("username is required");
+
+  const data = await getJson(
+    `/api/writing/latest/by-username?username=${encodeURIComponent(u)}`,
+  );
+  return data;
 }
 
 export async function fetchResultByResponseId(responseId, options = {}) {
@@ -163,7 +276,7 @@ export async function fetchResultByResponseId(responseId, options = {}) {
 }
 
 /* =========================================================
-   ✅ OTP (NEW REQUIREMENT: username-based, not email-based)
+   ✅ OTP (username-based)
    Backend:
      POST /api/auth/otp/request { username }
      POST /api/auth/otp/verify  { username, otp }
@@ -186,7 +299,6 @@ export async function requestOtpByUsername(username) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error || "Failed to send OTP");
 
-  // backend may return { ok:true, email_masked:"v****@gmail.com" }
   return j;
 }
 
@@ -207,4 +319,37 @@ export async function verifyOtpByUsername(username, otp) {
   if (!r.ok) throw new Error(j?.error || "OTP verification failed");
 
   return j.login_token; // ✅ use for /api/flexiquiz/sso?login_token=...
+}
+
+export async function createParentAccount({ firstName, lastName, email }) {
+  const payload = {
+    firstName: String(firstName || "").trim(),
+    lastName: String(lastName || "").trim(),
+    email: normalizeEmail(email),
+  };
+
+  const r = await fetch(`${API_BASE}/api/parents/auth/send-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j?.ok) throw new Error(j?.error || "Failed to send OTP");
+  return j; // { ok, otp_sent_to, otp_expires_in_sec }
+}
+
+export async function verifyParentOtp({ email, otp }) {
+  const r = await fetch(`${API_BASE}/api/parents/auth/verify-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: normalizeEmail(email),
+      otp: String(otp || "").trim(),
+    }),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j?.ok) throw new Error(j?.error || "OTP verification failed");
+  return j; // { ok, parent_token, parent }
 }
