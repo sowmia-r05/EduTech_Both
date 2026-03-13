@@ -432,7 +432,7 @@ export default function Dashboard() {
         {/* ══════════════════════════════════════════════
             PAGE TITLE ROW
         ══════════════════════════════════════════════ */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-3 gap-4 flex-wrap">
+        <div className="flex items-center justify-between px-6 pt-3 pb-2 gap-4 flex-wrap">
           <h1 className="text-2xl font-bold leading-tight">
             <span className="text-slate-800">{displayName} – </span>
             <span className="text-teal-600">{quizName} Report</span>
@@ -462,11 +462,11 @@ export default function Dashboard() {
         {/* ══════════════════════════════════════════════
             DASHBOARD GRID
         ══════════════════════════════════════════════ */}
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-6 py-3 space-y-3">
 
           {/* ── ROW 1: 4 Stat Cards ── */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div id="overall-score" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col items-center justify-center gap-1 h-24">
+            <div id="overall-score" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
               <div className="flex items-center gap-1.5 mb-0.5">
                 <Trophy className="w-3.5 h-3.5 text-indigo-400" />
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Overall Score</p>
@@ -474,7 +474,7 @@ export default function Dashboard() {
               <p className="text-2xl font-bold text-indigo-700">{percentage}%</p>
             </div>
 
-            <div id="time-spent" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col items-center justify-center gap-1 h-24">
+              <div id="time-spent" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
               <div className="flex items-center gap-1.5 mb-0.5">
                 <Clock className="w-3.5 h-3.5 text-sky-400" />
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Time Spent</p>
@@ -482,7 +482,8 @@ export default function Dashboard() {
               <p className="text-2xl font-bold text-sky-600">{duration}</p>
             </div>
 
-            <div className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col items-center justify-center gap-1 h-24">
+            
+              <div className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
               <div className="flex items-center gap-1.5 mb-0.5">
                 <Target className="w-3.5 h-3.5 text-amber-400" />
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Result</p>
@@ -495,7 +496,7 @@ export default function Dashboard() {
               }`}>{resultStatus.label}</p>
             </div>
 
-            <div className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col items-center justify-center gap-1 h-24">
+              <div className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
               <div className="flex items-center gap-1.5 mb-0.5">
                 <RefreshCw className="w-3.5 h-3.5 text-violet-400" />
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Attempts Used</p>
@@ -513,18 +514,18 @@ export default function Dashboard() {
               {/* Row 2: Donut (2/5) + Weak Topics Bar (3/5) */}
               <div className="grid grid-cols-5 gap-4">
                 <div id="donut-chart" className="col-span-5 sm:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-slate-100">
                     <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
                       <PieChart className="w-4 h-4 text-indigo-500" />
                     </div>
                     <span className="text-sm font-semibold text-slate-700">Performance Overview</span>
                   </div>
-                  <div className="flex-1 p-4">
+                  <div className="flex-1 p-3">
                     {/* ✅ showTitle={false} removes the duplicate inner title */}
                     <DonutScoreChart
                       correctPercent={percentage}
                       incorrectPercent={100 - percentage}
-                      height={220}
+                      height={180}
                       showTitle={false}
                     />
                   </div>
@@ -537,11 +538,11 @@ export default function Dashboard() {
                     </div>
                     <span className="text-sm font-semibold text-slate-700">Priority Improvement Areas</span>
                   </div>
-                  <div className="flex-1 p-4">
+                  <div className="flex-1 p-3">
                     {/* ✅ showTitle={false} removes the duplicate inner title */}
                     <WeakTopicsBarChart
                       topics={weakTopics}
-                      height={220}
+                      height={180}
                       showTitle={false}
                     />
                   </div>
@@ -557,12 +558,12 @@ export default function Dashboard() {
                     </div>
                     <span className="text-sm font-semibold text-slate-700">Top 5 Topics Overview</span>
                   </div>
-                  <div className="flex-1 p-4">
+                  <div className="flex-1 p-3">
                     {/* title="" already suppresses inner title — unchanged */}
                     <TopTopicsFunnelChart
                       topicBreakdown={selectedResult?.topicBreakdown}
                       topN={5}
-                      height={220}
+                      height={180}
                       title=""
                     />
                   </div>
@@ -575,7 +576,7 @@ export default function Dashboard() {
                     </div>
                     <span className="text-sm font-semibold text-slate-700">AI Study Recommendations</span>
                   </div>
-                  <div className="flex-1 p-4 overflow-y-auto">
+                  <div className="flex-1 p-3 overflow-y-auto">
                     {/* ✅ showTitle={false} removes the duplicate inner title */}
                     <AISuggestionPanel
                       suggestions={suggestions}
@@ -599,7 +600,7 @@ export default function Dashboard() {
                 </div>
                 <span className="text-sm font-semibold text-slate-700">AI Coach Feedback</span>
               </div>
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-hidden max-h-52">
                 {/* ✅ showTitle={false} removes the duplicate inner title */}
                 <AICoachPanel
                   feedback={selectedResult?.ai_feedback}
