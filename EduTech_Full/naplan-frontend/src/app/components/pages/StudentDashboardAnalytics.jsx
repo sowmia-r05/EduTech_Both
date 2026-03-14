@@ -1,16 +1,40 @@
+// StudentDashboardAnalytics.jsx
+// ─────────────────────────────────────────────────────────────────────────────
+// TWO COMPLETELY DIFFERENT EXPERIENCES based on who is viewing:
+//
+// 👨‍👩‍👧 PARENT VIEW  — Plain English. Answers 3 questions fast:
+//   1. "Is my child doing OK?"          → Big status card
+//   2. "Where do they need help?"       → 4 simple subject tiles (stars, not %)
+//   3. "What should I do about it?"     → One clear suggested next step
+//   + Simple weekly activity snapshot
+//   + AI report written as a plain parent letter
+//
+// 🧒 CHILD VIEW  — Gamified, fun, motivating:
+//   + Hero streak card ("You're on a 5-day streak! 🔥")
+//   + XP level system (Beginner → Rising Star → Champion)
+//   + Score trend as "Your Journey" chart
+//   + Subject stat cards (game-style)
+//   + Performance donut + quiz frequency
+//   + AI coach with high-energy language
+// ─────────────────────────────────────────────────────────────────────────────
+
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import { fetchCumulativeFeedback, refreshCumulativeFeedback } from "@/app/utils/api-children";
 import {
-  ResponsiveContainer, AreaChart, Area, LineChart, Line,
-  CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine,
+  ResponsiveContainer,
+  AreaChart, Area,
+  LineChart, Line,
+  BarChart, Bar, Cell,
+  PieChart, Pie,
+  CartesianGrid, XAxis, YAxis,
+  Tooltip, ReferenceLine, Legend,
 } from "recharts";
-
 import {
   BookOpen, PenLine, Hash, Languages, Library, LayoutDashboard,
-  TrendingUp, TrendingDown, AlertTriangle, Target, Star, Lightbulb,
-  CheckCircle2, Minus,
+  TrendingUp, TrendingDown, AlertTriangle, Target, Star,
+  Lightbulb, CheckCircle2, Minus, Flame, Trophy, Zap,
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════
@@ -25,40 +49,12 @@ const SUBJECT_COLORS = {
   Numeracy: "#F59E0B",
   Language: "#10B981",
 };
-const SUBJECT_BG = {
-  Reading:  "bg-blue-500",
-  Writing:  "bg-purple-500",
-  Numeracy: "bg-amber-500",
-  Language: "bg-emerald-500",
-};
-const SUBJECT_LIGHT_BG = {
-  Reading:  "bg-blue-50",
-  Writing:  "bg-purple-50",
-  Numeracy: "bg-amber-50",
-  Language: "bg-emerald-50",
-};
-const SUBJECT_TEXT = {
-  Reading:  "text-blue-700",
-  Writing:  "text-purple-700",
-  Numeracy: "text-amber-700",
-  Language: "text-emerald-700",
-};
-const SUBJECT_BORDER = {
-  Reading:  "border-blue-300",
-  Writing:  "border-purple-300",
-  Numeracy: "border-amber-300",
-  Language: "border-emerald-300",
-};
-const SUBJECT_ICON = {
-  Reading:  BookOpen,
-  Writing:  PenLine,
-  Numeracy: Hash,
-  Language: Languages,
-  Other:    Library,
-  All:      LayoutDashboard,
-};
-
-const QUIZ_PALETTE = ["#6366F1","#F59E0B","#10B981","#EF4444","#3B82F6","#8B5CF6","#EC4899","#14B8A6"];
+const SUBJECT_BG       = { Reading: "bg-blue-500",   Writing: "bg-purple-500", Numeracy: "bg-amber-500",   Language: "bg-emerald-500" };
+const SUBJECT_LIGHT_BG = { Reading: "bg-blue-50",    Writing: "bg-purple-50",  Numeracy: "bg-amber-50",    Language: "bg-emerald-50"  };
+const SUBJECT_TEXT     = { Reading: "text-blue-700", Writing: "text-purple-700",Numeracy: "text-amber-700", Language: "text-emerald-700"};
+const SUBJECT_BORDER   = { Reading: "border-blue-200",Writing: "border-purple-200",Numeracy:"border-amber-200",Language:"border-emerald-200"};
+const SUBJECT_EMOJI    = { Reading: "📖", Writing: "✏️", Numeracy: "🔢", Language: "💬" };
+const SUBJECT_ICON     = { Reading: BookOpen, Writing: PenLine, Numeracy: Hash, Language: Languages, Other: Library, All: LayoutDashboard };
 
 const TIME_FILTERS = [
   { label: "Week",     days: 7 },
@@ -68,7 +64,121 @@ const TIME_FILTERS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════
-   HELPERS
+   DATA HELPERS  (shared)
+   ═══════════════════════════════════════════════════════════ */
+
+function normaliseScore(test) {
+  if (test.subject === "Writing" && test.score <= 10) return test.score * 10;
+  return test.score;
+}
+
+function buildSubjectStats(tests) {
+  return SUBJECTS.map((subj) => {
+    const st     = tests.filter((t) => t.subject === subj);
+    const scores = st.map((t) => normaliseScore(t));
+    const avg    = scores.length ? Math.round(scores.reduce((a, v) => a + v, 0) / scores.length) : null;
+    const best   = scores.length ? Math.max(...scores) : null;
+    const last   = scores.length ? scores[scores.length - 1] : null;
+    const trend  = scores.length >= 2 ? scores[scores.length - 1] - scores[scores.length - 2] : null;
+    return { subject: subj, avg, best, last, trend, count: st.length, color: SUBJECT_COLORS[subj] };
+  });
+}
+
+function buildAllSubjectsTrend(tests) {
+  const monthMap = {};
+  tests.forEach((t) => {
+    const d   = new Date(t.date);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const lbl = d.toLocaleDateString("en-AU", { month: "short", year: "2-digit" });
+    if (!monthMap[key]) { monthMap[key] = { key, month: lbl }; SUBJECTS.forEach((s) => { monthMap[key][s + "_s"] = 0; monthMap[key][s + "_c"] = 0; }); }
+    if (SUBJECTS.includes(t.subject)) { monthMap[key][t.subject + "_s"] += normaliseScore(t); monthMap[key][t.subject + "_c"] += 1; }
+  });
+  const monthly = Object.values(monthMap).sort((a, b) => a.key.localeCompare(b.key)).map((m) => {
+    const pt = { month: m.month };
+    SUBJECTS.forEach((s) => { pt[s] = m[s + "_c"] > 0 ? Math.round(m[s + "_s"] / m[s + "_c"]) : null; });
+    return pt;
+  });
+  if (monthly.length < 3) {
+    const fb = [...tests].sort((a, b) => new Date(a.date) - new Date(b.date)).map((t, i) => {
+      const pt = { month: new Date(t.date).toLocaleDateString("en-AU", { day: "numeric", month: "short" }), _i: i + 1 };
+      SUBJECTS.forEach((s) => { pt[s] = null; });
+      if (SUBJECTS.includes(t.subject)) pt[t.subject] = normaliseScore(t);
+      return pt;
+    });
+    return { data: fb, mode: "attempts" };
+  }
+  return { data: monthly, mode: "monthly" };
+}
+
+function buildChronologicalTrend(tests) {
+  return [...tests].sort((a, b) => new Date(a.date) - new Date(b.date)).map((t, i) => ({
+    attempt: i + 1, score: normaliseScore(t),
+    date: new Date(t.date).toLocaleDateString("en-AU", { day: "numeric", month: "short" }),
+    _name: t.name,
+  }));
+}
+
+function buildDonutData(tests) {
+  const high = tests.filter((t) => normaliseScore(t) >= 80).length;
+  const mid  = tests.filter((t) => normaliseScore(t) >= 50 && normaliseScore(t) < 80).length;
+  const low  = tests.filter((t) => normaliseScore(t) < 50).length;
+  return [
+    { name: "High (80%+)",  value: high, color: "#10B981", emoji: "🌟", label: "High"    },
+    { name: "Mid (50-79%)", value: mid,  color: "#F59E0B", emoji: "📈", label: "Mid"     },
+    { name: "Learning",     value: low,  color: "#F87171", emoji: "💪", label: "Growing" },
+  ].filter((d) => d.value > 0);
+}
+
+function buildWeeklyFrequency(tests) {
+  const wm = {};
+  [...tests].sort((a, b) => new Date(a.date) - new Date(b.date)).forEach((t) => {
+    const d = new Date(t.date);
+    const k = d.toLocaleDateString("en-AU", { month: "short" }) + " W" + Math.ceil(d.getDate() / 7);
+    wm[k] = (wm[k] || 0) + 1;
+  });
+  return Object.entries(wm).map(([week, count]) => ({ week, count }));
+}
+
+function calcStreak(tests) {
+  if (!tests.length) return 0;
+  const days = [...new Set(tests.map((t) => new Date(t.date).toDateString()))].map((d) => new Date(d)).sort((a, b) => b - a);
+  let streak = 1;
+  for (let i = 1; i < days.length; i++) {
+    const diff = (days[i - 1] - days[i]) / (1000 * 60 * 60 * 24);
+    if (diff <= 1) streak++; else break;
+  }
+  return streak;
+}
+
+function scoreToStars(avg) {
+  if (avg === null) return 0;
+  if (avg >= 85) return 5;
+  if (avg >= 70) return 4;
+  if (avg >= 55) return 3;
+  if (avg >= 40) return 2;
+  return 1;
+}
+
+function overallStatus(subjectStats) {
+  const active = subjectStats.filter((s) => s.count > 0);
+  if (!active.length) return "no-data";
+  const avg = active.reduce((a, s) => a + (s.avg || 0), 0) / active.length;
+  if (avg >= 70) return "great";
+  if (avg >= 50) return "okay";
+  return "needs-help";
+}
+
+function childLevel(totalTests, avgScore) {
+  if (totalTests === 0) return { label: "Newcomer",    emoji: "🌱", xp: 0,   next: 5,   color: "text-slate-500",   bg: "bg-slate-100"   };
+  if (totalTests < 5)  return { label: "Beginner",     emoji: "🐣", xp: totalTests, next: 5,   color: "text-blue-600",   bg: "bg-blue-50"     };
+  if (totalTests < 15) return { label: "Rising Star",  emoji: "⭐", xp: totalTests, next: 15,  color: "text-amber-600",  bg: "bg-amber-50"    };
+  if (totalTests < 30) return { label: "Explorer",     emoji: "🚀", xp: totalTests, next: 30,  color: "text-indigo-600", bg: "bg-indigo-50"   };
+  if (avgScore >= 75)  return { label: "Champion",     emoji: "🏆", xp: totalTests, next: null,color: "text-emerald-600",bg: "bg-emerald-50"  };
+  return                      { label: "Pro Learner",  emoji: "💎", xp: totalTests, next: null,color: "text-purple-600", bg: "bg-purple-50"   };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SHARED SMALL COMPONENTS
    ═══════════════════════════════════════════════════════════ */
 
 function SubjectIconEl({ subject, className = "w-4 h-4" }) {
@@ -76,414 +186,766 @@ function SubjectIconEl({ subject, className = "w-4 h-4" }) {
   return <Icon className={className} />;
 }
 
-function buildSubjectTrendDataByQuiz(tests) {
-  const sorted = [...tests].sort((a, b) => new Date(a.date) - new Date(b.date));
-  const quizNames = [...new Set(sorted.map((t) => t.name))];
-  const data = sorted.map((t, i) => {
-    const point = {
-      attempt: i + 1,
-      date: new Date(t.date).toLocaleDateString("en-AU", { day: "numeric", month: "short" }),
-      _name: t.name,
-    };
-    quizNames.forEach((q) => { point[q] = t.name === q ? t.score : null; });
-    return point;
-  });
-  return { data, quizNames };
-}
-
-function buildAllSubjectsTrendData(tests) {
-  const monthMap = {};
-  tests.forEach((t) => {
-    const d = new Date(t.date);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleDateString("en-AU", { month: "short", year: "2-digit" });
-    if (!monthMap[key]) {
-      monthMap[key] = { key, month: label };
-      SUBJECTS.forEach((s) => { monthMap[key][`${s}_sum`] = 0; monthMap[key][`${s}_count`] = 0; });
-    }
-    const subj = t.subject;
-    if (SUBJECTS.includes(subj)) {
-      monthMap[key][`${subj}_sum`] += t.score;
-      monthMap[key][`${subj}_count`] += 1;
-    }
-  });
-  return Object.values(monthMap)
-    .sort((a, b) => a.key.localeCompare(b.key))
-    .map((m) => {
-      const point = { month: m.month };
-      SUBJECTS.forEach((s) => {
-        point[s] = m[`${s}_count`] > 0 ? Math.round(m[`${s}_sum`] / m[`${s}_count`]) : null;
-      });
-      return point;
-    });
-}
-
-function buildSubjectComparison(tests) {
-  return SUBJECTS.map((subj) => {
-    const subjectTests = tests.filter((t) => t.subject === subj);
-    const avg = subjectTests.length
-      ? Math.round(subjectTests.reduce((s, t) => s + t.score, 0) / subjectTests.length)
-      : 0;
-    return { subject: subj, score: avg, count: subjectTests.length, color: SUBJECT_COLORS[subj] };
-  });
-}
-
-/* ═══════════════════════════════════════════════════════════
-   SUB-COMPONENTS
-   ═══════════════════════════════════════════════════════════ */
-
 const Card = React.forwardRef(function Card({ children, className = "" }, ref) {
-  return (
-    <div ref={ref} className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-5 ${className}`}>
-      {children}
-    </div>
-  );
+  return <div ref={ref} className={"bg-white rounded-2xl shadow-sm border border-slate-100 p-5 " + className}>{children}</div>;
 });
 
-function CardTitle({ children, light = false }) {
+function ChartEmpty({ message, height = 180 }) {
   return (
-    <h3 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${light ? "text-white/80" : "text-slate-400"}`}>
-      {children}
-    </h3>
-  );
-}
-
-function KPI({ title, value, accent = false, warning = false, subject = null, subtext = null }) {
-  const accentColor = subject
-    ? SUBJECT_TEXT[subject]
-    : accent ? "text-indigo-600" : warning ? "text-rose-500" : "text-slate-900";
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col gap-0.5">
-      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</span>
-      <span className={`text-2xl font-bold leading-tight ${value === "—" ? "text-slate-300" : accentColor}`}>
-        {value}
-      </span>
-      {subtext && <span className="text-xs text-slate-400 mt-0.5">{subtext}</span>}
-    </div>
-  );
-}
-
-function KPISkeleton() {
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
-      <div className="h-3 w-20 bg-slate-100 rounded mb-3 animate-pulse" />
-      <div className="h-7 w-24 bg-slate-100 rounded animate-pulse" />
-    </div>
-  );
-}
-
-function ChartSkeleton({ message }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-40 text-center gap-2">
+    <div style={{ height }} className="flex flex-col items-center justify-center gap-2">
       <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
-        <LayoutDashboard className="w-5 h-5 text-slate-300" />
+        <Target className="w-5 h-5 text-slate-300" />
       </div>
-      <p className="text-sm text-slate-400 max-w-xs">{message}</p>
+      <p className="text-xs text-slate-400 text-center">{message}</p>
     </div>
-  );
-}
-
-function SummaryRow({ label, value, positive }) {
-  return (
-    <div className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
-      <span className="text-sm text-slate-500">{label}</span>
-      <span className={`text-sm font-semibold ${positive === true ? "text-emerald-600" : positive === false ? "text-rose-500" : "text-slate-800"}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function ScoreBadge({ score }) {
-  const color =
-    score >= 80 ? "bg-emerald-100 text-emerald-700" :
-    score >= 60 ? "bg-amber-100 text-amber-700" :
-    "bg-rose-100 text-rose-700";
-  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${color}`}>{score}%</span>;
-}
-
-/* ═══════════════════════════════════════════════════════════
-   PARENT TONE REFRAMER
-   ═══════════════════════════════════════════════════════════ */
-
-function reframeForParent(text, childName) {
-  if (!text || !childName) return text;
-  text = text
-    .replace(/\bYou'll\b/g, `${childName} will`).replace(/\byou'll\b/g, `${childName} will`)
-    .replace(/\bYou'd\b/g,  `${childName} would`).replace(/\byou'd\b/g,  `${childName} would`)
-    .replace(/\bYou've\b/g, `${childName} has`).replace(/\byou've\b/g, `${childName} has`)
-    .replace(/\bYou're\b/g, `${childName} is`).replace(/\byou're\b/g, `${childName} is`);
-  text = text
-    .replace(/\bYou are\b/g, `${childName} is`).replace(/\byou are\b/g, `${childName} is`)
-    .replace(/\bYou have\b/g, `${childName} has`).replace(/\byou have\b/g, `${childName} has`);
-  text = text
-    .replace(/\bYour\b/g, `${childName}'s`).replace(/\byour\b/g, `${childName}'s`);
-  text = text
-    .replace(/\bYou\b/g, childName).replace(/\byou\b/g, childName);
-  const escapedName = childName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  text = text
-    .replace(new RegExp(`,\\s*${escapedName}([!.?]|\\b)`, "gi"), "$1")
-    .replace(new RegExp(`^${escapedName},\\s*${escapedName}\\b`, "gi"), childName);
-  text = text.replace(
-    new RegExp(`(Before\\s+${escapedName}\\s+)(start)\\b`, "gi"),
-    (_, prefix) => `${prefix}starts`
-  );
-  text = text
-    .replace(/\bkeep practising\b/gi, `encourage ${childName} to keep practising`)
-    .replace(/\bKeep going!\b/g,      `${childName} is on a great track!`)
-    .replace(/\bKeep it up!\b/g,      `Encourage ${childName} to keep it up!`);
-  return text;
-}
-
-/* ═══════════════════════════════════════════════════════════
-   AI COACH PANEL
-   ═══════════════════════════════════════════════════════════ */
-
-const TREND_CONFIG = {
-  improving: { Icon: TrendingUp,   label: "Improving",    color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200" },
-  stable:    { Icon: Minus,        label: "Stable",       color: "text-blue-600",    bg: "bg-blue-50",    border: "border-blue-200" },
-  declining: { Icon: TrendingDown, label: "Needs Focus",  color: "text-rose-600",    bg: "bg-rose-50",    border: "border-rose-200" },
-  new:       { Icon: Star,         label: "Just Started", color: "text-violet-600",  bg: "bg-violet-50",  border: "border-violet-200" },
-};
-
-function TrendBadge({ trend }) {
-  const cfg = TREND_CONFIG[trend] || TREND_CONFIG.new;
-  const { Icon } = cfg;
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-      <Icon className="w-3 h-3" /> {cfg.label}
-    </span>
   );
 }
 
 function FeedbackSkeleton() {
   return (
     <div className="space-y-3 animate-pulse">
-      <div className="h-3 bg-slate-200 rounded w-1/3" />
-      <div className="h-3 bg-slate-200 rounded w-full" />
-      <div className="h-3 bg-slate-200 rounded w-5/6" />
-      <div className="h-3 bg-slate-100 rounded w-2/3 mt-4" />
-      <div className="h-3 bg-slate-100 rounded w-3/4" />
+      <div className="h-3 bg-slate-200 rounded w-1/3" /><div className="h-3 bg-slate-200 rounded w-full" />
+      <div className="h-3 bg-slate-200 rounded w-5/6" /><div className="h-3 bg-slate-100 rounded w-2/3 mt-3" />
     </div>
   );
 }
 
-function ChipList({ items, color }) {
-  if (!items?.length) return null;
+/* ═══════════════════════════════════════════════════════════
+   AI COACH — shared helpers
+   ═══════════════════════════════════════════════════════════ */
+
+function reframeForParent(text, name) {
+  if (!text || !name) return text;
+  const e = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text
+    .replace(new RegExp(",\\s*" + e + "([!.?]|\\b)", "gi"), "$1")
+    .replace(/\bkeep practising\b/gi, "encourage " + name + " to keep practising")
+    .replace(/\bKeep going!\b/g, name + " is on a great track!")
+    .replace(/\bKeep it up!\b/g, "Encourage " + name + " to keep it up!");
+}
+
+const TREND_CONFIG = {
+  improving: { Icon: TrendingUp,   label: "Improving",    color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200" },
+  stable:    { Icon: Minus,        label: "Stable",       color: "text-blue-600",    bg: "bg-blue-50",    border: "border-blue-200"    },
+  declining: { Icon: TrendingDown, label: "Needs Focus",  color: "text-rose-600",    bg: "bg-rose-50",    border: "border-rose-200"    },
+  new:       { Icon: Star,         label: "Just Started", color: "text-violet-600",  bg: "bg-violet-50",  border: "border-violet-200"  },
+};
+
+function TrendBadge({ trend }) {
+  const cfg = TREND_CONFIG[trend] || TREND_CONFIG.new;
+  const { Icon } = cfg;
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {items.slice(0, 3).map((item, i) => (
-        <span key={i} className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium border ${color}`}>
-          {typeof item === "string" ? item : item.issue || item}
-        </span>
-      ))}
+    <span className={"inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border " + cfg.bg + " " + cfg.color + " " + cfg.border}>
+      <Icon className="w-3 h-3" /> {cfg.label}
+    </span>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ██████████████████████████████████████████████████████
+   PARENT VIEW
+   ██████████████████████████████████████████████████████
+   ═══════════════════════════════════════════════════════════ */
+
+function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbackLoading, refreshing, onRefresh, timeFilter, setTimeFilter }) {
+  const subjectStats  = useMemo(() => buildSubjectStats(tests), [tests]);
+  const status        = useMemo(() => overallStatus(subjectStats), [subjectStats]);
+  const weakestSubj   = useMemo(() => {
+    const active = subjectStats.filter((s) => s.count > 0);
+    return active.length ? active.reduce((p, c) => ((c.avg || 0) < (p.avg || 0) ? c : p)) : null;
+  }, [subjectStats]);
+  const strongestSubj = useMemo(() => {
+    const active = subjectStats.filter((s) => s.count > 0);
+    return active.length ? active.reduce((p, c) => ((c.avg || 0) > (p.avg || 0) ? c : p)) : null;
+  }, [subjectStats]);
+
+  const totalQuizzes = tests.length;
+  const streak       = useMemo(() => calcStreak(tests), [tests]);
+  const overallAvg   = useMemo(() => {
+    const active = subjectStats.filter((s) => s.avg !== null);
+    return active.length ? Math.round(active.reduce((a, s) => a + s.avg, 0) / active.length) : 0;
+  }, [subjectStats]);
+
+  // Weekly activity for simple bar
+  const weeklyData = useMemo(() => buildWeeklyFrequency(tests), [tests]);
+  const maxWeek    = weeklyData.length ? Math.max(...weeklyData.map((w) => w.count)) : 0;
+
+  const statusConfig = {
+    "great":     { emoji: "✅", headline: displayName + " is doing great!",     sub: "Keep up the encouragement — they're on track.",       bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" },
+    "okay":      { emoji: "📈", headline: displayName + " is making progress",  sub: "A little extra practice will make a big difference.",  bg: "bg-amber-50",   border: "border-amber-200",   text: "text-amber-700",   badge: "bg-amber-100 text-amber-700"    },
+    "needs-help":{ emoji: "💪", headline: displayName + " needs more practice", sub: "Now is a great time to encourage daily quizzes.",      bg: "bg-rose-50",    border: "border-rose-200",    text: "text-rose-700",    badge: "bg-rose-100 text-rose-700"      },
+    "no-data":   { emoji: "👋", headline: "Welcome!",                           sub: displayName + " hasn't started any quizzes yet.",       bg: "bg-slate-50",   border: "border-slate-200",   text: "text-slate-600",   badge: "bg-slate-100 text-slate-600"    },
+  }[status];
+
+  // AI feedback for "Overall"
+  const feedbackDoc  = cumulativeFeedback["Overall"] || null;
+  const rawFeedback  = feedbackDoc?.feedback;
+  const aiSummary    = rawFeedback?.summary ? reframeForParent(rawFeedback.summary, displayName) : null;
+  const aiTips       = rawFeedback?.study_tips?.slice(0, 2).map((t) => reframeForParent(t, displayName)) || [];
+  const aiFocus      = rawFeedback?.areas_for_improvement?.[0];
+
+  return (
+    <div className="space-y-5">
+
+      {/* ── Time filter (compact, right-aligned) ── */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-400 font-medium">Showing results for:</p>
+        <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+          {TIME_FILTERS.map((f, i) => (
+            <button key={f.label} onClick={() => setTimeFilter(i)}
+              className={"px-3 py-1.5 rounded-lg text-xs font-medium transition-all " + (timeFilter === i ? "bg-slate-800 text-white" : "text-slate-500 hover:text-slate-700")}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════
+          SECTION 1 — "Is my child doing OK?"
+      ════════════════════════════════════════════ */}
+      <div className={"rounded-2xl border-2 p-5 " + statusConfig.bg + " " + statusConfig.border}>
+        <div className="flex items-start gap-4">
+          <span className="text-4xl leading-none mt-1">{statusConfig.emoji}</span>
+          <div className="flex-1">
+            <h2 className={"text-lg font-bold " + statusConfig.text}>{statusConfig.headline}</h2>
+            <p className="text-sm text-slate-600 mt-1">{statusConfig.sub}</p>
+
+            {/* Quick stats in plain English */}
+            {totalQuizzes > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className={"text-xs font-semibold px-3 py-1 rounded-full " + statusConfig.badge}>
+                  {totalQuizzes} quiz{totalQuizzes !== 1 ? "zes" : ""} completed
+                </span>
+                {streak > 1 && (
+                  <span className="text-xs font-semibold px-3 py-1 rounded-full bg-orange-100 text-orange-700">
+                    🔥 {streak}-day streak
+                  </span>
+                )}
+                {overallAvg > 0 && (
+                  <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-100 text-indigo-700">
+                    Average score: {overallAvg}%
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════
+          SECTION 2 — "Where do they need help?"
+          4 subject tiles — stars not percentages
+      ════════════════════════════════════════════ */}
+      <div>
+        <h3 className="text-sm font-bold text-slate-700 mb-3">📚 How are they doing in each subject?</h3>
+        <div className="grid grid-cols-2 gap-3">
+          {subjectStats.map((s) => {
+            const stars  = scoreToStars(s.avg);
+            const hasData = s.count > 0;
+            const trendUp = s.trend !== null && s.trend > 0;
+            const trendDn = s.trend !== null && s.trend < 0;
+            return (
+              <div key={s.subject}
+                className={"rounded-2xl border-2 p-4 transition-all " + (hasData ? SUBJECT_LIGHT_BG[s.subject] + " " + SUBJECT_BORDER[s.subject] : "bg-slate-50 border-slate-200")}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{SUBJECT_EMOJI[s.subject]}</span>
+                    <span className={"text-sm font-bold " + (hasData ? SUBJECT_TEXT[s.subject] : "text-slate-400")}>{s.subject}</span>
+                  </div>
+                  {hasData && (
+                    <span className={"text-[10px] font-bold px-1.5 py-0.5 rounded-full " + (trendUp ? "bg-emerald-100 text-emerald-700" : trendDn ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-500")}>
+                      {trendUp ? "↑ Up" : trendDn ? "↓ Down" : "→ Steady"}
+                    </span>
+                  )}
+                </div>
+
+                {hasData ? (
+                  <>
+                    {/* Star rating — much easier than % for parents */}
+                    <div className="flex gap-0.5 mb-2">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <Star key={n} className={"w-4 h-4 " + (n <= stars ? "fill-amber-400 text-amber-400" : "text-slate-200 fill-slate-200")} />
+                      ))}
+                    </div>
+                    {/* Plain English label */}
+                    <p className="text-xs text-slate-600 font-medium">
+                      {stars >= 5 ? "Outstanding! 🎉" :
+                       stars >= 4 ? "Doing really well" :
+                       stars >= 3 ? "On track" :
+                       stars >= 2 ? "Needs more practice" :
+                       "Needs extra help"}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{s.count} quiz{s.count !== 1 ? "zes" : ""} · avg {s.avg}%</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-1">No quizzes yet</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════
+          SECTION 3 — Weekly Activity (simple bar)
+      ════════════════════════════════════════════ */}
+      {weeklyData.length > 0 && (
+        <Card>
+          <h3 className="text-sm font-bold text-slate-700 mb-1">📅 Quiz activity by week</h3>
+          <p className="text-xs text-slate-400 mb-4">How many quizzes {displayName} completed each week</p>
+          <ResponsiveContainer width="100%" height={120}>
+            <BarChart data={weeklyData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }} barCategoryGap="25%">
+              <XAxis dataKey="week" tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={20} />
+              <Tooltip
+                contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 4px 20px rgba(0,0,0,0.08)", fontSize: 12 }}
+                formatter={(v) => [v + " quiz" + (v !== 1 ? "zes" : ""), "Completed"]}
+                labelFormatter={(l) => "📅 " + l}
+              />
+              <Bar dataKey="count" radius={[5, 5, 0, 0]} maxBarSize={36}>
+                {weeklyData.map((entry, i) => (
+                  <Cell key={i} fill={entry.count === maxWeek ? "#6366F1" : "#c7d2fe"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
+
+      {/* ════════════════════════════════════════════
+          SECTION 4 — "What should I do?" — Next Step
+      ════════════════════════════════════════════ */}
+      {weakestSubj && weakestSubj.count > 0 && (
+        <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-5">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">🎯</span>
+            <div>
+              <p className="text-sm font-bold text-indigo-800">Suggested next step</p>
+              <p className="text-sm text-indigo-700 mt-1 leading-relaxed">
+                Encourage {displayName} to practise more <strong>{weakestSubj.subject}</strong> — it's the area where a little extra effort will make the biggest difference right now.
+              </p>
+              {strongestSubj && strongestSubj.subject !== weakestSubj.subject && (
+                <p className="text-xs text-indigo-500 mt-2">
+                  💡 They're already strong in <strong>{strongestSubj.subject}</strong> — let them know that's something to be proud of!
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════
+          SECTION 5 — AI Teacher's Note
+          Written like a note from a teacher,
+          not a technical AI report
+      ════════════════════════════════════════════ */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">📝 Note from {displayName}'s AI Tutor</h3>
+            <p className="text-[10px] text-slate-400 mt-0.5">Updated based on all completed quizzes</p>
+          </div>
+          <button onClick={onRefresh} disabled={refreshing || feedbackLoading}
+            className="text-xs text-indigo-600 font-medium disabled:opacity-40 border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1">
+            <svg className={"w-3 h-3 " + (refreshing ? "animate-spin" : "")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </button>
+        </div>
+
+        {feedbackLoading || refreshing ? (
+          <FeedbackSkeleton />
+        ) : aiSummary ? (
+          <div className="space-y-4">
+            {/* Summary as a plain letter */}
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+              <p className="text-sm text-slate-700 leading-relaxed">{aiSummary}</p>
+            </div>
+
+            {/* Focus area — plain English */}
+            {aiFocus && (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
+                <p className="text-xs font-bold text-amber-700 mb-1">⚠️ What to work on</p>
+                <p className="text-sm text-amber-800 font-medium">{reframeForParent(aiFocus.issue, displayName)}</p>
+                {aiFocus.how_to_improve && (
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">{reframeForParent(aiFocus.how_to_improve, displayName)}</p>
+                )}
+              </div>
+            )}
+
+            {/* Tips as simple bullet list — no jargon */}
+            {aiTips.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-slate-500 mb-2">💡 Simple tips to help at home</p>
+                <ul className="space-y-2">
+                  {aiTips.map((tip, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
+                      <span className="text-indigo-400 font-bold mt-0.5">•</span>
+                      <span>{tip}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Encouragement */}
+            {rawFeedback?.encouragement && (
+              <p className="text-xs text-slate-500 italic border-t border-slate-100 pt-3">
+                ✨ {reframeForParent(rawFeedback.encouragement, displayName)}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-slate-400 space-y-2">
+            <BookOpen className="w-10 h-10 mx-auto text-slate-200" />
+            <p className="text-sm">{displayName} needs to complete a few more quizzes before a report can be generated.</p>
+          </div>
+        )}
+      </Card>
+
     </div>
   );
 }
 
-function AICumulativeCoachPanel({
-  feedbackDoc,
-  subject,
-  onRefresh,
-  refreshing,
-  loading,
-  isParentViewing = false,
-  displayName = "Student",
-}) {
-  const status      = feedbackDoc?.status;
-  const rawFeedback = feedbackDoc?.feedback;
+/* ═══════════════════════════════════════════════════════════
+   ██████████████████████████████████████████████████████
+   CHILD VIEW
+   ██████████████████████████████████████████████████████
+   ═══════════════════════════════════════════════════════════ */
 
-  const feedback = isParentViewing && rawFeedback
-    ? {
-        ...rawFeedback,
-        summary:       reframeForParent(rawFeedback.summary, displayName),
-        encouragement: reframeForParent(rawFeedback.encouragement, displayName),
-        strengths:     rawFeedback.strengths?.map((s) => reframeForParent(s, displayName)),
-        study_tips:    rawFeedback.study_tips?.map((t) => reframeForParent(t, displayName)),
-        areas_for_improvement: rawFeedback.areas_for_improvement?.map((a) => ({
-          ...a,
-          issue:          reframeForParent(a.issue, displayName),
-          how_to_improve: reframeForParent(a.how_to_improve, displayName),
-        })),
-      }
-    : rawFeedback;
+function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, refreshing, onRefresh, timeFilter, setTimeFilter, selectedSubject, setSelectedSubject }) {
+  const subjectStats = useMemo(() => buildSubjectStats(tests), [tests]);
+  const streak       = useMemo(() => calcStreak(tests), [tests]);
+  const totalTests   = tests.length;
+  const avgScore     = useMemo(() => {
+    const s = tests.map((t) => normaliseScore(t));
+    return s.length ? Math.round(s.reduce((a, v) => a + v, 0) / s.length) : 0;
+  }, [tests]);
+  const level = useMemo(() => childLevel(totalTests, avgScore), [totalTests, avgScore]);
 
-  const subjectColor       = subject !== "All" ? SUBJECT_TEXT[subject]     : "text-indigo-600";
-  const subjectBgLight     = subject !== "All" ? SUBJECT_LIGHT_BG[subject]  : "bg-indigo-50";
-  const subjectBorderColor = subject !== "All" ? SUBJECT_BORDER[subject]   : "border-indigo-200";
+  const subjectTests = selectedSubject === "All" ? tests : tests.filter((t) => t.subject === selectedSubject);
 
-  if (loading || status === "pending" || status === "generating" || refreshing) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 text-slate-500 text-sm">
-          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <span>{isParentViewing ? `Generating coaching report for ${displayName}…` : "Generating AI coaching report…"}</span>
-        </div>
-        <FeedbackSkeleton />
-      </div>
-    );
-  }
+  const { data: trendData, mode: trendMode } = useMemo(() => buildAllSubjectsTrend(tests), [tests]);
+  const chronoData      = useMemo(() => buildChronologicalTrend(subjectTests), [subjectTests]);
+  const donutData       = useMemo(() => buildDonutData(subjectTests), [subjectTests]);
+  const freqData        = useMemo(() => buildWeeklyFrequency(tests), [tests]);
+  const maxFreq         = freqData.length ? Math.max(...freqData.map((d) => d.count)) : 0;
+  const activeSubjs     = SUBJECTS.filter((s) => trendData.some((d) => d[s] !== null));
 
-  if (!feedbackDoc) {
-    return (
-      <div className="text-center py-6 text-slate-400 text-sm space-y-1">
-        <BookOpen className="w-8 h-8 mx-auto text-slate-200 mb-2" />
-        <p>No AI feedback yet for {subject !== "All" ? subject : "overall"}.</p>
-        <p className="text-xs">
-          {isParentViewing
-            ? `${displayName} needs to complete more quizzes to unlock this report.`
-            : "Complete more quizzes to unlock your coaching report."}
-        </p>
-      </div>
-    );
-  }
+  const subjectColor    = selectedSubject !== "All" ? SUBJECT_COLORS[selectedSubject] : "#6366F1";
 
-  if (status === "error") {
-    return (
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-rose-600 text-sm">
-          <AlertTriangle className="w-4 h-4" />
-          <span className="font-medium">Feedback generation failed</span>
-        </div>
-        <button onClick={onRefresh} className="text-xs px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition">
-          Try Again
-        </button>
-      </div>
-    );
-  }
-
-  if (!feedback || (!feedback.summary && !feedback.strengths?.length)) {
-    return (
-      <div className="text-center py-6 text-slate-400 text-sm">
-        <BookOpen className="w-8 h-8 mx-auto text-slate-200 mb-2" />
-        <p>
-          {isParentViewing
-            ? `${displayName} needs to take more ${subject !== "All" ? subject : ""} quizzes to unlock this report.`
-            : `Take more ${subject !== "All" ? subject : ""} quizzes to unlock your coaching report.`}
-        </p>
-      </div>
-    );
-  }
+  // AI feedback for selected subject
+  const feedbackDoc  = cumulativeFeedback[selectedSubject === "All" ? "Overall" : selectedSubject] || null;
+  const rawFeedback  = feedbackDoc?.feedback;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <TrendBadge trend={feedback.trend || "new"} />
-        {feedbackDoc.attempt_count > 0 && (
-          <span className="text-xs text-slate-400">
-            {feedbackDoc.attempt_count} quiz{feedbackDoc.attempt_count !== 1 ? "zes" : ""}
-            {feedbackDoc.average_score ? ` · Avg ${Math.round(feedbackDoc.average_score)}%` : ""}
-          </span>
+
+      {/* ── Subject + time filters ── */}
+      <div className="flex flex-col gap-2">
+        {/* Subject tabs */}
+        <div className="flex flex-wrap gap-1.5">
+          {[{ value: "All", label: "🏠 All" }, ...SUBJECTS.map((s) => ({ value: s, label: SUBJECT_EMOJI[s] + " " + s }))].map((opt) => {
+            const isActive = selectedSubject === opt.value;
+            const activeBg = opt.value !== "All" ? SUBJECT_BG[opt.value] : "bg-indigo-600";
+            return (
+              <button key={opt.value} onClick={() => setSelectedSubject(opt.value)}
+                className={"px-3 py-1.5 rounded-xl text-xs font-bold border transition-all " + (isActive ? activeBg + " text-white border-transparent shadow-sm" : "bg-white text-slate-500 border-slate-200 hover:border-slate-300")}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        {/* Time filter */}
+        <div className="flex justify-end">
+          <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+            {TIME_FILTERS.map((f, i) => (
+              <button key={f.label} onClick={() => setTimeFilter(i)}
+                className={"px-2.5 py-1 rounded-lg text-xs font-medium transition-all " + (timeFilter === i ? "bg-slate-800 text-white" : "text-slate-500 hover:text-slate-700")}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════
+          HERO — Streak + Level card
+      ════════════════════════════════════════════ */}
+      <div className="rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-violet-600 p-5 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-indigo-200 text-xs font-semibold uppercase tracking-wider mb-1">Hey {displayName}! 👋</p>
+            <h2 className="text-2xl font-black leading-tight">
+              {streak > 1 ? "You're on a " + streak + "-day streak! 🔥" :
+               totalTests > 0 ? "Keep going, you're doing great!" :
+               "Ready to start your journey? 🚀"}
+            </h2>
+            <p className="text-indigo-200 text-sm mt-1">
+              {totalTests > 0 ? totalTests + " quiz" + (totalTests !== 1 ? "zes" : "") + " done · avg " + avgScore + "%" : "Complete your first quiz to get started!"}
+            </p>
+          </div>
+          {/* Level badge */}
+          <div className={"shrink-0 rounded-2xl px-4 py-3 text-center min-w-[80px] " + level.bg}>
+            <p className="text-2xl leading-none">{level.emoji}</p>
+            <p className={"text-[10px] font-black uppercase tracking-wide mt-1 " + level.color}>{level.label}</p>
+          </div>
+        </div>
+
+        {/* XP bar */}
+        {level.next !== null && (
+          <div className="mt-4">
+            <div className="flex justify-between text-xs text-indigo-200 mb-1">
+              <span>⚡ XP Progress</span>
+              <span>{level.xp} / {level.next} quizzes to next level</span>
+            </div>
+            <div className="h-2.5 bg-white/20 rounded-full overflow-hidden">
+              <div className="h-full bg-white rounded-full transition-all duration-700" style={{ width: Math.min((level.xp / level.next) * 100, 100) + "%" }} />
+            </div>
+          </div>
         )}
       </div>
 
-      {feedback.summary && (
-        <p className="text-sm text-slate-700 leading-relaxed">{feedback.summary}</p>
-      )}
-
-      {feedback.strengths?.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            {isParentViewing ? `${displayName}'s Strengths` : "Strengths"}
-          </p>
-          <ChipList items={feedback.strengths} color="bg-emerald-50 border-emerald-200 text-emerald-700" />
+      {/* ════════════════════════════════════════════
+          STAT CHIPS — quick numbers
+      ════════════════════════════════════════════ */}
+      {totalTests > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { icon: "🎯", label: "Avg Score",  value: avgScore + "%",       color: "text-indigo-600" },
+            { icon: "🔥", label: "Streak",     value: streak + " days",     color: "text-orange-500" },
+            { icon: "✅", label: "Quizzes",    value: String(totalTests),   color: "text-emerald-600" },
+          ].map((stat) => (
+            <div key={stat.label} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 text-center">
+              <span className="text-xl">{stat.icon}</span>
+              <p className={"text-lg font-black mt-1 " + stat.color}>{stat.value}</p>
+              <p className="text-[10px] text-slate-400 font-medium">{stat.label}</p>
+            </div>
+          ))}
         </div>
       )}
 
-      {feedback.areas_for_improvement?.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-xs font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1">
-            <Target className="w-3.5 h-3.5" />
-            {isParentViewing ? `Areas for ${displayName} to Focus On` : "Focus Areas"}
-          </p>
-          <ChipList
-            items={feedback.areas_for_improvement.map((a) => a.issue || a)}
-            color="bg-amber-50 border-amber-200 text-amber-700"
-          />
-        </div>
-      )}
+      {/* ════════════════════════════════════════════
+          TWO-COLUMN: Charts LEFT | AI Coach RIGHT
+      ════════════════════════════════════════════ */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
 
-      {feedback.study_tips?.[0] && (
-        <div className={`flex items-start gap-2.5 rounded-xl p-3 ${subjectBgLight} border ${subjectBorderColor}`}>
-          <Lightbulb className={`w-4 h-4 mt-0.5 flex-shrink-0 ${subjectColor}`} />
-          <p className={`text-xs leading-relaxed ${subjectColor}`}>
-            {isParentViewing ? `💡 Tip for supporting ${displayName}: ${feedback.study_tips[0]}` : feedback.study_tips[0]}
-          </p>
-        </div>
-      )}
+        {/* LEFT — Charts */}
+        <div className="space-y-4">
 
-      {feedback.encouragement && (
-        <p className="text-xs text-slate-500 italic border-l-2 border-slate-200 pl-3">
-          "{feedback.encouragement}"
-        </p>
-      )}
+          {/* Chart 1 — Your Journey (score trend) */}
+          <Card>
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+              {selectedSubject === "All" ? "🗺️ Your Learning Journey" : "📈 Your " + selectedSubject + " Journey"}
+            </h4>
+            <p className="text-[11px] text-slate-400 mb-3">
+              {selectedSubject === "All" ? "Every subject over time — watch those lines go up! 🚀" : "Your score each time you practised " + selectedSubject}
+            </p>
 
-      {feedbackDoc.generated_at && (
-        <p className="text-[10px] text-slate-400 text-right">
-          Updated {new Date(feedbackDoc.generated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
-          {feedbackDoc.model ? ` · ${feedbackDoc.model}` : ""}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   SUBJECT TABS
-   ═══════════════════════════════════════════════════════════ */
-
-function SubjectTabBar({ selectedSubject, onChange, tests }) {
-  const options = [
-    { value: "All", label: "All" },
-    ...SUBJECTS.map((s) => ({ value: s, label: s })),
-  ];
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((opt) => {
-        const count = opt.value === "All" ? tests.length : tests.filter((t) => t.subject === opt.value).length;
-        const isActive = opt.value === selectedSubject;
-        return (
-          <button
-            key={opt.value}
-            onClick={() => onChange(opt.value)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all
-              ${isActive
-                ? opt.value === "All"
-                  ? "bg-slate-800 text-white border-slate-800 shadow-sm"
-                  : `${SUBJECT_BG[opt.value]} text-white border-transparent shadow-sm`
-                : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-              }`}
-          >
-            <SubjectIconEl
-              subject={opt.value}
-              className={`w-3.5 h-3.5 ${isActive ? "text-white" : opt.value !== "All" ? SUBJECT_TEXT[opt.value] : "text-slate-500"}`}
-            />
-            <span>{opt.label}</span>
-            {count > 0 && (
-              <span className={`text-[10px] px-1 py-0.5 rounded-full ${isActive ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>
-                {count}
-              </span>
+            {selectedSubject === "All" ? (
+              activeSubjs.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                      <defs>
+                        {activeSubjs.map((key) => (
+                          <linearGradient key={key} id={"cg-" + key} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={SUBJECT_COLORS[key]} stopOpacity={0.2} />
+                            <stop offset="100%" stopColor={SUBJECT_COLORS[key]} stopOpacity={0} />
+                          </linearGradient>
+                        ))}
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="month" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 10 }} tickFormatter={(v) => v + "%"} axisLine={false} tickLine={false} width={30} />
+                      <Tooltip contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 8px 30px rgba(0,0,0,0.1)", fontSize: 12 }}
+                        formatter={(v, name) => v !== null ? [v + "%", name] : [null, name]} />
+                      <Legend verticalAlign="bottom" height={22} iconSize={8}
+                        formatter={(v) => <span style={{ fontSize: 11, fontWeight: 700 }}>{v}</span>} />
+                      {activeSubjs.map((key) => (
+                        <Area key={key} type="monotone" dataKey={key}
+                          stroke={SUBJECT_COLORS[key]} strokeWidth={2.5}
+                          fill={"url(#cg-" + key + ")"}
+                          dot={{ r: 3, fill: SUBJECT_COLORS[key], stroke: "#fff", strokeWidth: 1.5 }}
+                          activeDot={{ r: 5 }} connectNulls={trendMode === "monthly"} />
+                      ))}
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  {trendMode === "attempts" && <p className="text-[10px] text-slate-400 text-center mt-1">Monthly view unlocks after 3+ months 🗓️</p>}
+                </>
+              ) : <ChartEmpty message="Complete some quizzes to see your journey! 🚀" height={220} />
+            ) : (
+              chronoData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={chronoData} margin={{ top: 8, right: 24, left: 0, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="attempt" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false}
+                      label={{ value: "Attempt", position: "insideBottom", offset: -2, fontSize: 10, fill: "#94a3b8" }} />
+                    <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 10 }} tickFormatter={(v) => v + "%"} axisLine={false} tickLine={false} width={30} />
+                    <Tooltip content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0]?.payload;
+                      return (
+                        <div className="bg-white rounded-xl border border-slate-100 shadow-xl p-3 text-xs">
+                          <p className="font-bold text-slate-700 mb-0.5">{d?._name}</p>
+                          <p className="text-slate-400">{d?.date}</p>
+                          <p className="font-black text-lg mt-1" style={{ color: subjectColor }}>{d?.score}%</p>
+                        </div>
+                      );
+                    }} />
+                    <ReferenceLine y={70} stroke={subjectColor} strokeDasharray="5 3" strokeOpacity={0.3}
+                      label={{ value: "🎯 Keep aiming up!", position: "insideTopRight", fontSize: 9, fill: subjectColor }} />
+                    <Line type="monotone" dataKey="score" stroke={subjectColor} strokeWidth={3}
+                      dot={{ r: 5, fill: subjectColor, stroke: "#fff", strokeWidth: 2 }} activeDot={{ r: 7 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : <ChartEmpty message={"No " + selectedSubject + " quizzes yet — go try one! 💪"} height={220} />
             )}
-          </button>
-        );
-      })}
+          </Card>
+
+          {/* Chart 2 — Subject Power Cards (All view) */}
+          {selectedSubject === "All" && (
+            <Card>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">⚡ Your Subject Power</h4>
+              <p className="text-[11px] text-slate-400 mb-3">How strong you are in each subject</p>
+              <div className="space-y-2.5">
+                {subjectStats.map((s) => {
+                  const pct  = s.avg ?? 0;
+                  const stars = scoreToStars(s.avg);
+                  return (
+                    <div key={s.subject} className="flex items-center gap-3">
+                      <span className="text-lg w-6 text-center">{SUBJECT_EMOJI[s.subject]}</span>
+                      <div className="flex-1">
+                        <div className="flex justify-between mb-1">
+                          <span className={"text-xs font-bold " + (s.count > 0 ? SUBJECT_TEXT[s.subject] : "text-slate-300")}>{s.subject}</span>
+                          <span className="text-xs text-slate-500 font-semibold">{s.count > 0 ? pct + "%" : "Not started"}</span>
+                        </div>
+                        <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: pct + "%", background: s.color }} />
+                        </div>
+                      </div>
+                      <div className="flex gap-0.5 shrink-0">
+                        {[1,2,3].map((n) => (
+                          <Star key={n} className={"w-3 h-3 " + (n <= Math.ceil(stars / 2) ? "fill-amber-400 text-amber-400" : "text-slate-200 fill-slate-200")} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
+          {/* Chart 3 — Performance Donut */}
+          <Card>
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">🍩 How are your scores?</h4>
+            <p className="text-[11px] text-slate-400 mb-3">
+              {selectedSubject === "All" ? "All your quizzes split by score band" : selectedSubject + " quizzes split by score band"}
+            </p>
+            {donutData.length > 0 ? (() => {
+              const total = donutData.reduce((a, d) => a + d.value, 0);
+              const top   = donutData.reduce((p, c) => c.value > p.value ? c : p);
+              return (
+                <div className="flex items-center gap-5">
+                  <div className="relative shrink-0">
+                    <PieChart width={140} height={140}>
+                      <Pie data={donutData} cx={66} cy={66} innerRadius={38} outerRadius={58}
+                        paddingAngle={3} dataKey="value" startAngle={90} endAngle={-270}>
+                        {donutData.map((entry, i) => <Cell key={i} fill={entry.color} stroke="none" />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 4px 20px rgba(0,0,0,0.08)", fontSize: 12 }}
+                        formatter={(v, name) => [v + " quiz" + (v !== 1 ? "zes" : ""), name]} />
+                    </PieChart>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <span className="text-2xl">{top.emoji}</span>
+                      <span className="text-[9px] font-black text-slate-600 mt-0.5">{top.label}</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-2.5">
+                    {donutData.map((band) => {
+                      const pct = Math.round((band.value / total) * 100);
+                      return (
+                        <div key={band.name}>
+                          <div className="flex justify-between mb-1">
+                            <span className="text-xs font-bold text-slate-600">{band.emoji} {band.label}</span>
+                            <span className="text-xs font-black" style={{ color: band.color }}>{pct}%</span>
+                          </div>
+                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: pct + "%", background: band.color }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <p className="text-[10px] text-slate-400">{total} total quiz{total !== 1 ? "zes" : ""}</p>
+                  </div>
+                </div>
+              );
+            })() : <ChartEmpty message="Complete some quizzes to see this! 🍩" height={140} />}
+          </Card>
+
+          {/* Chart 4 — Practice Streak bar */}
+          <Card>
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">🔥 Practice streak</h4>
+            <p className="text-[11px] text-slate-400 mb-3">Quizzes completed each week — try to beat your best week!</p>
+            {freqData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={140}>
+                <BarChart data={freqData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }} barCategoryGap="25%">
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="week" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={20} />
+                  <Tooltip contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 8px 30px rgba(0,0,0,0.08)", fontSize: 12 }}
+                    formatter={(v) => [v + " quiz" + (v !== 1 ? "zes" : ""), "This week"]}
+                    labelFormatter={(l) => "🔥 " + l} />
+                  <Bar dataKey="count" radius={[5, 5, 0, 0]} maxBarSize={36}>
+                    {freqData.map((entry, i) => <Cell key={i} fill={entry.count === maxFreq ? "#6366F1" : "#c7d2fe"} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <ChartEmpty message="Start practising to build your streak! 🔥" height={140} />}
+          </Card>
+
+        </div>{/* end left charts */}
+
+        {/* RIGHT — AI Coach */}
+        <div className="space-y-4">
+
+          {/* Achievements (badges) */}
+          {totalTests > 0 && (
+            <Card>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">🏅 Your Achievements</h4>
+              <div className="flex flex-wrap gap-2">
+                {totalTests >= 1  && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">🎯 First Quiz!</span>}
+                {totalTests >= 5  && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">🚀 5 Quizzes Done</span>}
+                {totalTests >= 10 && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">⭐ 10 Quiz Star</span>}
+                {totalTests >= 25 && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">🏆 25 Quiz Legend</span>}
+                {streak >= 3      && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200">🔥 {streak}-Day Streak!</span>}
+                {avgScore >= 80   && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">🌟 80%+ Average</span>}
+                {avgScore >= 90   && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">💎 90%+ Champion</span>}
+                {subjectStats.filter((s) => s.count > 0).length === 4 && (
+                  <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">🌈 All 4 Subjects</span>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {/* AI Coach Card */}
+          <Card>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <span className="text-lg">🤖</span> Your AI Coach
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {selectedSubject === "All" ? "Overall coaching report" : "Your " + selectedSubject + " coaching report"}
+                </p>
+              </div>
+              <button onClick={onRefresh} disabled={refreshing || feedbackLoading}
+                className="text-xs text-indigo-600 font-bold disabled:opacity-40 border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1">
+                <svg className={"w-3 h-3 " + (refreshing ? "animate-spin" : "")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {refreshing ? "Updating…" : "Update"}
+              </button>
+            </div>
+
+            {feedbackLoading || refreshing ? (
+              <FeedbackSkeleton />
+            ) : rawFeedback ? (
+              <div className="space-y-4">
+                {rawFeedback.trend && <TrendBadge trend={rawFeedback.trend} />}
+
+                {rawFeedback.summary && (
+                  <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+                    <p className="text-sm text-indigo-800 leading-relaxed font-medium">{rawFeedback.summary}</p>
+                  </div>
+                )}
+
+                {rawFeedback.strengths?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">💪 You're great at</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {rawFeedback.strengths.slice(0, 3).map((item, i) => (
+                        <span key={i} className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          ✅ {item}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {rawFeedback.areas_for_improvement?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">🎯 Next challenge</p>
+                    {rawFeedback.areas_for_improvement.slice(0, 2).map((a, i) => (
+                      <div key={i} className={"rounded-xl border p-3 mb-2 " + (selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] + " " + SUBJECT_BORDER[selectedSubject] : "bg-amber-50 border-amber-200")}>
+                        <p className={"text-xs font-bold mb-0.5 " + (selectedSubject !== "All" ? SUBJECT_TEXT[selectedSubject] : "text-amber-700")}>{a.issue}</p>
+                        <p className="text-xs text-slate-500 leading-relaxed">{a.how_to_improve}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {rawFeedback.study_tips?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">💡 Pro tips</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {rawFeedback.study_tips.slice(0, 3).map((tip, i) => (
+                        <span key={i} className="text-xs font-bold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200">⚡ {tip}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {rawFeedback.encouragement && (
+                  <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-3 border border-indigo-100 mt-2">
+                    <p className="text-sm text-indigo-700 font-semibold">✨ {rawFeedback.encouragement}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 space-y-2">
+                <span className="text-4xl">🤖</span>
+                <p className="text-sm font-bold text-slate-600">Your coach is waiting!</p>
+                <p className="text-xs text-slate-400">Complete more quizzes and your AI coach will give you personalised tips.</p>
+              </div>
+            )}
+
+            {/* Per-subject feedback buttons */}
+            {selectedSubject === "All" && Object.keys(cumulativeFeedback).length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">View by subject</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {SUBJECTS.map((s) => {
+                    const doc = cumulativeFeedback[s];
+                    const st  = doc?.status || "none";
+                    const icon = { done: "✓", generating: "⏳", error: "✗", none: "○", pending: "○" }[st] || "○";
+                    return (
+                      <button key={s} onClick={() => setSelectedSubject(s)}
+                        className={"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition-all " + SUBJECT_LIGHT_BG[s] + " " + SUBJECT_TEXT[s] + " " + SUBJECT_BORDER[s]}>
+                        {SUBJECT_EMOJI[s]} {s} {icon}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </Card>
+
+        </div>{/* end right AI */}
+      </div>{/* end two-col */}
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   MAIN COMPONENT
+   MAIN EXPORT — routes to Parent or Child view
    ═══════════════════════════════════════════════════════════ */
 
 export default function StudentDashboardAnalytics({
   tests = [],
   displayName = "Student",
   yearLevel = null,
-  onBack = null,
   onLogout = null,
   embedded = false,
   childId: childIdProp = null,
@@ -497,10 +959,7 @@ export default function StudentDashboardAnalytics({
   const [cumulativeFeedback, setCumulativeFeedback] = useState({});
   const [feedbackLoading,    setFeedbackLoading]    = useState(false);
   const [refreshing,         setRefreshing]         = useState(false);
-
-  const pollTimerRef     = useRef(null);
-  const aiCoachRef       = useRef(null);
-  const [showFloatingBtn, setShowFloatingBtn] = useState(false);
+  const pollTimerRef = useRef(null);
 
   const childId = useMemo(() => {
     if (childIdProp) return childIdProp;
@@ -510,67 +969,9 @@ export default function StudentDashboardAnalytics({
   }, [childIdProp, user]);
 
   const activeToken  = childToken || parentToken || null;
-  const isParentView = viewerType
-    ? viewerType !== "child"
-    : Boolean(parentToken && !childToken);
+  const isParentView = viewerType ? viewerType !== "child" : Boolean(parentToken && !childToken);
 
-  useEffect(() => {
-    if (!aiCoachRef.current) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setShowFloatingBtn(!entry.isIntersecting),
-      { threshold: 0.1 }
-    );
-    observer.observe(aiCoachRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  const loadCumulativeFeedback = useCallback(async () => {
-    if (!childId || !activeToken) return;
-    try {
-      const { feedback, generating } = await fetchCumulativeFeedback(activeToken, childId);
-      setCumulativeFeedback(feedback || {});
-      const stillGenerating =
-        generating ||
-        Object.values(feedback || {}).some((d) => d.status === "generating" || d.status === "pending");
-      if (stillGenerating) {
-        pollTimerRef.current = setTimeout(loadCumulativeFeedback, 4000);
-      }
-    } catch (err) {
-      console.warn("Failed to load cumulative feedback:", err.message);
-    }
-  }, [childId, activeToken]);
-
-  useEffect(() => {
-    setFeedbackLoading(true);
-    loadCumulativeFeedback().finally(() => setFeedbackLoading(false));
-    return () => { if (pollTimerRef.current) clearTimeout(pollTimerRef.current); };
-  }, [loadCumulativeFeedback]);
-
-  const handleRefreshFeedback = useCallback(async () => {
-    if (!childId || !activeToken || refreshing) return;
-    setRefreshing(true);
-    try {
-      await refreshCumulativeFeedback(activeToken, childId);
-      pollTimerRef.current = setTimeout(loadCumulativeFeedback, 3000);
-    } catch (err) {
-      console.warn("Refresh failed:", err.message);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [childId, activeToken, refreshing, loadCumulativeFeedback]);
-
-  const activeFeedbackDoc = useMemo(() => {
-    const key = selectedSubject === "All" ? "Overall" : selectedSubject;
-    return cumulativeFeedback[key] || null;
-  }, [cumulativeFeedback, selectedSubject]);
-
-  const handleLogout = onLogout || (() => {
-    if (childToken) logoutChild();
-    else logout();
-    navigate("/");
-  });
-
-  /* ── Derived data ── */
+  // Filter tests by time window
   const timeFilteredTests = useMemo(() => {
     const { days } = TIME_FILTERS[timeFilter];
     if (days === Infinity) return tests;
@@ -579,431 +980,77 @@ export default function StudentDashboardAnalytics({
     return tests.filter((t) => new Date(t.date) >= cutoff);
   }, [tests, timeFilter]);
 
-  const subjectTests = useMemo(() => {
-    if (selectedSubject === "All") return timeFilteredTests;
-    return timeFilteredTests.filter((t) => t.subject === selectedSubject);
-  }, [timeFilteredTests, selectedSubject]);
+  const loadCumulativeFeedback = useCallback(async () => {
+    if (!childId || !activeToken) return;
+    try {
+      const { feedback, generating } = await fetchCumulativeFeedback(activeToken, childId);
+      setCumulativeFeedback(feedback || {});
+      const still = generating || Object.values(feedback || {}).some((d) => d.status === "generating" || d.status === "pending");
+      if (still) pollTimerRef.current = setTimeout(loadCumulativeFeedback, 4000);
+    } catch (err) { console.warn("Failed to load cumulative feedback:", err.message); }
+  }, [childId, activeToken]);
 
-  const hasData = subjectTests.length > 0;
+  useEffect(() => {
+    setFeedbackLoading(true);
+    loadCumulativeFeedback().finally(() => setFeedbackLoading(false));
+    return () => { if (pollTimerRef.current) clearTimeout(pollTimerRef.current); };
+  }, [loadCumulativeFeedback]);
 
-  const avgScore = useMemo(() => {
-    if (!subjectTests.length) return 0;
-    return Math.round(subjectTests.reduce((a, t) => a + t.score, 0) / subjectTests.length);
-  }, [subjectTests]);
+  const handleRefresh = useCallback(async () => {
+    if (!childId || !activeToken || refreshing) return;
+    setRefreshing(true);
+    try {
+      await refreshCumulativeFeedback(activeToken, childId);
+      pollTimerRef.current = setTimeout(loadCumulativeFeedback, 3000);
+    } catch (err) { console.warn("Refresh failed:", err.message); }
+    finally { setRefreshing(false); }
+  }, [childId, activeToken, refreshing, loadCumulativeFeedback]);
 
-  const bestScore = useMemo(() => {
-    if (!subjectTests.length) return 0;
-    return Math.max(...subjectTests.map((t) => t.score));
-  }, [subjectTests]);
+  const sharedProps = {
+    tests: timeFilteredTests,
+    displayName,
+    yearLevel,
+    cumulativeFeedback,
+    feedbackLoading,
+    refreshing,
+    onRefresh: handleRefresh,
+    timeFilter,
+    setTimeFilter,
+  };
 
-  const improvement = useMemo(() => {
-    if (subjectTests.length < 2) return null;
-    const sorted = [...subjectTests].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const half = Math.floor(sorted.length / 2);
-    const avgFirst  = sorted.slice(0, half).reduce((a, t) => a + t.score, 0) / half;
-    const avgSecond = sorted.slice(half).reduce((a, t) => a + t.score, 0) / (sorted.length - half);
-    return Math.round(avgSecond - avgFirst);
-  }, [subjectTests]);
-
-  const comparisonData = useMemo(() => buildSubjectComparison(timeFilteredTests), [timeFilteredTests]);
-
-  const strongest = useMemo(() => {
-    const withData = comparisonData.filter((c) => c.count > 0 && c.score >= 50);
-    if (withData.length <= 1) return "—";
-    return withData.reduce((p, c) => (c.score > p.score ? c : p)).subject;
-  }, [comparisonData]);
-
-  const weakest = useMemo(() => {
-    const withData = comparisonData.filter((c) => c.count > 0);
-    if (!withData.length) return "—";
-    return withData.reduce((p, c) => (c.score < p.score ? c : p)).subject;
-  }, [comparisonData]);
-
-  const { data: subjectTrendData, quizNames: subjectQuizNames } = useMemo(
-    () => buildSubjectTrendDataByQuiz(subjectTests),
-    [subjectTests]
-  );
-  const allSubjectsTrend = useMemo(() => buildAllSubjectsTrendData(timeFilteredTests), [timeFilteredTests]);
-  const activeSubjects   = useMemo(() => comparisonData.filter((c) => c.count > 0).length, [comparisonData]);
-
-  const subjectColor     = selectedSubject !== "All" ? SUBJECT_COLORS[selectedSubject] : "#6366F1";
-  const subjectBg        = selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] : "bg-indigo-50";
-  const subjectTextClass = selectedSubject !== "All" ? SUBJECT_TEXT[selectedSubject] : "text-indigo-600";
-
-  /* ══════════════════════════════════════════════════════════
-     RENDER
-     ══════════════════════════════════════════════════════════ */
   return (
     <div className={embedded ? "" : "min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-100/40"}>
-      <div className={`${embedded ? "" : "max-w-screen-2xl mx-auto px-4 sm:px-8 py-8"} space-y-5`}>
+      <div className={(embedded ? "" : "max-w-screen-xl mx-auto px-4 sm:px-8 py-8 ")}>
 
-        {/* ── STANDALONE HEADER ── */}
+        {/* ── Page header (standalone only) ── */}
         {!embedded && (
-          <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200">
+          <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 mb-5 border-b border-slate-200">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">{displayName}</h1>
-              <p className="text-sm text-slate-500 mt-0.5">
-                {yearLevel ? `Year ${yearLevel} · ` : ""}Analytics Dashboard
+              <h1 className="text-2xl font-bold text-slate-900">{displayName}</h1>
+              <p className="text-sm text-slate-400 mt-0.5">
+                {yearLevel ? "Year " + yearLevel + " · " : ""}
+                {isParentView ? "Parent Dashboard" : "My Learning Dashboard"}
               </p>
             </div>
-            <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm self-start sm:self-auto">
-              {TIME_FILTERS.map((f, i) => (
-                <button key={f.label} onClick={() => setTimeFilter(i)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    timeFilter === i ? "bg-slate-800 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
-                  }`}>
-                  {f.label}
-                </button>
-              ))}
+            {/* View mode pill */}
+            <div className={"inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold border " + (isParentView ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-indigo-600 text-white border-indigo-600")}>
+              <span>{isParentView ? "👨‍👩‍👧 Parent View" : "🧒 " + displayName + "'s View"}</span>
             </div>
           </header>
         )}
 
-        {/* ── EMBEDDED: time filter only ── */}
-        {embedded && (
-          <div className="flex items-center justify-end pb-1">
-            <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-              {TIME_FILTERS.map((f, i) => (
-                <button key={f.label} onClick={() => setTimeFilter(i)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    timeFilter === i ? "bg-slate-800 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
-                  }`}>
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* ── Route to correct experience ── */}
+        {isParentView ? (
+          <ParentView {...sharedProps} />
+        ) : (
+          <ChildView
+            {...sharedProps}
+            selectedSubject={selectedSubject}
+            setSelectedSubject={setSelectedSubject}
+          />
         )}
 
-        {/* ── SUBJECT FILTER BAR ── */}
-        <div className="flex flex-col gap-2">
-          <SubjectTabBar selectedSubject={selectedSubject} onChange={setSelectedSubject} tests={timeFilteredTests} />
-          {selectedSubject !== "All" && (
-            <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${subjectBg} border ${SUBJECT_BORDER[selectedSubject]} text-xs`}>
-              <SubjectIconEl subject={selectedSubject} className={`w-4 h-4 ${subjectTextClass}`} />
-              <span className={`font-semibold ${subjectTextClass}`}>{selectedSubject}</span>
-              <span className="text-slate-500">· {subjectTests.length} assessment{subjectTests.length !== 1 ? "s" : ""}</span>
-              <button onClick={() => setSelectedSubject("All")} className="ml-auto text-slate-400 hover:text-slate-600 underline text-xs">
-                Clear
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ── KPI CARDS ── */}
-        <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-          {hasData ? (
-            <>
-              <KPI
-                title={selectedSubject === "All" ? "Overall Average" : `${selectedSubject} Avg`}
-                value={`${avgScore}%`}
-                subject={selectedSubject !== "All" ? selectedSubject : null}
-                accent={selectedSubject === "All"}
-              />
-              <KPI title="Best Score" value={`${bestScore}%`} subject={selectedSubject !== "All" ? selectedSubject : null} />
-              {selectedSubject === "All" ? (
-                <>
-                  <KPI title="Strongest Subject" value={strongest || "—"}
-                    subtext={!strongest || strongest === "—" ? (isParentView ? "Still exploring" : "Keep practising!") : null} accent />
-                  <KPI title={isParentView ? "Needs Attention" : "Next Focus"} value={weakest || "—"}
-                    subtext={!weakest || weakest === "—" ? "All looking good!" : null} warning />
-                </>
-              ) : (
-                <>
-                  <KPI title="Improvement"
-                    value={improvement !== null ? `${improvement >= 0 ? "+" : ""}${improvement}%` : "—"}
-                    subject={selectedSubject} />
-                  <KPI title="Tests Taken" value={String(subjectTests.length)} subject={selectedSubject} />
-                </>
-              )}
-            </>
-          ) : (
-            <><KPISkeleton /><KPISkeleton /><KPISkeleton /><KPISkeleton /></>
-          )}
-        </section>
-
-        {/* ══════════════════════════════════════════════
-            SCORE HISTORY  +  AI COACH
-        ══════════════════════════════════════════════ */}
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch">
-
-          {/* ── Score History ── */}
-          <Card className="flex flex-col">
-            <CardTitle>
-              {selectedSubject === "All" ? "All Subjects Trend" : `${selectedSubject} Score History`}
-            </CardTitle>
-
-            {selectedSubject === "All" ? (
-              hasData && allSubjectsTrend.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <AreaChart data={allSubjectsTrend}>
-                    <defs>
-                      {SUBJECTS.map((key) => (
-                        <linearGradient key={key} id={`gradient-${key}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={SUBJECT_COLORS[key]} stopOpacity={0.15} />
-                          <stop offset="100%" stopColor={SUBJECT_COLORS[key]} stopOpacity={0} />
-                        </linearGradient>
-                      ))}
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="month" stroke="#64748b" fontSize={12} tick={{ fill: "#475569" }} />
-                    <YAxis domain={[0, 100]} stroke="#64748b" fontSize={12} tick={{ fill: "#475569" }} tickFormatter={(v) => `${v}%`} />
-                    <Tooltip
-                      contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 10px 40px rgba(0,0,0,0.08)", padding: "10px 14px" }}
-                      formatter={(value, name) => [`${value}%`, name]}
-                    />
-                    {SUBJECTS.map((key) => (
-                      <Area key={key} type="monotone" dataKey={key}
-                        stroke={SUBJECT_COLORS[key]} strokeWidth={2}
-                        fill={`url(#gradient-${key})`}
-                        dot={{ r: 2, fill: SUBJECT_COLORS[key] }}
-                        activeDot={{ r: 4 }} connectNulls={false}
-                      />
-                    ))}
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <ChartSkeleton message={isParentView ? `${displayName} hasn't taken enough tests yet` : "Take some tests to see your trend"} />
-              )
-            ) : (
-              hasData && subjectTrendData.length > 1 ? (
-                <>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={subjectTrendData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                      <XAxis dataKey="attempt" stroke="#64748b" fontSize={12}
-                        tick={{ fill: "#475569", fontWeight: 500 }}
-                        label={{ value: "Attempt #", position: "insideBottom", offset: -2, fontSize: 11, fill: "#64748b" }} />
-                      <YAxis domain={[0, 100]} stroke="#64748b" fontSize={12}
-                        tick={{ fill: "#475569", fontWeight: 500 }}
-                        tickFormatter={(v) => `${v}%`} />
-                      <ReferenceLine y={avgScore} stroke={subjectColor} strokeDasharray="4 4" strokeOpacity={0.5}
-                        label={{ value: `Avg ${avgScore}%`, position: "right", fontSize: 9, fill: subjectColor }} />
-                      <Tooltip
-                        content={({ active, payload, label }) => {
-                          if (!active || !payload?.length) return null;
-                          const d = subjectTrendData[label - 1];
-                          const p = payload.find((item) => item.value !== null);
-                          if (!p) return null;
-                          return (
-                            <div className="bg-white rounded-xl border border-slate-100 shadow-xl p-3 text-sm max-w-[220px]">
-                              <p className="font-semibold text-slate-700 text-xs leading-snug mb-0.5">{d?._name}</p>
-                              <p className="text-slate-400 text-xs mb-1">{d?.date}</p>
-                              <p className="font-bold text-lg" style={{ color: p.stroke }}>{p.value}%</p>
-                            </div>
-                          );
-                        }}
-                      />
-                      {subjectQuizNames.map((name, i) => (
-                        <Line key={name} type="monotone" dataKey={name}
-                          stroke={QUIZ_PALETTE[i % QUIZ_PALETTE.length]}
-                          strokeWidth={2.5}
-                          dot={{ r: 4, strokeWidth: 2, stroke: "#fff", fill: QUIZ_PALETTE[i % QUIZ_PALETTE.length] }}
-                          activeDot={{ r: 6 }}
-                          connectNulls={false}
-                        />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                  {/* Quiz color legend */}
-                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2 pt-2 border-t border-slate-50">
-                    {subjectQuizNames.map((name, i) => (
-                      <div key={name} className="flex items-center gap-1.5">
-                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: QUIZ_PALETTE[i % QUIZ_PALETTE.length] }} />
-                        <span className="text-[11px] text-slate-500 truncate max-w-[140px]">{name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : hasData && subjectTrendData.length === 1 ? (
-                <div className="flex flex-col items-center justify-center h-40 gap-3">
-                  <div className={`w-14 h-14 rounded-full ${subjectBg} flex items-center justify-center`}>
-                    <span className={`text-xl font-bold ${subjectTextClass}`}>
-                      {(() => {
-                        const d = subjectTrendData[0];
-                        const val = subjectQuizNames.map((n) => d[n]).find((v) => v !== null && v !== undefined);
-                        return val !== undefined ? `${val}%` : "—";
-                      })()}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 text-center">
-                    {isParentView ? `${displayName} needs more ${selectedSubject} tests` : `Take more ${selectedSubject} tests to see your trend!`}
-                  </p>
-                </div>
-              ) : (
-                <ChartSkeleton message={isParentView ? `${displayName} hasn't taken any ${selectedSubject} tests yet` : `No ${selectedSubject} tests yet`} />
-              )
-            )}
-          </Card>
-
-          {/* ── AI Coach Feedback ── */}
-          <Card ref={aiCoachRef} className="flex flex-col border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/30">
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center">
-                  <Lightbulb className="w-4 h-4 text-indigo-600" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">
-                    {selectedSubject === "All"
-                      ? (isParentView ? `AI Coach — ${displayName}'s Overall Summary` : "AI Coach — Overall Summary")
-                      : (isParentView ? `AI Coach — ${displayName}'s ${selectedSubject}` : `AI Coach — ${selectedSubject}`)}
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    {isParentView
-                      ? `Powered by AI · updates after every quiz ${displayName} completes`
-                      : "Powered by AI · updates after every quiz"}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={handleRefreshFeedback}
-                disabled={refreshing || feedbackLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-700 transition-all disabled:opacity-50"
-              >
-                <svg className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`}
-                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                {refreshing ? "Refreshing…" : "Refresh"}
-              </button>
-            </div>
-
-            <AICumulativeCoachPanel
-              feedbackDoc={activeFeedbackDoc}
-              subject={selectedSubject}
-              onRefresh={handleRefreshFeedback}
-              refreshing={refreshing}
-              loading={feedbackLoading}
-              isParentViewing={isParentView}
-              displayName={displayName}
-            />
-
-            {/* Subject feedback status strip — only on All tab */}
-            {selectedSubject === "All" && Object.keys(cumulativeFeedback).length > 0 && (
-              <div className="mt-5 pt-4 border-t border-slate-100">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                  Subject Feedback Status
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {SUBJECTS.map((s) => {
-                    const doc = cumulativeFeedback[s];
-                    const status = doc?.status || "none";
-                    const statusConfig = {
-                      done:       { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", icon: "✓" },
-                      generating: { bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-200",   icon: "⏳" },
-                      error:      { bg: "bg-rose-50",    text: "text-rose-700",    border: "border-rose-200",    icon: "✗" },
-                      none:       { bg: "bg-slate-50",   text: "text-slate-400",   border: "border-slate-200",   icon: "○" },
-                      pending:    { bg: "bg-slate-50",   text: "text-slate-400",   border: "border-slate-200",   icon: "○" },
-                    }[status] || { bg: "bg-slate-50", text: "text-slate-400", border: "border-slate-200", icon: "○" };
-                    return (
-                      <button key={s} onClick={() => setSelectedSubject(s)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-all hover:shadow-sm ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border}`}>
-                        <SubjectIconEl subject={s} className="w-3 h-3" />
-                        <span>{s}</span>
-                        <span className="font-bold">{statusConfig.icon}</span>
-                        {doc?.attempt_count > 0 && (
-                          <span className="text-slate-400 font-normal">{doc.attempt_count} tests</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </Card>
-
-        </section>
-
-        {/* ══════════════════════════════════════════════
-            BOTTOM ROW: Academic Summary + Score Distribution
-        ══════════════════════════════════════════════ */}
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-
-          <Card>
-            <CardTitle>{selectedSubject === "All" ? "Academic Summary" : `${selectedSubject} Summary`}</CardTitle>
-            {hasData ? (
-              <>
-                <div className="space-y-0.5 text-sm">
-                  <SummaryRow label={selectedSubject === "All" ? "Overall Average" : "Subject Average"} value={`${avgScore}%`} />
-                  <SummaryRow label="Best Score" value={`${bestScore}%`} />
-                  {improvement !== null && (
-                    <SummaryRow label="Improvement" value={`${improvement >= 0 ? "+" : ""}${improvement}%`} positive={improvement >= 0} />
-                  )}
-                  <SummaryRow label={selectedSubject === "All" ? "Total Tests" : `${selectedSubject} Tests`} value={String(subjectTests.length)} />
-                  {selectedSubject === "All" && (
-                    <SummaryRow label="Subjects Active" value={String(activeSubjects)} />
-                  )}
-                </div>
-                <div className="mt-4">
-                  <p className="text-xs text-slate-500 mb-1.5">
-                    {isParentView ? "Progress Toward Target (85%)" : "Your Goal: 85%"}
-                  </p>
-                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-700"
-                      style={{
-                        width: `${Math.min((avgScore / 85) * 100, 100)}%`,
-                        background: selectedSubject !== "All" ? subjectColor : "linear-gradient(to right, #6366F1, #8B5CF6)",
-                      }} />
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {avgScore >= 85
-                      ? "🎉 Goal reached!"
-                      : isParentView ? `${85 - avgScore}% to go` : `You're ${avgScore}% there — keep going!`}
-                  </p>
-                </div>
-              </>
-            ) : (
-              <div className="text-sm text-slate-400 py-4 text-center">No data yet</div>
-            )}
-          </Card>
-
-          <Card>
-            <CardTitle>Score Distribution</CardTitle>
-            {hasData ? (
-              <div className="space-y-3.5">
-                {[
-                  { label: "High (80%+)",         tests: subjectTests.filter((t) => t.score >= 80),                  color: "bg-emerald-400" },
-                  { label: "Mid (50–79%)",         tests: subjectTests.filter((t) => t.score >= 50 && t.score < 80), color: "bg-amber-400"   },
-                  { label: "Learning Zone (<50%)", tests: subjectTests.filter((t) => t.score < 50),                  color: "bg-rose-400"    },
-                ].map((bucket) => {
-                  const pct = subjectTests.length ? Math.round((bucket.tests.length / subjectTests.length) * 100) : 0;
-                  return (
-                    <div key={bucket.label}>
-                      <div className="flex justify-between text-xs text-slate-500 mb-1">
-                        <span className="font-medium">{bucket.label}</span>
-                        <span>{bucket.tests.length} ({pct}%)</span>
-                      </div>
-                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-700 ${bucket.color}`} style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-sm text-slate-400 py-4 text-center">No data yet</div>
-            )}
-          </Card>
-
-        </section>
-
       </div>
-
-      {/* ── FLOATING AI COACH BUTTON ── */}
-      {embedded && showFloatingBtn && (
-        <button
-          onClick={() => aiCoachRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-full shadow-lg transition-all"
-        >
-          <Lightbulb className="w-4 h-4" />
-          AI Coach ✨
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      )}
-
     </div>
   );
 }
