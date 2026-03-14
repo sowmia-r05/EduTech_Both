@@ -337,7 +337,6 @@ export default function QuizResult({
     if (cp?.username)    p.set("username",  cp.username);
     if (result?.subject) p.set("subject",   result.subject);
     if (quizName)        p.set("quiz_name", quizName);
-    p.set("status", s);
     navigate(isWriting
       ? `/writing-feedback/result?${p}`
       : `/NonWritingLookupQuizResults/results?${p}`
@@ -353,7 +352,6 @@ export default function QuizResult({
     if (cp?.username)    p.set("username",  cp.username);
     if (result?.subject) p.set("subject",   result.subject);
     if (quizName)        p.set("quiz_name", quizName);
-    p.set("status", s);
     navigate(`/NonWritingLookupQuizResults/results?${p}`);
   }, [navigate, attemptId, result?.subject, quizName, liveStatus, childStatusProp]);
 
@@ -518,7 +516,6 @@ export default function QuizResult({
         if (cp?.username)    p.set("username",  cp.username);
         if (result?.subject) p.set("subject",   result.subject);
         if (quizName)        p.set("quiz_name", quizName);
-        p.set("status", s);
         // Same URL the old handleViewDashboard was navigating to — just embedded now
         const iframeSrc = `${window.location.origin}${window.location.pathname}#/NonWritingLookupQuizResults/results?${p.toString()}`;
         return (
@@ -543,7 +540,6 @@ export default function QuizResult({
         const p  = new URLSearchParams({ r: attemptId });
         if (cp?.username) p.set("username",  cp.username);
         if (quizName)     p.set("quiz_name", quizName);
-        p.set("status", s);
         const iframeSrc = `${window.location.origin}${window.location.pathname}#/writing-feedback/result?${p.toString()}`;
         return (
           <iframe

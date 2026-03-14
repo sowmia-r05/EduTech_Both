@@ -35,6 +35,7 @@ export default function AdminRegister() {
     const email = form.email.trim().toLowerCase();
     const password = form.password;
     const confirmPassword = form.confirmPassword;
+    const registrationToken = import.meta.env.VITE_ADMIN_REG_TOKEN || "";
 
     if (!name) { setError("Name is required"); return; }
     if (!email) { setError("Email is required"); return; }
@@ -47,7 +48,7 @@ export default function AdminRegister() {
       const res = await fetch(`${API}/api/admin/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, registration_token: registrationToken }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Registration failed");

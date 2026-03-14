@@ -1,172 +1,179 @@
 const router = require("express").Router();
 const Writing = require("../models/writing");
+const Child = require("../models/child");
+const {
+  verifyToken,
+  requireAuth,
+  requireParent,
+} = require("../middleware/auth");
 
-/**
- * Writing routes (MongoDB)
- *
- * Base path mounted in app.js:
- *   /api/writing
- *
- * Endpoints used by frontend:
- *   GET /api/writing/quizzes?email=...
- *   GET /api/writing/latest?email=...&quiz=...
- *   GET /api/writing/by-username?username=...        ← NEW
- *   GET /api/writing/:responseId
- */
+// ─── Helper: verify ownership of a child record ───
+async function assertChildOwnership(req, childId) {
+  const child = await Child.findById(childId).lean();
+  if (!child) return null;
 
-// ✅ List distinct quiz names for an email (dropdown)
-router.get("/quizzes", async (req, res) => {
-  const email = String(req.query.email || "")
-    .trim()
-    .toLowerCase();
-  if (!email) return res.status(400).json({ error: "email required" });
+  if (req.user.role === "parent") {
+    const parentId = req.user.parentId || req.user.parent_id;
+    if (String(child.parent_id) !== String(parentId)) return null;
+  }
+  if (req.user.role === "child") {
+    if (String(child._id) !== String(req.user.childId)) return null;
+  }
+  return child;
+}
 
-  const quizNames = await Writing.distinct("quiz_name", {
-    "user.email_address": email,
-  });
-  // Remove empty/null + sort for stable dropdown
-  const cleaned = (quizNames || [])
-    .filter((q) => q && String(q).trim())
-    .map((q) => String(q).trim())
-    .sort((a, b) => a.localeCompare(b));
+// ─────────────────────────────────────────────────
+// GET /api/writing/
+// ✅ FIXED S-05: Now scoped to parent's own children
+// ─────────────────────────────────────────────────
+router.get("/", verifyToken, requireParent, async (req, res) => {
+  try {
+    const parentId = req.user.parentId || req.user.parent_id;
 
-  return res.json({ email, quizNames: cleaned });
+    // Find all children belonging to this parent
+    const children = await Child.find({ parent_id: parentId })
+      .select("_id")
+      .lean();
+    const childIds = children.map((c) => c._id);
+
+    if (childIds.length === 0) return res.json([]);
+
+    const results = await Writing.find({ child_id: { $in: childIds } })
+      .sort({ submitted_at: -1, createdAt: -1 })
+      .lean();
+
+    return res.json(results || []);
+  } catch (err) {
+    console.error("GET /api/writing/ error:", err);
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch writing submissions" });
+  }
 });
 
-// ✅ Latest writing submission by email + quiz name
-router.get("/latest", async (req, res) => {
-  const email = String(req.query.email || "")
-    .trim()
-    .toLowerCase();
-  const quiz = String(req.query.quiz || "").trim();
+// ─────────────────────────────────────────────────
+// GET /api/writing/by-child-id
+// ✅ FIXED S-07: Added ownership check
+// ─────────────────────────────────────────────────
+router.get("/by-child-id", verifyToken, requireAuth, async (req, res) => {
+  try {
+    const childId = String(req.query.child_id || "").trim();
+    if (!childId) return res.status(400).json({ error: "child_id required" });
 
-  if (!email) return res.status(400).json({ error: "email required" });
-  if (!quiz) return res.status(400).json({ error: "quiz required" });
+    // ✅ Ownership check
+    const child = await assertChildOwnership(req, childId);
+    if (!child) return res.status(403).json({ error: "Access denied" });
 
-  const doc = await Writing.findOne({
-    "user.email_address": email,
-    quiz_name: quiz,
-  }).sort({
-    submitted_at: -1,
-    date_submitted: -1,
-    date_created: -1,
-    createdAt: -1,
-  });
+    const results = await Writing.find({ child_id: child._id })
+      .sort({ submitted_at: -1, createdAt: -1 })
+      .lean();
 
-  return res.json(doc || null);
+    return res.json(results || []);
+  } catch (err) {
+    console.error("GET /api/writing/by-child-id error:", err);
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch writing by child_id" });
+  }
 });
 
-// ✅ Latest writing submission by email (optional helper)
-router.get("/latest/by-email", async (req, res) => {
-  const email = String(req.query.email || "")
-    .trim()
-    .toLowerCase();
-  if (!email) return res.status(400).json({ error: "email required" });
-
-  const doc = await Writing.findOne({ "user.email_address": email }).sort({
-    submitted_at: -1,
-    date_submitted: -1,
-    date_created: -1,
-    createdAt: -1,
-  });
-
-  return res.json(doc || null);
-});
-
-/**
- * ✅ NEW: Latest writing submission by username (sibling-safe)
- * Query params:
- *   username (required) — child's unique FlexiQuiz user_name
- */
-router.get("/latest/by-username", async (req, res) => {
-  const username = String(req.query.username || "").trim();
-  if (!username) return res.status(400).json({ error: "username required" });
-
-  const doc = await Writing.findOne({ "user.user_name": username }).sort({
-    submitted_at: -1,
-    date_submitted: -1,
-    date_created: -1,
-    createdAt: -1,
-  });
-
-  return res.json(doc || null);
-});
-
-/**
- * ✅ NEW: Get ALL writing submissions by username (sibling-safe)
- * Query params:
- *   username (required) — child's unique FlexiQuiz user_name
- *   quiz_name (optional) — filter to a specific quiz
- */
-router.get("/by-username", async (req, res) => {
+// ─────────────────────────────────────────────────
+// GET /api/writing/by-username
+// ✅ FIXED S-25: Added ownership check
+// ─────────────────────────────────────────────────
+router.get("/by-username", verifyToken, requireAuth, async (req, res) => {
   try {
     const username = String(req.query.username || "").trim();
+    const quiz_name = String(req.query.quiz_name || "").trim();
+
     if (!username) return res.status(400).json({ error: "username required" });
 
-    const quiz_name = String(req.query.quiz_name || "").trim();
+    const child = await Child.findOne({
+      username: username.toLowerCase(),
+    }).lean();
+    if (!child) return res.json([]);
+
+    // ✅ Ownership check
+    const owned = await assertChildOwnership(req, child._id);
+    if (!owned) return res.status(403).json({ error: "Access denied" });
 
     const q = { "user.user_name": username };
     if (quiz_name) q.quiz_name = quiz_name;
 
-    const results = await Writing.find(q).sort({
-      submitted_at: -1,
-      date_submitted: -1,
-      date_created: -1,
-      createdAt: -1,
-    });
+    const results = await Writing.find(q)
+      .sort({ submitted_at: -1, date_submitted: -1, createdAt: -1 })
+      .lean();
 
     return res.json(results || []);
   } catch (err) {
-    console.error(err);
+    console.error("GET /api/writing/by-username error:", err);
     return res
       .status(500)
       .json({ error: "Failed to fetch writing by username" });
   }
 });
 
-// ✅ Get all writing submissions (latest first)
-router.get("/", async (req, res) => {
-  const results = await Writing.find().sort({
-    submitted_at: -1,
-    date_submitted: -1,
-    createdAt: -1,
-  });
-  res.json(results);
-});
+// ─────────────────────────────────────────────────
+// GET /api/writing/latest/by-username
+// ✅ FIXED: Added ownership check
+// ─────────────────────────────────────────────────
+router.get(
+  "/latest/by-username",
+  verifyToken,
+  requireAuth,
+  async (req, res) => {
+    try {
+      const username = String(req.query.username || "").trim();
+      if (!username)
+        return res.status(400).json({ error: "username required" });
 
-// ✅ NEW: Get all writing submissions by child_id
-router.get("/by-child-id", async (req, res) => {
+      const child = await Child.findOne({
+        username: username.toLowerCase(),
+      }).lean();
+      if (!child) return res.json(null);
+
+      const owned = await assertChildOwnership(req, child._id);
+      if (!owned) return res.status(403).json({ error: "Access denied" });
+
+      const doc = await Writing.findOne({ "user.user_name": username })
+        .sort({ submitted_at: -1, createdAt: -1 })
+        .lean();
+
+      return res.json(doc || null);
+    } catch (err) {
+      console.error("GET /api/writing/latest/by-username error:", err);
+      return res
+        .status(500)
+        .json({ error: "Failed to fetch latest writing by username" });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────
+// GET /api/writing/:responseId
+// No ownership check needed — responseId is an unguessable UUID;
+// but adding auth is still good practice.
+// ─────────────────────────────────────────────────
+router.get("/:responseId", verifyToken, requireAuth, async (req, res) => {
   try {
-    const childId = String(req.query.child_id || "").trim();
-    if (!childId) return res.status(400).json({ error: "child_id required" });
+    const id = String(req.params.responseId || "").trim();
+    if (!id) return res.status(400).json({ error: "responseId required" });
 
-    const results = await Writing.find({ child_id: childId }).sort({
-      submitted_at: -1,
-      createdAt: -1,
-    });
+    const result = await Writing.findOne({ response_id: id })
+      .sort({ attempt: -1, submitted_at: -1, _id: -1 })
+      .lean();
 
-    return res.json(results || []);
+    if (!result) return res.json(null);
+
+    // ✅ Verify ownership
+    const owned = await assertChildOwnership(req, result.child_id);
+    if (!owned) return res.status(403).json({ error: "Access denied" });
+
+    return res.json(result);
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Failed to fetch writing by child_id" });
+    console.error("GET /api/writing/:responseId error:", err);
+    return res.status(500).json({ error: "Failed to fetch writing" });
   }
-});
-
-// ✅ Get latest writing submission by response_id (latest attempt)
-router.get("/:responseId", async (req, res) => {
-  const id = String(req.params.responseId || "").trim();
-  if (!id) return res.status(400).json({ error: "responseId required" });
-
-  const result = await Writing.findOne({ response_id: id }).sort({
-    attempt: -1, // ✅ latest attempt first
-    submitted_at: -1, // ✅ newest submission first
-    date_submitted: -1,
-    date_created: -1,
-    createdAt: -1,
-    _id: -1, // ✅ final fallback
-  });
-
-  res.json(result || null);
 });
 
 module.exports = router;

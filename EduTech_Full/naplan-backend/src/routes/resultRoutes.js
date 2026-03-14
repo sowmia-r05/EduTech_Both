@@ -18,6 +18,11 @@ const QuizAttempt = require("../models/quizAttempt");
 const Child = require("../models/child");
 const Writing = require("../models/writing");
 const connectDB = require("../config/db");
+const {
+  verifyToken,
+  requireAuth,
+  requireParent,
+} = require("../middleware/auth");
 
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -136,13 +141,75 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET /api/results/latest
-router.get("/latest", async (req, res) => {
+router.get("/", verifyToken, requireAuth, async (req, res) => {
+  // ✅ added auth
   try {
     await connectDB();
-    const attempt = await QuizAttempt.findOne({
-      status: { $in: ["scored", "ai_done", "submitted"] },
-    }).sort({ submitted_at: -1, createdAt: -1 }).lean();
+    const parentId = req.user.parentId || req.user.parent_id;
+    const childId = req.user.childId;
+
+    let query = { status: { $in: ["scored", "ai_done", "submitted"] } };
+
+    if (req.user.role === "parent") {
+      // Scope to this parent's children
+      const children = await Child.find({ parent_id: parentId })
+        .select("_id")
+        .lean();
+      const childIds = children.map((c) => c._id);
+      query.child_id = { $in: childIds };
+    } else if (req.user.role === "child") {
+      // Scope to this child only
+      query.child_id = childId;
+    } else {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const attempts = await QuizAttempt.find(query)
+      .sort({ submitted_at: -1, createdAt: -1 })
+      .lean();
+
+    const childIds2 = [...new Set(attempts.map((a) => String(a.child_id)))];
+    const childDocs = await Child.find({ _id: { $in: childIds2 } }).lean();
+    const childMap = Object.fromEntries(
+      childDocs.map((c) => [String(c._id), c]),
+    );
+
+    return res.json(
+      attempts.map((a) =>
+        normalizeQuizAttempt(a, childMap[String(a.child_id)]),
+      ),
+    );
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to fetch results" });
+  }
+});
+
+// ✅ FIXED S-06: GET /api/results/latest
+router.get("/latest", verifyToken, requireAuth, async (req, res) => {
+  // ✅ added auth
+  try {
+    await connectDB();
+    const parentId = req.user.parentId || req.user.parent_id;
+    const childId = req.user.childId;
+
+    let query = { status: { $in: ["scored", "ai_done", "submitted"] } };
+
+    if (req.user.role === "parent") {
+      const children = await Child.find({ parent_id: parentId })
+        .select("_id")
+        .lean();
+      query.child_id = { $in: children.map((c) => c._id) };
+    } else if (req.user.role === "child") {
+      query.child_id = childId;
+    } else {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const attempt = await QuizAttempt.findOne(query)
+      .sort({ submitted_at: -1, createdAt: -1 })
+      .lean();
+
     if (!attempt) return res.json(null);
     const child = await Child.findById(attempt.child_id).lean();
     return res.json(normalizeQuizAttempt(attempt, child));
@@ -152,18 +219,6 @@ router.get("/latest", async (req, res) => {
   }
 });
 
-// GET /api/results/latest/by-email
-router.get("/latest/by-email", async (req, res) => {
-  try {
-    await connectDB();
-    const email = String(req.query.email || "").trim().toLowerCase();
-    if (!email) return res.status(400).json({ error: "email required" });
-    return res.json(null);
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Failed to fetch result by email" });
-  }
-});
 
 // GET /api/results/latest/by-userid (legacy no-op)
 router.get("/latest/by-userid", async (req, res) => {
@@ -276,17 +331,33 @@ router.get("/by-email", async (req, res) => {
 });
 
 // GET /api/results/by-username
-router.get("/by-username", async (req, res) => {
+router.get("/by-username", verifyToken, requireAuth, async (req, res) => {
+  // ✅ added auth
   try {
     await connectDB();
-    const username  = String(req.query.username  || "").trim();
+    const username = String(req.query.username || "").trim();
     const quiz_name = String(req.query.quiz_name || "").trim();
-    const subject   = String(req.query.subject   || "").trim();
+    const subject = String(req.query.subject || "").trim();
 
     if (!username) return res.status(400).json({ error: "username required" });
 
-    const child = await Child.findOne({ username: username.toLowerCase() }).lean();
+    const child = await Child.findOne({
+      username: username.toLowerCase(),
+    }).lean();
     if (!child) return res.json([]);
+
+    // ✅ NEW: Ownership check
+    if (req.user.role === "parent") {
+      const parentId = req.user.parentId || req.user.parent_id;
+      if (String(child.parent_id) !== String(parentId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+    if (req.user.role === "child") {
+      if (String(child._id) !== String(req.user.childId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
 
     const q = {
       child_id: child._id,
@@ -298,16 +369,21 @@ router.get("/by-username", async (req, res) => {
 
     if (subject && !quiz_name) {
       attempts = attempts.filter(
-        (a) => a.subject === subject || inferSubjectFromQuizName(a.quiz_name) === subject
+        (a) =>
+          a.subject === subject ||
+          inferSubjectFromQuizName(a.quiz_name) === subject,
       );
     }
 
     return res.json(attempts.map((a) => normalizeQuizAttempt(a, child)));
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: "Failed to fetch results by username" });
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch results by username" });
   }
 });
+
 
 // GET /api/results/check-submission/:username
 router.get("/check-submission/:username", async (req, res) => {

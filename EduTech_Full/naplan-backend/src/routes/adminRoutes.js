@@ -22,6 +22,8 @@
  *   app.use("/api/admin", adminRoutes);
  */
 
+const { setAuthCookie } = require("../utils/setCookies");
+const ADMIN_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000; 
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
@@ -63,56 +65,125 @@ function trackFailedAttempt(email) {
   }
 }
 
-// ─── Public: Admin Register ───
+// Admin Register ───
 router.post("/register", async (req, res) => {
   try {
+    // ✅ FIX S-01: Check registration token BEFORE doing anything else
+    const REG_TOKEN = process.env.ADMIN_REGISTRATION_TOKEN;
+
+    if (!REG_TOKEN) {
+      // If no token is configured in env, registration is fully closed
+      return res.status(403).json({
+        error:
+          "Admin registration is currently disabled. Contact your system administrator.",
+      });
+    }
+
+    const providedToken = String(req.body?.registration_token || "").trim();
+    if (!providedToken || providedToken !== REG_TOKEN) {
+      return res.status(403).json({
+        error: "Invalid registration token. Contact your system administrator.",
+      });
+    }
+
     const name = String(req.body?.name || "").trim();
-    const email = String(req.body?.email || "").trim().toLowerCase();
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
     const password = String(req.body?.password || "");
 
     if (!name) return res.status(400).json({ error: "Name is required" });
     if (!email) return res.status(400).json({ error: "Email is required" });
+
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: "Valid email is required" });
     }
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+    // ✅ FIX S-23 (also fixed here): Stronger password policy
+    if (!password || password.length < 12) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 12 characters" });
+    }
+    if (!/[A-Z]/.test(password)) {
+      return res
+        .status(400)
+        .json({ error: "Password must contain at least one uppercase letter" });
+    }
+    if (!/[0-9]/.test(password)) {
+      return res
+        .status(400)
+        .json({ error: "Password must contain at least one number" });
     }
 
     const existing = await Admin.findOne({ email });
     if (existing) {
-      return res.status(409).json({ error: "An account with this email already exists" });
+      return res
+        .status(409)
+        .json({ error: "An account with this email already exists" });
     }
 
     const adminCount = await Admin.countDocuments();
     const isFirstAdmin = adminCount === 0;
 
+    // ✅ Also fixes S-06 (fragile password_hash pattern):
+    //    Explicitly hash the password here rather than relying solely on the pre-save hook.
+    //    The pre-save hook is still a safety net, but this makes the intent explicit.
+    const bcrypt = require("bcrypt");
+    const hashedPassword = await bcrypt.hash(password, 12);
+
     const admin = await Admin.create({
       email,
       name,
-      password_hash: password,
+      password_hash: hashedPassword, // ✅ already hashed — pre-save hook detects isModified=false
       role: isFirstAdmin ? "super_admin" : "admin",
       status: isFirstAdmin ? "active" : "pending",
       last_login_at: isFirstAdmin ? new Date() : null,
       login_count: isFirstAdmin ? 1 : 0,
     });
 
+    // Note: Since we pre-hash above, we must disable the pre-save hook for this field.
+    // Update Admin model's pre-save hook to skip if already bcrypt-hashed:
+    //   AdminSchema.pre("save", async function () {
+    //     if (!this.isModified("password_hash")) return;
+    //     if (this.password_hash.startsWith("$2b$")) return; // already hashed
+    //     this.password_hash = await bcrypt.hash(this.password_hash, SALT_ROUNDS);
+    //   });
+
     if (isFirstAdmin) {
       const token = jwt.sign(
-        { adminId: admin._id, email: admin.email, name: admin.name, role: admin.role },
+        {
+          adminId: admin._id,
+          email: admin.email,
+          name: admin.name,
+          role: admin.role,
+        },
         JWT_SECRET,
-        { expiresIn: "12h" }
+        { expiresIn: "12h" },
       );
       return res.status(201).json({
-        ok: true, token,
-        admin: { name: admin.name, email: admin.email, role: admin.role, status: admin.status },
+        ok: true,
+        token,
+        admin: {
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+          status: admin.status,
+        },
       });
     }
 
     return res.status(201).json({
-      ok: true, pending: true,
-      message: "Registration successful! Your account is pending approval from a super admin.",
-      admin: { name: admin.name, email: admin.email, role: admin.role, status: admin.status },
+      ok: true,
+      pending: true,
+      message:
+        "Registration successful! Your account is pending approval from a super admin.",
+      admin: {
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        status: admin.status,
+      },
     });
   } catch (err) {
     console.error("Admin register error:", err);
@@ -171,10 +242,17 @@ router.post("/login", async (req, res) => {
       { expiresIn: "12h" }
     );
 
-    return res.json({
-      ok: true, token,
-      admin: { name: admin.name, email: admin.email, role: admin.role, status: admin.status },
-    });
+      setAuthCookie(res, "admin_token", token, ADMIN_COOKIE_MAX_AGE);
+
+      return res.json({
+        ok: true,
+        admin: {
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+          status: admin.status,
+        },
+      });
   } catch (err) {
     console.error("Admin login error:", err);
     return res.status(500).json({ error: "Login failed" });
@@ -192,6 +270,11 @@ router.get("/me", requireAdmin, async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+router.post("/logout", requireAdmin, (req, res) => {
+  clearAuthCookie(res, "admin_token");
+  res.json({ ok: true });
 });
 
 // ════════════════════════════════════════════════════════

@@ -1,3 +1,5 @@
+const { setAuthCookie } = require("../utils/setCookies");
+const CHILD_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 const router = require("express").Router();
 const jwt = require("jsonwebtoken");
 const Child = require("../models/child");
@@ -14,10 +16,14 @@ router.post("/child-login", async (req, res) => {
   try {
     if (!JWT_SECRET) {
       console.error("JWT_SECRET / PARENT_JWT_SECRET is not set");
-      return res.status(500).json({ error: "Server auth configuration missing" });
+      return res
+        .status(500)
+        .json({ error: "Server auth configuration missing" });
     }
 
-    const username = String(req.body.username || "").trim().toLowerCase();
+    const username = String(req.body.username || "")
+      .trim()
+      .toLowerCase();
     const pin = String(req.body.pin || "").trim();
 
     if (!username) {
@@ -46,12 +52,13 @@ router.post("/child-login", async (req, res) => {
         yearLevel: child.year_level,
       },
       JWT_SECRET,
-      { expiresIn: CHILD_TOKEN_EXPIRY }
+      { expiresIn: CHILD_TOKEN_EXPIRY },
     );
+
+    setAuthCookie(res, "child_token", token, CHILD_COOKIE_MAX_AGE);
 
     return res.json({
       ok: true,
-      token,
       child: {
         childId: child._id.toString(),
         parentId: child.parent_id.toString(),
@@ -65,6 +72,11 @@ router.post("/child-login", async (req, res) => {
     console.error("Child login error:", err);
     return res.status(500).json({ error: "Login failed" });
   }
+});
+
+router.post("/child-logout", (req, res) => {
+  clearAuthCookie(res, "child_token");
+  res.json({ ok: true });
 });
 
 module.exports = router;

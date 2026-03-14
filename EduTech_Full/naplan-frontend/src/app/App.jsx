@@ -1,23 +1,7 @@
-// src/app/App.jsx
-//
-// FULL REPLACEMENT FILE — drop into naplan-frontend/src/app/App.jsx
-//
-// CHANGES FROM ORIGINAL:
-//   ✅ Removed import QuizCompleteBridge
-//   ✅ Removed import QuizCompletePage
-//   ✅ Removed import TrailDashboard
-//   ✅ Removed /quiz-complete route
-//   ✅ Removed /quiz-complete-bridge route
-//   ✅ Removed /dashboard-preview route (was TrailDashboard)
-//   Everything else is IDENTICAL to the original.
-
 import { Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/app/context/AuthContext";
 import { RequireParent, RequireChild, RequireAuth } from "@/app/components/auth/RequireAuth";
 import FooterMinimal from "@/app/components/landing/FooterMinimal";
-// ✅ REMOVED: import QuizCompleteBridge from "./components/pages/QuizCompleteBridge";
-// ✅ REMOVED: import QuizCompletePage from "./components/pages/QuizCompletePage";
-// ✅ REMOVED: import TrailDashboard from "@/app/components/pages/TrailDashboard";
 import WelcomePage from "@/app/components/WelcomePage";
 import ResultPage from "@/app/components/ResultPage";
 import Dashboard from "@/app/components/pages/Dashboard";
@@ -77,8 +61,14 @@ export default function AppRoutes() {
         <Route path="/child-login" element={<ChildLoginPage />} />
         <Route path="/parent-login" element={<ParentLoginPage />} />
 
-        <Route path="/StudentDashboardAnalytics" element={<WithFooter><StudentDashboardAnalytics /></WithFooter>} />
-
+        <Route
+        path="/student-analytics"
+        element={
+          <RequireAuth>
+            <WithFooter><StudentDashboardAnalytics /></WithFooter>
+          </RequireAuth>
+        }
+        />
         {/* ─── Parent-protected routes ─── */}
         <Route
           path="/parent-dashboard"

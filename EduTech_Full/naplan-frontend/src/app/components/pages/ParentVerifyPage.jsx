@@ -113,18 +113,16 @@ export default function ParentVerifyPage() {
 
     try {
       setLoading(true);
+      const result = await verifyParentOtp({ email: pendingEmail, otp });
 
-      const res = await verifyParentOtp({
-        email: pendingEmail,
-        otp: cleanOtp,
-      });
+      // ✅ Works with cookie-based auth (no token in body) or token in body
+      const token = result?.parent_token || result?.token || null;
+      const parent = result?.parent || null;
 
-      const token = res?.parent_token || res?.token;
-      const parent = res?.parent || res?.user || null;
-      if (!token) throw new Error("Login token missing in OTP verification response");
+      if (!token && !parent) throw new Error("Verification failed. Please try again.");
 
       loginParent(token, parent);
-      setIsVerifiedFlowComplete(true);
+
 
       localStorage.removeItem("parent_pending_email");
       localStorage.removeItem("parent_pending_masked");

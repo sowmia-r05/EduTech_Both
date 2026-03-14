@@ -166,17 +166,24 @@ export default function ParentLoginPage() {
     if (!/^\d{6}$/.test(cleanOtp)) { setError("Please enter a valid 6-digit code."); return; }
 
     try {
-      setLoading(true);
-      const res = await verifyLoginOtp(email, cleanOtp);
-      const token = res?.parent_token || res?.token;
-      const parent = res?.parent || res?.user || null;
-      if (!token) throw new Error("Login token missing from server response.");
+    const res = await verifyLoginOtp(email, cleanOtp);
 
-      loginParent(token, parent);
+    // ✅ Support both approaches:
+    //    - Old: token in response body (parent_token)
+    //    - New (S-02): token set as httpOnly cookie by server, not in body
+    const token = res?.parent_token || res?.token || null;
+    const parent = res?.parent || res?.user || null;
 
-      // ✅ CHANGED: Honor the redirect intent instead of always going to /parent-dashboard
-      const destination = resolvePostLoginRedirect(redirectIntent);
-      navigate(destination, { replace: true });
+    // ✅ Only require token if we're NOT using cookies
+    //    If res.ok and we have a parent object, the cookie was set successfully
+    if (!token && !parent) {
+      throw new Error("Verification failed. No session data received.");
+    }
+
+    loginParent(token, parent);
+    const destination = resolvePostLoginRedirect(redirectIntent);
+    navigate(destination, { replace: true });
+
     } catch (err) {
       setError(err?.message || "Verification failed. Please try again.");
     } finally {

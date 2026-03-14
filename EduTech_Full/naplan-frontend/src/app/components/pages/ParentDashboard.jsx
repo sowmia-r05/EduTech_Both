@@ -1122,11 +1122,26 @@ export default function ParentDashboard() {
 
   const children = useMemo(() => rawChildren.map(mapChild), [rawChildren]);
   const payments  = useMemo(() => rawPayments.map(mapPayment), [rawPayments]);
-  const user = useMemo(() => {
-    const name     = parentProfile?.name || parentProfile?.email || "";
-    const initials = name ? name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() : "??";
-    return { name, initials };
-  }, [parentProfile]);
+const user = useMemo(() => {
+  // ✅ Build name from firstName + lastName first, then fall back to name field, then email
+  const firstName = (parentProfile?.firstName || "").trim();
+  const lastName  = (parentProfile?.lastName  || "").trim();
+  const fullName  = [firstName, lastName].filter(Boolean).join(" ");
+
+  // Use fullName if available, then .name field, then email as last resort
+  const name = fullName || parentProfile?.name || parentProfile?.email || "";
+
+  const initials = firstName && lastName
+    ? (firstName[0] + lastName[0]).toUpperCase()         // "TH" from "Tharun Sai"
+    : firstName
+      ? firstName.slice(0, 2).toUpperCase()              // "TH" from "Tharun"
+      : name
+        ? name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()
+        : "??";
+
+  return { name, initials };
+}, [parentProfile]);
+
 
   // ── Data loading ─────────────────────────────────────────────
   const loadChildren = useCallback(async () => {

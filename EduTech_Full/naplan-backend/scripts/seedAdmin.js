@@ -21,7 +21,6 @@ const ADMIN_NAME = process.env.ADMIN_NAME || "Admin";
 async function seed() {
   if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 6) {
     console.error("❌ ADMIN_PASSWORD must be at least 6 characters.");
-    console.error("   Set it via env: ADMIN_PASSWORD=yourpassword node scripts/seedAdmin.js");
     process.exit(1);
   }
 
