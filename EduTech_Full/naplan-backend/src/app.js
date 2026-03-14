@@ -1,20 +1,60 @@
-// ✅ Force IPv4 first (fixes ENETUNREACH to Gmail IPv6 on Render)
-
 require("dotenv").config();
+
+// Force IPv4 — fixes ENETUNREACH to Gmail on Render/Railway
 const dns = require("dns");
 dns.setDefaultResultOrder("ipv4first");
 
+// ─── Startup env validation ───────────────────────────────────────────────────
+// Throw immediately with a clear message if critical vars are missing.
+// Prevents silent failures like CORS blocking all requests in production.
+(function validateRequiredEnv() {
+  const missing = [];
+
+  if (!process.env.PARENT_JWT_SECRET && !process.env.JWT_SECRET) {
+    missing.push("PARENT_JWT_SECRET (or JWT_SECRET)");
+  }
+  if (!process.env.MONGODB_URI) {
+    missing.push("MONGODB_URI");
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    if (!process.env.FRONTEND_ORIGIN) missing.push("FRONTEND_ORIGIN");
+    if (!process.env.STRIPE_SECRET_KEY) missing.push("STRIPE_SECRET_KEY");
+    if (!process.env.STRIPE_WEBHOOK_SECRET)
+      missing.push("STRIPE_WEBHOOK_SECRET");
+  } else {
+    // Warn (don't throw) in dev
+    ["FRONTEND_ORIGIN", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"].forEach(
+      (k) => {
+        if (!process.env[k])
+          console.warn(`⚠️  [env] ${k} not set — required in production`);
+      },
+    );
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `\n🚨 Missing required environment variables:\n` +
+        missing.map((k) => `   ✗ ${k}`).join("\n") +
+        `\n\nAdd these to your .env file before starting the server.\n`,
+    );
+  }
+
+  console.log("✅ Environment validation passed");
+})();
+
+// ─── Requires ─────────────────────────────────────────────────────────────────
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const cors = require("cors");
-const helmet = require("helmet"); // ✅ NEW
-const cookieParser = require("cookie-parser"); // ✅ NEW (for S-02)
+const helmet = require("helmet");
+const cookieParser = require("cookie-parser");
 const path = require("path");
 
 const app = express();
 app.set("trust proxy", 1);
 
-// ✅ Security headers — must come BEFORE routes and BEFORE cors
+// ─── Security headers ─────────────────────────────────────────────────────────
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -49,8 +89,7 @@ app.use(
   }),
 );
 
-// ✅ CORS — after helmet
-// Replace the cors() config in app.js with this:
+// ─── CORS ─────────────────────────────────────────────────────────────────────
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
 const IS_DEV = process.env.NODE_ENV !== "production";
 
@@ -59,29 +98,30 @@ app.use(
     origin: FRONTEND_ORIGIN
       ? FRONTEND_ORIGIN.split(",").map((s) => s.trim())
       : IS_DEV
-        ? "http://localhost:5173"   // ✅ safe default for local dev only
-        : false,                    // ✅ locked down in production
+        ? ["http://localhost:5173", "http://localhost:3000"]
+        : false,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-  })
+  }),
 );
 
-
-// ✅ Cookie parser (needed for httpOnly cookie auth — S-02)
+// ─── Core middleware ──────────────────────────────────────────────────────────
 app.use(cookieParser());
 
-// ✅ JSON body parsing
+// FIX: was 100mb — reduced to 1mb to prevent large-payload DoS.
+// Image/file uploads use multer (multipart) and are not affected by this limit.
+// Stripe webhook needs raw body — the verify callback captures it.
 app.use(
   express.json({
-    limit: "1mb", // ✅ ALSO fixes S-18: was 100mb
+    limit: "1mb",
     verify: (req, res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-
-// ─── Routes ───
+// ─── Route imports ────────────────────────────────────────────────────────────
+const healthRoutes = require("./routes/healthRoutes");
 const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const writingRoutes = require("./routes/writingRoutes");
@@ -90,51 +130,33 @@ const otpAuth = require("./routes/otpAuth");
 const parentRoutes = require("./routes/parentRoutes");
 const googleAuthRoutes = require("./routes/googleAuthRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
-
-// ─── NEW routes ───
 const childRoutes = require("./routes/childRoutes");
 const childAuthRoutes = require("./routes/childAuthRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const quizRoutes = require("./routes/quizRoutes");
 const availableQuizzesRoute = require("./routes/availableQuizzesRoute");
 const flashcardsRoute = require("./routes/flashcardsRoute");
-const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
-const healthRoutes = require("./routes/healthRoutes");
 const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes");
-const ocrRoute = require("./routes/ocrRoute"); 
+const ocrRoute = require("./routes/ocrRoute");
 const sessionRoutes = require("./routes/sessionRoutes");
+const resultRoutes = require("./routes/resultRoutes");
+const regenerateAiRoute = require("./routes/regenerateAiRoute");
 
-
-// ✅ Legacy route auth middleware
+// FIX: FlexiQuiz is removed — legacy routes now require auth on ALL methods.
+// No more unauthenticated POST allowed through.
 const {
   secureLegacyResults,
   secureLegacyWriting,
 } = require("./middleware/legacyRouteAuth");
-const resultRoutes = require("./routes/resultRoutes");
-const regenerateAiRoute = require("./routes/regenerateAiRoute");
 
-
-
-app.set("trust proxy", 1);
-
-
-
-app.use(cookieParser());
-
-// ✅ JSON + keep raw body for Stripe webhook signature verification
-app.use(
-  express.json({
-    limit: "100mb",
-    verify: (req, res, buf) => {
-      req.rawBody = buf;
-    },
-  })
-);
-
+// ─── Health check (no rate limit, no auth) ───────────────────────────────────
 app.use("/api", healthRoutes);
 
-// 🛡️ General API rate limiting
+// ─── Rate limiters ────────────────────────────────────────────────────────────
+
+// General: 1000 req/min across all API routes
 const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 1000,
@@ -142,56 +164,72 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// Auth: 10 req/min on signup/login routes (prevents credential stuffing)
+const authLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many authentication requests. Please wait a minute." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.use("/api", apiLimiter);
 
-// ✅ Routes — Auth (no auth middleware)
-app.use("/api/auth", otpAuth);
+// ─── Auth routes ──────────────────────────────────────────────────────────────
+app.use("/api/auth", authLimiter, otpAuth);
 app.use("/api/auth", childAuthRoutes);
+app.use("/api/auth", sessionRoutes);
 
-// ✅ Routes — Parent
+// ─── Parent routes ────────────────────────────────────────────────────────────
 app.use("/api/parents", parentRoutes);
-app.use("/api/parents/auth", parentAuthRoutes);
-app.use("/api/parents/auth", googleAuthRoutes);
+app.use("/api/parents/auth", authLimiter, parentAuthRoutes);
+app.use("/api/parents/auth", authLimiter, googleAuthRoutes);
 
-// ✅ Routes — Children
+// ─── Children routes ──────────────────────────────────────────────────────────
 app.use("/api/children", childRoutes);
 app.use("/api/children/:childId/cumulative-feedback", cumulativeFeedbackRoutes);
 
-// ✅ Routes — Writing (secured)
+// ─── Writing & results (auth required on all methods — FlexiQuiz removed) ────
 app.use("/api/writing", secureLegacyWriting, writingRoutes);
-app.use("/api/results", secureLegacyResults, resultRoutes);     
-app.use("/api/results", secureLegacyResults, regenerateAiRoute); 
+app.use("/api/results", secureLegacyResults, resultRoutes);
+app.use("/api/results", secureLegacyResults, regenerateAiRoute);
 
-// ✅ Routes — Catalog (public)
+// ─── Catalog (public) ─────────────────────────────────────────────────────────
 app.use("/api/catalog", catalogRoutes);
 
-// ✅ Routes — Legacy stubs
+// ─── Legacy stubs ─────────────────────────────────────────────────────────────
 app.use("/api/exams", examRoutes);
 app.use("/api/students", studentRoutes);
 
-// ✅ Health check
+// ─── Root health ──────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
-  res.json({ status: "NAPLAN backend alive" });
+  res.json({ status: "NAPLAN backend alive", ts: Date.now() });
 });
 
-// ✅ Routes — Admin, Quiz, Payments, OCR
+// ─── Admin ────────────────────────────────────────────────────────────────────
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
+
+// ─── Quiz, flashcards, available quizzes ─────────────────────────────────────
 app.use("/api", quizRoutes);
 app.use("/api", availableQuizzesRoute);
 app.use("/api", flashcardsRoute);
-app.use("/api/payments", paymentRoutes);
-app.use("/api/auth", sessionRoutes);
-app.use("/api/ocr", ocrRoute); // ✅ OCR route — must be BEFORE static files
 
-// ✅ Static uploads
+// ─── Payments ─────────────────────────────────────────────────────────────────
+app.use("/api/payments", paymentRoutes);
+
+// ─── OCR ──────────────────────────────────────────────────────────────────────
+app.use("/api/ocr", ocrRoute);
+
+// ─── Static file serving ──────────────────────────────────────────────────────
 app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
 
-// ═══════════════════════════════════════
-// CRON JOBS
-// ═══════════════════════════════════════
+// ─── Cron jobs ────────────────────────────────────────────────────────────────
 try {
-  const { setupExpiredAttemptCleanup } = require("./cron/cleanupExpiredAttempts");
+  const {
+    setupExpiredAttemptCleanup,
+  } = require("./cron/cleanupExpiredAttempts");
   setupExpiredAttemptCleanup();
 } catch (err) {
   console.warn("⚠️ Could not start expired attempt cleanup cron:", err.message);
@@ -203,5 +241,21 @@ try {
 } catch (err) {
   console.warn("⚠️ Could not start bundle expiry cleanup cron:", err.message);
 }
+
+// ─── Global error handler ─────────────────────────────────────────────────────
+// Catches any error thrown inside a route handler and returns clean JSON
+// instead of crashing the process or leaking a stack trace to the client.
+// Must be defined LAST, after all routes.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode || 500;
+  console.error(`[Error] ${req.method} ${req.path} — ${err.message}`);
+  if (IS_DEV) console.error(err.stack);
+
+  res.status(status).json({
+    error: status === 500 ? "Internal server error" : err.message || "Error",
+    ...(IS_DEV ? { detail: err.message } : {}),
+  });
+});
 
 module.exports = app;

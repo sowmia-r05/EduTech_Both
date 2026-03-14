@@ -1,12 +1,3 @@
-// src/app/App.jsx
-//
-// CHANGE: Admin routes moved to secret path /kai-ops-9281
-// CHANGE: /admin/register now reads invite token from URL
-// Everything else (parent, child, public routes) is IDENTICAL
-//
-// ⚠️  Keep the secret path out of public docs / README.
-//     Share it only with your team via a secure channel.
-
 import { Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/app/context/AuthContext";
 import { RequireParent, RequireChild, RequireAuth } from "@/app/components/auth/RequireAuth";
@@ -28,17 +19,15 @@ import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
-
-// ── Admin components ──
 import AdminLogin    from "@/app/components/admin/AdminLogin";
 import AdminRegister from "@/app/components/admin/AdminRegister";
 import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin  from "@/app/components/admin/RequireAdmin";
 import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
 
-// ✅ Secret admin path — only your team knows this
-//    Change before production deployment
-export const ADMIN_PATH = "/kai-ops-9281";
+// Read from env var — add VITE_ADMIN_PATH=/your-secret-path to frontend .env
+const ADMIN_PATH = import.meta.env.VITE_ADMIN_PATH || "/admin";
+export { ADMIN_PATH };
 
 function WithFooter({ children }) {
   return (
@@ -60,8 +49,6 @@ export default function AppRoutes() {
         <Route path="/trial-test" element={<TrialTestPage />} />
         <Route path="/terms"   element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
-
-        {/* ─── Bundle Selection ─── */}
         <Route path="/bundles" element={<WithFooter><BundleSelectionPage /></WithFooter>} />
 
         {/* ─── Parent Auth ─── */}
@@ -72,7 +59,7 @@ export default function AppRoutes() {
         {/* ─── Child Auth ─── */}
         <Route path="/child-login" element={<ChildLoginPage />} />
 
-        {/* ─── Analytics (auth required) ─── */}
+        {/* ─── Analytics ─── */}
         <Route
           path="/student-analytics"
           element={
@@ -92,7 +79,15 @@ export default function AppRoutes() {
           }
         />
 
-        {/* ─── Child-protected ─── */}
+        {/*
+          ─── Child Dashboard ───
+          Uses RequireAuth (NOT RequireChild) because:
+          - A parent navigates here to VIEW a child's dashboard (no PIN needed)
+            e.g. /child-dashboard?childId=xxx&childName=yyy
+          - A child navigates here after PIN login via QuickChildLoginModal
+          Both cases have a valid token (parent or child), so RequireAuth covers both.
+          ChildDashboard.jsx internally checks whether it's a parent or child viewing.
+        */}
         <Route
           path="/child-dashboard"
           element={
@@ -102,7 +97,7 @@ export default function AppRoutes() {
           }
         />
 
-        {/* ─── Results (auth required) ─── */}
+        {/* ─── Results ─── */}
         <Route
           path="/NonWritingLookupQuizResults/results"
           element={
@@ -120,8 +115,7 @@ export default function AppRoutes() {
           }
         />
 
-        {/* ─── Admin routes — secret path ─── */}
-        {/* ✅ Old /admin path is GONE — only secret path works */}
+        {/* ─── Admin ─── */}
         <Route path={ADMIN_PATH} element={<AdminLogin />} />
         <Route path={`${ADMIN_PATH}/register`} element={<AdminRegister />} />
         <Route
@@ -133,9 +127,10 @@ export default function AppRoutes() {
           element={<RequireAdmin><QuizDetailPage /></RequireAdmin>}
         />
 
-        {/* ─── Fallback ─── */}
         <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
       </Routes>
     </AuthProvider>
   );
 }
+
+
