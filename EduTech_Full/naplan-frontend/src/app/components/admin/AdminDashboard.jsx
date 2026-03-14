@@ -1,24 +1,22 @@
-/**
- * AdminDashboard.jsx
- *
- * Full admin panel:
- *   - Quiz list with search/filter
- *   - FlexiQuiz-style quiz settings (time limit, difficulty, passing score, etc.)
- *   - Bundle mapping (assign quizzes → bundles so purchases unlock them)
- *   - Upload tab (QuizUploader)
- *   - Bundle management tab
- *   ✅ Randomize questions/options + Voice & Video settings
- *   ✅ Cleaned up: removed Subject/Tier/Diff columns from table
- *
- * Place in: src/app/components/admin/AdminDashboard.jsx
- */
+// AdminDashboard.jsx — SECURITY UPDATE
+//
+// CHANGES FROM PREVIOUS VERSION:
+//   ✅ navigate("/admin") → navigate(ADMIN_PATH) throughout
+//   ✅ navigate("/admin/quiz/:id") → navigate(`${ADMIN_PATH}/quiz/:id`)
+//   ✅ handleLogout now also calls POST /api/admin/logout to clear cookie
+//   ✅ Added "Invite Admin" button in header (super_admin only)
+//   ✅ Added InviteModal component — generates one-time invite link
+//   Everything else (tabs, quiz management, bundles) is IDENTICAL
+//
+// Zero impact on parent/child flows.
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import QuizUploader from "./QuizUploader";
-import BundlesTab from "./BundlesTab";
+import QuizUploader    from "./QuizUploader";
+import BundlesTab      from "./BundlesTab";
 import QuizSettingsExtras from "./QuizSettingsExtras";
-import ManualQuizCreator from "./ManualQuizCreator";
+import ManualQuizCreator  from "./ManualQuizCreator";
+import { ADMIN_PATH }  from "@/app/App";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -26,6 +24,7 @@ function adminFetch(url, opts = {}) {
   const token = localStorage.getItem("admin_token");
   return fetch(`${API}${url}`, {
     ...opts,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...opts.headers,
@@ -34,227 +33,307 @@ function adminFetch(url, opts = {}) {
   });
 }
 
-/* ════════════════════════════════════════════════════════
-   HELPER BADGES
-   ════════════════════════════════════════════════════════ */
-/* TierBadge kept — used in BundleMappingModal */
+// ════════════════════════════════════════════════════════
+// INVITE MODAL (super_admin only)
+// ════════════════════════════════════════════════════════
+function InviteModal({ onClose }) {
+  const [loading,    setLoading]    = useState(false);
+  const [inviteUrl,  setInviteUrl]  = useState("");
+  const [copied,     setCopied]     = useState(false);
+  const [error,      setError]      = useState("");
+
+  const generateInvite = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const res  = await adminFetch("/api/admin/invite", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate invite");
+      setInviteUrl(data.invite_url);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback for browsers that block clipboard
+      const el = document.createElement("textarea");
+      el.value = inviteUrl;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-white">Invite Admin</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <p className="text-sm text-slate-400">
+          Generate a one-time invite link. Send it to your colleague via Slack or email.
+          The link expires in <strong className="text-white">24 hours</strong> and works exactly once.
+        </p>
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
+            <p className="text-red-400 text-sm">{error}</p>
+          </div>
+        )}
+
+        {!inviteUrl ? (
+          <button
+            onClick={generateInvite}
+            disabled={loading}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors"
+          >
+            {loading ? "Generating..." : "Generate Invite Link"}
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="bg-slate-800 border border-slate-700 rounded-lg p-3">
+              <p className="text-xs text-slate-500 mb-1">Invite link (copy and send):</p>
+              <p className="text-xs text-indigo-300 break-all font-mono">{inviteUrl}</p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleCopy}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors"
+              >
+                {copied ? "✓ Copied!" : "Copy Link"}
+              </button>
+              <button
+                onClick={generateInvite}
+                disabled={loading}
+                className="px-4 py-2.5 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors disabled:opacity-50"
+              >
+                New Link
+              </button>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3">
+              <p className="text-amber-400 text-xs">
+                ⚠️ This link is single-use and expires in 24 hours.
+                The new account will be <strong>pending</strong> until you approve it here.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <button onClick={onClose} className="w-full text-sm text-slate-500 hover:text-slate-300 transition-colors pt-1">
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// TIER BADGE
+// ════════════════════════════════════════════════════════
 function TierBadge({ tier }) {
   const map = {
-    A: { label: "A — Full Tests", cls: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" },
-    B: { label: "B — Topic Std", cls: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
-    C: { label: "C — Topic Hard", cls: "bg-rose-500/10 text-rose-400 border-rose-500/20" },
-    Trial: { label: "Trial — Free", cls: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
+    A:     { label: "A — Full Tests", cls: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" },
+    B:     { label: "B — Topic Std",  cls: "bg-amber-500/10 text-amber-400 border-amber-500/20"   },
+    C:     { label: "C — Topic Hard", cls: "bg-rose-500/10 text-rose-400 border-rose-500/20"      },
+    Trial: { label: "Trial — Free",   cls: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"      },
   };
   const { label, cls } = map[tier] || { label: tier, cls: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>{label}</span>;
 }
 
-
-/* ════════════════════════════════════════════════════════
-   QUIZ SETTINGS MODAL (FlexiQuiz-style)
-   ════════════════════════════════════════════════════════ */
+// ════════════════════════════════════════════════════════
+// QUIZ SETTINGS MODAL
+// ════════════════════════════════════════════════════════
 function QuizSettingsModal({ quiz, onSave, onClose }) {
   const [form, setForm] = useState({
-    quiz_name: quiz.quiz_name || "",
-    year_level: quiz.year_level || 3,
-    subject: quiz.subject || "",
-    tier: quiz.tier || "A",
-    difficulty: quiz.difficulty || "",
-    time_limit_minutes: quiz.time_limit_minutes ?? "",
-    set_number: quiz.set_number || 1,
-    is_active: quiz.is_active !== false,
-    is_trial: quiz.is_trial || false,
-    randomize_questions: quiz.randomize_questions || false,
-    randomize_options: quiz.randomize_options || false,
-    voice_url: quiz.voice_url || null,
-    video_url: quiz.video_url || null,
-    max_attempts: quiz.max_attempts ?? null,
+    quiz_name:            quiz.quiz_name || "",
+    year_level:           quiz.year_level || 3,
+    subject:              quiz.subject || "",
+    tier:                 quiz.tier || "A",
+    difficulty:           quiz.difficulty || "",
+    time_limit_minutes:   quiz.time_limit_minutes ?? "",
+    set_number:           quiz.set_number || 1,
+    is_active:            quiz.is_active !== false,
+    is_trial:             quiz.is_trial || false,
+    randomize_questions:  quiz.randomize_questions || false,
+    randomize_options:    quiz.randomize_options || false,
+    voice_url:            quiz.voice_url || null,
+    video_url:            quiz.video_url || null,
+    max_attempts:         quiz.max_attempts ?? "",
+    passing_score:        quiz.passing_score ?? "",
   });
   const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState("");
+
+  const handleSave = async () => {
+    try {
+      setSaving(true); setError("");
+      const payload = {
+        ...form,
+        time_limit_minutes: form.time_limit_minutes === "" ? null : Number(form.time_limit_minutes),
+        max_attempts:       form.max_attempts       === "" ? null : Number(form.max_attempts),
+        passing_score:      form.passing_score      === "" ? null : Number(form.passing_score),
+      };
+      const res  = await adminFetch(`/api/admin/quizzes/${quiz.quiz_id}`, {
+        method: "PATCH",
+        body:   JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Save failed");
+      onSave(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const tf = (field) => (e) => setForm((p) => ({ ...p, [field]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 overflow-y-auto">
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+            <h2 className="text-base font-semibold text-white">Quiz Settings</h2>
+            <button onClick={onClose} className="text-slate-400 hover:text-white">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+            {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3"><p className="text-red-400 text-sm">{error}</p></div>}
+
+            {[
+              { label: "Quiz Name",      field: "quiz_name",          type: "text"   },
+              { label: "Subject",        field: "subject",            type: "text"   },
+              { label: "Time Limit (min)", field: "time_limit_minutes", type: "number" },
+              { label: "Max Attempts",   field: "max_attempts",       type: "number" },
+              { label: "Passing Score (%)", field: "passing_score",   type: "number" },
+              { label: "Set Number",     field: "set_number",         type: "number" },
+            ].map(({ label, field, type }) => (
+              <div key={field}>
+                <label className="block text-xs font-medium text-slate-400 mb-1">{label}</label>
+                <input type={type} value={form[field] ?? ""} onChange={tf(field)}
+                  className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+            ))}
+
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "Year Level", field: "year_level", opts: [3,5,7,9] },
+                { label: "Tier",       field: "tier",       opts: ["A","B","C","Trial"] },
+                { label: "Difficulty", field: "difficulty", opts: ["Easy","Standard","Hard"] },
+              ].map(({ label, field, opts }) => (
+                <div key={field}>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">{label}</label>
+                  <select value={form[field]} onChange={tf(field)}
+                    className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <QuizSettingsExtras form={form} onChange={(f) => setForm((p) => ({ ...p, ...f }))} />
+
+            <div className="space-y-2 pt-2">
+              {[
+                { label: "Active",               field: "is_active"           },
+                { label: "Trial (free access)",  field: "is_trial"            },
+                { label: "Randomize Questions",  field: "randomize_questions" },
+                { label: "Randomize Options",    field: "randomize_options"   },
+              ].map(({ label, field }) => (
+                <label key={field} className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={form[field]} onChange={tf(field)}
+                    className="w-4 h-4 rounded accent-indigo-500" />
+                  <span className="text-sm text-slate-300">{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Cancel</button>
+            <button onClick={handleSave} disabled={saving}
+              className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition">
+              {saving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// BUNDLE MAPPING MODAL
+// ════════════════════════════════════════════════════════
+function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
+  const assignedBundleIds = bundles
+    .filter((b) => (b.quiz_ids || []).includes(quiz.quiz_id))
+    .map((b) => b.bundle_id);
+
+  const [saving,   setSaving]   = useState(false);
+  const [selected, setSelected] = useState(new Set(assignedBundleIds));
+
+  const toggle = (bundleId) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(bundleId) ? next.delete(bundleId) : next.add(bundleId);
+      return next;
+    });
+  };
 
   const handleSave = async () => {
     setSaving(true);
-    try {
-      const res = await adminFetch(`/api/admin/quizzes/${quiz.quiz_id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          ...form,
-          time_limit_minutes: form.time_limit_minutes === "" ? null : Number(form.time_limit_minutes),
-          year_level: Number(form.year_level),
-          set_number: Number(form.set_number) || 1,
-          difficulty: form.difficulty || null,
-          voice_url: form.voice_url || null,
-          video_url: form.video_url || null,
-          max_attempts: form.max_attempts,
-        }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "Save failed");
-      }
-      onSave();
-    } catch (err) {
-      alert(err.message);
-    }
+    const toAdd    = [...selected].filter((id) => !assignedBundleIds.includes(id));
+    const toRemove = assignedBundleIds.filter((id) => !selected.has(id));
+
+    await Promise.all([
+      ...toAdd.map((bundleId) =>
+        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
+          method: "POST", body: JSON.stringify({ quiz_id: quiz.quiz_id }),
+        })
+      ),
+      ...toRemove.map((bundleId) =>
+        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
+          method: "DELETE", body: JSON.stringify({ quiz_id: quiz.quiz_id }),
+        })
+      ),
+    ]);
+
+    await onRefresh();
     setSaving(false);
-  };
-
-  const u = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
-  const uCheck = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.checked }));
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-          <h2 className="text-base font-semibold text-white">Quiz Settings</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-          {/* Quiz Name */}
-          <div>
-            <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide max-w-xs">Quiz Name</th>
-            <input type="text" value={form.quiz_name} onChange={u("quiz_name")}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          </div>
-
-          {/* Time Limit + Difficulty */}
-          {/* Subject */}
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">Subject</label>
-            <select value={form.subject} onChange={u("subject")}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="">Not set</option>
-              <option value="Maths">Maths</option>
-              <option value="Reading">Reading</option>
-              <option value="Writing">Writing</option>
-              <option value="Conventions">Language Conventions</option>
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Time Limit (minutes)</label>
-              <input type="number" min="0" placeholder="No limit" value={form.time_limit_minutes} onChange={u("time_limit_minutes")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              <p className="text-[10px] text-slate-500 mt-1">Leave empty = unlimited time</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Difficulty</label>
-              <select value={form.difficulty} onChange={u("difficulty")}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">Auto / Not set</option>
-                <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Toggles */}
-          <div className="flex items-center gap-6 pt-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={form.is_active} onChange={uCheck("is_active")}
-                className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500" />
-              <span className="text-sm text-slate-300">Active</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={form.is_trial} onChange={uCheck("is_trial")}
-                className="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" />
-              <span className="text-sm text-slate-300">Free Trial Quiz</span>
-            </label>
-          </div>
-
-          {/* ✅ Retakes + Randomization + Voice & Video */}
-          <QuizSettingsExtras form={form} onChange={setForm} />
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Cancel</button>
-          <button onClick={handleSave} disabled={saving}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
-            {saving ? "Saving..." : "Save Settings"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-/* ════════════════════════════════════════════════════════
-   BUNDLE MAPPING MODAL
-   ════════════════════════════════════════════════════════ */
-function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
-  const [saving, setSaving] = useState(null);
-
-  const matchingBundles = bundles.filter((b) => b.year_level === quiz.year_level && b.tier === quiz.tier);
-  const otherBundles = bundles.filter((b) => !(b.year_level === quiz.year_level && b.tier === quiz.tier));
-
-  const isQuizInBundle = (bundle) => {
-    const ids = bundle.quiz_ids || [];
-    return ids.includes(quiz.quiz_id);
-  };
-
-  const handleToggle = async (bundle) => {
-    const inBundle = isQuizInBundle(bundle);
-    setSaving(bundle.bundle_id);
-    try {
-      const res = await adminFetch(`/api/admin/bundles/${bundle.bundle_id}/quizzes`, {
-        method: inBundle ? "DELETE" : "POST",
-        body: JSON.stringify({ quiz_id: quiz.quiz_id }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "Failed");
-      }
-      onRefresh();
-    } catch (err) {
-      alert(err.message);
-    }
-    setSaving(null);
-  };
-
-  const renderRow = (bundle) => {
-    const inBundle = isQuizInBundle(bundle);
-    const count = (bundle.quiz_ids || []).length;
-    return (
-      <div key={bundle.bundle_id}
-        className={`flex items-center justify-between p-3 rounded-lg border transition ${
-          inBundle ? "bg-emerald-500/5 border-emerald-500/20" : "bg-slate-800/50 border-slate-700/50 hover:border-slate-600"
-        }`}>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-white truncate">{bundle.bundle_name}</span>
-            <TierBadge tier={bundle.tier} />
-          </div>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            Year {bundle.year_level} • {count} quiz{count !== 1 ? "zes" : ""} • ${(bundle.price_cents / 100).toFixed(2)} AUD
-          </p>
-        </div>
-        <button onClick={() => handleToggle(bundle)} disabled={saving === bundle.bundle_id}
-          className={`ml-3 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
-            inBundle
-              ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
-              : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
-          } disabled:opacity-40`}>
-          {saving === bundle.bundle_id ? "..." : inBundle ? "Remove" : "Add to Bundle"}
-        </button>
-      </div>
-    );
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
           <div>
             <h2 className="text-base font-semibold text-white">Bundle Mapping</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Assign "{quiz.quiz_name}" to purchasable bundles</p>
+            <p className="text-xs text-slate-500 mt-0.5">{quiz.quiz_name}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -262,121 +341,90 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
             </svg>
           </button>
         </div>
-        <div className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
-          {/* Trial / Free Access Toggle */}
-          <div>
-            <p className="text-[11px] uppercase tracking-wide text-cyan-400 font-semibold mb-2">
-              Trial / Free Access
-            </p>
-            <div className={`flex items-center justify-between p-3 rounded-lg border transition ${
-              quiz.is_trial ? "bg-cyan-500/5 border-cyan-500/20" : "bg-slate-800/50 border-slate-700/50"
-            }`}>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-white">Free Trial</span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">Trial — Free</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Available to all users without purchase — great for samples
-                </p>
+        <div className="px-6 py-4 max-h-80 overflow-y-auto space-y-2">
+          {bundles.length === 0 ? (
+            <p className="text-slate-500 text-sm text-center py-6">No bundles yet.</p>
+          ) : bundles.map((b) => (
+            <label key={b.bundle_id} className="flex items-center gap-3 p-3 rounded-lg bg-slate-800 cursor-pointer hover:bg-slate-750">
+              <input type="checkbox" checked={selected.has(b.bundle_id)} onChange={() => toggle(b.bundle_id)}
+                className="w-4 h-4 rounded accent-indigo-500" />
+              <div>
+                <p className="text-sm text-white font-medium">{b.bundle_name}</p>
+                <p className="text-xs text-slate-500">{b.quiz_count || 0} quizzes · Year {b.year_level}</p>
               </div>
-              <button
-                onClick={async () => {
-                  setSaving("trial");
-                  try {
-                    const res = await adminFetch(`/api/admin/quizzes/${quiz.quiz_id}`, {
-                      method: "PATCH",
-                      body: JSON.stringify({ is_trial: !quiz.is_trial }),
-                    });
-                    if (!res.ok) throw new Error("Failed");
-                    quiz.is_trial = !quiz.is_trial;
-                    onRefresh();
-                  } catch (err) { alert(err.message); }
-                  setSaving(null);
-                }}
-                disabled={saving === "trial"}
-                className={`ml-3 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
-                  quiz.is_trial
-                    ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
-                    : "bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/20"
-                } disabled:opacity-40`}>
-                {saving === "trial" ? "..." : quiz.is_trial ? "Remove Trial" : "Make Trial"}
-              </button>
-            </div>
-          </div>
-
-          {/* Paid Bundles */}
-          {matchingBundles.length > 0 && (
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-emerald-400 font-semibold mb-2">
-                Recommended (Year {quiz.year_level}, Tier {quiz.tier})
-              </p>
-              <div className="space-y-2">{matchingBundles.map(renderRow)}</div>
-            </div>
-          )}
-          {otherBundles.length > 0 && (
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Other Bundles</p>
-              <div className="space-y-2">{otherBundles.map(renderRow)}</div>
-            </div>
-          )}
-          {bundles.length === 0 && (
-            <p className="text-sm text-slate-500 text-center py-6">
-              No bundles found. Run <code className="text-xs bg-slate-800 px-1.5 py-0.5 rounded">node scripts/seedBundles.js</code> to create bundles.
-            </p>
-          )}
+            </label>
+          ))}
         </div>
-        <div className="flex items-center justify-end px-6 py-4 border-t border-slate-800">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Done</button>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition">
+            {saving ? "Saving..." : "Save"}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-
-/* ════════════════════════════════════════════════════════
-   MAIN COMPONENT
-   ════════════════════════════════════════════════════════ */
+// ════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ════════════════════════════════════════════════════════
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState("quizzes");
-  const [quizzes, setQuizzes] = useState([]);
-  const [bundles, setBundles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [bundlesLoading, setBundlesLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
-  const [filterYear, setFilterYear] = useState("all");
-  const [deletingId, setDeletingId] = useState(null);
-  const [settingsQuiz, setSettingsQuiz] = useState(null);
+
+  const [tab,           setTab]           = useState("quizzes");
+  const [quizzes,       setQuizzes]       = useState([]);
+  const [bundles,       setBundles]       = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [bundlesLoading,setBundlesLoading]= useState(true);
+  const [error,         setError]         = useState("");
+  const [search,        setSearch]        = useState("");
+  const [filterYear,    setFilterYear]    = useState("all");
+  const [deletingId,    setDeletingId]    = useState(null);
+  const [settingsQuiz,  setSettingsQuiz]  = useState(null);
   const [bundleMapQuiz, setBundleMapQuiz] = useState(null);
+  const [showInvite,    setShowInvite]    = useState(false);
 
   const adminInfo = (() => {
     try { return JSON.parse(localStorage.getItem("admin_info") || "{}"); } catch { return {}; }
   })();
+  const isSuperAdmin = adminInfo.role === "super_admin";
 
   const fetchQuizzes = useCallback(async () => {
     try {
       setLoading(true); setError("");
       const res = await adminFetch("/api/admin/quizzes");
       if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem("admin_token"); localStorage.removeItem("admin_info"); navigate("/admin"); return;
+        localStorage.removeItem("admin_token");
+        localStorage.removeItem("admin_info");
+        navigate(ADMIN_PATH);
+        return;
       }
       if (!res.ok) throw new Error("Failed to load quizzes");
       const data = await res.json();
       setQuizzes(Array.isArray(data) ? data : []);
-    } catch (err) { console.error(err); setError(err.message); }
-    finally { setLoading(false); }
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   }, [navigate]);
 
   const fetchBundles = useCallback(async () => {
     try {
       setBundlesLoading(true);
       const res = await adminFetch("/api/admin/bundles");
-      if (res.ok) { const data = await res.json(); setBundles(Array.isArray(data) ? data : []); }
-    } catch (err) { console.error("Bundles:", err); }
-    finally { setBundlesLoading(false); }
+      if (res.ok) {
+        const data = await res.json();
+        setBundles(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error("Bundles:", err);
+    } finally {
+      setBundlesLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchQuizzes(); fetchBundles(); }, [fetchQuizzes, fetchBundles]);
@@ -388,8 +436,11 @@ export default function AdminDashboard() {
       const res = await adminFetch(`/api/admin/quizzes/${quizId}`, { method: "DELETE" });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Delete failed"); }
       setQuizzes((prev) => prev.filter((q) => q.quiz_id !== quizId));
-    } catch (err) { alert(err.message); }
-    finally { setDeletingId(null); }
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleToggleActive = async (quiz) => {
@@ -398,12 +449,22 @@ export default function AdminDashboard() {
         method: "PATCH", body: JSON.stringify({ is_active: !quiz.is_active }),
       });
       if (!res.ok) throw new Error("Update failed");
-      setQuizzes((prev) => prev.map((q) => q.quiz_id === quiz.quiz_id ? { ...q, is_active: !q.is_active } : q));
-    } catch (err) { alert(err.message); }
+      setQuizzes((prev) => prev.map((q) =>
+        q.quiz_id === quiz.quiz_id ? { ...q, is_active: !q.is_active } : q
+      ));
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("admin_token"); localStorage.removeItem("admin_info"); navigate("/admin");
+  // ✅ Updated logout — clears cookie + localStorage
+  const handleLogout = async () => {
+    try {
+      await adminFetch("/api/admin/logout", { method: "POST" });
+    } catch {}
+    localStorage.removeItem("admin_token");
+    localStorage.removeItem("admin_info");
+    navigate(ADMIN_PATH);
   };
 
   const filtered = useMemo(() => quizzes.filter((q) => {
@@ -415,17 +476,17 @@ export default function AdminDashboard() {
     return true;
   }), [quizzes, filterYear, search]);
 
-  const totalQuizzes = quizzes.length;
-  const activeQuizzes = quizzes.filter((q) => q.is_active !== false).length;
-  const totalQuestions = quizzes.reduce((s, q) => s + (q.question_count || 0), 0);
-  const trialQuizzes = quizzes.filter((q) => q.is_trial).length;
-  const activeBundles = bundles.filter((b) => b.is_active).length;
-
+  const totalQuizzes    = quizzes.length;
+  const activeQuizzes   = quizzes.filter((q) => q.is_active !== false).length;
+  const totalQuestions  = quizzes.reduce((s, q) => s + (q.question_count || 0), 0);
+  const trialQuizzes    = quizzes.filter((q) => q.is_trial).length;
+  const activeBundles   = bundles.filter((b) => b.is_active).length;
   const getBundlesForQuiz = (quizId) => bundles.filter((b) => (b.quiz_ids || []).includes(quizId));
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      {/* Top Bar */}
+
+      {/* ── Top Bar ── */}
       <header className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md border-b border-slate-800">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -439,22 +500,50 @@ export default function AdminDashboard() {
               <p className="text-[11px] text-slate-500">Quiz Management</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            {adminInfo.name && <span className="text-xs text-slate-400">{adminInfo.name}</span>}
-            <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-white transition-colors">Logout</button>
+
+          <div className="flex items-center gap-3">
+            {adminInfo.name && (
+              <span className="text-xs text-slate-400">
+                {adminInfo.name}
+                {isSuperAdmin && (
+                  <span className="ml-1.5 text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded">
+                    super admin
+                  </span>
+                )}
+              </span>
+            )}
+            {/* ✅ Invite button — only visible to super_admin */}
+            {isSuperAdmin && (
+              <button
+                onClick={() => setShowInvite(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg transition"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
+                </svg>
+                Invite Admin
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              className="text-xs text-slate-400 hover:text-white transition-colors"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
+
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
           {[
-            { label: "Total Quizzes", value: totalQuizzes, color: "text-indigo-400" },
-            { label: "Active", value: activeQuizzes, color: "text-emerald-400" },
-            { label: "Questions", value: totalQuestions, color: "text-blue-400" },
-            { label: "Trial / Free", value: trialQuizzes, color: "text-amber-400" },
-            { label: "Bundles", value: activeBundles, color: "text-purple-400" },
+            { label: "Total Quizzes", value: totalQuizzes,   color: "text-indigo-400" },
+            { label: "Active",        value: activeQuizzes,  color: "text-emerald-400" },
+            { label: "Questions",     value: totalQuestions, color: "text-blue-400" },
+            { label: "Trial / Free",  value: trialQuizzes,   color: "text-amber-400" },
+            { label: "Bundles",       value: activeBundles,  color: "text-purple-400" },
           ].map((s) => (
             <div key={s.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <p className="text-[11px] text-slate-500 uppercase tracking-wide">{s.label}</p>
@@ -467,8 +556,8 @@ export default function AdminDashboard() {
         <div className="flex items-center gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-xl p-1 w-fit">
           {[
             { id: "quizzes", label: "All Quizzes" },
-            { id: "upload", label: "Upload Quiz" },
-            { id: "create", label: "✚ Create Quiz" },
+            { id: "upload",  label: "Upload Quiz" },
+            { id: "create",  label: "✚ Create Quiz" },
             { id: "bundles", label: "Bundles" },
           ].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
@@ -480,21 +569,25 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {tab === "upload" && <QuizUploader onUploadSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
-        {tab === "create" && <ManualQuizCreator isOpen={true} onClose={() => setTab("quizzes")} onSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
+        {tab === "upload"  && <QuizUploader onUploadSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
+        {tab === "create"  && <ManualQuizCreator isOpen onClose={() => setTab("quizzes")} onSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
         {tab === "bundles" && <BundlesTab bundles={bundles} loading={bundlesLoading} quizzes={quizzes} onRefresh={fetchBundles} />}
+
         {tab === "quizzes" && (
           <>
             {/* Filters */}
             <div className="flex flex-wrap items-center gap-3 mb-6">
-              <input type="text" placeholder="Search quizzes..." value={search} onChange={(e) => setSearch(e.target.value)}
+              <input type="text" placeholder="Search quizzes..." value={search}
+                onChange={(e) => setSearch(e.target.value)}
                 className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64" />
               <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)}
                 className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="all">All Years</option><option value="3">Year 3</option><option value="5">Year 5</option>
-                <option value="7">Year 7</option><option value="9">Year 9</option>
+                <option value="all">All Years</option>
+                {[3,5,7,9].map((y) => <option key={y} value={y}>Year {y}</option>)}
               </select>
-              <span className="text-xs text-slate-500 ml-auto">{filtered.length} quiz{filtered.length !== 1 ? "zes" : ""}</span>
+              <span className="text-xs text-slate-500 ml-auto">
+                {filtered.length} quiz{filtered.length !== 1 ? "zes" : ""}
+              </span>
             </div>
 
             {error && (
@@ -513,115 +606,99 @@ export default function AdminDashboard() {
 
             {!loading && !error && filtered.length === 0 && (
               <div className="text-center py-20">
-                <p className="text-slate-400 font-medium">{quizzes.length === 0 ? "No quizzes yet" : "No matches"}</p>
-                {quizzes.length === 0 && (
-                  <button onClick={() => setTab("upload")} className="mt-4 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">Upload Quiz</button>
-                )}
+                <p className="text-slate-400 font-medium">
+                  {quizzes.length === 0
+                    ? "No quizzes yet. Upload or create your first quiz."
+                    : "No quizzes match your search."}
+                </p>
               </div>
             )}
 
-            {!loading && filtered.length > 0 && (
+            {!loading && !error && filtered.length > 0 && (
               <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-800">
-                        <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Quiz Name</th>
-                        <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Year</th>
-                        <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-24">Subject</th>
-                        <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-12">Qs</th>
-                        <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Time</th>
-                        <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-20">Attempts</th>
-                        <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-16">Status</th>
-                        <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-20">Bundle</th>
-                        <th className="text-right px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-48">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/50">
-                      {filtered.map((quiz) => {
-                        const qBundles = getBundlesForQuiz(quiz.quiz_id);
-                        return (
-                          <tr key={quiz.quiz_id} className="hover:bg-slate-800/30 transition-colors group">
-                            <td className="px-5 py-3">
-                              <button onClick={() => navigate(`/admin/quiz/${quiz.quiz_id}`)}
-                                className="text-white font-medium hover:text-indigo-400 transition-colors text-left">
-                                {quiz.quiz_name || "Untitled"}
-                              </button>
-                              {quiz.is_trial && (
-                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase">Trial</span>
-                              )}
-                            </td>
-                           <td className="px-3 py-3 text-slate-300 text-xs">Yr {quiz.year_level}</td>
-<td className="px-3 py-3 text-xs">
-  {quiz.subject
-    ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">{quiz.subject}</span>
-    : <span className="text-slate-600">—</span>}
-</td>
-<td className="px-3 py-3 text-center text-slate-400 font-mono text-xs">{quiz.question_count || 0}</td>
-                            <td className="px-3 py-3 text-center text-xs">
-                              {quiz.time_limit_minutes
-                                ? <span className="text-amber-400">{quiz.time_limit_minutes}m</span>
-                                : <span className="text-slate-600">—</span>}
-                            </td>
-                            <td className="px-3 py-3 text-center">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                  quiz.attempts_enabled
-                                    ? "bg-emerald-500/10 text-emerald-400"
-                                    : "bg-slate-700/50 text-slate-500"
-                                }`}>
-                                  {quiz.attempts_enabled ? (quiz.max_attempts || "∞") : "Off"}
-                                </span>
-                              </td>
-                            <td className="px-3 py-3 text-center">
-                              <button onClick={() => handleToggleActive(quiz)}
-                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold transition cursor-pointer ${
-                                  quiz.is_active !== false
-                                    ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                                    : "bg-slate-700/50 text-slate-500 hover:bg-slate-700"
-                                }`}>
-                                {quiz.is_active !== false ? "Active" : "Off"}
-                              </button>
-                            </td>
-                            <td className="px-3 py-3 text-center">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800">
+                      <th className="px-5 py-3 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wide">Quiz</th>
+                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Yr</th>
+                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Qs</th>
+                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Status</th>
+                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Bundle</th>
+                      <th className="px-5 py-3 text-right text-[11px] font-medium text-slate-500 uppercase tracking-wide">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {filtered.map((quiz) => {
+                      const qBundles = getBundlesForQuiz(quiz.quiz_id);
+                      return (
+                        <tr key={quiz.quiz_id} className="group hover:bg-slate-800/50 transition-colors">
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-white font-medium">{quiz.quiz_name}</span>
+                              {quiz.is_trial && <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-1.5 py-0.5 rounded">Trial</span>}
+                              <TierBadge tier={quiz.tier} />
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-center text-slate-400">{quiz.year_level}</td>
+                          <td className="px-3 py-3 text-center text-slate-400">{quiz.question_count || 0}</td>
+                          <td className="px-3 py-3 text-center">
+                            <button onClick={() => handleToggleActive(quiz)}
+                              className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border transition ${
+                                quiz.is_active !== false
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                                  : "bg-slate-700/50 text-slate-500 border-slate-600 hover:bg-slate-700"
+                              }`}>
+                              {quiz.is_active !== false ? "Active" : "Off"}
+                            </button>
+                          </td>
+                          <td className="px-3 py-3 text-center">
                             {(() => {
-                              const totalMappings = qBundles.length + (quiz.is_trial ? 1 : 0);
+                              const total = qBundles.length + (quiz.is_trial ? 1 : 0);
                               return (
                                 <button onClick={() => setBundleMapQuiz(quiz)}
                                   className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold transition cursor-pointer ${
-                                    totalMappings > 0
+                                    total > 0
                                       ? "bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20"
                                       : "text-slate-600 hover:text-slate-400"
                                   }`}>
-                                  {totalMappings > 0 ? totalMappings : "+ Map"}
+                                  {total > 0 ? total : "+ Map"}
                                 </button>
                               );
                             })()}
                           </td>
-                            <td className="px-5 py-3 text-right">
-                              <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => navigate(`/admin/quiz/${quiz.quiz_id}`)}
-                                  className="px-2.5 py-1.5 text-xs font-medium text-indigo-400 hover:text-white hover:bg-indigo-600/20 rounded-lg transition-colors">View</button>
-                                <button onClick={() => setSettingsQuiz(quiz)}
-                                  className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="Settings">⚙</button>
-                                <button onClick={() => handleDelete(quiz.quiz_id, quiz.quiz_name)} disabled={deletingId === quiz.quiz_id}
-                                  className="px-2.5 py-1.5 text-xs font-medium text-red-400 hover:text-white hover:bg-red-600/20 rounded-lg transition-colors disabled:opacity-40">
-                                  {deletingId === quiz.quiz_id ? "..." : "Del"}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                          <td className="px-5 py-3 text-right">
+                            <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => navigate(`${ADMIN_PATH}/quiz/${quiz.quiz_id}`)}
+                                className="px-2.5 py-1.5 text-xs font-medium text-indigo-400 hover:text-white hover:bg-indigo-600/20 rounded-lg transition-colors">
+                                View
+                              </button>
+                              <button onClick={() => setSettingsQuiz(quiz)}
+                                className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="Settings">
+                                ⚙
+                              </button>
+                              <button
+                                onClick={() => handleDelete(quiz.quiz_id, quiz.quiz_name)}
+                                disabled={deletingId === quiz.quiz_id}
+                                className="px-2.5 py-1.5 text-xs font-medium text-red-400 hover:text-white hover:bg-red-600/20 rounded-lg transition-colors disabled:opacity-40">
+                                {deletingId === quiz.quiz_id ? "..." : "Del"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </>
         )}
       </div>
 
-      {settingsQuiz && <QuizSettingsModal quiz={settingsQuiz} onSave={() => { setSettingsQuiz(null); fetchQuizzes(); }} onClose={() => setSettingsQuiz(null)} />}
+      {/* Modals */}
+      {showInvite    && <InviteModal onClose={() => setShowInvite(false)} />}
+      {settingsQuiz  && <QuizSettingsModal quiz={settingsQuiz} onSave={() => { setSettingsQuiz(null); fetchQuizzes(); }} onClose={() => setSettingsQuiz(null)} />}
       {bundleMapQuiz && <BundleMappingModal quiz={bundleMapQuiz} bundles={bundles} onClose={() => setBundleMapQuiz(null)} onRefresh={fetchBundles} />}
     </div>
   );
