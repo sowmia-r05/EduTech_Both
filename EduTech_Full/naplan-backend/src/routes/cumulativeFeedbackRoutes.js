@@ -1,43 +1,44 @@
-/**
- * routes/cumulativeFeedbackRoutes.js
- *
- * FIX v2:
- *   - Detect stale "generating" docs (stuck >5 min after server restart / Python crash)
- *     and reset them to "error" so they can be re-triggered on next poll.
- *   - Also clears the in-memory runningChildren lock if the server restarted.
- */
+// routes/cumulativeFeedbackRoutes.js
+//
+// BUGS FIXED:
+//   ✅ BUG-4 (HIGH): Added subscription check on GET and POST /refresh endpoints.
+//     Trial children could call these endpoints directly from the browser console
+//     and receive (or trigger) AI feedback without a paid subscription.
+//     Now returns 403 if child.status !== "active".
 
-const router = require("express").Router({ mergeParams: true });
+const express  = require("express");
 const mongoose = require("mongoose");
+const router   = express.Router({ mergeParams: true }); // needs :childId from parent router
+
 const { verifyToken, requireAuth } = require("../middleware/auth");
+const connectDB = require("../config/db");
+
+const Child              = require("../models/child");
 const CumulativeFeedback = require("../models/cumulativeFeedback");
 const {
   triggerCumulativeFeedback,
   getCumulativeFeedback,
-  clearRunningLock,           // ← new export (see cumulativeFeedbackService fix)
+  clearRunningLock,
 } = require("../services/cumulativeFeedbackService");
 
-router.use(verifyToken);
-router.use(requireAuth);
-
-// How long before a "generating" doc is considered stale and eligible for retry
-const STALE_GENERATING_MS = 5 * 60 * 1000; // 5 minutes
+// ─── Auth helper ──────────────────────────────────────────────────────────────
+// Validates that the requester is allowed to access this child's data.
+// Parent can access any of their children. Child can only access own data.
 
 function validateChildAccess(req, childId) {
-  const user = req.user;
-  if (!user) return false;
-  if (user.role === "parent" || user.parentId) return true;
-  if (user.role === "child" || user.childId) {
-    return String(user.childId || user.child_id) === String(childId);
-  }
+  const { role, childId: tokenChildId, parentId } = req.user || {};
+  if (role === "child") return String(tokenChildId) === String(childId);
+  if (role === "parent") return true; // ownership verified below against DB
   return false;
 }
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/children/:childId/cumulative-feedback
 // ─────────────────────────────────────────────────────────────
-router.get("/", async (req, res) => {
+router.get("/", verifyToken, requireAuth, async (req, res) => {
   try {
+    await connectDB();
+
     const { childId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(childId)) {
@@ -48,65 +49,73 @@ router.get("/", async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    const feedbackMap = await getCumulativeFeedback(childId);
+    const child = await Child.findById(childId).lean();
+    if (!child) return res.status(404).json({ error: "Child not found" });
 
-    // ── FIX: Detect and reset stale "generating" docs ──────────
-    // If a doc has been stuck in "generating" for >5 min (e.g. server restart
-    // cleared the in-memory runningChildren lock, but MongoDB was never updated),
-    // reset it to "error" so the next logic block can safely re-trigger.
-    const staleThreshold = new Date(Date.now() - STALE_GENERATING_MS);
-    const staleSubjects = Object.entries(feedbackMap)
-      .filter(([, d]) =>
-        d.status === "generating" &&
-        d.updatedAt &&
-        new Date(d.updatedAt) < staleThreshold
-      )
-      .map(([subject]) => subject);
+    // If parent, verify ownership
+    if (req.user.role === "parent") {
+      const parentId = req.user?.parentId || req.user?.parent_id;
+      if (String(child.parent_id) !== String(parentId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+
+    // ✅ BUG-4 FIX: Subscription gate — trial children cannot access AI feedback
+    if (child.status !== "active") {
+      return res.status(403).json({
+        error: "Upgrade required",
+        code:  "TRIAL_LIMIT",
+        message: "AI feedback is only available with a full access subscription.",
+      });
+    }
+
+    // ── Stale lock detection ──────────────────────────────────────────────────
+    // If a doc has been "generating" for >5 minutes, reset it to "error" so
+    // the UI can show a retry button instead of spinning forever.
+    const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+    const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS);
+
+    const staleDocs = await CumulativeFeedback.find({
+      child_id: childId,
+      status:   "generating",
+      updatedAt: { $lt: staleThreshold },
+    }).lean();
+
+    const staleSubjects = staleDocs.map((d) => d.subject);
 
     if (staleSubjects.length > 0) {
-      console.warn(
-        `⚠️ Resetting ${staleSubjects.length} stale "generating" doc(s) for child ${childId}: ${staleSubjects.join(", ")}`
-      );
-
       await CumulativeFeedback.updateMany(
-        {
-          child_id: childId,
-          status: "generating",
-          updatedAt: { $lt: staleThreshold },
-        },
+        { child_id: childId, subject: { $in: staleSubjects } },
         {
           $set: {
             status: "error",
-            status_message: "Generation timed out (server restart?) — will retry automatically",
+            status_message: "Generation timed out — will retry automatically",
           },
         }
       );
 
-      // Update local map so the logic below sees the corrected status
-      for (const subject of staleSubjects) {
-        if (feedbackMap[subject]) {
-          feedbackMap[subject].status = "error";
-        }
-      }
-
-      // Also clear the in-memory lock so triggerCumulativeFeedback can run again
       if (typeof clearRunningLock === "function") {
         clearRunningLock(childId);
       }
     }
-    // ── END FIX ────────────────────────────────────────────────
 
-    const hasAnyDone = Object.values(feedbackMap).some((d) => d.status === "done");
-    const hasError   = Object.values(feedbackMap).some((d) => d.status === "error");
+    const feedbackMap = await getCumulativeFeedback(childId);
+
+    // Merge stale resets into the map
+    for (const subject of staleSubjects) {
+      if (feedbackMap[subject]) {
+        feedbackMap[subject].status = "error";
+      }
+    }
+
+    const hasAnyDone          = Object.values(feedbackMap).some((d) => d.status === "done");
     const isCurrentlyGenerating = Object.values(feedbackMap).some(
       (d) => d.status === "generating" || d.status === "pending"
     );
 
-    // Trigger generation when: nothing is done yet OR there's an error, AND nothing is actively running
     const shouldTrigger = !hasAnyDone && !isCurrentlyGenerating;
 
     if (shouldTrigger) {
-      console.log(`🚀 Triggering cumulative feedback for child ${childId}`);
       setImmediate(() => {
         triggerCumulativeFeedback(childId).catch((e) =>
           console.error("Async cumulative trigger error:", e.message)
@@ -116,7 +125,7 @@ router.get("/", async (req, res) => {
 
     return res.json({
       ok: true,
-      feedback: feedbackMap,
+      feedback:   feedbackMap,
       generating: shouldTrigger || isCurrentlyGenerating,
     });
 
@@ -129,8 +138,10 @@ router.get("/", async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // POST /api/children/:childId/cumulative-feedback/refresh
 // ─────────────────────────────────────────────────────────────
-router.post("/refresh", async (req, res) => {
+router.post("/refresh", verifyToken, requireAuth, async (req, res) => {
   try {
+    await connectDB();
+
     const { childId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(childId)) {
@@ -141,7 +152,26 @@ router.post("/refresh", async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // Reset all docs to pending + clear any stale lock
+    const child = await Child.findById(childId).lean();
+    if (!child) return res.status(404).json({ error: "Child not found" });
+
+    // If parent, verify ownership
+    if (req.user.role === "parent") {
+      const parentId = req.user?.parentId || req.user?.parent_id;
+      if (String(child.parent_id) !== String(parentId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+
+    // ✅ BUG-4 FIX: Subscription gate — trial children cannot trigger AI refresh
+    if (child.status !== "active") {
+      return res.status(403).json({
+        error: "Upgrade required",
+        code:  "TRIAL_LIMIT",
+        message: "AI feedback refresh is only available with a full access subscription.",
+      });
+    }
+
     await CumulativeFeedback.updateMany(
       { child_id: childId },
       { $set: { status: "pending", status_message: "Refresh requested…" } }

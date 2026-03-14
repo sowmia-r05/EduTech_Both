@@ -107,6 +107,37 @@ export default function ParentCreatePage() {
     }
   }, [loginParent, navigate, redirectIntent]);
 
+  const handleVerifyOtp = async () => {
+  setError("");
+  const pendingEmail = localStorage.getItem("parent_pending_email") || "";
+  if (!pendingEmail) { setError("Session expired. Please start again."); setStep("form"); return; }
+  if (otpCode.length !== 6) { setError("Please enter the 6-digit code."); return; }
+
+  try {
+    setLoading(true);
+    const result = await verifyParentOtp({ email: pendingEmail, otp: otpCode });
+    const token  = result?.parent_token || result?.token || null;
+    const parent = result?.parent || null;
+    if (!token && !parent) throw new Error("Verification failed. Please try again.");
+
+    loginParent(token, parent);
+    localStorage.removeItem("parent_pending_email");
+    localStorage.removeItem("parent_pending_masked");
+    localStorage.removeItem("parent_pending_profile");
+
+    const redirect = localStorage.getItem("parent_signup_redirect") || "";
+    localStorage.removeItem("parent_signup_redirect");
+    navigate(redirect === "free-trial" ? "/parent-dashboard?onboarding=free-trial" : "/parent-dashboard", { replace: true });
+  } catch (err) {
+    setError(err?.message || "OTP verification failed");
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+
+
   const handleGoogleError = useCallback((message) => {
     setError(message || "Google Sign-In failed. Please try again.");
   }, []);
@@ -368,7 +399,7 @@ export default function ParentCreatePage() {
                   </Alert>
                 )}
                 <Button
-                  onClick={() => navigate("/parent/verify")}
+                  onClick={handleVerifyOtp}
                   disabled={otpCode.length !== 6 || loading}
                   className="w-full bg-indigo-600 hover:bg-indigo-700"
                 >

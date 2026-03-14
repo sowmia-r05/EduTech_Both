@@ -1,10 +1,6 @@
-// src/app/components/payments/PaymentSuccessModal.jsx
-//
-// A celebratory modal shown after successful Stripe payment.
-// Fetches purchase details via /api/payments/verify/:sessionId
-// and displays child name, bundle info, and next steps.
 
-import { useState, useEffect } from "react";
+
+import { useState, useEffect, useRef } from "react";
 import { verifyPayment } from "@/app/utils/api-payments";
 
 const formatAUD = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)} AUD`;
@@ -13,6 +9,9 @@ export default function PaymentSuccessModal({ sessionId, parentToken, onClose })
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // ✅ FIX: store timeout ID so it can be cancelled on unmount
+  const retryTimerRef = useRef(null);
 
   useEffect(() => {
     if (!sessionId || !parentToken) {
@@ -39,7 +38,8 @@ export default function PaymentSuccessModal({ sessionId, parentToken, onClose })
         ) {
           // Payment might not have been confirmed by webhook yet — retry
           retryCount++;
-          setTimeout(fetchData, RETRY_DELAY);
+          // ✅ FIX: store timeout ID so unmount can cancel it
+          retryTimerRef.current = setTimeout(fetchData, RETRY_DELAY);
         } else {
           setData(result);
           setLoading(false);
@@ -48,7 +48,8 @@ export default function PaymentSuccessModal({ sessionId, parentToken, onClose })
         if (!mounted) return;
         if (retryCount < MAX_RETRIES) {
           retryCount++;
-          setTimeout(fetchData, RETRY_DELAY);
+          // ✅ FIX: store timeout ID so unmount can cancel it
+          retryTimerRef.current = setTimeout(fetchData, RETRY_DELAY);
         } else {
           setError(err?.message || "Unable to verify payment");
           setLoading(false);
@@ -57,8 +58,11 @@ export default function PaymentSuccessModal({ sessionId, parentToken, onClose })
     };
 
     fetchData();
+
+    // ✅ FIX: cleanup now correctly inside useEffect — cancels pending retry on unmount
     return () => {
       mounted = false;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, [sessionId, parentToken]);
 
@@ -150,90 +154,99 @@ export default function PaymentSuccessModal({ sessionId, parentToken, onClose })
                 )}
 
                 {subjects.length > 0 && (
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-start justify-between">
                     <span className="text-sm text-slate-500">Subjects</span>
-                    <div className="flex flex-wrap justify-end gap-1">
-                      {subjects.map((s) => (
-                        <span
-                          key={s}
-                          className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700"
-                        >
-                          {s}
-                        </span>
-                      ))}
-                    </div>
+                    <span className="text-sm font-semibold text-slate-900 text-right">
+                      {subjects.join(", ")}
+                    </span>
                   </div>
                 )}
 
                 {amount && (
-                  <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-                    <span className="text-sm text-slate-500">Amount Paid</span>
-                    <span className="text-lg font-bold text-slate-900">
+                  <div className="flex items-center justify-between border-t border-slate-200 pt-3 mt-1">
+                    <span className="text-sm font-semibold text-slate-700">
+                      Total paid
+                    </span>
+                    <span className="text-sm font-bold text-emerald-700">
                       {formatAUD(amount)}
                     </span>
                   </div>
                 )}
               </div>
 
-              {/* Status indicator */}
-              <div className="flex items-center gap-3 px-1">
-                {isPaid && isProvisioned ? (
-                  <>
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
-                      <svg
-                        className="w-4 h-4 text-emerald-600"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2.5}
+              {/* Access status */}
+              {isPaid && (
+                <div
+                  className={`rounded-xl p-4 ${
+                    isProvisioned
+                      ? "bg-emerald-50 border border-emerald-200"
+                      : "bg-amber-50 border border-amber-200"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl">
+                      {isProvisioned ? "✅" : "⏳"}
+                    </span>
+                    <div>
+                      <p
+                        className={`text-sm font-semibold ${
+                          isProvisioned ? "text-emerald-800" : "text-amber-800"
+                        }`}
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">
-                        All set!
+                        {isProvisioned
+                          ? "Access activated!"
+                          : "Activating access..."}
                       </p>
-                      <p className="text-xs text-slate-500">
-                        Quizzes are assigned and ready to go.
-                      </p>
-                    </div>
-                  </>
-                ) : isPaid && !isProvisioned ? (
-                  <>
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
-                      <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">
-                        Setting up quizzes...
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        This usually takes a minute. Quizzes will appear on the
-                        child's dashboard shortly.
+                      <p
+                        className={`text-xs mt-0.5 ${
+                          isProvisioned ? "text-emerald-700" : "text-amber-700"
+                        }`}
+                      >
+                        {isProvisioned
+                          ? `${childNames} can now access all ${bundleName} quizzes.`
+                          : "This usually takes less than a minute. Refresh the page if access doesn't appear."}
                       </p>
                     </div>
-                  </>
-                ) : null}
+                  </div>
+                </div>
+              )}
+
+              {/* Next steps */}
+              <div className="bg-indigo-50 rounded-xl p-4">
+                <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-2">
+                  What's next
+                </p>
+                <ul className="space-y-1.5">
+                  <li className="flex items-center gap-2 text-sm text-indigo-800">
+                    <span className="text-indigo-500">→</span>
+                    Log in as your child to start practising
+                  </li>
+                  <li className="flex items-center gap-2 text-sm text-indigo-800">
+                    <span className="text-indigo-500">→</span>
+                    Track progress from your parent dashboard
+                  </li>
+                  <li className="flex items-center gap-2 text-sm text-indigo-800">
+                    <span className="text-indigo-500">→</span>
+                    View AI feedback after each quiz
+                  </li>
+                </ul>
               </div>
             </div>
           )}
         </div>
 
         {/* ─── Footer ─── */}
-        <div className="px-6 pb-6">
+        <div className="px-6 pb-6 pt-2">
           <button
             onClick={onClose}
-            className="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors"
+            className="w-full py-3 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors"
           >
-            {loading ? "Close" : "Back to Dashboard"}
+            Back to Dashboard
           </button>
         </div>
       </div>
     </div>
   );
 }
+
+
