@@ -371,6 +371,7 @@ const getInitialTab = () => {
       status: m ? "completed" : "not_started",
       score: m?.score ?? null, grade: m?.grade ?? null,
       date_completed: m?.date ?? null, response_id: m?.response_id ?? null, ai_status: m?.ai_status ?? null,
+      violations: m?.violations ?? m?.proctoring?.violations ?? null,
     };
   }), [tests, entitledCatalog]);
 
@@ -801,13 +802,14 @@ const getInitialTab = () => {
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   <table className="w-full text-sm table-fixed">
                     <colgroup>
-                      <col style={{ width: "15%" }} />
-                      <col style={{ width: "26%" }} />
-                      <col style={{ width: "14%" }} />
-                      <col style={{ width: "10%" }} />
                       <col style={{ width: "13%" }} />
-                      <col style={{ width: "14%" }} />
-                      <col style={{ width: "8%"  }} />
+                      <col style={{ width: "23%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "9%"  }} />
+                      <col style={{ width: "9%"  }} />
+                      <col style={{ width: "11%" }} />
+                      <col style={{ width: "13%" }} />
+                      <col style={{ width: "10%" }} />
                     </colgroup>
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
@@ -823,8 +825,9 @@ const getInitialTab = () => {
                         <th onClick={() => handleSort("score")} className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600 select-none">
                           <span className="flex items-center justify-center gap-1">Score {sortConfig.key === "score" && <span className="text-indigo-500">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>}</span>
                         </th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Violations</th>
                         <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Action</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Test Insights</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">View Results</th>
                         <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
                       </tr>
                     </thead>
@@ -867,18 +870,34 @@ const getInitialTab = () => {
                                 ? <span><span className={`text-sm font-bold ${quiz.score >= 85 ? "text-emerald-600" : quiz.score >= 70 ? "text-amber-600" : "text-rose-600"}`}>{quiz.score}%</span>{quiz.grade && <span className="text-xs text-slate-400 ml-1">({quiz.grade})</span>}</span>
                                 : <span className="text-slate-300">—</span>}
                             </td>
+                          {/* Violations */}
+                            <td className="px-4 py-3 text-center">
+                              {isCompleted && quiz.violations != null
+                                ? (
+                                  <span className={`inline-flex items-center justify-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                    quiz.violations === 0
+                                      ? "bg-emerald-50 text-emerald-600"
+                                      : quiz.violations <= 2
+                                        ? "bg-amber-50 text-amber-600"
+                                        : "bg-rose-50 text-rose-600"
+                                  }`}>
+                                    {quiz.violations === 0 ? "✓ None" : `⚠ ${quiz.violations}`}
+                                  </span>
+                                )
+                                : <span className="text-slate-300">—</span>}
+                            </td>
                             {/* Action */}
                             <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                               {isCompleted
                                 ? <button onClick={() => setActiveQuiz(quiz)} className="inline-flex items-center justify-center px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition border border-slate-200 whitespace-nowrap">Retake Quiz</button>
                                 : <button onClick={() => setActiveQuiz(quiz)} className="inline-flex items-center justify-center px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap">Start Quiz</button>}
                             </td>
-                            {/* Test Insights — opens specific test dashboard */}
+                            {/* View Results — opens specific test dashboard */}
                             <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                               {isCompleted && quiz.response_id
                                 ? <button onClick={() => handleAiFeedback(quiz)}
                                     className={`inline-flex items-center justify-center px-3 py-1.5 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap ${(quiz.subject || "").toLowerCase() === "writing" ? "bg-purple-600 hover:bg-purple-700" : "bg-indigo-600 hover:bg-indigo-700"}`}>
-                                    Test Insights
+                                    View Results
                                   </button>
                                 : <span className="text-slate-300">—</span>}
                             </td>
@@ -891,7 +910,7 @@ const getInitialTab = () => {
                           </tr>
                         );
                       }) : (
-                        <tr><td colSpan={7} className="px-5 py-12 text-center">
+                        <tr><td colSpan={8} className="px-5 py-12 text-center">
                           <p className="text-slate-400 text-sm">
                             {entitledCatalog.length === 0
                               ? (isParentViewing ? `${displayName} hasn't completed any quizzes yet. Results will appear here once they do.` : "No quizzes here yet — pick one and give it a go!")
