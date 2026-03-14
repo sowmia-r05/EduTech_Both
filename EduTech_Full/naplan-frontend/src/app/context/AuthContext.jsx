@@ -2,34 +2,28 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo } 
 
 const AuthContext = createContext(null);
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL !== undefined
-    ? import.meta.env.VITE_API_BASE_URL
-    : "";
+const API_BASE = import.meta.env.VITE_API_BASE_URL !== undefined
+  ? import.meta.env.VITE_API_BASE_URL
+  : "";
 
 function safeJsonParse(key) {
   try {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-// ✅ Checks if a JWT token is expired (without a library)
 function isTokenExpired(token) {
   if (!token) return true;
   try {
     const payload = JSON.parse(atob(token.split(".")[1]));
     return payload.exp * 1000 < Date.now();
-  } catch {
-    return true;
-  }
+  } catch { return true; }
 }
 
 export function AuthProvider({ children }) {
+
   // ─── Parent state ───
-  // ✅ FIXED: Clear stale/expired token on app load
   const [parentToken, setParentToken] = useState(() => {
     const token = localStorage.getItem("parent_token");
     if (isTokenExpired(token)) {
@@ -39,10 +33,11 @@ export function AuthProvider({ children }) {
     }
     return token;
   });
-  const [parentProfile, setParentProfile] = useState(() => safeJsonParse("parent_profile"));
+  const [parentProfile, setParentProfile] = useState(
+    () => safeJsonParse("parent_profile")
+  );
 
   // ─── Child state ───
-  // ✅ FIXED: Clear stale/expired token on app load
   const [childToken, setChildToken] = useState(() => {
     const token = localStorage.getItem("child_token");
     if (isTokenExpired(token)) {
@@ -52,9 +47,10 @@ export function AuthProvider({ children }) {
     }
     return token;
   });
-  const [childProfile, setChildProfile] = useState(() => safeJsonParse("child_profile"));
+  const [childProfile, setChildProfile] = useState(
+    () => safeJsonParse("child_profile")
+  );
 
-  // ─── Initializing guard (prevents flash redirect on tab reopen) ───
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
@@ -62,14 +58,19 @@ export function AuthProvider({ children }) {
   }, []);
 
   // ─── Derived ───
-  const activeRole = childToken ? "child" : parentToken ? "parent" : null;
+  const activeRole  = childToken ? "child" : parentToken ? "parent" : null;
   const activeToken = childToken || parentToken || null;
 
   // ─── Actions ───
+  // ✅ loginParent: stores token in BOTH localStorage (for existing components)
+  //    AND the httpOnly cookie is already set by the server.
+  //    This hybrid approach means no component breaks during migration.
   const loginParent = useCallback((token, profile) => {
-    localStorage.setItem("parent_token", token);
+    if (token) {
+      localStorage.setItem("parent_token", token);
+      setParentToken(token);
+    }
     if (profile) localStorage.setItem("parent_profile", JSON.stringify(profile));
-    setParentToken(token);
     setParentProfile(profile || null);
   }, []);
 
@@ -80,13 +81,23 @@ export function AuthProvider({ children }) {
     setParentToken(null);
     setParentProfile(null);
 
-    localStorage.setItem("child_token", token);
+    if (token) {
+      localStorage.setItem("child_token", token);
+      setChildToken(token);
+    }
     if (profile) localStorage.setItem("child_profile", JSON.stringify(profile));
-    setChildToken(token);
     setChildProfile(profile || null);
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Clear cookies on backend
+    try {
+      await fetch(`${API_BASE}/api/parents/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {}
+    // Clear localStorage
     localStorage.removeItem("parent_token");
     localStorage.removeItem("child_token");
     localStorage.removeItem("parent_profile");
@@ -97,61 +108,60 @@ export function AuthProvider({ children }) {
     setChildProfile(null);
   }, []);
 
-  const logoutChild = useCallback(() => {
+  const logoutChild = useCallback(async () => {
+    try {
+      await fetch(`${API_BASE}/api/auth/child-logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {}
     localStorage.removeItem("child_token");
     localStorage.removeItem("child_profile");
     setChildToken(null);
     setChildProfile(null);
   }, []);
 
-  // ─── Auth headers helper for API calls ───
   const authHeaders = useCallback(() => {
     if (!activeToken) return {};
     return { Authorization: `Bearer ${activeToken}` };
   }, [activeToken]);
 
-  // ─── apiFetch helper ───
   const apiFetch = useCallback(
-    (url, opts = {}) => {
-      return fetch(`${API_BASE}${url}`, {
-        ...opts,
-        headers: {
-          "Content-Type": "application/json",
-          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
-          ...opts.headers,
-        },
-      });
-    },
+    (url, opts = {}) => fetch(`${API_BASE}${url}`, {
+      ...opts,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+        ...opts.headers,
+      },
+    }),
     [activeToken]
   );
 
-  const value = useMemo(
-    () => ({
-      parentToken,
-      childToken,
-      parentProfile,
-      childProfile,
-      activeRole,
-      activeToken,
-      loginParent,
-      loginChild,
-      logout,
-      logoutChild,
-      authHeaders,
-      apiFetch,
-      isAuthenticated: !!activeToken,
-      isParent: activeRole === "parent",
-      isChild: activeRole === "child",
-      isInitializing,
-    }),
-    [
-      parentToken, childToken, parentProfile, childProfile,
-      activeRole, activeToken,
-      loginParent, loginChild, logout, logoutChild, authHeaders,
-      apiFetch,
-      isInitializing,
-    ]
-  );
+  const value = useMemo(() => ({
+    parentToken,
+    childToken,
+    parentProfile,
+    childProfile,
+    activeRole,
+    activeToken,
+    loginParent,
+    loginChild,
+    logout,
+    logoutChild,
+    authHeaders,
+    apiFetch,
+    isAuthenticated: !!activeToken,
+    isParent:        activeRole === "parent",
+    isChild:         activeRole === "child",
+    isInitializing,
+  }), [
+    parentToken, childToken, parentProfile, childProfile,
+    activeRole, activeToken,
+    loginParent, loginChild, logout, logoutChild,
+    authHeaders, apiFetch, isInitializing,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -161,3 +171,4 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
   return ctx;
 }
+

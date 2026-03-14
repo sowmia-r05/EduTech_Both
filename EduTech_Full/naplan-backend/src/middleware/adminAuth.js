@@ -17,7 +17,9 @@ const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
  */
 function requireAdmin(req, res, next) {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const fromHeader = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const fromCookie = req.cookies?.admin_token || null; //
+  const token = fromHeader || fromCookie;
 
   if (!token) {
     return res.status(401).json({ error: "Admin authentication required" });

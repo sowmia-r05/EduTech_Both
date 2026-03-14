@@ -11,7 +11,23 @@ const jwt = require("jsonwebtoken");
 const { sendBrevoEmail } = require("../services/brevoEmail");
 const Parent = require("../models/parent"); // ✅ Use Parent instead of User
 
+
 const router = express.Router();
+
+(function validateOtpConfig() {
+  const secret = process.env.OTP_SECRET;
+  if (!secret) {
+    throw new Error(
+      "FATAL: OTP_SECRET environment variable is not set. " +
+        "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error("FATAL: OTP_SECRET must be at least 32 characters long.");
+  }
+  console.log("✅ OTP_SECRET validated");
+})();
+
 
 function requiredEnv(name) {
   const v = process.env[name];
@@ -47,9 +63,9 @@ async function lookupEmailByUsername(username) {
 const otpStore = new Map();
 
 function hashOtp(username, otp) {
-  const secret = requiredEnv("OTP_SECRET");
+  
   return crypto
-    .createHmac("sha256", secret)
+    .createHmac("sha256", process.env.OTP_SECRET)
     .update(`${username}:${otp}`)
     .digest("hex");
 }

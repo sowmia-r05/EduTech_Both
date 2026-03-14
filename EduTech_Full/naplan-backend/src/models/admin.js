@@ -52,6 +52,12 @@ const AdminSchema = new mongoose.Schema(
  */
 AdminSchema.pre("save", async function () {
   if (!this.isModified("password_hash")) return;
+  // ✅ Skip if already hashed (prevents double-hashing when we pre-hash in the route)
+  if (
+    this.password_hash.startsWith("$2b$") ||
+    this.password_hash.startsWith("$2a$")
+  )
+    return;
   this.password_hash = await bcrypt.hash(this.password_hash, SALT_ROUNDS);
 });
 

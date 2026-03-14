@@ -1,3 +1,5 @@
+const { setAuthCookie } = require("../utils/setCookies");
+const PARENT_COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 const router = require("express").Router();
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
@@ -17,20 +19,47 @@ const MAX_OTP_ATTEMPTS = 5;
 const RESEND_COOLDOWN_MS = 30 * 1000; // optional: 30s cooldown
 
 function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
 function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000)); // 6-digit
 }
 
+function getOtpSecret() {
+  const secret = process.env.OTP_SECRET;
+  if (!secret) {
+    // ✅ Throw at startup — will crash the server with a clear message
+    // rather than silently using a known default
+    throw new Error(
+      "FATAL: OTP_SECRET environment variable is not set. " +
+        "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\" " +
+        "and add it to your .env file.",
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      "FATAL: OTP_SECRET must be at least 32 characters long for security. " +
+        "Current length: " +
+        secret.length,
+    );
+  }
+  return secret;
+}
+
+// Call getOtpSecret() once at module load so it fails fast on startup, not at request time:
+const OTP_SIGNING_SECRET = getOtpSecret();
+
+// Updated hashOtp — uses the validated secret
 function hashOtp(email, otp) {
-  const secret = process.env.OTP_SECRET || "dev-parent-otp-secret";
   return crypto
-    .createHmac("sha256", secret)
+    .createHmac("sha256", OTP_SIGNING_SECRET)
     .update(`${normalizeEmail(email)}:${String(otp)}`)
     .digest("hex");
 }
+
 
 function maskEmail(email) {
   return String(email || "").replace(/(^.).*(@.*$)/, "$1****$2");
@@ -77,11 +106,15 @@ router.post("/send-otp", async (req, res) => {
     const email = normalizeEmail(req.body?.email);
 
     if (!firstName) {
-      return res.status(400).json({ ok: false, error: "First name is required" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "First name is required" });
     }
 
     if (!lastName) {
-      return res.status(400).json({ ok: false, error: "Last name is required" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "Last name is required" });
     }
 
     if (!email) {
@@ -89,7 +122,9 @@ router.post("/send-otp", async (req, res) => {
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ ok: false, error: "Valid email is required" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "Valid email is required" });
     }
 
     // block if already registered
@@ -106,7 +141,10 @@ router.post("/send-otp", async (req, res) => {
     const existing = pendingParentSignups.get(email);
 
     // optional resend cooldown
-    if (existing?.lastSentAt && now - existing.lastSentAt < RESEND_COOLDOWN_MS) {
+    if (
+      existing?.lastSentAt &&
+      now - existing.lastSentAt < RESEND_COOLDOWN_MS
+    ) {
       return res.status(429).json({
         ok: false,
         error: "Please wait 30 seconds before requesting another OTP.",
@@ -152,7 +190,9 @@ router.post("/send-otp", async (req, res) => {
 router.post("/verify-otp", async (req, res) => {
   try {
     if (!PARENT_SECRET) {
-      return res.status(500).json({ ok: false, error: "PARENT_JWT_SECRET missing" });
+      return res
+        .status(500)
+        .json({ ok: false, error: "PARENT_JWT_SECRET missing" });
     }
 
     await connectDB();
@@ -169,25 +209,34 @@ router.post("/verify-otp", async (req, res) => {
     }
 
     if (!/^\d{6}$/.test(otp)) {
-      return res.status(400).json({ ok: false, error: "OTP must be a 6-digit code" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "OTP must be a 6-digit code" });
     }
 
     const record = pendingParentSignups.get(email);
     if (!record) {
       return res
         .status(401)
-        .json({ ok: false, error: "OTP not requested. Please request OTP again." });
+        .json({
+          ok: false,
+          error: "OTP not requested. Please request OTP again.",
+        });
     }
 
     if (Date.now() > record.expiresAt) {
       pendingParentSignups.delete(email);
-      return res.status(401).json({ ok: false, error: "OTP expired. Please request OTP again." });
+      return res
+        .status(401)
+        .json({ ok: false, error: "OTP expired. Please request OTP again." });
     }
 
     record.attempts = (record.attempts || 0) + 1;
     if (record.attempts > MAX_OTP_ATTEMPTS) {
       pendingParentSignups.delete(email);
-      return res.status(429).json({ ok: false, error: "Too many attempts. Request a new OTP." });
+      return res
+        .status(429)
+        .json({ ok: false, error: "Too many attempts. Request a new OTP." });
     }
 
     const expected = record.otpHash;
@@ -219,26 +268,30 @@ router.post("/verify-otp", async (req, res) => {
         email: parent.email,
       },
       PARENT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "7d" },
     );
+
+    setAuthCookie(res, "parent_token", token, PARENT_COOKIE_MAX_AGE);
 
     return res.json({
       ok: true,
-      parent_token,
       parent: {
-        parent_id: parent._id.toString(),
+        parentId: parent._id,
         email: parent.email,
-        firstName: parent.firstName || "",
-        lastName: parent.lastName || "",
-        name: `${parent.firstName || ""} ${parent.lastName || ""}`.trim(),
+        firstName: parent.firstName,
+        lastName: parent.lastName,
       },
     });
   } catch (err) {
     console.error("Parent verify-otp failed:", err);
     if (err?.code === 11000) {
-      return res.status(409).json({ ok: false, error: "Parent already exists" });
+      return res
+        .status(409)
+        .json({ ok: false, error: "Parent already exists" });
     }
-    return res.status(500).json({ ok: false, error: "Failed to verify OTP", detail: err.message });
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to verify OTP", detail: err.message });
   }
 });
 
@@ -276,7 +329,9 @@ router.post("/login-otp", async (req, res) => {
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ ok: false, error: "Valid email is required" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "Valid email is required" });
     }
 
     // ✅ Must be an existing parent — reject if not found
@@ -284,7 +339,8 @@ router.post("/login-otp", async (req, res) => {
     if (!parent) {
       return res.status(404).json({
         ok: false,
-        error: "No account found with this email. Please create an account first.",
+        error:
+          "No account found with this email. Please create an account first.",
       });
     }
 
@@ -292,7 +348,10 @@ router.post("/login-otp", async (req, res) => {
     const existing = pendingParentLogins.get(email);
 
     // Resend cooldown
-    if (existing?.lastSentAt && now - existing.lastSentAt < RESEND_COOLDOWN_MS) {
+    if (
+      existing?.lastSentAt &&
+      now - existing.lastSentAt < RESEND_COOLDOWN_MS
+    ) {
       return res.status(429).json({
         ok: false,
         error: "Please wait 30 seconds before requesting another code.",
@@ -318,9 +377,17 @@ router.post("/login-otp", async (req, res) => {
     });
   } catch (err) {
     console.error("Parent login-otp failed:", err);
-    return res.status(500).json({ ok: false, error: "Failed to send login code" });
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to send login code" });
   }
 });
+
+router.post("/logout", (req, res) => {
+  clearAuthCookie(res, "parent_token");
+  res.json({ ok: true });
+});
+
 
 /**
  * POST /api/parents/auth/verify-login-otp
@@ -331,7 +398,9 @@ router.post("/login-otp", async (req, res) => {
 router.post("/verify-login-otp", async (req, res) => {
   try {
     if (!PARENT_SECRET) {
-      return res.status(500).json({ ok: false, error: "PARENT_JWT_SECRET missing" });
+      return res
+        .status(500)
+        .json({ ok: false, error: "PARENT_JWT_SECRET missing" });
     }
 
     await connectDB();
@@ -344,7 +413,9 @@ router.post("/verify-login-otp", async (req, res) => {
     }
 
     if (!otp || !/^\d{6}$/.test(otp)) {
-      return res.status(400).json({ ok: false, error: "OTP must be a 6-digit code" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "OTP must be a 6-digit code" });
     }
 
     const record = pendingParentLogins.get(email);
@@ -397,18 +468,18 @@ router.post("/verify-login-otp", async (req, res) => {
         email: parent.email,
       },
       PARENT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "7d" },
     );
+
+    setAuthCookie(res, "parent_token", parent_token, PARENT_COOKIE_MAX_AGE);
 
     return res.json({
       ok: true,
-      parent_token,
       parent: {
-        parent_id: parent._id.toString(),
+        parentId: parent._id,
         email: parent.email,
-        firstName: parent.firstName || "",
-        lastName: parent.lastName || "",
-        name: `${parent.firstName || ""} ${parent.lastName || ""}`.trim(),
+        firstName: parent.firstName,
+        lastName: parent.lastName,
       },
     });
   } catch (err) {

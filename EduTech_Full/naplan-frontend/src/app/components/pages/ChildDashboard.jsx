@@ -181,7 +181,7 @@ const getInitialTab = () => {
 
   /* ─── STATE ─── */
   const [tests,                setTests]                = useState([]);
-  const [childStatus,          setChildStatus]          = useState(() => childProfile?.status || "trial");
+  const [childStatus, setChildStatus] = useState(() => childProfile?.status || "trial");
   const [loading,              setLoading]              = useState(true);
   const [error,                setError]                = useState(null);
   const [currentPage,          setCurrentPage]          = useState(1);
@@ -255,17 +255,23 @@ const getInitialTab = () => {
 
   /* ─── Load available quizzes (original) ─── */
   useEffect(() => {
-    if (!activeToken || !childId) { setQuizzesLoading(false); return; }
+    if (!activeToken || !childId) {
+      setQuizzesLoading(false);
+      return;
+    }
     setQuizzesLoading(true);
     fetchAvailableQuizzes(activeToken, childId)
       .then((data) => {
         const q = Array.isArray(data) ? data : data?.quizzes || [];
         setAvailableQuizzes(q.map((x) => ({ ...x, subject: normalizeSubject(x.subject) })));
+        // ✅ B-01 fix: childStatus comes ONLY from the API response — never from URL params
         if (data?.child_status) setChildStatus(data.child_status);
       })
       .catch(() => setAvailableQuizzes([]))
       .finally(() => setQuizzesLoading(false));
   }, [activeToken, childId]);
+
+
 
   /* ─── refreshData (original) ─── */
   const refreshData = useCallback(() => {
@@ -441,19 +447,25 @@ const getInitialTab = () => {
   }, [activeToken]);
 
   /* ─── handleAiFeedback (original — navigates to specific test dashboard) ─── */
-  const handleAiFeedback = useCallback((item) => {
-    const rid = item.response_id; if (!rid) return;
-    const params = new URLSearchParams({ r: rid });
-    const username = childInfo?.username || childProfile?.username || searchParams.get("username") || null;
-    if (username) params.set("username", username);
-    if (item.subject) params.set("subject", item.subject);
-    if (item.quiz_name || item.name) params.set("quiz_name", item.quiz_name || item.name);
-    params.set("status", childStatus);
-    navigate((item.subject || "").toLowerCase() === "writing"
-      ? `/writing-feedback/result?${params}`
-      : `/NonWritingLookupQuizResults/results?${params}`
-    );
-  }, [navigate, childInfo, childProfile, searchParams, childStatus]);
+
+
+const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
+ setSelectedQuizResult(null);
+ const params = new URLSearchParams({ r: attemptId });
+ 
+ const username = childInfo?.username || childProfile?.username || null;
+ if (username) params.set("username", username);
+ if (subject)  params.set("subject", subject);
+ if (name)     params.set("quiz_name", name);
+ // ✅ FIX B-01: DO NOT set params.set("status", childStatus) — removed entirely
+ 
+ navigate(
+   (subject || "").toLowerCase() === "writing"
+     ? `/writing-feedback/result?${params}`
+     : `/NonWritingLookupQuizResults/results?${params}`
+ );
+}, [navigate, childInfo, childProfile]);
+
 
   /* ─── handleQuizClose (original) ─── */
   const handleQuizClose = useCallback((result) => {

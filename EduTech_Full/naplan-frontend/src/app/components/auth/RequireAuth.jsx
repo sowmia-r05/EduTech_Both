@@ -15,57 +15,34 @@ function LoadingSpinner() {
  * Waits for auth to initialize before deciding to redirect.
  */
 export function RequireParent({ children }) {
-  const { isParent, isInitializing } = useAuth();
-
-  const hasParentToken =
-    typeof window !== "undefined" && !!localStorage.getItem("parent_token");
-
-  if (isInitializing) return <LoadingSpinner />;
-
-  if (!isParent && !hasParentToken) {
-    return <Navigate to="/" replace />;
-  }
-
-  return children;
+ const { isParent, isInitializing } = useAuth();
+ if (isInitializing) return <LoadingSpinner />;
+ if (!isParent) return <Navigate to="/" replace />;
+ return children;
 }
+
 
 /**
  * Child-only route guard
  * Waits for auth to initialize before deciding to redirect.
  */
+// RequireChild — updated:
 export function RequireChild({ children }) {
-  const { isChild, isInitializing } = useAuth();
-
-  const hasChildToken =
-    typeof window !== "undefined" && !!localStorage.getItem("child_token");
-
-  if (isInitializing) return <LoadingSpinner />;
-
-  if (!isChild && !hasChildToken) {
-    return <Navigate to="/child-login" replace />;
-  }
-
-  return children;
+ const { isChild, isInitializing } = useAuth();
+ if (isInitializing) return <LoadingSpinner />;
+ if (!isChild) return <Navigate to="/child-login" replace />;
+ return children;
 }
+
 
 /**
  * Generic authenticated guard
  * Waits for auth to initialize before deciding to redirect.
  */
+// RequireAuth — updated:
 export function RequireAuth({ children }) {
-  const { isAuthenticated, isParent, isChild, isInitializing } = useAuth();
-
-  const hasAnyToken =
-    typeof window !== "undefined" &&
-    (!!localStorage.getItem("parent_token") ||
-      !!localStorage.getItem("child_token") ||
-      !!localStorage.getItem("token"));
-
-  if (isInitializing) return <LoadingSpinner />;
-
-  if (!isAuthenticated && !isParent && !isChild && !hasAnyToken) {
-    return <Navigate to="/" replace />;
-  }
-
-  return children;
+ const { isAuthenticated, isInitializing } = useAuth();
+ if (isInitializing) return <LoadingSpinner />;
+ if (!isAuthenticated) return <Navigate to="/" replace />;
+ return children;
 }

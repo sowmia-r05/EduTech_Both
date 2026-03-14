@@ -1,12 +1,85 @@
 // ✅ Force IPv4 first (fixes ENETUNREACH to Gmail IPv6 on Render)
+
+require("dotenv").config();
 const dns = require("dns");
 dns.setDefaultResultOrder("ipv4first");
 
-require("dotenv").config();
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const cors = require("cors");
+const helmet = require("helmet"); // ✅ NEW
+const cookieParser = require("cookie-parser"); // ✅ NEW (for S-02)
 const path = require("path");
+
+const app = express();
+app.set("trust proxy", 1);
+
+// ✅ Security headers — must come BEFORE routes and BEFORE cors
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:", "https://*.stripe.com"],
+        connectSrc: [
+          "'self'",
+          "https://api.stripe.com",
+          "https://checkout.stripe.com",
+        ],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'", "blob:"],
+        frameSrc: ["https://checkout.stripe.com", "https://js.stripe.com"],
+        frameAncestors: ["'none'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: [],
+      },
+    },
+    frameguard: { action: "deny" },
+    noSniff: true,
+    hsts:
+      process.env.NODE_ENV === "production"
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    crossOriginOpenerPolicy: { policy: "same-origin" },
+    hidePoweredBy: true,
+  }),
+);
+
+// ✅ CORS — after helmet
+// Replace the cors() config in app.js with this:
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
+const IS_DEV = process.env.NODE_ENV !== "production";
+
+app.use(
+  cors({
+    origin: FRONTEND_ORIGIN
+      ? FRONTEND_ORIGIN.split(",").map((s) => s.trim())
+      : IS_DEV
+        ? "http://localhost:5173"   // ✅ safe default for local dev only
+        : false,                    // ✅ locked down in production
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  })
+);
+
+
+// ✅ Cookie parser (needed for httpOnly cookie auth — S-02)
+app.use(cookieParser());
+
+// ✅ JSON body parsing
+app.use(
+  express.json({
+    limit: "1mb", // ✅ ALSO fixes S-18: was 100mb
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  }),
+);
+
 
 // ─── Routes ───
 const examRoutes = require("./routes/examRoutes");
@@ -29,7 +102,8 @@ const flashcardsRoute = require("./routes/flashcardsRoute");
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const healthRoutes = require("./routes/healthRoutes");
 const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes");
-const ocrRoute = require("./routes/ocrRoute"); // ✅ OCR for handwriting upload
+const ocrRoute = require("./routes/ocrRoute"); 
+const sessionRoutes = require("./routes/sessionRoutes");
 
 
 // ✅ Legacy route auth middleware
@@ -40,21 +114,13 @@ const {
 const resultRoutes = require("./routes/resultRoutes");
 const regenerateAiRoute = require("./routes/regenerateAiRoute");
 
-const app = express();
+
 
 app.set("trust proxy", 1);
 
-// ✅ CORS
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
-app.use(
-  cors({
-    origin: FRONTEND_ORIGIN
-      ? FRONTEND_ORIGIN.split(",").map((s) => s.trim())
-      : true,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-  })
-);
+
+
+app.use(cookieParser());
 
 // ✅ JSON + keep raw body for Stripe webhook signature verification
 app.use(
@@ -115,6 +181,7 @@ app.use("/api", quizRoutes);
 app.use("/api", availableQuizzesRoute);
 app.use("/api", flashcardsRoute);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/auth", sessionRoutes);
 app.use("/api/ocr", ocrRoute); // ✅ OCR route — must be BEFORE static files
 
 // ✅ Static uploads

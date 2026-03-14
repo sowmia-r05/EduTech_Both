@@ -159,7 +159,22 @@ export default function ResultPage() {
   const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
 
   const isParentViewing = !childToken && !!parentToken;
-  const childStatus = searchParams.get("status") || childProfile?.status || "trial";
+  const [childStatus, setChildStatus] = useState("trial");
+ 
+useEffect(() => {
+ const id = childIdParam || childProfile?.childId;
+ if (!activeToken || !id) return;
+ 
+ fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/children/${id}/available-quizzes`, {
+   headers: { Authorization: `Bearer ${activeToken}` }
+ })
+   .then(r => r.ok ? r.json() : null)
+   .then(data => {
+     if (data?.child_status) setChildStatus(data.child_status);
+   })
+   .catch(() => {}); // Failure means we stay on trial (safe default)
+}, [activeToken, childIdParam, childProfile]);
+
   const yearLevel   = yearLevelParam || childProfile?.yearLevel || null;
   const viewerType  = childToken && !isParentViewing ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
 
