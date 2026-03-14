@@ -455,6 +455,7 @@ export default function QuizUploader({ onUploadSuccess }) {
       const data = await res.json();
       setUploadResult(data);
       setStep("done");
+      onUploadSuccess?.(); // ✅ Auto-refresh quiz list in AdminDashboar
     } catch (err) {
       setUploadError(err.message);
       setStep("preview");
@@ -553,23 +554,26 @@ export default function QuizUploader({ onUploadSuccess }) {
         {/* Upload area */}
         <div className="space-y-4">
           <div>
-            <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer bg-slate-900/50 hover:bg-slate-900 hover:border-indigo-500/50 transition-colors"
-              onClick={() => fileRef.current?.click()}>
-              <svg className="w-10 h-10 text-slate-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-              </svg>
-              <p className="text-sm text-slate-400">
-                <span className="text-indigo-400 font-medium">Click to upload</span> or drag and drop
-              </p>
-              <p className="text-xs text-slate-500 mt-1">.xlsx files — our template or FlexiQuiz export</p>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={handleFile}
-              />
-            </label>
+           <label
+                      htmlFor="quiz-file-upload"
+                      className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer bg-slate-900/50 hover:bg-slate-900 hover:border-indigo-500/50 transition-colors"
+                    >
+                      <svg className="w-10 h-10 text-slate-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                      </svg>
+                      <p className="text-sm text-slate-400">
+                        <span className="text-indigo-400 font-medium">Click to upload</span> or drag and drop
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">.xlsx files — our template or FlexiQuiz export</p>
+                    </label>
+                    <input
+                      id="quiz-file-upload"
+                      ref={fileRef}
+                      type="file"
+                      accept=".xlsx,.xls"
+                      className="hidden"
+                      onChange={handleFile}
+                    />
           </div>
         </div>
       </div>

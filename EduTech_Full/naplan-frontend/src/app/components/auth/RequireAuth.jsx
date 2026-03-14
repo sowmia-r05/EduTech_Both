@@ -1,63 +1,48 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 
+// ── Spinner shown while tokens rehydrate from localStorage on tab reopen ──
+function LoadingSpinner() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
 /**
  * Parent-only route guard
- * Allows access if:
- * - React auth state says parent is logged in, OR
- * - parent token exists in localStorage (fallback after refresh / rehydrate delay)
+ * Waits for auth to initialize before deciding to redirect.
  */
 export function RequireParent({ children }) {
-  const { isParent } = useAuth();
-
-  const hasParentToken =
-    typeof window !== "undefined" && !!localStorage.getItem("parent_token");
-
-  if (!isParent && !hasParentToken) {
-    return <Navigate to="/" replace />;
-  }
-
-  return children;
+ const { isParent, isInitializing } = useAuth();
+ if (isInitializing) return <LoadingSpinner />;
+ if (!isParent) return <Navigate to="/" replace />;
+ return children;
 }
+
 
 /**
  * Child-only route guard
- * Allows access if:
- * - React auth state says child is logged in, OR
- * - child token exists in localStorage
+ * Waits for auth to initialize before deciding to redirect.
  */
+// RequireChild — updated:
 export function RequireChild({ children }) {
-  const { isChild } = useAuth();
-
-  const hasChildToken =
-    typeof window !== "undefined" && !!localStorage.getItem("child_token");
-
-  if (!isChild && !hasChildToken) {
-    return <Navigate to="/child-login" replace />;
-  }
-
-  return children;
+ const { isChild, isInitializing } = useAuth();
+ if (isInitializing) return <LoadingSpinner />;
+ if (!isChild) return <Navigate to="/child-login" replace />;
+ return children;
 }
+
 
 /**
  * Generic authenticated guard
- * Allows access if:
- * - isAuthenticated is true, OR
- * - parent/child flags are true, OR
- * - any auth token exists in localStorage
+ * Waits for auth to initialize before deciding to redirect.
  */
+// RequireAuth — updated:
 export function RequireAuth({ children }) {
-  const { isAuthenticated, isParent, isChild } = useAuth();
-
-  const hasAnyToken =
-    typeof window !== "undefined" &&
-    (!!localStorage.getItem("parent_token") ||
-      !!localStorage.getItem("child_token") ||
-      !!localStorage.getItem("token")); // optional legacy fallback
-
-  if (!isAuthenticated && !isParent && !isChild && !hasAnyToken) {
-    return <Navigate to="/" replace />;
-  }
-
-  return children;
+ const { isAuthenticated, isInitializing } = useAuth();
+ if (isInitializing) return <LoadingSpinner />;
+ if (!isAuthenticated) return <Navigate to="/" replace />;
+ return children;
 }

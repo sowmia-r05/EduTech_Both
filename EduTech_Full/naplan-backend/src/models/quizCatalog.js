@@ -19,9 +19,9 @@ const QuizCatalogSchema = new mongoose.Schema(
     bundle_id: { type: String, required: true, unique: true, index: true },
     bundle_name: { type: String, required: true },
     description: { type: String, default: "" },
-    year_level: { type: Number, required: true, enum: [3, 5, 7, 9] },
-    subjects: [{ type: String }],
-    tier: { type: String, enum: ["A", "B", "C"], required: true },
+    year_level: { type: mongoose.Schema.Types.Mixed, default: null },
+    // subjects: [{ type: String }],
+    // tier: { type: String, enum: ["A", "B", "C"], required: true },
 
     // ── FlexiQuiz IDs (legacy — for iframe embedding) ──
     flexiquiz_quiz_ids: [{ type: String }],

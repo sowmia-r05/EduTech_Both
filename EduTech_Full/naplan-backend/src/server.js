@@ -14,6 +14,7 @@
 const app = require("./app");
 const connectDB = require("./config/db");
 
+
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
@@ -24,8 +25,12 @@ async function startServer() {
 
     // 2. THEN start Express
     app.listen(PORT, () => {
-      console.log(`🚀 NAPLAN backend running on port ${PORT}`);
+      console.log(`NAPLAN backend running on port ${PORT}`);
     });
+
+        // Weekly progress email cron (runs inside this process)
+    const { scheduleWeekly } = require("./jobs/weeklyProgressEmail");
+    scheduleWeekly();
   } catch (err) {
     console.error("❌ Failed to start server:", err.message);
     // Exit so Render/Docker can restart the process

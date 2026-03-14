@@ -5,9 +5,10 @@
 //   ✅ onSubmit stores redirect intent in localStorage ("parent_signup_redirect")
 //   ✅ "Login" button preserves redirect param when navigating to /parent-login
 //   ✅ Added a contextual banner when arriving from free-trial flow
+//   ✅ Added Google Sign-In button with Terms & Privacy note
 //   Everything else is IDENTICAL to the original.
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
@@ -15,11 +16,13 @@ import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
-import { AlertCircle, Loader2, ArrowLeft, LogIn, X } from "lucide-react";
+import { AlertCircle, Loader2, ArrowLeft, LogIn, X, Mail } from "lucide-react";
 
 import TermsAndConditions from "@/app/components/TermsAndConditions";
 import PrivacyPolicy from "@/app/components/PrivacyPolicy";
 import { createParentAccount, normalizeEmail } from "@/app/utils/api";
+import { useAuth } from "@/app/context/AuthContext";
+import GoogleSignInButton from "@/app/components/auth/GoogleSignInButton";
 
 /**
  * Email format validation only
@@ -66,6 +69,7 @@ function Modal({ title, children, onClose }) {
 export default function ParentCreatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { loginParent } = useAuth();
 
   // ✅ NEW: Read the redirect intent from the URL (e.g. ?redirect=free-trial)
   const redirectIntent = searchParams.get("redirect") || "";
@@ -81,6 +85,9 @@ export default function ParentCreatePage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [step, setStep] = useState("form");        // "form" | "otp"
+  const [sentTo, setSentTo] = useState("");         // masked email from API
+  const [otpCode, setOtpCode] = useState("");
 
   const normalizedEmail = normalizeEmail(formData.email);
 
@@ -89,6 +96,20 @@ export default function ParentCreatePage() {
     Boolean(formData.lastName.trim()) &&
     looksLikeEmail(normalizedEmail) &&
     acceptedTerms;
+
+  /* ── Google Sign-In handler ── */
+  const handleGoogleSuccess = useCallback((data) => {
+    loginParent(data.parent_token, data.parent);
+    if (redirectIntent === "free-trial") {
+      navigate("/parent-dashboard?onboarding=free-trial", { replace: true });
+    } else {
+      navigate("/parent-dashboard", { replace: true });
+    }
+  }, [loginParent, navigate, redirectIntent]);
+
+  const handleGoogleError = useCallback((message) => {
+    setError(message || "Google Sign-In failed. Please try again.");
+  }, []);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -129,18 +150,15 @@ export default function ParentCreatePage() {
 
       localStorage.setItem("parent_pending_email", email);
       localStorage.setItem("parent_pending_masked", result?.otp_sent_to || "");
-
       localStorage.setItem(
         "parent_pending_profile",
         JSON.stringify({ firstName, lastName, email })
       );
-
-      // ✅ NEW: Persist the redirect intent so ParentVerifyPage can honor it
       if (redirectIntent) {
         localStorage.setItem("parent_signup_redirect", redirectIntent);
       }
-
-      navigate("/parent/verify");
+      setSentTo(result?.otp_sent_to || email);
+      setStep("otp");           // ← show OTP step inline, don't navigate yet
     } catch (err) {
       setError(err?.message || "Failed to send OTP");
     } finally {
@@ -196,15 +214,55 @@ export default function ParentCreatePage() {
           <CardHeader>
             <CardTitle className="text-2xl text-center">Create Parent Account</CardTitle>
           </CardHeader>
+           <CardContent>
+            {/* ── Google Sign-In ── */}
+            <div className="mb-2">
+              <GoogleSignInButton
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                disabled={loading || !acceptedTerms}
+              />
+            </div>
 
-          <CardContent>
+            {/* ── Terms checkbox (enables Google Sign-In) ── */}
+            <div className="flex items-center space-x-2 mb-4">
+              <input
+                id="accept-google-terms"
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <label htmlFor="accept-google-terms" className="text-xs text-gray-500 leading-snug">
+                I agree to the{" "}
+                <button type="button" onClick={() => setModalContent("terms")} className="text-xs text-indigo-600 underline hover:text-indigo-700">
+                  Terms &amp; Conditions
+                </button>{" "}
+                and{" "}
+                <button type="button" onClick={() => setModalContent("privacy")} className="text-xs text-indigo-600 underline hover:text-indigo-700">
+                  Privacy Policy
+                </button>
+              </label>
+            </div>
+
+            {/* ── Divider ── */}
+            <div className="relative mb-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="bg-white px-4 text-slate-400">or sign up with email</span>
+              </div>
+            </div>
+
+          {step === "form" && ( 
             <form onSubmit={onSubmit} className="space-y-5">
               {error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
-              )}
+              )} 
 
               <div className="space-y-2">
                 <Label>First Name</Label>
@@ -240,29 +298,22 @@ export default function ParentCreatePage() {
                 />
               </div>
 
+              {/* ── Terms checkbox (synced with top checkbox) ── */}
               <div className="flex items-start space-x-2 text-xs">
                 <input
-                  id="accept-parent-terms"
+                  id="accept-parent-terms-form"
                   type="checkbox"
                   checked={acceptedTerms}
                   onChange={(e) => setAcceptedTerms(e.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-gray-300"
                 />
-                <label htmlFor="accept-parent-terms" className="text-gray-600 leading-snug">
+                <label htmlFor="accept-parent-terms-form" className="text-xs text-gray-600 leading-snug">
                   I agree to the{" "}
-                  <button
-                    type="button"
-                    onClick={() => setModalContent("terms")}
-                    className="text-indigo-600 underline hover:text-indigo-700"
-                  >
+                  <button type="button" onClick={() => setModalContent("terms")} className="text-xs text-indigo-600 underline hover:text-indigo-700">
                     Terms &amp; Conditions
                   </button>{" "}
                   and{" "}
-                  <button
-                    type="button"
-                    onClick={() => setModalContent("privacy")}
-                    className="text-indigo-600 underline hover:text-indigo-700"
-                  >
+                  <button type="button" onClick={() => setModalContent("privacy")} className="text-xs text-indigo-600 underline hover:text-indigo-700">
                     Privacy Policy
                   </button>
                 </label>
@@ -284,7 +335,55 @@ export default function ParentCreatePage() {
                 )}
               </Button>
             </form>
-          </CardContent>
+          )}
+          
+          {step === "otp" && (
+          <div className="mt-2">
+            {/* Success banner */}
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 mb-4 flex items-start gap-3">
+              <Mail className="h-5 w-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-indigo-800">Check your email!</p>
+                <p className="text-sm text-indigo-600 mt-0.5">
+                  A 6-digit code has been sent to <strong>{sentTo}</strong>. Please copy and paste it below.
+                </p>
+              </div>
+            </div>
+              <div className="space-y-3">
+                <Label htmlFor="otp-input">Verification Code</Label>
+                <Input
+                  id="otp-input"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="Enter 6-digit code"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  autoComplete="one-time-code"
+                />
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+                <Button
+                  onClick={() => navigate("/parent/verify")}
+                  disabled={otpCode.length !== 6 || loading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : "Verify & Continue"}
+                </Button>
+                <p className="text-center text-xs text-slate-500">
+                  Didn't receive it?{" "}
+                  <button type="button" onClick={onSubmit} className="text-indigo-600 font-medium hover:underline">
+                    Resend
+                  </button>
+                </p>
+              </div>
+            </div>
+          )}
+      </CardContent>
         </Card>
 
         <p className="text-center text-sm text-slate-500 mt-4">

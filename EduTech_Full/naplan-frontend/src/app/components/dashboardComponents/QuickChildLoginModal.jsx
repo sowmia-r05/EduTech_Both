@@ -242,7 +242,7 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
                   maxLength={6}
                   value={pin}
                   onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                  placeholder="••••"
+                  placeholder="••••••"
                   className="w-full px-4 py-3 border border-slate-300 rounded-xl
                              text-center text-2xl tracking-[0.5em]
                              focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500
@@ -270,7 +270,7 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || pin.length < 4}
+                  disabled={loading || pin.length < 6}
                   className="flex-1 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600
                              text-white rounded-xl text-sm font-semibold
                              hover:from-violet-700 hover:to-indigo-700
@@ -286,7 +286,7 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
                       Logging in…
                     </span>
                   ) : (
-                    "Let's Go! 🚀"
+                    "Let's Go!"
                   )}
                 </button>
               </div>
@@ -379,7 +379,7 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
                       Logging in…
                     </span>
                   ) : (
-                    "Let's Go! 🚀"
+                    "Let's Go!"
                   )}
                 </button>
               </div>

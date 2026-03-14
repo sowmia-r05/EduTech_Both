@@ -8,7 +8,28 @@
 //
 // Usage:
 //   import { fetchChildrenSummaries, createChild, fetchAvailableQuizzes, ... } from "@/app/utils/api-children";
+export async function fetchCumulativeFeedback(token, childId) {
+  const data = await authGet(`/api/children/${childId}/cumulative-feedback`, token);
+  return {
+    feedback: data?.feedback || {},
+    generating: data?.generating ?? false,
+  };
+}
 
+
+
+/**
+ * Trigger a manual refresh of cumulative AI feedback for a child.
+ * Returns 202 Accepted immediately — feedback generates asynchronously.
+ * Poll fetchCumulativeFeedback() to get updated results.
+ */
+export async function refreshCumulativeFeedback(token, childId) {
+  return authPost(
+    `/api/children/${childId}/cumulative-feedback/refresh`,
+    {},
+    token
+  );
+}
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL !== undefined
     ? import.meta.env.VITE_API_BASE_URL

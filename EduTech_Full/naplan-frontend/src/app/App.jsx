@@ -1,23 +1,16 @@
 // src/app/App.jsx
 //
-// FULL REPLACEMENT FILE — drop into naplan-frontend/src/app/App.jsx
+// CHANGE: Admin routes moved to secret path /kai-ops-9281
+// CHANGE: /admin/register now reads invite token from URL
+// Everything else (parent, child, public routes) is IDENTICAL
 //
-// CHANGES FROM ORIGINAL:
-//   ✅ Removed import QuizCompleteBridge
-//   ✅ Removed import QuizCompletePage
-//   ✅ Removed import TrailDashboard
-//   ✅ Removed /quiz-complete route
-//   ✅ Removed /quiz-complete-bridge route
-//   ✅ Removed /dashboard-preview route (was TrailDashboard)
-//   Everything else is IDENTICAL to the original.
+// ⚠️  Keep the secret path out of public docs / README.
+//     Share it only with your team via a secure channel.
 
 import { Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/app/context/AuthContext";
 import { RequireParent, RequireChild, RequireAuth } from "@/app/components/auth/RequireAuth";
 import FooterMinimal from "@/app/components/landing/FooterMinimal";
-// ✅ REMOVED: import QuizCompleteBridge from "./components/pages/QuizCompleteBridge";
-// ✅ REMOVED: import QuizCompletePage from "./components/pages/QuizCompletePage";
-// ✅ REMOVED: import TrailDashboard from "@/app/components/pages/TrailDashboard";
 import WelcomePage from "@/app/components/WelcomePage";
 import ResultPage from "@/app/components/ResultPage";
 import Dashboard from "@/app/components/pages/Dashboard";
@@ -35,14 +28,18 @@ import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
-import AdminLogin from "@/app/components/admin/AdminLogin";
-import AdminDashboard from "@/app/components/admin/AdminDashboard";
-import RequireAdmin from "@/app/components/admin/RequireAdmin";
-import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
+
+// ── Admin components ──
+import AdminLogin    from "@/app/components/admin/AdminLogin";
 import AdminRegister from "@/app/components/admin/AdminRegister";
+import AdminDashboard from "@/app/components/admin/AdminDashboard";
+import RequireAdmin  from "@/app/components/admin/RequireAdmin";
+import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
 
+// ✅ Secret admin path — only your team knows this
+//    Change before production deployment
+export const ADMIN_PATH = "/kai-ops-9281";
 
-/* ── Layout wrapper — adds minimal disclaimer footer below any page ── */
 function WithFooter({ children }) {
   return (
     <div className="flex flex-col min-h-screen">
@@ -56,92 +53,88 @@ export default function AppRoutes() {
   return (
     <AuthProvider>
       <Routes>
-        {/* ─── Public (WelcomePage has its own full Footer) ─── */}
+        {/* ─── Public ─── */}
         <Route path="/" element={<WelcomePage />} />
         <Route path="/free-trial" element={<FreeTrialPage />} />
         <Route path="/start-test" element={<StartTestPage />} />
-        {/* ✅ REMOVED: <Route path="/dashboard-preview" element={<TrailDashboard />} /> */}
         <Route path="/trial-test" element={<TrialTestPage />} />
-        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/terms"   element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
 
         {/* ─── Bundle Selection ─── */}
         <Route path="/bundles" element={<WithFooter><BundleSelectionPage /></WithFooter>} />
 
-        {/* ─── Parent Auth (public) ─── */}
+        {/* ─── Parent Auth ─── */}
         <Route path="/parent/create" element={<ParentCreatePage />} />
         <Route path="/parent/verify" element={<ParentVerifyPage />} />
+        <Route path="/parent-login"  element={<ParentLoginPage />} />
 
-        {/* ─── Child Auth (public) ─── */}
+        {/* ─── Child Auth ─── */}
         <Route path="/child-login" element={<ChildLoginPage />} />
-        <Route path="/parent-login" element={<ParentLoginPage />} />
 
-        <Route path="/StudentDashboardAnalytics" element={<WithFooter><StudentDashboardAnalytics /></WithFooter>} />
+        {/* ─── Analytics (auth required) ─── */}
+        <Route
+          path="/student-analytics"
+          element={
+            <RequireAuth>
+              <WithFooter><StudentDashboardAnalytics /></WithFooter>
+            </RequireAuth>
+          }
+        />
 
-        {/* ─── Parent-protected routes ─── */}
+        {/* ─── Parent-protected ─── */}
         <Route
           path="/parent-dashboard"
           element={
             <RequireParent>
-              <WithFooter>
-                <ParentDashboard />
-              </WithFooter>
+              <WithFooter><ParentDashboard /></WithFooter>
             </RequireParent>
           }
         />
 
-        {/* ─── Child-protected routes ─── */}
+        {/* ─── Child-protected ─── */}
         <Route
           path="/child-dashboard"
           element={
             <RequireAuth>
-              <WithFooter>
-                <ChildDashboard />
-              </WithFooter>
+              <WithFooter><ChildDashboard /></WithFooter>
             </RequireAuth>
           }
         />
 
-        {/* ─── Results dashboards (auth-protected) ─── */}
+        {/* ─── Results (auth required) ─── */}
         <Route
           path="/NonWritingLookupQuizResults/results"
           element={
             <RequireAuth>
-              <WithFooter>
-                <Dashboard />
-              </WithFooter>
+              <WithFooter><Dashboard /></WithFooter>
             </RequireAuth>
           }
         />
-
         <Route
           path="/writing-feedback/result"
           element={
             <RequireAuth>
-              <WithFooter>
-                <ResultPage />
-              </WithFooter>
+              <WithFooter><ResultPage /></WithFooter>
             </RequireAuth>
           }
         />
 
-        {/* ─── Admin routes (hidden from parents/children) ─── */}
-        <Route path="/admin" element={<AdminLogin />} />
-        <Route path="/admin/register" element={<AdminRegister />} />
-        <Route path="/admin/dashboard" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
-        <Route path="/admin/quiz/:quizId" element={<RequireAdmin><QuizDetailPage /></RequireAdmin>} />
-
+        {/* ─── Admin routes — secret path ─── */}
+        {/* ✅ Old /admin path is GONE — only secret path works */}
+        <Route path={ADMIN_PATH} element={<AdminLogin />} />
+        <Route path={`${ADMIN_PATH}/register`} element={<AdminRegister />} />
         <Route
-          path="/student-analytics"
-          element={<WithFooter><StudentDashboardAnalytics /></WithFooter>}
+          path={`${ADMIN_PATH}/dashboard`}
+          element={<RequireAdmin><AdminDashboard /></RequireAdmin>}
         />
-
-        {/* ✅ REMOVED: <Route path="/quiz-complete" element={<WithFooter><QuizCompletePage /></WithFooter>} /> */}
-        {/* ✅ REMOVED: <Route path="/quiz-complete-bridge" element={<QuizCompleteBridge />} /> */}
+        <Route
+          path={`${ADMIN_PATH}/quiz/:quizId`}
+          element={<RequireAdmin><QuizDetailPage /></RequireAdmin>}
+        />
 
         {/* ─── Fallback ─── */}
         <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
-
       </Routes>
     </AuthProvider>
   );

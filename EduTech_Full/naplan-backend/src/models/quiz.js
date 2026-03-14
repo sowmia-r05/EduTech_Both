@@ -37,6 +37,7 @@ const QuizSchema = new mongoose.Schema(
     is_active: { type: Boolean, default: true },
 
     // Configurable max attempts per quiz
+    attempts_enabled: { type: Boolean, default: false },
     max_attempts: { type: Number, default: null },
 
     // Randomization settings

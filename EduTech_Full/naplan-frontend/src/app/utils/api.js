@@ -234,14 +234,27 @@ export async function fetchResultsByUsername(username, options = {}) {
 export async function fetchWritingsByUsername(username, options = {}) {
   const u = String(username || "").trim();
   if (!u) throw new Error("username is required");
-
   const params = new URLSearchParams({ username: u });
   if (options.quiz_name) params.set("quiz_name", options.quiz_name);
-
-  const data = await getJson(`/api/writing/by-username?${params.toString()}`);
+  const fetchOpts = options.headers ? { headers: options.headers } : {};  // ✅ ADD THIS
+  const data = await getJson(`/api/writing/by-username?${params.toString()}`, fetchOpts);
   return Array.isArray(data) ? data : [];
 }
+/**
+ * ✅ NEW: Fetch all writing submissions by child_id.
+ * Fallback for native quiz children where user.user_name may be null.
+ */
+export async function fetchWritingsByChildId(childId, options = {}) {
+  const id = String(childId || "").trim();
+  if (!id) throw new Error("childId is required");
 
+  const fetchOpts = options.headers ? { headers: options.headers } : {};
+  const data = await getJson(
+    `/api/writing/by-child-id?child_id=${encodeURIComponent(id)}`,
+    fetchOpts,
+  );
+  return Array.isArray(data) ? data : [];
+}
 /**
  * ✅ NEW: Fetch latest writing submission by username (sibling-safe).
  */
