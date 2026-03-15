@@ -5,6 +5,7 @@
  *   ✅ FIX 1: Added GET /quizzes/:quizId route (was MISSING — caused View page to fail)
  *   ✅ FIX 2: Token expiry increased from 2h → 24h (cookie + JWT)
  *   ✅ FIX 3: Added POST/DELETE /bundles/:bundleId/quizzes for bundle mapping
+ *   ✅ FIX 4: /quizzes/upload now sets correct: true/false on each option from correct_answer labels
  */
 
 const { setAuthCookie }    = require("../utils/setCookies");
@@ -250,7 +251,10 @@ router.get("/invites", async (req, res) => {
       .select("token created_by createdAt expiresAt")
       .lean();
     const FRONTEND_URL = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
-    return res.json(invites.map((i) => ({ ...i, invite_url: `${FRONTEND_URL}/#/kai-ops-9281/register?invite=${i.token}` })));
+    return res.json(invites.map((i) => ({
+      ...i,
+      invite_url: `${FRONTEND_URL}/#/kai-ops-9281/register?invite=${i.token}`,
+    })));
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -308,7 +312,9 @@ router.patch("/admins/:adminId", async (req, res) => {
     switch (action) {
       case "approve":
         if (admin.status !== "pending") return res.status(400).json({ error: "Admin is not pending" });
-        admin.status = "active"; admin.approved_by = req.admin.email; admin.approved_at = new Date();
+        admin.status = "active";
+        admin.approved_by = req.admin.email;
+        admin.approved_at = new Date();
         break;
       case "suspend":
         if (admin.status === "suspended") return res.status(400).json({ error: "Already suspended" });
@@ -322,7 +328,10 @@ router.patch("/admins/:adminId", async (req, res) => {
         return res.status(400).json({ error: "Invalid action. Use: approve, suspend, reactivate" });
     }
     await admin.save();
-    return res.json({ ok: true, admin: { _id: admin._id, email: admin.email, name: admin.name, role: admin.role, status: admin.status } });
+    return res.json({
+      ok: true,
+      admin: { _id: admin._id, email: admin.email, name: admin.name, role: admin.role, status: admin.status },
+    });
   } catch (err) {
     console.error("Update admin error:", err);
     return res.status(500).json({ error: err.message });
@@ -390,8 +399,16 @@ router.post("/upload", (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-    const relPath = req.file.path.replace(path.join(__dirname, "..", "public"), "").replace(/\\/g, "/");
-    return res.json({ ok: true, url: relPath, filename: req.file.filename, size: req.file.size, mimetype: req.file.mimetype });
+    const relPath = req.file.path
+      .replace(path.join(__dirname, "..", "public"), "")
+      .replace(/\\/g, "/");
+    return res.json({
+      ok: true,
+      url: relPath,
+      filename: req.file.filename,
+      size: req.file.size,
+      mimetype: req.file.mimetype,
+    });
   });
 });
 
@@ -414,7 +431,7 @@ router.get("/quizzes", async (req, res) => {
 });
 
 // ✅ FIX 1: GET /api/admin/quizzes/:quizId — fetch single quiz WITH questions
-// THIS ROUTE WAS MISSING — it is required by QuizDetailPage to display questions
+// THIS ROUTE WAS MISSING — required by QuizDetailPage to display questions
 router.get("/quizzes/:quizId", async (req, res) => {
   try {
     await connectDB();
@@ -429,7 +446,7 @@ router.get("/quizzes/:quizId", async (req, res) => {
       $or: [
         { quiz_ids: req.params.quizId },
         { quiz_ids: quiz.quiz_id },
-      ]
+      ],
     })
       .sort({ createdAt: 1 })
       .lean();
@@ -506,22 +523,22 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
     const question_id = uuidv4();
     const question = await Question.create({
       question_id,
-      quiz_ids:      [quizId],
-      text:          req.body.text || "",
-      type:          req.body.type || "radio_button",
-      options:       req.body.options || [],
+      quiz_ids:       [quizId],
+      text:           req.body.text || "",
+      type:           req.body.type || "radio_button",
+      options:        req.body.options || [],
       correct_answer: req.body.correct_answer || null,
       case_sensitive: req.body.case_sensitive || false,
-      points:        req.body.points || 1,
-      categories:    req.body.category ? [{ name: req.body.category }] : (req.body.categories || []),
-      image_url:     req.body.image_url || null,
-      image_size:    req.body.image_size || "medium",
-      image_width:   req.body.image_width || null,
-      image_height:  req.body.image_height || null,
-      explanation:   req.body.explanation || null,
+      points:         req.body.points || 1,
+      categories:     req.body.category ? [{ name: req.body.category }] : (req.body.categories || []),
+      image_url:      req.body.image_url || null,
+      image_size:     req.body.image_size || "medium",
+      image_width:    req.body.image_width || null,
+      image_height:   req.body.image_height || null,
+      explanation:    req.body.explanation || null,
       shuffle_options: req.body.shuffle_options ?? null,
-      voice_url:     req.body.voice_url || null,
-      video_url:     req.body.video_url || null,
+      voice_url:      req.body.voice_url || null,
+      video_url:      req.body.video_url || null,
     });
 
     // Update quiz question list and count
@@ -600,29 +617,48 @@ router.post("/quizzes/upload", async (req, res) => {
     await connectDB();
     const { quiz: quizData, questions: questionsData } = req.body;
 
-    if (!quizData?.quiz_name?.trim()) return res.status(400).json({ error: "quiz_name is required" });
+    if (!quizData?.quiz_name?.trim())
+      return res.status(400).json({ error: "quiz_name is required" });
     if (!Array.isArray(questionsData) || questionsData.length === 0)
       return res.status(400).json({ error: "At least one question is required" });
 
     const quiz_id = uuidv4();
 
     const questions = await Question.insertMany(
-      questionsData.map((q) => ({
-        question_id:   uuidv4(),
-        quiz_ids:      [quiz_id],
-        text:          q.question_text || q.text || "",
-        type:          q.type || "radio_button",
-        options:       q.options || [],
-        correct_answer: q.correct_answer || null,
-        points:        q.points || 1,
-        categories:    q.category ? [{ name: q.category }] : (q.categories || []),
-        image_url:     q.image_url  || null,
-        explanation:   q.explanation || "",
-        voice_url:     q.voice_url  || null,
-        video_url:     q.video_url  || null,
-        image_width:   q.image_width  || null,
-        image_height:  q.image_height || null,
-      }))
+      questionsData.map((q) => {
+        // ✅ FIX 4: Build options with correct: true/false from correct_answer labels
+        const correctLabels = (q.correct_answer || "")
+          .toUpperCase()
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        const mappedOptions = (q.options || []).map((opt, idx) => {
+          const label = opt.label || String.fromCharCode(65 + idx);
+          return {
+            ...opt,
+            option_id: opt.option_id || uuidv4(),
+            correct: opt.correct === true || correctLabels.includes(label.toUpperCase()),
+          };
+        });
+
+        return {
+          question_id:    uuidv4(),
+          quiz_ids:       [quiz_id],
+          text:           q.question_text || q.text || "",
+          type:           q.type || "radio_button",
+          options:        mappedOptions,                  // ✅ FIX 4: use mapped options
+          correct_answer: q.correct_answer || null,
+          points:         q.points || 1,
+          categories:     q.category ? [{ name: q.category }] : (q.categories || []),
+          image_url:      q.image_url  || null,
+          explanation:    q.explanation || "",
+          voice_url:      q.voice_url  || null,
+          video_url:      q.video_url  || null,
+          image_width:    q.image_width  || null,
+          image_height:   q.image_height || null,
+        };
+      })
     );
 
     const quiz = await Quiz.create({
@@ -642,7 +678,12 @@ router.post("/quizzes/upload", async (req, res) => {
       question_count:     questions.length,
     });
 
-    return res.status(201).json({ ok: true, quiz_id: quiz.quiz_id, quiz_name: quiz.quiz_name, question_count: questions.length });
+    return res.status(201).json({
+      ok:             true,
+      quiz_id:        quiz.quiz_id,
+      quiz_name:      quiz.quiz_name,
+      question_count: questions.length,
+    });
   } catch (err) {
     console.error("Quiz upload error:", err);
     return res.status(500).json({ error: err.message });
@@ -656,7 +697,11 @@ router.get("/bundles", async (req, res) => {
   try {
     await connectDB();
     const bundles = await QuizCatalog.find().sort({ year_level: 1, tier: 1 }).lean();
-    return res.json(bundles.map((b) => ({ ...b, quiz_ids: b.quiz_ids || b.flexiquiz_quiz_ids || [], currency: b.currency || "aud" })));
+    return res.json(bundles.map((b) => ({
+      ...b,
+      quiz_ids: b.quiz_ids || b.flexiquiz_quiz_ids || [],
+      currency: b.currency || "aud",
+    })));
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -667,7 +712,11 @@ router.get("/bundles/:bundleId", async (req, res) => {
     await connectDB();
     const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId }).lean();
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
-    return res.json({ ...bundle, quiz_ids: bundle.quiz_ids || bundle.flexiquiz_quiz_ids || [], currency: bundle.currency || "aud" });
+    return res.json({
+      ...bundle,
+      quiz_ids: bundle.quiz_ids || bundle.flexiquiz_quiz_ids || [],
+      currency: bundle.currency || "aud",
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -676,9 +725,16 @@ router.get("/bundles/:bundleId", async (req, res) => {
 router.post("/bundles", async (req, res) => {
   try {
     await connectDB();
-    const { bundle_name, description, year_level, tier, price_cents, currency, max_quiz_count, questions_per_quiz, distribution_mode, swap_eligible_from, subjects } = req.body;
-    if (!bundle_name?.trim()) return res.status(400).json({ error: "bundle_name is required" });
-    if (price_cents === undefined || Number(price_cents) < 0) return res.status(400).json({ error: "price_cents is required and must be >= 0" });
+    const {
+      bundle_name, description, year_level, tier, price_cents,
+      currency, max_quiz_count, questions_per_quiz,
+      distribution_mode, swap_eligible_from, subjects,
+    } = req.body;
+
+    if (!bundle_name?.trim())
+      return res.status(400).json({ error: "bundle_name is required" });
+    if (price_cents === undefined || Number(price_cents) < 0)
+      return res.status(400).json({ error: "price_cents is required and must be >= 0" });
 
     const yearSlug  = year_level ? String(year_level).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_") : "general";
     const tierSlug  = tier       ? String(tier).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")       : "standard";
@@ -686,12 +742,20 @@ router.post("/bundles", async (req, res) => {
     const bundle_id = `bundle_${yearSlug}_${tierSlug}_${nameSlug}_${Date.now()}`;
 
     const bundle = await QuizCatalog.create({
-      bundle_id, bundle_name: bundle_name.trim(), description: description || "",
-      year_level: year_level || null, tier: tier || "A", price_cents: Number(price_cents),
-      currency: currency || "aud", max_quiz_count: max_quiz_count || null,
-      questions_per_quiz: questions_per_quiz || null, distribution_mode: distribution_mode || "fixed",
-      swap_eligible_from: swap_eligible_from || null, subjects: subjects || [],
-      quiz_ids: [], is_active: true,
+      bundle_id,
+      bundle_name:        bundle_name.trim(),
+      description:        description || "",
+      year_level:         year_level  || null,
+      tier:               tier        || "A",
+      price_cents:        Number(price_cents),
+      currency:           currency    || "aud",
+      max_quiz_count:     max_quiz_count     || null,
+      questions_per_quiz: questions_per_quiz || null,
+      distribution_mode:  distribution_mode  || "fixed",
+      swap_eligible_from: swap_eligible_from || null,
+      subjects:           subjects    || [],
+      quiz_ids:           [],
+      is_active:          true,
     });
     return res.status(201).json(bundle);
   } catch (err) {
@@ -702,10 +766,20 @@ router.post("/bundles", async (req, res) => {
 router.patch("/bundles/:bundleId", async (req, res) => {
   try {
     await connectDB();
-    const allowedFields = ["bundle_name", "description", "year_level", "tier", "price_cents", "currency", "is_active", "max_quiz_count", "questions_per_quiz", "distribution_mode", "swap_eligible_from", "subjects"];
+    const allowedFields = [
+      "bundle_name", "description", "year_level", "tier", "price_cents",
+      "currency", "is_active", "max_quiz_count", "questions_per_quiz",
+      "distribution_mode", "swap_eligible_from", "subjects",
+    ];
     const updates = {};
-    for (const f of allowedFields) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
-    const bundle = await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $set: updates }, { new: true }).lean();
+    for (const f of allowedFields) {
+      if (req.body[f] !== undefined) updates[f] = req.body[f];
+    }
+    const bundle = await QuizCatalog.findOneAndUpdate(
+      { bundle_id: req.params.bundleId },
+      { $set: updates },
+      { new: true }
+    ).lean();
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
     return res.json(bundle);
   } catch (err) {
@@ -736,7 +810,10 @@ router.post("/bundles/:bundleId/quizzes", async (req, res) => {
       { new: true }
     ).lean();
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
-    await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $set: { quiz_count: bundle.quiz_ids.length } });
+    await QuizCatalog.findOneAndUpdate(
+      { bundle_id: req.params.bundleId },
+      { $set: { quiz_count: bundle.quiz_ids.length } }
+    );
     return res.json({ ok: true, bundle });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -755,7 +832,10 @@ router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
       { new: true }
     ).lean();
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
-    await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $set: { quiz_count: bundle.quiz_ids.length } });
+    await QuizCatalog.findOneAndUpdate(
+      { bundle_id: req.params.bundleId },
+      { $set: { quiz_count: bundle.quiz_ids.length } }
+    );
     return res.json({ ok: true, bundle });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -767,7 +847,8 @@ router.patch("/bundles/:bundleId/quizzes", async (req, res) => {
   try {
     await connectDB();
     const { quiz_ids } = req.body;
-    if (!Array.isArray(quiz_ids)) return res.status(400).json({ error: "quiz_ids must be an array" });
+    if (!Array.isArray(quiz_ids))
+      return res.status(400).json({ error: "quiz_ids must be an array" });
     const bundle = await QuizCatalog.findOneAndUpdate(
       { bundle_id: req.params.bundleId },
       { $set: { quiz_ids, quiz_count: quiz_ids.length } },
@@ -800,8 +881,13 @@ router.patch("/children/:childId/bundles", async (req, res) => {
   try {
     await connectDB();
     const { bundle_ids } = req.body;
-    if (!Array.isArray(bundle_ids)) return res.status(400).json({ error: "bundle_ids must be an array" });
-    const child = await Child.findByIdAndUpdate(req.params.childId, { $set: { entitled_bundle_ids: bundle_ids } }, { new: true }).lean();
+    if (!Array.isArray(bundle_ids))
+      return res.status(400).json({ error: "bundle_ids must be an array" });
+    const child = await Child.findByIdAndUpdate(
+      req.params.childId,
+      { $set: { entitled_bundle_ids: bundle_ids } },
+      { new: true }
+    ).lean();
     if (!child) return res.status(404).json({ error: "Child not found" });
     return res.json({ ok: true, child });
   } catch (err) {
