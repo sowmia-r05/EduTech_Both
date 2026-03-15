@@ -204,14 +204,7 @@ export async function fetchChildWriting(token, childId) {
   return Array.isArray(data) ? data : [];
 }
 
-/**
- * Fetch quizzes assigned to a child (legacy FlexiQuiz catalog).
- * @deprecated Use fetchAvailableQuizzes() instead for native quizzes.
- */
-export async function fetchChildQuizzes(token, childId) {
-  const data = await authGet(`/api/children/${childId}/quizzes`, token);
-  return data || { quizzes: [], bundles: [], child_status: "trial" };
-}
+
 
 
 // ═══════════════════════════════════════════════════════

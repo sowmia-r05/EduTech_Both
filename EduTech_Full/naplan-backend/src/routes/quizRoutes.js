@@ -88,7 +88,6 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
           bundle_id: { $in: childBundleIds },
           $or: [
             { quiz_ids: quiz.quiz_id },
-            { flexiquiz_quiz_ids: quiz.quiz_id },
           ],
         }).lean();
         hasEntitlement = !!bundleWithQuiz;

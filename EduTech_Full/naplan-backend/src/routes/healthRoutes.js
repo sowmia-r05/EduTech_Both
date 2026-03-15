@@ -21,11 +21,7 @@ const router = require("express").Router();
 // ── Lightweight ping — no DB query, no auth, instant response ──
 // Use this for keep-alive cron pings
 router.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "ok",
-    uptime: Math.floor(process.uptime()),
-    ts: Date.now(),
-  });
+  res.json({ status: "ok" });
 });
 
 // ── Deep health check — verifies MongoDB connection ──

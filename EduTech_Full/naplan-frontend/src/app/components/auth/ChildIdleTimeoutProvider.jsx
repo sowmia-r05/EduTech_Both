@@ -36,7 +36,7 @@ export default function ChildIdleTimeoutProvider({ children }) {
   const countdownRef = useRef(null);
   const throttleRef = useRef(false);
 
-  const enabled = false;
+  const enabled = true;
 
   const clearAllTimers = useCallback(() => {
     if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
