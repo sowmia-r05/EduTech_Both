@@ -1,15 +1,3 @@
-/**
- * ParentDashboard.jsx — Fully Responsive + Accessible
- *
- * ✅ Mobile-first responsive layout (works on any phone or tablet)
- * ✅ Background gradient aligned with ChildDashboard
- * ✅ Touch-friendly button sizes (min 44px tap targets)
- * ✅ Plain language — no jargon for everyday parents
- * ✅ Improved empty states with clear call-to-action
- * ✅ Readable font sizes on all screen sizes
- * ✅ All existing logic, modals, API calls — untouched
- */
-
 import React, {
   useState,
   useRef,
@@ -25,6 +13,8 @@ import {
   updateChild,
   deleteChild,
   checkUsername,
+  fetchChildResults,
+  fetchChildWriting,
 } from "@/app/utils/api-children";
 import {
   createCheckout,
@@ -1144,19 +1134,80 @@ const user = useMemo(() => {
 
 
   // ── Data loading ─────────────────────────────────────────────
-  const loadChildren = useCallback(async () => {
-    if (!parentToken) return;
-    try {
-      setLoading(true);
-      const data = await fetchChildrenSummaries(parentToken);
-      setRawChildren(Array.isArray(data) ? data : []);
-      setError(null);
-    } catch (err) {
-      setError(err?.message || "Failed to load children");
-    } finally {
-      setLoading(false);
-    }
-  }, [parentToken]);
+const loadChildren = useCallback(async () => {
+  if (!parentToken) return;
+  try {
+    setLoading(true);
+
+    // Step 1 — get child list (names, status, year level)
+    const summaries = await fetchChildrenSummaries(parentToken);
+    const childList = Array.isArray(summaries) ? summaries : [];
+
+    // Step 2 — enrich each child with REAL stats from actual results
+    // (summaries endpoint only aggregates legacy FlexiQuiz data, not native attempts)
+    const enriched = await Promise.all(
+      childList.map(async (child) => {
+        try {
+          const [results, writing] = await Promise.all([
+            fetchChildResults(parentToken, child._id),
+            fetchChildWriting(parentToken, child._id),
+          ]);
+          const seen = new Set();
+          const allAttempts = [
+            ...(Array.isArray(results) ? results : []),
+            ...(Array.isArray(writing) ? writing : []),
+          ].filter((r) => {
+            const key = String(r._id || r.response_id || r.attempt_id || "");
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
+          if (allAttempts.length === 0) return child;
+
+
+          // Compute average score across all attempts
+          const scores = allAttempts
+            .map((r) => {
+              // Writing attempts score differently
+              const overall = r?.ai?.feedback?.overall;
+              if (overall?.max_score > 0) {
+                return (overall.total_score / overall.max_score) * 100;
+              }
+              return r?.score?.percentage ?? null;
+            })
+            .filter((s) => s !== null && s >= 0);
+
+          // Most recent activity date
+          const dates = allAttempts
+            .map((r) => r.date_submitted || r.submitted_at || r.createdAt)
+            .filter(Boolean)
+            .sort((a, b) => new Date(b) - new Date(a));
+
+          return {
+            ...child,
+            quizCount:     allAttempts.length,
+            averageScore:  scores.length > 0
+              ? scores.reduce((a, b) => a + b, 0) / scores.length
+              : null,
+            lastActivity:  dates[0] || child.lastActivity || null,
+          };
+        } catch {
+          return child; // fallback to whatever summaries returned
+        }
+      })
+    );
+
+    setRawChildren(enriched);
+    setError(null);
+  } catch (err) {
+    setError(err?.message || "Failed to load children");
+  } finally {
+    setLoading(false);
+  }
+}, [parentToken]);
+
+
 
   const loadPayments = useCallback(async () => {
     if (!parentToken) return;
@@ -1169,6 +1220,17 @@ const user = useMemo(() => {
   }, [parentToken]);
 
   useEffect(() => { loadChildren(); loadPayments(); }, [loadChildren, loadPayments]);
+
+  useEffect(() => {
+  const handleVisibility = () => {
+    if (document.visibilityState === "visible") {
+      loadChildren();
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibility);
+  return () => document.removeEventListener("visibilitychange", handleVisibility);
+}, [loadChildren]);
+
 
   useEffect(() => {
     const payment = searchParams.get("payment");

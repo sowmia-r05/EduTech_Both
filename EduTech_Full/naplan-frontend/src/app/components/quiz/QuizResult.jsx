@@ -262,9 +262,11 @@ export default function QuizResult({
   const authRef = useRef({ childProfile });
   useEffect(() => { authRef.current = { childProfile }; }, [childProfile]);
 
-  const [activeTab,   setActiveTab]   = useState(0);
-  const [showAnswers, setShowAnswers] = useState(false);
-  const [liveStatus,  setLiveStatus]  = useState(null);
+  const [activeTab,        setActiveTab]        = useState(0);
+  const [showAnswers,      setShowAnswers]       = useState(false);
+  const [aiPollStatus,     setAiPollStatus]      = useState(null);  // "done"|"error"|null
+  const [subscriptionStatus, setSubscriptionStatus] = useState(null); // "trial"|"active"|null
+
 
   const score      = result.score           || {};
   const topics     = result.topic_breakdown || {};
@@ -286,8 +288,8 @@ export default function QuizResult({
         const res = await fetch(`${import.meta.env.VITE_API_BASE_URL||""}/api/attempts/${attemptId}/ai-status`, { headers:h });
         if (res.ok) {
           const d = await res.json();
-          if (d.status==="done"||d.status==="ai_done") setLiveStatus("done");
-          else if (d.status==="error") setLiveStatus("error");
+          if (d.status==="done"||d.status==="ai_done") setAiPollStatus("done");
+          else if (d.status==="error") setAiPollStatus("error");
           else timer = setTimeout(poll, 5000);
         }
       } catch {}
@@ -302,7 +304,7 @@ export default function QuizResult({
     (async () => {
       try {
         const res = await apiFetch("/api/children/me");
-        if (res.ok) { const d = await res.json(); setLiveStatus(d.status||null); }
+        if (res.ok) { const d = await res.json(); setSubscriptionStatus(d.status||null); }
       } catch {}
     })();
   }, [apiFetch, childToken, parentToken]);
@@ -332,7 +334,7 @@ export default function QuizResult({
     if (!attemptId) return;
     if (onViewAIFeedback) { onViewAIFeedback(attemptId, result?.subject, quizName); return; }
     const { childProfile:cp } = authRef.current;
-    const s = liveStatus||childStatusProp||cp?.status||"trial";
+    const s = subscriptionStatus|| childStatusProp ||cp?.status||"trial";
     const p = new URLSearchParams({ r:attemptId });
     if (cp?.username)    p.set("username",  cp.username);
     if (result?.subject) p.set("subject",   result.subject);
@@ -341,19 +343,19 @@ export default function QuizResult({
       ? `/writing-feedback/result?${p}`
       : `/NonWritingLookupQuizResults/results?${p}`
     );
-  }, [attemptId, result?.subject, quizName, isWriting, childStatusProp, liveStatus, onViewAIFeedback, navigate]);
+  }, [attemptId, result?.subject, quizName, isWriting, childStatusProp, subscriptionStatus, onViewAIFeedback, navigate]);
 
   // Navigates to the full Dashboard.jsx for this attempt
   const handleViewDashboard = useCallback(() => {
     if (!attemptId) return;
     const { childProfile: cp } = authRef.current;
-    const s = liveStatus || childStatusProp || cp?.status || "trial";
+    const s = subscriptionStatus || childStatusProp || cp?.status || "trial";
     const p = new URLSearchParams({ r: attemptId });
     if (cp?.username)    p.set("username",  cp.username);
     if (result?.subject) p.set("subject",   result.subject);
     if (quizName)        p.set("quiz_name", quizName);
     navigate(`/NonWritingLookupQuizResults/results?${p}`);
-  }, [navigate, attemptId, result?.subject, quizName, liveStatus, childStatusProp]);
+  }, [navigate, attemptId, result?.subject, quizName, subscriptionStatus, childStatusProp]);
 
   /* ── shared icon SVGs ── */
   const IcAnswers = () => (
@@ -511,13 +513,13 @@ export default function QuizResult({
 
 {activeTab === 1 && !isWriting && attemptId && (() => {
         const cp = authRef.current?.childProfile;
-        const s  = liveStatus || childStatusProp || cp?.status || "trial";
+        const s  = subscriptionStatus || childStatusProp || cp?.status || "trial";
         const p  = new URLSearchParams({ r: attemptId });
         if (cp?.username)    p.set("username",  cp.username);
         if (result?.subject) p.set("subject",   result.subject);
         if (quizName)        p.set("quiz_name", quizName);
         // Same URL the old handleViewDashboard was navigating to — just embedded now
-        const iframeSrc = `${window.location.origin}${window.location.pathname}#/NonWritingLookupQuizResults/results?${p.toString()}`;
+      const iframeSrc = `${window.location.origin}/#/NonWritingLookupQuizResults/results?${p.toString()}`;        
         return (
           <iframe
             key={iframeSrc}
@@ -536,11 +538,11 @@ export default function QuizResult({
       {/* TAB 1 — AI FEEDBACK for writing quizzes (opens full writing feedback page) */}
       {activeTab === 1 && isWriting && attemptId && (() => {
         const cp = authRef.current?.childProfile;
-        const s  = liveStatus || childStatusProp || cp?.status || "trial";
+        const s  = subscriptionStatus || childStatusProp || cp?.status || "trial";
         const p  = new URLSearchParams({ r: attemptId });
         if (cp?.username) p.set("username",  cp.username);
         if (quizName)     p.set("quiz_name", quizName);
-        const iframeSrc = `${window.location.origin}${window.location.pathname}#/writing-feedback/result?${p.toString()}`;
+        const iframeSrc = `${window.location.origin}/#/writing-feedback/result?${p.toString()}`;
         return (
           <iframe
             key={iframeSrc}
