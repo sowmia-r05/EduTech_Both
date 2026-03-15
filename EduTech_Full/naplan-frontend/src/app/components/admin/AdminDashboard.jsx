@@ -1,14 +1,11 @@
-// AdminDashboard.jsx — SECURITY UPDATE
+// AdminDashboard.jsx — FIXED
 //
-// CHANGES FROM PREVIOUS VERSION:
-//   ✅ navigate("/admin") → navigate(ADMIN_PATH) throughout
-//   ✅ navigate("/admin/quiz/:id") → navigate(`${ADMIN_PATH}/quiz/:id`)
-//   ✅ handleLogout now also calls POST /api/admin/logout to clear cookie
-//   ✅ Added "Invite Admin" button in header (super_admin only)
-//   ✅ Added InviteModal component — generates one-time invite link
-//   Everything else (tabs, quiz management, bundles) is IDENTICAL
-//
-// Zero impact on parent/child flows.
+// FIXES IN THIS VERSION:
+//   ✅ View button now uses quiz.quiz_id || quiz._id as fallback (fixes undefined redirect)
+//   ✅ e.stopPropagation() on all action buttons to prevent event bubbling
+//   ✅ Guard: skip navigation if no valid ID is found
+//   ✅ navigate(ADMIN_PATH) throughout (no hardcoded /admin)
+//   ✅ handleLogout clears cookie + localStorage
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -63,7 +60,6 @@ function InviteModal({ onClose }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // fallback for browsers that block clipboard
       const el = document.createElement("textarea");
       el.value = inviteUrl;
       document.body.appendChild(el);
@@ -86,24 +82,18 @@ function InviteModal({ onClose }) {
             </svg>
           </button>
         </div>
-
         <p className="text-sm text-slate-400">
           Generate a one-time invite link. Send it to your colleague via Slack or email.
           The link expires in <strong className="text-white">24 hours</strong> and works exactly once.
         </p>
-
         {error && (
           <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
             <p className="text-red-400 text-sm">{error}</p>
           </div>
         )}
-
         {!inviteUrl ? (
-          <button
-            onClick={generateInvite}
-            disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors"
-          >
+          <button onClick={generateInvite} disabled={loading}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors">
             {loading ? "Generating..." : "Generate Invite Link"}
           </button>
         ) : (
@@ -112,32 +102,23 @@ function InviteModal({ onClose }) {
               <p className="text-xs text-slate-500 mb-1">Invite link (copy and send):</p>
               <p className="text-xs text-indigo-300 break-all font-mono">{inviteUrl}</p>
             </div>
-
             <div className="flex gap-2">
-              <button
-                onClick={handleCopy}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors"
-              >
+              <button onClick={handleCopy}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors">
                 {copied ? "✓ Copied!" : "Copy Link"}
               </button>
-              <button
-                onClick={generateInvite}
-                disabled={loading}
-                className="px-4 py-2.5 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors disabled:opacity-50"
-              >
+              <button onClick={generateInvite} disabled={loading}
+                className="px-4 py-2.5 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors disabled:opacity-50">
                 New Link
               </button>
             </div>
-
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3">
               <p className="text-amber-400 text-xs">
                 ⚠️ This link is single-use and expires in 24 hours.
-                The new account will be <strong>pending</strong> until you approve it here.
               </p>
             </div>
           </div>
         )}
-
         <button onClick={onClose} className="w-full text-sm text-slate-500 hover:text-slate-300 transition-colors pt-1">
           Close
         </button>
@@ -184,6 +165,9 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState("");
 
+  // ✅ FIX: Use quiz_id || _id as fallback
+  const quizId = quiz.quiz_id || quiz._id;
+
   const handleSave = async () => {
     try {
       setSaving(true); setError("");
@@ -193,7 +177,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
         max_attempts:       form.max_attempts       === "" ? null : Number(form.max_attempts),
         passing_score:      form.passing_score      === "" ? null : Number(form.passing_score),
       };
-      const res  = await adminFetch(`/api/admin/quizzes/${quiz.quiz_id}`, {
+      const res  = await adminFetch(`/api/admin/quizzes/${quizId}`, {
         method: "PATCH",
         body:   JSON.stringify(payload),
       });
@@ -223,14 +207,13 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
           </div>
           <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
             {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3"><p className="text-red-400 text-sm">{error}</p></div>}
-
             {[
-              { label: "Quiz Name",      field: "quiz_name",          type: "text"   },
-              { label: "Subject",        field: "subject",            type: "text"   },
-              { label: "Time Limit (min)", field: "time_limit_minutes", type: "number" },
-              { label: "Max Attempts",   field: "max_attempts",       type: "number" },
-              { label: "Passing Score (%)", field: "passing_score",   type: "number" },
-              { label: "Set Number",     field: "set_number",         type: "number" },
+              { label: "Quiz Name",         field: "quiz_name",          type: "text"   },
+              { label: "Subject",           field: "subject",            type: "text"   },
+              { label: "Time Limit (min)",  field: "time_limit_minutes", type: "number" },
+              { label: "Max Attempts",      field: "max_attempts",       type: "number" },
+              { label: "Passing Score (%)", field: "passing_score",      type: "number" },
+              { label: "Set Number",        field: "set_number",         type: "number" },
             ].map(({ label, field, type }) => (
               <div key={field}>
                 <label className="block text-xs font-medium text-slate-400 mb-1">{label}</label>
@@ -238,7 +221,6 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
                   className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
             ))}
-
             <div className="grid grid-cols-2 gap-3">
               {[
                 { label: "Year Level", field: "year_level", opts: [3,5,7,9] },
@@ -254,9 +236,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
                 </div>
               ))}
             </div>
-
             <QuizSettingsExtras form={form} onChange={(f) => setForm((p) => ({ ...p, ...f }))} />
-
             <div className="space-y-2 pt-2">
               {[
                 { label: "Active",               field: "is_active"           },
@@ -289,8 +269,11 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
 // BUNDLE MAPPING MODAL
 // ════════════════════════════════════════════════════════
 function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
+  // ✅ FIX: Use quiz_id || _id as fallback
+  const quizId = quiz.quiz_id || quiz._id;
+
   const assignedBundleIds = bundles
-    .filter((b) => (b.quiz_ids || []).includes(quiz.quiz_id))
+    .filter((b) => (b.quiz_ids || []).includes(quizId))
     .map((b) => b.bundle_id);
 
   const [saving,   setSaving]   = useState(false);
@@ -308,20 +291,18 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
     setSaving(true);
     const toAdd    = [...selected].filter((id) => !assignedBundleIds.includes(id));
     const toRemove = assignedBundleIds.filter((id) => !selected.has(id));
-
     await Promise.all([
       ...toAdd.map((bundleId) =>
         adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
-          method: "POST", body: JSON.stringify({ quiz_id: quiz.quiz_id }),
+          method: "POST", body: JSON.stringify({ quiz_id: quizId }),
         })
       ),
       ...toRemove.map((bundleId) =>
         adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
-          method: "DELETE", body: JSON.stringify({ quiz_id: quiz.quiz_id }),
+          method: "DELETE", body: JSON.stringify({ quiz_id: quizId }),
         })
       ),
     ]);
-
     await onRefresh();
     setSaving(false);
     onClose();
@@ -435,7 +416,7 @@ export default function AdminDashboard() {
       setDeletingId(quizId);
       const res = await adminFetch(`/api/admin/quizzes/${quizId}`, { method: "DELETE" });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Delete failed"); }
-      setQuizzes((prev) => prev.filter((q) => q.quiz_id !== quizId));
+      setQuizzes((prev) => prev.filter((q) => (q.quiz_id || q._id) !== quizId));
     } catch (err) {
       alert(err.message);
     } finally {
@@ -444,24 +425,23 @@ export default function AdminDashboard() {
   };
 
   const handleToggleActive = async (quiz) => {
+    // ✅ FIX: Use quiz_id || _id as fallback
+    const quizId = quiz.quiz_id || quiz._id;
     try {
-      const res = await adminFetch(`/api/admin/quizzes/${quiz.quiz_id}`, {
+      const res = await adminFetch(`/api/admin/quizzes/${quizId}`, {
         method: "PATCH", body: JSON.stringify({ is_active: !quiz.is_active }),
       });
       if (!res.ok) throw new Error("Update failed");
       setQuizzes((prev) => prev.map((q) =>
-        q.quiz_id === quiz.quiz_id ? { ...q, is_active: !q.is_active } : q
+        (q.quiz_id || q._id) === quizId ? { ...q, is_active: !q.is_active } : q
       ));
     } catch (err) {
       alert(err.message);
     }
   };
 
-  // ✅ Updated logout — clears cookie + localStorage
   const handleLogout = async () => {
-    try {
-      await adminFetch("/api/admin/logout", { method: "POST" });
-    } catch {}
+    try { await adminFetch("/api/admin/logout", { method: "POST" }); } catch {}
     localStorage.removeItem("admin_token");
     localStorage.removeItem("admin_info");
     navigate(ADMIN_PATH);
@@ -476,11 +456,11 @@ export default function AdminDashboard() {
     return true;
   }), [quizzes, filterYear, search]);
 
-  const totalQuizzes    = quizzes.length;
-  const activeQuizzes   = quizzes.filter((q) => q.is_active !== false).length;
-  const totalQuestions  = quizzes.reduce((s, q) => s + (q.question_count || 0), 0);
-  const trialQuizzes    = quizzes.filter((q) => q.is_trial).length;
-  const activeBundles   = bundles.filter((b) => b.is_active).length;
+  const totalQuizzes   = quizzes.length;
+  const activeQuizzes  = quizzes.filter((q) => q.is_active !== false).length;
+  const totalQuestions = quizzes.reduce((s, q) => s + (q.question_count || 0), 0);
+  const trialQuizzes   = quizzes.filter((q) => q.is_trial).length;
+  const activeBundles  = bundles.filter((b) => b.is_active).length;
   const getBundlesForQuiz = (quizId) => bundles.filter((b) => (b.quiz_ids || []).includes(quizId));
 
   return (
@@ -512,22 +492,16 @@ export default function AdminDashboard() {
                 )}
               </span>
             )}
-            {/* ✅ Invite button — only visible to super_admin */}
             {isSuperAdmin && (
-              <button
-                onClick={() => setShowInvite(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg transition"
-              >
+              <button onClick={() => setShowInvite(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg transition">
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
                 </svg>
                 Invite Admin
               </button>
             )}
-            <button
-              onClick={handleLogout}
-              className="text-xs text-slate-400 hover:text-white transition-colors"
-            >
+            <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-white transition-colors">
               Logout
             </button>
           </div>
@@ -556,9 +530,9 @@ export default function AdminDashboard() {
         <div className="flex items-center gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-xl p-1 w-fit">
           {[
             { id: "quizzes", label: "All Quizzes" },
-            { id: "upload",  label: "Upload Quiz" },
+            { id: "upload",  label: "Upload Quiz"  },
             { id: "create",  label: "✚ Create Quiz" },
-            { id: "bundles", label: "Bundles" },
+            { id: "bundles", label: "Bundles"       },
           ].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -629,9 +603,11 @@ export default function AdminDashboard() {
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {filtered.map((quiz) => {
-                      const qBundles = getBundlesForQuiz(quiz.quiz_id);
+                      // ✅ KEY FIX: use quiz_id with _id as fallback
+                      const quizId   = quiz.quiz_id || quiz._id;
+                      const qBundles = getBundlesForQuiz(quizId);
                       return (
-                        <tr key={quiz.quiz_id} className="group hover:bg-slate-800/50 transition-colors">
+                        <tr key={quizId} className="group hover:bg-slate-800/50 transition-colors">
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-white font-medium">{quiz.quiz_name}</span>
@@ -642,7 +618,8 @@ export default function AdminDashboard() {
                           <td className="px-3 py-3 text-center text-slate-400">{quiz.year_level}</td>
                           <td className="px-3 py-3 text-center text-slate-400">{quiz.question_count || 0}</td>
                           <td className="px-3 py-3 text-center">
-                            <button onClick={() => handleToggleActive(quiz)}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleToggleActive(quiz); }}
                               className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border transition ${
                                 quiz.is_active !== false
                                   ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
@@ -655,7 +632,8 @@ export default function AdminDashboard() {
                             {(() => {
                               const total = qBundles.length + (quiz.is_trial ? 1 : 0);
                               return (
-                                <button onClick={() => setBundleMapQuiz(quiz)}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setBundleMapQuiz(quiz); }}
                                   className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold transition cursor-pointer ${
                                     total > 0
                                       ? "bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20"
@@ -668,20 +646,30 @@ export default function AdminDashboard() {
                           </td>
                           <td className="px-5 py-3 text-right">
                             <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                              {/* ✅ KEY FIX: guard against undefined quizId, stopPropagation */}
                               <button
-                                onClick={() => navigate(`${ADMIN_PATH}/quiz/${quiz.quiz_id}`)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!quizId) {
+                                    alert("Quiz ID is missing — please refresh the page.");
+                                    return;
+                                  }
+                                  navigate(`${ADMIN_PATH}/quiz/${quizId}`);
+                                }}
                                 className="px-2.5 py-1.5 text-xs font-medium text-indigo-400 hover:text-white hover:bg-indigo-600/20 rounded-lg transition-colors">
                                 View
                               </button>
-                              <button onClick={() => setSettingsQuiz(quiz)}
-                                className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="Settings">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setSettingsQuiz(quiz); }}
+                                className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                                title="Settings">
                                 ⚙
                               </button>
                               <button
-                                onClick={() => handleDelete(quiz.quiz_id, quiz.quiz_name)}
-                                disabled={deletingId === quiz.quiz_id}
+                                onClick={(e) => { e.stopPropagation(); handleDelete(quizId, quiz.quiz_name); }}
+                                disabled={deletingId === quizId}
                                 className="px-2.5 py-1.5 text-xs font-medium text-red-400 hover:text-white hover:bg-red-600/20 rounded-lg transition-colors disabled:opacity-40">
-                                {deletingId === quiz.quiz_id ? "..." : "Del"}
+                                {deletingId === quizId ? "..." : "Del"}
                               </button>
                             </div>
                           </td>
