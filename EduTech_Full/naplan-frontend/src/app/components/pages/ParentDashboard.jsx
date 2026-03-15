@@ -1219,7 +1219,10 @@ const loadChildren = useCallback(async () => {
     }
   }, [parentToken]);
 
-  useEffect(() => { loadChildren(); loadPayments(); }, [loadChildren, loadPayments]);
+  useEffect(() => { 
+    if (!parentToken) return;
+    loadChildren(); loadPayments();
+   }, [loadChildren, loadPayments]);
 
   useEffect(() => {
   const handleVisibility = () => {
@@ -1232,20 +1235,36 @@ const loadChildren = useCallback(async () => {
 }, [loadChildren]);
 
 
-  useEffect(() => {
-    const payment = searchParams.get("payment");
-    if (!payment) return;
-    if (payment === "success") {
-      const sid = searchParams.get("session_id");
-      if (sid) setSuccessSessionId(sid);
+useEffect(() => {
+  const payment = searchParams.get("payment");
+  if (!payment) return;
+
+  // Always strip payment params from URL immediately
+  const next = new URLSearchParams(searchParams);
+  next.delete("payment");
+  next.delete("session_id");
+  setSearchParams(next, { replace: true });
+
+  if (payment === "success") {
+    const sid = searchParams.get("session_id");
+
+    // Only show success modal if we have a real Stripe session ID to verify
+    // A missing session_id means someone crafted the URL manually — ignore it
+    if (!sid) {
+      // Still refresh data in case webhook already processed
       loadChildren();
       loadPayments();
+      return;
     }
-    const next = new URLSearchParams(searchParams);
-    next.delete("payment");
-    next.delete("session_id");
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams, loadChildren, loadPayments]);
+
+    // Set session ID — PaymentSuccessModal will call verifyPayment(sid)
+    // which hits the backend to confirm the payment is real before showing anything
+    setSuccessSessionId(sid);
+    loadChildren();
+    loadPayments();
+  }
+}, [searchParams, setSearchParams, loadChildren, loadPayments]);
+
 
   // ── CRUD handlers ─────────────────────────────────────────────
   const handleAddChild = async (formData) => {

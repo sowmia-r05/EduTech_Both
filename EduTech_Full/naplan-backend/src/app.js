@@ -105,20 +105,25 @@ app.use(
   }),
 );
 
-// ─── Core middleware ──────────────────────────────────────────────────────────
 app.use(cookieParser());
 
-// FIX: was 100mb — reduced to 1mb to prevent large-payload DoS.
-// Image/file uploads use multer (multipart) and are not affected by this limit.
-// Stripe webhook needs raw body — the verify callback captures it.
+// ── Stripe webhook — must be registered BEFORE express.json() ────────────────
+// Stripe signature verification requires the raw unparsed body (a Buffer).
+// express.raw() captures it cleanly for this one route only.
+// All other routes use express.json() below.
+app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
+
+// ── All other routes — JSON body parser ──────────────────────────────────────
 app.use(
   express.json({
     limit: "1mb",
     verify: (req, res, buf) => {
+      // Keep this as a safety net for any other route that needs rawBody
       req.rawBody = buf;
     },
   }),
 );
+
 
 // ─── Route imports ────────────────────────────────────────────────────────────
 const healthRoutes = require("./routes/healthRoutes");
@@ -167,24 +172,53 @@ const apiLimiter = rateLimit({
 
 // Auth: 10 req/min on signup/login routes (prevents credential stuffing)
 const authLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
+  windowMs: 11 * 60 * 1000,
   max: 10,
   message: { error: "Too many authentication requests. Please wait a minute." },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
+// OTP: 5 attempts per 15 minutes per IP — strict for brute-force prevention
+// Applies to both OTP request and OTP verify endpoints
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 5,
+  message: { error: "Too many OTP attempts. Please wait 15 minutes before trying again." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // only count failed/rejected requests
+});
+
+// Child PIN: 10 attempts per 15 minutes per IP
+const childLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many login attempts. Please wait 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+});
+
+
+
+
 app.use("/api", apiLimiter);
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, otpAuth);
+app.use("/api/auth/child-login", childLoginLimiter); // strict child PIN limiter
 app.use("/api/auth", authLimiter, childAuthRoutes);
 app.use("/api/auth", sessionRoutes);
 
 // ─── Parent routes ────────────────────────────────────────────────────────────
 app.use("/api/parents", parentRoutes);
+app.use("/api/parents/auth/send-otp",   otpLimiter);   // strict OTP request limiter
+app.use("/api/parents/auth/verify-otp", otpLimiter);   // strict OTP verify limiter
+app.use("/api/parents/auth/login-otp",  otpLimiter);   // login OTP if present
 app.use("/api/parents/auth", authLimiter, parentAuthRoutes);
 app.use("/api/parents/auth", authLimiter, googleAuthRoutes);
+
 
 // ─── Children routes ──────────────────────────────────────────────────────────
 app.use("/api/children", childRoutes);

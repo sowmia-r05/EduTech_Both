@@ -1217,7 +1217,10 @@ const loadChildren = useCallback(async () => {
     catch (err) { console.error("Failed to load payments:", err); }
   }, [parentToken]);
 
-  useEffect(() => { loadChildren(); loadPayments(); }, [loadChildren, loadPayments]);
+  useEffect(() => { 
+    if (!parentToken) return;
+    loadChildren(); loadPayments();
+   }, [loadChildren, loadPayments]);
 
   useEffect(() => {
   const handleVisibility = () => {
@@ -1233,10 +1236,25 @@ const loadChildren = useCallback(async () => {
   useEffect(() => {
     const payment = searchParams.get("payment");
     if (!payment) return;
-    if (payment === "success") { const sid = searchParams.get("session_id"); if (sid) setSuccessSessionId(sid); loadChildren(); loadPayments(); }
-    const next = new URLSearchParams(searchParams); next.delete("payment"); next.delete("session_id");
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("payment");
+    next.delete("session_id");
     setSearchParams(next, { replace: true });
+
+    if (payment === "success") {
+      const sid = searchParams.get("session_id");
+      if (!sid) {
+        loadChildren();
+        loadPayments();
+        return;
+      }
+      setSuccessSessionId(sid);
+      loadChildren();
+      loadPayments();
+    }
   }, [searchParams, setSearchParams, loadChildren, loadPayments]);
+
 
   const handleAddChild = async (formData) => {
     try { setActionLoading(true); await createChild(parentToken, formData); setIsAddModalOpen(false); await loadChildren(); }

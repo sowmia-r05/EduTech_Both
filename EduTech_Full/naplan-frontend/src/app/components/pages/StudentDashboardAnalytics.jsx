@@ -1,23 +1,3 @@
-// StudentDashboardAnalytics.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// TWO COMPLETELY DIFFERENT EXPERIENCES based on who is viewing:
-//
-// 👨‍👩‍👧 PARENT VIEW  — Plain English. Answers 3 questions fast:
-//   1. "Is my child doing OK?"          → Big status card
-//   2. "Where do they need help?"       → 4 simple subject tiles (stars, not %)
-//   3. "What should I do about it?"     → One clear suggested next step
-//   + Simple weekly activity snapshot
-//   + AI report written as a plain parent letter
-//
-// 🧒 CHILD VIEW  — Gamified, fun, motivating:
-//   + Hero streak card ("You're on a 5-day streak! 🔥")
-//   + XP level system (Beginner → Rising Star → Champion)
-//   + Score trend as "Your Journey" chart
-//   + Subject stat cards (game-style)
-//   + Performance donut + quiz frequency
-//   + AI coach with high-energy language
-// ─────────────────────────────────────────────────────────────────────────────
-
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
@@ -955,6 +935,7 @@ export default function StudentDashboardAnalytics({
   const { logout, logoutChild, childToken, parentToken, user } = useAuth();
 
   const [timeFilter,         setTimeFilter]         = useState(3);
+
   const [selectedSubject,    setSelectedSubject]    = useState("All");
   const [cumulativeFeedback, setCumulativeFeedback] = useState({});
   const [feedbackLoading,    setFeedbackLoading]    = useState(false);
@@ -967,6 +948,12 @@ export default function StudentDashboardAnalytics({
     if (user?.child_id) return user.child_id;
     return null;
   }, [childIdProp, user]);
+
+  useEffect(() => {
+    if(!embedded && !childId){
+      navigate("/parent-dashboard", {replace: true});
+    }
+  },[embedded,childId, navigate]);
 
   const activeToken  = childToken || parentToken || null;
   const isParentView = viewerType ? viewerType !== "child" : Boolean(parentToken && !childToken);

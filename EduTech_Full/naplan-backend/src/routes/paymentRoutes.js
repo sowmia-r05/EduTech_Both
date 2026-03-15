@@ -141,7 +141,7 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
       payment_method_types: ["card"],
       line_items: lineItems,
       mode: "payment",
-      success_url: `${FRONTEND_URL}#/parent-dashboard?payment=success`,
+      success_url: `${FRONTEND_URL}#/parent-dashboard?payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${FRONTEND_URL}#/parent-dashboard?payment=cancelled`,
       metadata: {
         parentId: parentId.toString(),
@@ -194,7 +194,7 @@ router.post("/webhook", async (req, res) => {
   let event;
   try {
     event = stripe.webhooks.constructEvent(
-      req.rawBody || req.body,
+      req.body,
       sig,
       webhookSecret
     );
@@ -459,7 +459,7 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
       payment_method_types: ["card"],
       line_items: lineItems,
       mode: "payment",
-      success_url: `${FRONTEND_URL}#/parent-dashboard?payment=success`,
+      success_url: `${FRONTEND_URL}#/parent-dashboard?payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${FRONTEND_URL}#/parent-dashboard?payment=cancelled`,
       metadata: {
         parentId: parentId.toString(),

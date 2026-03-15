@@ -16,6 +16,15 @@ export async function fetchCumulativeFeedback(token, childId) {
   };
 }
 
+// One-time migration: remove tokens from localStorage if present
+// (legacy from before the cookie-only auth switch)
+;(function cleanupLegacyTokens() {
+  try {
+    localStorage.removeItem("parent_token");
+    localStorage.removeItem("child_token");
+    localStorage.removeItem("admin_token");
+  } catch {}
+})();
 
 
 /**
@@ -42,6 +51,7 @@ const API_BASE =
 async function authGet(path, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "GET",
+    credentials: "include",
     headers: {
       Accept: "application/json",
       "Cache-Control": "no-cache",
@@ -49,58 +59,62 @@ async function authGet(path, token) {
     },
     cache: "no-store",
   });
-
   if (res.status === 204) return null;
-
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
   return body;
 }
+
+
+
 
 async function authPost(path, data, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(data),
   });
-
-  const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
-  return body;
+    const body = await res.json().catch(() => null);
+    if (!res.ok)
+      throw new Error(body?.error || `Request failed: ${res.status}`);
+    return body;
 }
+
 
 async function authPut(path, data, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PUT",
+    credentials: "include",
     headers: {
-      "Content-Type": "application/json",
       Accept: "application/json",
+      "Cache-Control": "no-cache",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(data),
   });
-
-  const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
-  return body;
+    const body = await res.json().catch(() => null);
+    if (!res.ok)
+      throw new Error(body?.error || `Request failed: ${res.status}`);
+    return body;
 }
 
 async function authDelete(path, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "DELETE",
+    credentials: "include",
     headers: {
       Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
-
-  const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
-  return body;
+    const body = await res.json().catch(() => null);
+    if (!res.ok)
+      throw new Error(body?.error || `Request failed: ${res.status}`);
+    return body;
 }
 
 // ─── Children CRUD ───

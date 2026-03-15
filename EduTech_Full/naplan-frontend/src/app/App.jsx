@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useSearchParams, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/app/context/AuthContext";
 import { RequireParent, RequireChild, RequireAuth } from "@/app/components/auth/RequireAuth";
 import FooterMinimal from "@/app/components/landing/FooterMinimal";
@@ -24,9 +24,17 @@ import AdminRegister from "@/app/components/admin/AdminRegister";
 import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin  from "@/app/components/admin/RequireAdmin";
 import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
+import {useAuth} from "@/app/context/AuthContext";
 
 // Read from env var — add VITE_ADMIN_PATH=/your-secret-path to frontend .env
 const ADMIN_PATH = import.meta.env.VITE_ADMIN_PATH || "/admin";
+
+if(ADMIN_PATH === "/admin"){
+  console.warn( "[security] VITE_ADMIN_PATH is not set. Admin pannel is exposed at /admin - "+
+    "set VITE_ADMIN_PATH to secret path in env file before deploying"
+  )
+}
+
 export { ADMIN_PATH };
 
 function WithFooter({ children }) {
@@ -37,6 +45,67 @@ function WithFooter({ children }) {
     </div>
   );
 }
+
+/**
+ * RequireNoChild
+ *
+ * Prevents a child who is already logged in from reaching the child login page.
+ * If a child session is active → redirect to /child-dashboard.
+ * If no child session → render the login page normally.
+ *
+ * This is different from RequireChild (which REQUIRES a child session).
+ * This guard BLOCKS entry when a child session EXISTS.
+ */
+function RequireNoChild({ children }) {
+  const { isChild, isInitializing } = useAuth();
+  if (isInitializing) return <LoadingSpinner />;
+  if (isChild) return <Navigate to="/child-dashboard" replace />;
+  return children;
+}
+
+
+// Check if an admin is already logged in (reads localStorage, same as RequireAdmin.jsx)
+function isAdminLoggedIn() {
+  const token = localStorage.getItem("admin_token");
+  if (!token) return false;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    if (payload.exp * 1000 < Date.now()) return false;
+    return payload.role === "admin" || payload.role === "super_admin";
+  } catch {
+    return false;
+  }
+}
+
+
+/**
+ * AdminRegisterGuard
+ *
+ * Protects the register route with two checks:
+ * 1. Must have ?invite= token in the URL — without it, redirect to admin login
+ * 2. If already logged in as admin, redirect straight to dashboard
+ *
+ * The backend independently validates the invite token on submit —
+ * this is just a frontend first line of defence.
+ */
+function AdminRegisterGuard() {
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get("invite") || "";
+
+  // Already logged in as admin → go to dashboard
+  if (isAdminLoggedIn()) {
+    return <Navigate to={`${ADMIN_PATH}/dashboard`} replace />;
+  }
+
+  // No invite token in URL → go to admin login, not registration
+  if (!inviteToken) {
+    return <Navigate to={ADMIN_PATH} replace />;
+  }
+
+  // Valid invite token present → show registration form
+  return <AdminRegister />;
+}
+
 
 export default function AppRoutes() {
   return (
@@ -57,15 +126,15 @@ export default function AppRoutes() {
         <Route path="/parent-login"  element={<ParentLoginPage />} />
 
         {/* ─── Child Auth ─── */}
-        <Route path="/child-login" element={<ChildLoginPage />} />
+        <Route path="/child-login" element={<RequireNoChild><ChildLoginPage/> </RequireNoChild>} />
 
         {/* ─── Analytics ─── */}
         <Route
           path="/student-analytics"
           element={
-            <RequireAuth>
+            <RequireParent>
               <WithFooter><StudentDashboardAnalytics /></WithFooter>
-            </RequireAuth>
+            </RequireParent>
           }
         />
 
@@ -117,7 +186,7 @@ export default function AppRoutes() {
 
         {/* ─── Admin ─── */}
         <Route path={ADMIN_PATH} element={<AdminLogin />} />
-        <Route path={`${ADMIN_PATH}/register`} element={<AdminRegister />} />
+        <Route path={`${ADMIN_PATH}/register`} element={<AdminRegisterGuard />} />
         <Route
           path={`${ADMIN_PATH}/dashboard`}
           element={<RequireAdmin><AdminDashboard /></RequireAdmin>}

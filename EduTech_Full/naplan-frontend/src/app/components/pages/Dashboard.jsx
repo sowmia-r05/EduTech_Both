@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
 
 import StatCard from "@/app/components/dashboardComponents/StatCard";
 import AICoachPanel from "@/app/components/dashboardComponents/AICoachPanel";
@@ -61,6 +61,8 @@ const buildTopicStrength = (topicBreakdown = {}) => {
   });
   return { strongTopics: strong, weakTopics: weak.sort((a, b) => b.lostMarks - a.lostMarks) };
 };
+
+
 
 const buildSuggestionsFromFeedback = (feedback) => {
   if (!feedback) return [];
@@ -199,11 +201,16 @@ const ResultNotFound = ({ errorMessage, onGoBack }) => {
 export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { activeToken, isInitializing, childToken, childProfile, parentToken } = useAuth();
 
-  const responseId = String(searchParams.get("r") || "").trim();
-  const hasResponseId = Boolean(responseId && responseId !== "[ResponseId]");
+  const responseId    = String(location.state?.r        || searchParams.get("r")        || "").trim();
+  const hasResponseId = !!responseId;
+  const usernameParam = String(location.state?.username  || searchParams.get("username") || "").trim();
+  const subjectParam  = String(location.state?.subject   || searchParams.get("subject")  || "").trim();
+  const quizNameParam = String(location.state?.quiz_name || searchParams.get("quiz_name")|| "").trim();
+
 
   const [latestResult, setLatestResult] = useState(null);
   const [resultsList, setResultsList] = useState([]);

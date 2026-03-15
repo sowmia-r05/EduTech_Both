@@ -333,29 +333,34 @@ export default function QuizResult({
   const handleViewAIFeedback = useCallback(() => {
     if (!attemptId) return;
     if (onViewAIFeedback) { onViewAIFeedback(attemptId, result?.subject, quizName); return; }
-    const { childProfile:cp } = authRef.current;
-    const s = subscriptionStatus|| childStatusProp ||cp?.status||"trial";
-    const p = new URLSearchParams({ r:attemptId });
-    if (cp?.username)    p.set("username",  cp.username);
-    if (result?.subject) p.set("subject",   result.subject);
-    if (quizName)        p.set("quiz_name", quizName);
-    navigate(isWriting
-      ? `/writing-feedback/result?${p}`
-      : `/NonWritingLookupQuizResults/results?${p}`
+    const { childProfile: cp } = authRef.current;
+    const state = {
+      r: attemptId,
+      username: cp?.username || null,
+      subject: result?.subject || null,
+      quiz_name: quizName || null,
+    };
+    navigate(
+      isWriting ? "/writing-feedback/result" : "/NonWritingLookupQuizResults/results",
+      { state }
     );
-  }, [attemptId, result?.subject, quizName, isWriting, childStatusProp, subscriptionStatus, onViewAIFeedback, navigate]);
+  }, [attemptId, result?.subject, quizName, isWriting, onViewAIFeedback, navigate]);
+
 
   // Navigates to the full Dashboard.jsx for this attempt
   const handleViewDashboard = useCallback(() => {
     if (!attemptId) return;
     const { childProfile: cp } = authRef.current;
-    const s = subscriptionStatus || childStatusProp || cp?.status || "trial";
-    const p = new URLSearchParams({ r: attemptId });
-    if (cp?.username)    p.set("username",  cp.username);
-    if (result?.subject) p.set("subject",   result.subject);
-    if (quizName)        p.set("quiz_name", quizName);
-    navigate(`/NonWritingLookupQuizResults/results?${p}`);
-  }, [navigate, attemptId, result?.subject, quizName, subscriptionStatus, childStatusProp]);
+    navigate("/NonWritingLookupQuizResults/results", {
+      state: {
+        r: attemptId,
+        username: cp?.username || null,
+        subject: result?.subject || null,
+        quiz_name: quizName || null,
+      },
+    });
+  }, [navigate, attemptId, result?.subject, quizName]);
+
 
   /* ── shared icon SVGs ── */
   const IcAnswers = () => (

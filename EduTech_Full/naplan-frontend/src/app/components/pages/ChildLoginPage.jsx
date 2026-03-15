@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
@@ -13,7 +13,14 @@ import { childLogin } from "@/app/utils/api-children";
 
 export default function ChildLoginPage() {
   const navigate = useNavigate();
-  const { loginChild } = useAuth();
+  const { loginChild, isParent, isChild, isInitializing } = useAuth();
+
+  // Redirect away if already authenticated 
+  useEffect(() => { 
+    if (isInitializing) return; 
+    if (isChild) { navigate("/child-dashboard", { replace: true }); return; } 
+    if (isParent) { navigate("/parent-dashboard", { replace: true }); return; } 
+  }, [isChild, isParent, isInitializing, navigate]);
 
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
