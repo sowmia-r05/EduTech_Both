@@ -18,13 +18,12 @@ function isAdminTokenValid() {
     const payload = JSON.parse(atob(token.split(".")[1]));
     // Check expiry
     if (payload.exp * 1000 < Date.now()) {
-      // Token expired — clean up
       localStorage.removeItem("admin_token");
       localStorage.removeItem("admin_info");
       return false;
     }
     // Check role
-    if (payload.role !== "admin" && payload.role !== "super_admin") {
+    if (payload.role !== "admin") {
       localStorage.removeItem("admin_token");
       localStorage.removeItem("admin_info");
       return false;

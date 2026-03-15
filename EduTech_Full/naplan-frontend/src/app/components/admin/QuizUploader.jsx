@@ -17,11 +17,33 @@ import * as XLSX from "xlsx";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
+// ✅ FIX: Try multiple common token key names to avoid 403 Forbidden
+function getAuthToken() {
+  return (
+    localStorage.getItem("admin_token") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    localStorage.getItem("accessToken") ||
+    sessionStorage.getItem("admin_token") ||
+    sessionStorage.getItem("token") ||
+    sessionStorage.getItem("authToken") ||
+    null
+  );
+}
+
 function adminFetch(url, opts = {}) {
-  const token = localStorage.getItem("admin_token");
+  const token = getAuthToken();
+
+  if (!token) {
+    console.error("❌ No auth token found! Check localStorage key name.");
+  }
+
   return fetch(`${API}${url}`, {
     ...opts,
-    headers: { ...opts.headers, Authorization: `Bearer ${token}` },
+    headers: {
+      ...opts.headers,
+      Authorization: `Bearer ${token}`,
+    },
   });
 }
 
@@ -126,8 +148,8 @@ function parseFlexiQuiz(workbook, fileName) {
     set_number: 1,
     is_trial: false,
     _needsReview: true,
-    voice_url: null,   // ✅ NEW
-    video_url: null,   // ✅ NEW
+    voice_url: null,
+    video_url: null,
   };
 
   const questions = [];
@@ -247,8 +269,8 @@ function parseCustomTemplate(workbook) {
     difficulty: meta.difficulty || null,
     set_number: parseInt(meta.set_number) || 1,
     is_trial: meta.is_trial === "true",
-    voice_url: meta.voice_url || null,   // ✅ NEW
-    video_url: meta.video_url || null,   // ✅ NEW
+    voice_url: meta.voice_url || null,
+    video_url: meta.video_url || null,
   };
 
   if (!quizMeta.quiz_name) errors.push("Quiz name is required (Quiz Info sheet)");
@@ -417,6 +439,14 @@ export default function QuizUploader({ onUploadSuccess }) {
     if (![3, 5, 7, 9].includes(finalMeta.year_level)) { setUploadError("Year level must be 3, 5, 7, or 9"); setStep("preview"); return; }
     if (!["Maths", "Reading", "Writing", "Conventions"].includes(finalMeta.subject)) { setUploadError("Subject must be Maths, Reading, Writing, or Conventions"); setStep("preview"); return; }
 
+    // ✅ FIX: Warn in console if token is missing before sending
+    const token = getAuthToken();
+    if (!token) {
+      setUploadError("You are not authenticated. Please log out and log in again.");
+      setStep("preview");
+      return;
+    }
+
     try {
       const res = await adminFetch("/api/admin/quizzes/upload", {
         method: "POST",
@@ -431,8 +461,8 @@ export default function QuizUploader({ onUploadSuccess }) {
             difficulty: finalMeta.difficulty || null,
             set_number: finalMeta.set_number || 1,
             is_trial: finalMeta.is_trial || false,
-            voice_url: finalMeta.voice_url || null,   // ✅ NEW
-            video_url: finalMeta.video_url || null,   // ✅ NEW
+            voice_url: finalMeta.voice_url || null,
+            video_url: finalMeta.video_url || null,
           },
           questions: parsed.questions.map((q) => ({
             question_text: q.question_text,
@@ -449,13 +479,20 @@ export default function QuizUploader({ onUploadSuccess }) {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        // ✅ FIX: Friendlier 403 error message
+        if (res.status === 403) {
+          throw new Error("Access denied (403). Your session may have expired — please log out and log in again.");
+        }
+        if (res.status === 401) {
+          throw new Error("Unauthorized (401). Please log out and log in again.");
+        }
         throw new Error(body.error || `Upload failed (${res.status})`);
       }
 
       const data = await res.json();
       setUploadResult(data);
       setStep("done");
-      onUploadSuccess?.(); // ✅ Auto-refresh quiz list in AdminDashboar
+      onUploadSuccess?.();
     } catch (err) {
       setUploadError(err.message);
       setStep("preview");
@@ -486,8 +523,7 @@ export default function QuizUploader({ onUploadSuccess }) {
               <p className="text-xs text-slate-400 mt-1">Download, fill in your questions, then upload below.</p>
             </div>
             <a
-              // Line 488
-            href="https://docs.google.com/spreadsheets/d/1EdN6coi8VePzQI0oM9d6Yh9aul9sr_oL/edit?usp=sharing&ouid=107123046742355467108&rtpof=true&sd=true"
+              href="https://docs.google.com/spreadsheets/d/1EdN6coi8VePzQI0oM9d6Yh9aul9sr_oL/edit?usp=sharing&ouid=107123046742355467108&rtpof=true&sd=true"
               download="Quiz_Upload_Template.xlsx"
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
             >
@@ -554,26 +590,26 @@ export default function QuizUploader({ onUploadSuccess }) {
         {/* Upload area */}
         <div className="space-y-4">
           <div>
-           <label
-                      htmlFor="quiz-file-upload"
-                      className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer bg-slate-900/50 hover:bg-slate-900 hover:border-indigo-500/50 transition-colors"
-                    >
-                      <svg className="w-10 h-10 text-slate-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                      </svg>
-                      <p className="text-sm text-slate-400">
-                        <span className="text-indigo-400 font-medium">Click to upload</span> or drag and drop
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">.xlsx files — our template or FlexiQuiz export</p>
-                    </label>
-                    <input
-                      id="quiz-file-upload"
-                      ref={fileRef}
-                      type="file"
-                      accept=".xlsx,.xls"
-                      className="hidden"
-                      onChange={handleFile}
-                    />
+            <label
+              htmlFor="quiz-file-upload"
+              className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer bg-slate-900/50 hover:bg-slate-900 hover:border-indigo-500/50 transition-colors"
+            >
+              <svg className="w-10 h-10 text-slate-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+              </svg>
+              <p className="text-sm text-slate-400">
+                <span className="text-indigo-400 font-medium">Click to upload</span> or drag and drop
+              </p>
+              <p className="text-xs text-slate-500 mt-1">.xlsx files — our template or FlexiQuiz export</p>
+            </label>
+            <input
+              id="quiz-file-upload"
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={handleFile}
+            />
           </div>
         </div>
       </div>
@@ -706,7 +742,6 @@ export default function QuizUploader({ onUploadSuccess }) {
                     <option value="hard">Hard</option>
                   </select>
                 </div>
-                {/* ✅ NEW: Voice & Video URL inputs */}
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">🔊 Voice / Audio URL</label>
                   <input type="url" value={editMeta.voice_url || ""}

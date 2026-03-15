@@ -1,7 +1,7 @@
 /**
  * scripts/seedAdmin.js
  *
- * Creates the FIRST super_admin directly in MongoDB.
+ * Creates the FIRST admin account directly in MongoDB.
  * Run this once on the server — never through the browser.
  *
  * Usage:
@@ -20,7 +20,6 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const ADMIN_NAME     = process.env.ADMIN_NAME     || "Admin";
 
 async function seed() {
-  // ✅ Updated to match new 12-char policy
   if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 12) {
     console.error("❌ ADMIN_PASSWORD must be at least 12 characters.");
     console.error("   Example: ADMIN_PASSWORD=StrongPass123 node scripts/seedAdmin.js");
@@ -56,10 +55,10 @@ async function seed() {
       email:         ADMIN_EMAIL.toLowerCase().trim(),
       name:          ADMIN_NAME,
       password_hash: ADMIN_PASSWORD, // pre-save hook bcrypt-hashes this
-      role:          "super_admin",
+      role:          "admin",
       status:        "active",
     });
-    console.log("✅ Super admin created:");
+    console.log("✅ Admin created:");
     console.log(`   Email:  ${admin.email}`);
     console.log(`   Name:   ${admin.name}`);
     console.log(`   Role:   ${admin.role}`);
