@@ -1308,8 +1308,12 @@ const loadChildren = useCallback(async () => {
       // Fetch full child record which includes email_notifications
       const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
       const res = await fetch(`${API_BASE}/api/children/${childId}`, {
-        headers: { Authorization: `Bearer ${parentToken}`, Accept: "application/json" },
-      });
+      credentials: "include",
+      headers: {
+        Authorization: `Bearer ${parentToken}`,
+        Accept: "application/json",
+      },
+        });
       if (res.ok) {
         const full = await res.json();
         setEditTarget(full);

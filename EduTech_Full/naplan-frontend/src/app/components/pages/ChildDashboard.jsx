@@ -297,7 +297,7 @@ const getInitialTab = () => {
   } else if (childProfile) {
     setChildEntitledQuizIds(childProfile.entitled_quiz_ids || []);
   }
-}, [location.state, childProfile, parentToken, childId, navigate, searchParams]);
+}, [location.state, childProfile, parentToken, childId, navigate]);
 
 
 

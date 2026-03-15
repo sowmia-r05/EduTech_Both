@@ -33,8 +33,12 @@ export default function StartTestPage() {
     localStorage.setItem("childName", name);
     localStorage.setItem("yearLevel", year);
 
-    navigate("/trial-test");
-  };
+    navigate("/trial-test", {
+      state: {
+        name: name.trim(),
+        year,
+      }
+  });
 
   const handleYearChange = (value) => {
     setYear(value);
@@ -117,4 +121,5 @@ export default function StartTestPage() {
       </div>
     </motion.section>
   );
+}
 }

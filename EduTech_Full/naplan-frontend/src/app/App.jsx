@@ -114,7 +114,7 @@ export default function AppRoutes() {
         {/* ─── Public ─── */}
         <Route path="/" element={<WelcomePage />} />
         <Route path="/free-trial" element={<FreeTrialPage />} />
-        <Route path="/start-test" element={<StartTestPage />} />
+        <Route path="/start-test" element={<RequireParent><StartTestPage /></RequireParent>} />
         <Route path="/trial-test" element={<RequireAuth><TrialTestPage/></RequireAuth>} />
         <Route path="/terms"   element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} /> 

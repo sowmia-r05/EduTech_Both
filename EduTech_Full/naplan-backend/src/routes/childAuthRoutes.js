@@ -29,7 +29,7 @@ const jwt        = require("jsonwebtoken");
 const Child      = require("../models/child");
 
 const JWT_SECRET        = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
-const CHILD_TOKEN_EXPIRY = "365d";
+const CHILD_TOKEN_EXPIRY = "30d";
 
 /**
  * POST /api/auth/child-login
