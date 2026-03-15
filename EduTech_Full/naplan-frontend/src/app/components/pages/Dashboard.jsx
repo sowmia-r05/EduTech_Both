@@ -252,18 +252,35 @@ export default function Dashboard() {
           setLatestResult(doc);
           if (isAiPending(doc)) setAiPending(true);
           const username = searchParams.get("username") || doc.username || doc.user?.user_name || "";
-          const subject = searchParams.get("subject") || "";
+          const subject  = searchParams.get("subject") || "";
+          const childId  = doc.child_id || doc.childId || null;
           let all;
           if (username) {
-            all = await fetchResultsByUsername(username, { subject: subject || undefined, headers: { Authorization: `Bearer ${activeToken}` } });
+            all = await fetchResultsByUsername(username, {
+              subject: subject || undefined,
+              headers: { Authorization: `Bearer ${activeToken}` },
+            });
+          } else if (childId) {
+            // ✅ Native quiz children have no username/email — fetch by child_id instead
+            const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+            const res = await fetch(
+              `${API_BASE}/api/children/${childId}/results`,
+              { credentials: "include", headers: { Authorization: `Bearer ${activeToken}` } }
+            );
+            const data = res.ok ? await res.json() : [];
+            all = Array.isArray(data) ? data : [doc];
           } else {
             const email = doc.user?.email_address || "";
             if (email) {
-            all = await fetchResultsByEmail(email, { quiz_name: doc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
+              all = await fetchResultsByEmail(email, {
+                quiz_name: doc.quiz_name,
+                headers: { Authorization: `Bearer ${activeToken}` },
+              });
             } else {
-            all = [doc]; // no email and no username — just show this single result
+              all = [doc];
             }
           }
+
           if (!cancelled) setResultsList(all || [doc]);
         }
       } catch (err) {
