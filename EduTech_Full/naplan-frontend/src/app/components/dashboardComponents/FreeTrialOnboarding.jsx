@@ -1,24 +1,3 @@
-/**
- * FreeTrialOnboarding.jsx
- *
- * Multi-step onboarding overlay shown on ParentDashboard when
- * ?onboarding=free-trial is in the URL (i.e. right after a new
- * parent registers via the free-trial funnel).
- *
- * Steps:
- *   1. Welcome message — "Welcome! Let's get your child started"
- *   2. Add Child form — display name, username, year level, PIN
- *   3. Success — "All set! Start the free test" → navigates to child dashboard
- *
- * Props:
- *   parentToken  — Parent JWT (for API calls)
- *   onComplete   — (newChild) => void — called after child is created, so
- *                   ParentDashboard can refresh its children list
- *   onSkip       — () => void — if parent wants to skip onboarding
- *
- * Place in: src/app/components/dashboardComponents/FreeTrialOnboarding.jsx
- */
-
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { createChild, checkUsername } from "@/app/utils/api-children";
@@ -549,23 +528,15 @@ export default function FreeTrialOnboarding({ parentToken, onComplete, onSkip })
 
   const handleStartQuiz = useCallback(async () => {
     if (!createdChild) return;
+    navigate("/child-dashboard", {
+      state: {
+        childId: createdChild._id,
+        childName: createdChild.display_name || "",
+        yearLevel: createdChild.year_level || "",
+        username: createdChild.username || "",
+      }
+    })
 
-    // Auto-login as child and navigate to child dashboard
-    try {
-      // We need to do a child login to get a child JWT
-      // The parent just created the child, so we can use the Quick Login approach
-      // Navigate to child-login pre-filled, or use the QuickChildLogin flow
-      // Simplest: navigate to child dashboard via parent view
-      navigate(
-        `/child-dashboard?childId=${encodeURIComponent(createdChild._id)}` +
-        `&childName=${encodeURIComponent(createdChild.display_name || "")}` +
-        `&yearLevel=${createdChild.year_level || ""}` +
-        `&username=${encodeURIComponent(createdChild.username || "")}`
-      );
-    } catch {
-      // Fallback: just go to parent dashboard
-      navigate("/parent-dashboard");
-    }
   }, [createdChild, navigate]);
 
   const handleSkip = useCallback(() => {
