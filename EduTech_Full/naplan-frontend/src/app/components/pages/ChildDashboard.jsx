@@ -1,5 +1,5 @@
-import React, { useMemo, useLocation, useState, useEffect, useCallback } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import {
   fetchChildResults,
@@ -144,12 +144,25 @@ function TabSlider({ activeTab, onChange }) {
   );
 }
 
+function assertAllowedParams(searchParams) {
+  const ALLOWED = new Set([
+    "childId", "childName", "yearLevel", "username", "tab",
+  ]);
+  for (const key of searchParams.keys()) {
+    if (!ALLOWED.has(key)) {
+      console.warn(`[ChildDashboard] Unexpected URL param stripped: ${key}`);
+    }
+  }
+}
+
+
 /* ══════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════ */
 export default function ChildDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation ();
   const { childToken, childProfile, parentToken, logoutChild, logout } = useAuth();
   
 
@@ -220,8 +233,6 @@ const getInitialTab = () => {
  const resolveChildInfo = useCallback(async () => {
   assertAllowedParams(searchParams);
 
-  null!== "trail"
-  setChildStatus(null);
 
   // ✅ FIX-2: Sanitize URL params before using them
   const rawName     = searchParams.get("childName");
@@ -932,7 +943,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
                             {/* View Results — opens specific test dashboard */}
                             <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                               {isCompleted && quiz.response_id
-                                ? <button onClick={() => handleAiFeedback(quiz)}
+                                ? <button onClick={() => handleViewResultk(quiz)}
                                     className={`inline-flex items-center justify-center px-3 py-1.5 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap ${(quiz.subject || "").toLowerCase() === "writing" ? "bg-purple-600 hover:bg-purple-700" : "bg-indigo-600 hover:bg-indigo-700"}`}>
                                     View Results
                                   </button>

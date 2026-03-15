@@ -217,9 +217,7 @@ export default function Dashboard() {
   const [aiPending, setAiPending] = useState(false);
 
   const isParentViewing = !childToken && !!parentToken;
-   const [childStatus, setChildStatus] = useState(
-  () => searchParams.get("status") || childProfile?.status || "trial"
-  );
+   const [childStatus, setChildStatus] = useState("trial");
   const yearLevel = childProfile?.yearLevel || null;
 
   const viewerType = childToken && !isParentViewing
