@@ -1,15 +1,4 @@
-// ChildDashboard.jsx — TAB SLIDER (v3)
-//
-// STRUCTURE:
-//   Tab 1: "My Quizzes"         — ORIGINAL quiz board, zero changes
-//   Tab 2: "Overall Subject"    — StudentDashboardAnalytics (All subjects, cumulative)
-//   Tab 3: "Individual Subject" — StudentDashboardAnalytics (pre-filtered to a subject, cumulative)
-//
-// Non-writing & Writing dashboards are for SPECIFIC TEST results only.
-// They are accessed via "Test Insights" button → navigate() as before.
-// They are NOT part of the slider.
-
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useLocation, useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import {
@@ -164,7 +153,7 @@ export default function ChildDashboard() {
   const { childToken, childProfile, parentToken, logoutChild, logout } = useAuth();
   
 
-  const childId     = searchParams.get("childId") || childProfile?.childId;
+  const childId     = location.state?.childId || searchParams.get("childId") || childProfile?.childId;
   const activeToken = childToken || parentToken;
   const isParentViewing = !childToken && !!parentToken;
 
@@ -229,10 +218,9 @@ const getInitialTab = () => {
   /* ─── Resolve child info (original) ─── */
 
  const resolveChildInfo = useCallback(async () => {
-  // ✅ FIX-4: Validate URL params against allowlist (logs in dev)
   assertAllowedParams(searchParams);
 
-  // ✅ FIX-1: Reset childStatus immediately — prevents stale status flash
+  null!== "trail"
   setChildStatus(null);
 
   // ✅ FIX-2: Sanitize URL params before using them
@@ -581,7 +569,6 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
         if (username) params.set("username", username);
         if (subject) params.set("subject", subject);
         if (name) params.set("quiz_name", name);
-        params.set("status", childStatus);
         navigate((subject || "").toLowerCase() === "writing"
           ? `/writing-feedback/result?${params}`
           : `/NonWritingLookupQuizResults/results?${params}`
@@ -624,7 +611,6 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
         if (username) params.set("username", username);
         if (subject)  params.set("subject",  subject);
         if (name)     params.set("quiz_name", name);
-        params.set("status", childStatus);
         navigate(
           (subject || "").toLowerCase() === "writing"
             ? `/writing-feedback/result?${params}`

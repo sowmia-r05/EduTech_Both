@@ -1197,8 +1197,15 @@ export default function ParentDashboard() {
 
 
   const handleViewChild = (child) => {
-   navigate(`/child-dashboard?childId=${child._id || child.id}&childName=${encodeURIComponent(child.display_name || child.name || "")}&yearLevel=${child.year_level || ""}&username=${encodeURIComponent(child.username || "")}`);
-  };
+  navigate("/child-dashboard", {
+    state: {
+      childId: child._id || child.id,
+      childName: child.display_name || child.name || "",
+      yearLevel: child.year_level || "",
+      username: child.username || "",
+    }
+  })
+};
 
   const handleDeleteRequest = (childId) => { const raw = rawChildren.find((c) => String(c._id) === String(childId)); if (raw) setDeleteTarget(raw); };
 
