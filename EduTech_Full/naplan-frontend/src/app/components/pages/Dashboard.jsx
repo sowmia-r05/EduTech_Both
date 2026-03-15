@@ -217,7 +217,9 @@ export default function Dashboard() {
   const [aiPending, setAiPending] = useState(false);
 
   const isParentViewing = !childToken && !!parentToken;
-  const childStatus = searchParams.get("status") || childProfile?.status || "trial";
+   const [childStatus, setChildStatus] = useState(
+  () => searchParams.get("status") || childProfile?.status || "trial"
+  );
   const yearLevel = childProfile?.yearLevel || null;
 
   const viewerType = childToken && !isParentViewing
@@ -250,7 +252,12 @@ export default function Dashboard() {
           if (username) {
             all = await fetchResultsByUsername(username, { subject: subject || undefined, headers: { Authorization: `Bearer ${activeToken}` } });
           } else {
-            all = await fetchResultsByEmail(doc.user.email_address, { quiz_name: doc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
+            const email = doc.user?.email_address || "";
+            if (email) {
+            all = await fetchResultsByEmail(email, { quiz_name: doc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
+            } else {
+            all = [doc]; // no email and no username — just show this single result
+            }
           }
           if (!cancelled) setResultsList(all || [doc]);
         }
@@ -286,7 +293,12 @@ export default function Dashboard() {
           if (username) {
             all = await fetchResultsByUsername(username, { subject: subject || undefined, headers: { Authorization: `Bearer ${activeToken}` } });
           } else {
-            all = await fetchResultsByEmail(freshDoc.user.email_address, { quiz_name: freshDoc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
+            const email = freshDoc.user?.email_address || "";
+          if (email) {
+            all = await fetchResultsByEmail(email, { quiz_name: freshDoc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
+          } else {
+            all = [freshDoc];
+          }
           }
           if (!cancelled) setResultsList(all || [freshDoc]);
           return;
@@ -298,6 +310,26 @@ export default function Dashboard() {
     const timer = setTimeout(poll, 2000);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [aiPending, responseId, searchParams, activeToken]);
+
+     useEffect(() => {
+     if (!latestResult || !activeToken) return;
+     const childId = latestResult?.child_id
+       || latestResult?.childId
+       || null;
+
+     if (!childId) return;
+
+     const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+     fetch(`${API_BASE}/api/children/${childId}/available-quizzes`, {
+       headers: { Authorization: `Bearer ${activeToken}` },
+       credentials: "include",
+     })
+       .then((r) => r.ok ? r.json() : null)
+       .then((data) => {
+         if (data?.child_status) setChildStatus(data.child_status);
+       })
+       .catch(() => {});
+   }, [latestResult, activeToken]);
 
   useEffect(() => { if (!localStorage.getItem("dashboardTourPrompted")) setShowTourModal(true); }, []);
 

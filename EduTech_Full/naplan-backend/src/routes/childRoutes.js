@@ -1,20 +1,20 @@
-/**
- * routes/childRoutes.js
- * ✅ CLEANED: Removed all FlexiQuiz/Result model dependencies.
- *    Stats now use native QuizAttempt only.
- */
 
-const router = require("express").Router();
-const mongoose = require("mongoose");
-const Child = require("../models/child");
-const Writing = require("../models/writing");
-const Parent = require("../models/parent");
-const QuizAttempt = require("../models/quizAttempt");
-const Quiz = require("../models/quiz");
 
-const { verifyToken, requireParent, requireAuth } = require("../middleware/auth");
+
+const express   = require("express");
+const mongoose  = require("mongoose");
+const router    = express.Router();
+
+const { verifyToken, requireAuth, requireParent } = require("../middleware/auth");
+const connectDB    = require("../config/db");
+const Child        = require("../models/child");
+const QuizAttempt  = require("../models/quizAttempt");
+const Writing      = require("../models/writing");
+
+
 
 async function aggregateChildStats(child) {
+  // Count all QuizAttempts for this child (MCQ/Reading/Numeracy/Language)
   const [nativeStats] = await QuizAttempt.aggregate([
     {
       $match: {
@@ -32,50 +32,7 @@ async function aggregateChildStats(child) {
     },
   ]);
 
-  const nativeCount = nativeStats?.count || 0;
-  const nativeAvg = nativeStats?.avgScore || 0;
-  const nativeLast = nativeStats?.lastActivity || null;
-
-  const childStatus = (child.status || "trial").toLowerCase();
-
-  if (childStatus === "trial") {
-    const trialQuizzes = await Quiz.find({
-      is_active: true,
-      is_trial: true,
-      year_level: child.year_level,
-    }).select("quiz_id").lean();
-
-    const trialQuizIds = trialQuizzes.map((q) => q.quiz_id);
-
-    if (trialQuizIds.length === 0) {
-      return { quizCount: 0, averageScore: 0, lastActivity: null };
-    }
-
-    const [trialStats] = await QuizAttempt.aggregate([
-      {
-        $match: {
-          child_id: child._id,
-          status: { $in: ["scored", "ai_done", "submitted"] },
-          quiz_id: { $in: trialQuizIds },
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          count: { $sum: 1 },
-          avgScore: { $avg: "$score.percentage" },
-          lastActivity: { $max: "$submitted_at" },
-        },
-      },
-    ]);
-
-    return {
-      quizCount: trialStats?.count || 0,
-      averageScore: Math.round(trialStats?.avgScore || 0),
-      lastActivity: trialStats?.lastActivity || null,
-    };
-  }
-
+  // Count Writing submissions separately (they live in a different collection)
   const [writingStats] = await Writing.aggregate([
     { $match: { child_id: child._id } },
     {
@@ -87,11 +44,17 @@ async function aggregateChildStats(child) {
     },
   ]);
 
+  const nativeCount = nativeStats?.count || 0;
+  const nativeAvg = nativeStats?.avgScore || 0;
+  const nativeLast = nativeStats?.lastActivity || null;
   const writingCount = writingStats?.count || 0;
-  const quizCount = nativeCount + writingCount;
-  const avgScore = Math.round(nativeAvg);
+  const writingLast = writingStats?.lastWriting || null;
 
-  const allDates = [nativeLast, writingStats?.lastWriting].filter(Boolean);
+  const quizCount = nativeCount + writingCount;
+  const avgScore = Math.round(nativeAvg); // Writing scores aren't averaged here — keeps it consistent
+
+  // Most recent activity across both types
+  const allDates = [nativeLast, writingLast].filter(Boolean);
   const lastActivity = allDates.length
     ? new Date(Math.max(...allDates.map((d) => new Date(d))))
     : null;
@@ -100,51 +63,99 @@ async function aggregateChildStats(child) {
 }
 
 // ────────────────────────────────────────────
-// GET /api/children/check-username/:username
-// ────────────────────────────────────────────
-router.get("/check-username/:username", async (req, res) => {
-  try {
-    const username = String(req.params.username || "").trim().toLowerCase();
-    if (!username || !/^[a-z0-9_]{3,20}$/.test(username)) {
-      return res.json({ available: false, reason: "Invalid format" });
-    }
-    const exists = await Child.exists({ username });
-    return res.json({ available: !exists });
-  } catch (err) {
-    console.error("check-username error:", err);
-    return res.status(500).json({ available: false, reason: "Server error" });
-  }
-});
-
-// ────────────────────────────────────────────
 // GET /api/children/summaries
 // ────────────────────────────────────────────
 router.get("/summaries", verifyToken, requireParent, async (req, res) => {
   try {
+    await connectDB();
     const parentId = req.user.parentId || req.user.parent_id;
-    const children = await Child.find({ parent_id: parentId }).lean();
 
-    const summaries = await Promise.all(
-      children.map(async (child) => {
-        const stats = await aggregateChildStats(child);
-        return {
-          _id: child._id,
-          parent_id: child.parent_id,
-          display_name: child.display_name,
-          username: child.username,
-          year_level: child.year_level,
-          status: child.status,
-          createdAt: child.createdAt,
-          updatedAt: child.updatedAt,
-          quizCount: stats.quizCount,
-          averageScore: stats.averageScore,
-          lastActivity: stats.lastActivity,
-          entitled_bundle_ids: child.entitled_bundle_ids || [],
-          entitled_quiz_ids: child.entitled_quiz_ids || [],
-          email_notifications: child.email_notifications ?? false,
-        };
-      }),
-    );
+    const children = await Child.find({ parent_id: parentId })
+      .select("-pin_hash")
+      .lean();
+
+    if (!children.length) return res.json([]);
+
+    const childIds = children.map((c) => c._id);
+
+    const [attempts, writings] = await Promise.all([
+      QuizAttempt.find({
+        child_id: { $in: childIds },
+        status: { $in: ["scored", "ai_done", "submitted"] },
+      })
+        .sort({ submitted_at: -1 })
+        .lean(),
+      Writing.find({ child_id: { $in: childIds } })
+        .sort({ submitted_at: -1 })
+        .lean(),
+    ]);
+
+    const attemptsByChild = {};
+    for (const a of attempts) {
+      const key = String(a.child_id);
+      if (!attemptsByChild[key]) attemptsByChild[key] = [];
+      attemptsByChild[key].push(a);
+    }
+
+    const writingsByChild = {};
+    for (const w of writings) {
+      const key = String(w.child_id);
+      if (!writingsByChild[key]) writingsByChild[key] = [];
+      writingsByChild[key].push(w);
+    }
+
+    const summaries = children.map((child) => {
+      const childKey    = String(child._id);
+      const childAttempts = attemptsByChild[childKey] || [];
+      const childWritings = writingsByChild[childKey] || [];
+
+      const allDates = [
+        ...childAttempts.map((a) => a.submitted_at || a.createdAt),
+        ...childWritings.map((w) => w.submitted_at || w.createdAt),
+      ].filter(Boolean).sort((a, b) => new Date(b) - new Date(a));
+
+      const scores = childAttempts
+        .map((a) => a.score?.percentage)
+        .filter((s) => s != null);
+
+      const avgScore = scores.length
+        ? Math.round(scores.reduce((acc, s) => acc + s, 0) / scores.length)
+        : null;
+
+      // Streak calculation
+      const uniqueDays = [
+        ...new Set(
+          allDates.map((d) => new Date(d).toISOString().slice(0, 10))
+        ),
+      ].sort((a, b) => b.localeCompare(a));
+
+      let streak = 0;
+      const today = new Date().toISOString().slice(0, 10);
+      let cursor  = today;
+      for (const day of uniqueDays) {
+        if (day === cursor) {
+          streak++;
+          const d = new Date(cursor);
+          d.setDate(d.getDate() - 1);
+          cursor = d.toISOString().slice(0, 10);
+        } else break;
+      }
+
+      return {
+        _id:         child._id,
+        display_name: child.display_name,
+        username:    child.username,
+        year_level:  child.year_level,
+        status:      child.status || "trial",
+        entitled_quiz_ids:    child.entitled_quiz_ids    || [],
+        entitled_bundle_ids:  child.entitled_bundle_ids  || [],
+        quiz_count:   childAttempts.length + childWritings.length,
+        average_score: avgScore,
+        last_active:  allDates[0] || null,
+        streak_days:  streak,
+        email_notifications: child.email_notifications ?? false,
+      };
+    });
 
     return res.json(summaries);
   } catch (err) {
@@ -158,6 +169,7 @@ router.get("/summaries", verifyToken, requireParent, async (req, res) => {
 // ────────────────────────────────────────────
 router.get("/", verifyToken, requireParent, async (req, res) => {
   try {
+    await connectDB();
     const parentId = req.user.parentId || req.user.parent_id;
     const children = await Child.find({ parent_id: parentId })
       .select("-pin_hash")
@@ -174,17 +186,18 @@ router.get("/", verifyToken, requireParent, async (req, res) => {
 // ────────────────────────────────────────────
 router.post("/", verifyToken, requireParent, async (req, res) => {
   try {
+    await connectDB();
     const parentId = req.user?.parentId || req.user?.parent_id;
     if (!parentId) return res.status(401).json({ error: "Invalid parent authentication" });
 
     const display_name = String(req.body.display_name || "").trim();
-    const username = String(req.body.username || "").trim().toLowerCase();
-    const year_level = Number(req.body.year_level);
-    const pin = String(req.body.pin || "").trim();
+    const username     = String(req.body.username || "").trim().toLowerCase();
+    const year_level   = Number(req.body.year_level);
+    const pin          = String(req.body.pin || "").trim();
 
     if (!display_name) return res.status(400).json({ error: "Display name is required" });
     if (!username || !/^[a-z0-9_]{3,20}$/.test(username)) {
-      return res.status(400).json({ error: "Username must be 3–20 characters, lowercase letters, numbers, and underscores only" });
+      return res.status(400).json({ error: "Username must be 3–20 lowercase alphanumeric characters" });
     }
     if (![3, 5, 7, 9].includes(year_level)) {
       return res.status(400).json({ error: "Year level must be 3, 5, 7, or 9" });
@@ -193,47 +206,102 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       return res.status(400).json({ error: "PIN must be exactly 6 digits" });
     }
 
-    const parental_consent = req.body.parental_consent === true;
-    if (!parental_consent) {
-      return res.status(400).json({ error: "Parental consent is required to create a child profile" });
-    }
-
-    const email_notifications = req.body.email_notifications === true;
-
-    const existing = await Child.exists({ username });
-    if (existing) return res.status(409).json({ error: "Username is already taken" });
+    const existing = await Child.findOne({ username });
+    if (existing) return res.status(409).json({ error: "Username already taken" });
 
     const child = new Child({
-      parent_id: parentId,
+      parent_id:    parentId,
       display_name,
       username,
       year_level,
-      pin_hash: pin,
-      parental_consent,
-      parental_consent_at: new Date(),
-      email_notifications,
+      status:       "trial",
     });
-
-    try {
-      await child.save();
-    } catch (saveErr) {
-      if (saveErr?.code === 11000) return res.status(409).json({ error: "Username is already taken" });
-      return res.status(500).json({ error: "Failed to create child", detail: saveErr.message });
-    }
+    await child.setPin(pin);
+    await child.save();
 
     return res.status(201).json({
-      _id: child._id,
-      parent_id: child.parent_id,
+      _id:          child._id,
       display_name: child.display_name,
-      username: child.username,
-      year_level: child.year_level,
-      status: child.status,
-      email_notifications: child.email_notifications,
-      createdAt: child.createdAt,
+      username:     child.username,
+      year_level:   child.year_level,
+      status:       child.status,
     });
   } catch (err) {
     console.error("POST /children error:", err);
-    return res.status(500).json({ error: "Failed to create child", detail: err.message });
+    return res.status(500).json({ error: "Failed to create child" });
+  }
+});
+
+// ────────────────────────────────────────────
+// GET /api/children/check-username/:username
+// ────────────────────────────────────────────
+router.get("/check-username/:username", async (req, res) => {
+  try {
+    await connectDB();
+    const username = String(req.params.username || "").trim().toLowerCase();
+    if (!username) return res.json({ available: false });
+    const existing = await Child.findOne({ username }).lean();
+    return res.json({ available: !existing });
+  } catch (err) {
+    console.error("GET /children/check-username error:", err);
+    return res.status(500).json({ error: "Failed to check username" });
+  }
+});
+
+// ────────────────────────────────────────────
+// GET /api/children/:childId              (parent only)
+// ────────────────────────────────────────────
+router.get("/:childId", verifyToken, requireParent, async (req, res) => {
+  try {
+    await connectDB();
+    const parentId = req.user.parentId || req.user.parent_id;
+    const { childId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(childId))
+      return res.status(400).json({ error: "Invalid child ID" });
+
+    const child = await Child.findOne({ _id: childId, parent_id: parentId })
+      .select("-pin_hash")
+      .lean();
+
+    if (!child) return res.status(404).json({ error: "Child not found" });
+    return res.json(child);
+  } catch (err) {
+    console.error("GET /children/:childId error:", err);
+    return res.status(500).json({ error: "Failed to fetch child" });
+  }
+});
+
+// ────────────────────────────────────────────
+// GET /api/children/:childId/me   ← ✅ OWNERSHIP CHECK ADDED
+// ────────────────────────────────────────────
+router.get("/:childId/me", verifyToken, requireAuth, async (req, res) => {
+  try {
+    await connectDB();
+    const { childId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(childId))
+      return res.status(400).json({ error: "Invalid child ID" });
+
+    const child = await Child.findById(childId).select("-pin_hash").lean();
+    if (!child) return res.status(404).json({ error: "Child not found" });
+
+    // ✅ FIX: Ownership check — was completely missing before
+    if (req.user.role === "parent") {
+      const parentId = req.user.parentId || req.user.parent_id;
+      if (String(child.parent_id) !== String(parentId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+    if (req.user.role === "child") {
+      if (String(child._id) !== String(req.user.childId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+
+    return res.json(child);
+  } catch (err) {
+    console.error("GET /:childId/me error:", err);
+    return res.status(500).json({ error: "Failed to fetch child profile" });
   }
 });
 
@@ -242,16 +310,17 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
 // ────────────────────────────────────────────
 router.put("/:childId", verifyToken, requireParent, async (req, res) => {
   try {
+    await connectDB();
     const parentId = req.user.parentId || req.user.parent_id;
     const { childId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(childId)) return res.status(400).json({ error: "Invalid child ID" });
+    if (!mongoose.Types.ObjectId.isValid(childId))
+      return res.status(400).json({ error: "Invalid child ID" });
 
     const child = await Child.findOne({ _id: childId, parent_id: parentId });
     if (!child) return res.status(404).json({ error: "Child not found" });
 
     const updates = {};
-
     if (req.body.display_name !== undefined) {
       const dn = String(req.body.display_name).trim();
       if (!dn) return res.status(400).json({ error: "Display name cannot be empty" });
@@ -265,17 +334,18 @@ router.put("/:childId", verifyToken, requireParent, async (req, res) => {
     if (req.body.pin !== undefined) {
       const pin = String(req.body.pin).trim();
       if (!/^\d{6}$/.test(pin)) return res.status(400).json({ error: "PIN must be exactly 6 digits" });
-      updates.pin_hash = await Child.hashPin(pin);
+      await child.setPin(pin);
+      await child.save();
     }
     if (req.body.email_notifications !== undefined) {
       updates.email_notifications = req.body.email_notifications === true;
     }
 
-    if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No valid fields to update" });
+    if (Object.keys(updates).length > 0) {
+      await Child.findByIdAndUpdate(childId, { $set: updates });
+    }
 
-    const updated = await Child.findByIdAndUpdate(childId, { $set: updates }, { new: true })
-      .select("-pin_hash").lean();
-
+    const updated = await Child.findById(childId).select("-pin_hash").lean();
     return res.json(updated);
   } catch (err) {
     console.error("PUT /children/:childId error:", err);
@@ -288,16 +358,19 @@ router.put("/:childId", verifyToken, requireParent, async (req, res) => {
 // ────────────────────────────────────────────
 router.delete("/:childId", verifyToken, requireParent, async (req, res) => {
   try {
+    await connectDB();
     const parentId = req.user.parentId || req.user.parent_id;
     const { childId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(childId)) return res.status(400).json({ error: "Invalid child ID" });
+    if (!mongoose.Types.ObjectId.isValid(childId))
+      return res.status(400).json({ error: "Invalid child ID" });
 
     const child = await Child.findOne({ _id: childId, parent_id: parentId });
     if (!child) return res.status(404).json({ error: "Child not found" });
 
     await Child.findByIdAndDelete(childId);
     await QuizAttempt.deleteMany({ child_id: childId });
+    await Writing.deleteMany({ child_id: childId });
 
     return res.json({ ok: true, deleted: child._id });
   } catch (err) {
@@ -311,78 +384,59 @@ router.delete("/:childId", verifyToken, requireParent, async (req, res) => {
 // ────────────────────────────────────────────
 router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
   try {
+    await connectDB();
     const { childId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(childId)) return res.status(400).json({ error: "Invalid child ID" });
+    if (!mongoose.Types.ObjectId.isValid(childId))
+      return res.status(400).json({ error: "Invalid child ID" });
 
     const child = await Child.findById(childId).lean();
     if (!child) return res.status(404).json({ error: "Child not found" });
 
-    const parentId = req.user.parentId || req.user.parent_id;
-    if (req.user.role === "parent" && String(child.parent_id) !== String(parentId)) {
-      return res.status(403).json({ error: "Access denied" });
+    if (req.user.role === "parent") {
+      const parentId = req.user.parentId || req.user.parent_id;
+      if (String(child.parent_id) !== String(parentId))
+        return res.status(403).json({ error: "Access denied" });
     }
-    if (req.user.role === "child" && String(child._id) !== String(req.user.childId)) {
-      return res.status(403).json({ error: "Access denied" });
+    if (req.user.role === "child") {
+      if (String(child._id) !== String(req.user.childId))
+        return res.status(403).json({ error: "Access denied" });
     }
 
-    const nativeAttempts = await QuizAttempt.find({
-      child_id: childId,
+    const attempts = await QuizAttempt.find({
+      child_id: child._id,
       status: { $in: ["scored", "ai_done", "submitted"] },
-    }).sort({ submitted_at: -1 }).lean();
+    })
+      .sort({ submitted_at: -1 })
+      .lean();
 
-    const results = nativeAttempts.map((a) => {
-      const tb = {};
-      if (a.topic_breakdown) {
-        const entries = a.topic_breakdown instanceof Map
-          ? [...a.topic_breakdown.entries()]
-          : Object.entries(a.topic_breakdown);
-        entries.forEach(([k, v]) => { tb[k] = v; });
-      }
-      return {
-        _id: a._id,
-        response_id: a.attempt_id,
-        quiz_id: a.quiz_id,
-        quiz_name: a.quiz_name,
-        subject: a.subject,
-        score: a.score || { percentage: 0, points: 0, available: 0, grade: "" },
-        topic_breakdown: tb,
-        is_writing: a.is_writing || false,
-        date_submitted: a.submitted_at,
-        createdAt: a.createdAt,
-        ai_status: a.ai_feedback_meta?.status || null,
-        duration: a.duration_seconds || 0,
-        source: "native",
-      };
-    });
-
-    return res.json(results);
+    return res.json(attempts);
   } catch (err) {
-    console.error("GET /:childId/results error:", err);
+    console.error("GET /children/:childId/results error:", err);
     return res.status(500).json({ error: "Failed to fetch results" });
   }
 });
 
 // ────────────────────────────────────────────
-// GET /api/children/:childId/writing  ← ✅ ADDED
+// GET /api/children/:childId/writing
 // ────────────────────────────────────────────
 router.get("/:childId/writing", verifyToken, requireAuth, async (req, res) => {
   try {
+    await connectDB();
     const { childId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(childId)) {
+    if (!mongoose.Types.ObjectId.isValid(childId))
       return res.status(400).json({ error: "Invalid child ID" });
-    }
 
     const child = await Child.findById(childId).lean();
     if (!child) return res.status(404).json({ error: "Child not found" });
 
-    const parentId = req.user.parentId || req.user.parent_id;
-    if (req.user.role === "parent" && String(child.parent_id) !== String(parentId)) {
-      return res.status(403).json({ error: "Access denied" });
+    if (req.user.role === "parent") {
+      const parentId = req.user.parentId || req.user.parent_id;
+      if (String(child.parent_id) !== String(parentId))
+        return res.status(403).json({ error: "Access denied" });
     }
-    if (req.user.role === "child" && String(child._id) !== String(req.user.childId)) {
-      return res.status(403).json({ error: "Access denied" });
+    if (req.user.role === "child") {
+      if (String(child._id) !== String(req.user.childId))
+        return res.status(403).json({ error: "Access denied" });
     }
 
     const docs = await Writing.find({ child_id: child._id })
@@ -393,48 +447,6 @@ router.get("/:childId/writing", verifyToken, requireAuth, async (req, res) => {
   } catch (err) {
     console.error("GET /children/:childId/writing error:", err);
     return res.status(500).json({ error: "Failed to fetch writing submissions" });
-  }
-});
-
-// ────────────────────────────────────────────
-// GET /api/children/:childId/me
-// ────────────────────────────────────────────
-router.get("/:childId/me", verifyToken, requireAuth, async (req, res) => {
-  try {
-    const { childId } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(childId)) return res.status(400).json({ error: "Invalid child ID" });
-
-    const child = await Child.findById(childId).select("-pin_hash").lean();
-    if (!child) return res.status(404).json({ error: "Child not found" });
-
-    return res.json(child);
-  } catch (err) {
-    console.error("GET /:childId/me error:", err);
-    return res.status(500).json({ error: "Failed to fetch child profile" });
-  }
-});
-
-// ────────────────────────────────────────────
-// GET /api/children/:childId
-// ────────────────────────────────────────────
-router.get("/:childId", verifyToken, requireParent, async (req, res) => {
-  try {
-    const parentId = req.user.parentId || req.user.parent_id;
-    const { childId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(childId))
-      return res.status(400).json({ error: "Invalid child ID" });
-
-    const child = await Child.findOne({ _id: childId, parent_id: parentId })
-      .select("-pin_hash")
-      .lean();
-
-    if (!child) return res.status(404).json({ error: "Child not found" });
-
-    return res.json(child);
-  } catch (err) {
-    console.error("GET /children/:childId error:", err);
-    return res.status(500).json({ error: "Failed to fetch child" });
   }
 });
 
