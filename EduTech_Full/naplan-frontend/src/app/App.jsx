@@ -25,10 +25,8 @@ import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin  from "@/app/components/admin/RequireAdmin";
 import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
 
-// ─── Admin path — secret route for admin dashboard ───────────────────────────
-// Change this value to update the admin path across the entire app.
-// Must match the path used in your backend invite URL generation.
-const ADMIN_PATH = "/kai-ops-9281";
+// Read from env var — add VITE_ADMIN_PATH=/your-secret-path to frontend .env
+const ADMIN_PATH = import.meta.env.VITE_ADMIN_PATH || "/admin";
 export { ADMIN_PATH };
 
 function WithFooter({ children }) {
@@ -44,15 +42,13 @@ export default function AppRoutes() {
   return (
     <AuthProvider>
       <Routes>
-
         {/* ─── Public ─── */}
         <Route path="/" element={<WelcomePage />} />
-        <Route path="/KAI-SOL-AD" element={<WelcomePage />} />
         <Route path="/free-trial" element={<FreeTrialPage />} />
         <Route path="/start-test" element={<StartTestPage />} />
         <Route path="/trial-test" element={<RequireAuth><TrialTestPage/></RequireAuth>} />
         <Route path="/terms"   element={<TermsPage />} />
-        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} /> 
         <Route path="/bundles" element={<RequireParent><WithFooter><BundleSelectionPage /></WithFooter></RequireParent>} />
 
         {/* ─── Parent Auth ─── */}
@@ -132,8 +128,9 @@ export default function AppRoutes() {
         />
 
         <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
-
       </Routes>
     </AuthProvider>
   );
 }
+
+
