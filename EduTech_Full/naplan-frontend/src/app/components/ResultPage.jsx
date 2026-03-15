@@ -333,7 +333,7 @@ const backToDashboardState = useMemo(() => ({
               <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
               <h2 className="text-xl font-semibold text-gray-900 mb-2">Evaluation Error</h2>
               <p className="text-sm text-gray-600 mb-6">{error || aiMessage || "Something went wrong during evaluation."}</p>
-              <button onClick={() => navigate(backToDashboard)} className="px-5 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition">
+              <button onClick={() => navigate("/child-dashboard", { state: backToDashboardState })} className="px-5 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition">
                 Back to Dashboard
               </button>
             </CardContent>
