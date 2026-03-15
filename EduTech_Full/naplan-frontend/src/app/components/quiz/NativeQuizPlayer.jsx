@@ -111,18 +111,20 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
     if (!proctored && phase === "proctoring") setPhase("loading");
   }, [proctored, phase]);
 
-  const apiFetch = useCallback(
-    (url, opts = {}) =>
-      fetch(`${API}${url}`, {
-        ...opts,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${activeToken}`,
-          ...opts.headers,
-        },
-      }),
-    [activeToken]
-  );
+    const apiFetch = useCallback(
+      (url, opts = {}) =>
+        fetch(`${API}${url}`, {
+          ...opts,
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+            ...opts.headers,
+          },
+        }),
+      [activeToken]
+    );
+
 
   // ═══ PROCTORING CALLBACKS ═══
   const handleProctoringStart = useCallback(() => setPhase("loading"), []);
