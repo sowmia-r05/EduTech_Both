@@ -282,7 +282,7 @@ const getInitialTab = () => {
           navigate("/parent-dashboard", { replace: true });
           return;
         } 
-      if (!nameFromUrl) {
+      if (!nameFromState) {
         setChildInfo({
           display_name: match.display_name || match.username,
           year_level:   match.year_level,

@@ -84,7 +84,7 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
         replace: true,
       state: {
         childId: data.child?.childId || null,
-        childName: data.child?.display_name || null,
+        childName: data.child?.displayName || null,
         yearLevel: data.child?.yearLevel || null,
         username: data.child?.username || null,
       },
