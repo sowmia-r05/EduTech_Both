@@ -265,7 +265,7 @@ export default function QuizResult({
   const [activeTab,        setActiveTab]        = useState(0);
   const [showAnswers,      setShowAnswers]       = useState(false);
   const [aiPollStatus,     setAiPollStatus]      = useState(null);  // "done"|"error"|null
-  const [subscriptionStatus, setSubscriptionStatus] = useState(null); // "trial"|"active"|null
+  const [subscriptionStatus, setSubscriptionStatus] = useState(childStatusProp || null); // "trial"|"active"|null
 
 
   const score      = result.score           || {};
@@ -298,16 +298,25 @@ export default function QuizResult({
     return () => clearTimeout(timer);
   }, [attemptId, aiStatus, childToken, parentToken]);
 
+
   /* fetch live child subscription status */
-  useEffect(() => {
-    if (!childToken && !parentToken) return;
-    (async () => {
-      try {
-        const res = await apiFetch("/api/children/me");
-        if (res.ok) { const d = await res.json(); setSubscriptionStatus(d.status||null); }
-      } catch {}
-    })();
-  }, [apiFetch, childToken, parentToken]);
+useEffect(() => {
+  if (!childToken && !parentToken) return;
+  // Use childStatusProp if already passed — no extra API call needed
+  if (childStatusProp) {
+    setSubscriptionStatus(childStatusProp);
+    return;
+  }
+  (async () => {
+    try {
+      const res = await apiFetch("/api/auth/me");
+      if (res.ok) { const d = await res.json(); setSubscriptionStatus(d.status || null); }
+    } catch {}
+  })();
+}, [apiFetch, childToken, parentToken, childStatusProp]);
+
+
+
 
   const gradeLabel = useMemo(() => {
     if (percentage>=90) return "Outstanding!";
