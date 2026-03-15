@@ -251,7 +251,7 @@ export default function Dashboard() {
         if (!cancelled) {
           setLatestResult(doc);
           if (isAiPending(doc)) setAiPending(true);
-          const username = searchParams.get("username") || doc.user?.user_name || "";
+          const username = searchParams.get("username") || doc.username || doc.user?.user_name || "";
           const subject = searchParams.get("subject") || "";
           let all;
           if (username) {
@@ -641,6 +641,7 @@ export default function Dashboard() {
                   strongTopics={strongTopics}
                   weakTopics={weakTopics}
                   showTitle={false}
+                  isRegenerating={aiPending}
                 />
               </div>
             </div>
