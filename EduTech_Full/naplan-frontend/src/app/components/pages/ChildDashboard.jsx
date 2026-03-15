@@ -270,15 +270,18 @@ const getInitialTab = () => {
 
 
 
-if (isParentViewing && parentToken && childId) {
-  try {
-    const children = await fetchChildrenSummaries(parentToken);
-    const match = children.find((c) => String(c._id) === String(childId));
-    if (!match) {
-      console.warn("[ChildDashboard] childId not found in parent's children — redirecting");
-      navigate("/parent-dashboard", { replace: true });
-      return;
-    } 
+    if (isParentViewing && parentToken && childId) {
+      try {
+        const children = await fetchChildrenSummaries(parentToken);
+        const match = children.find(
+          (c) => String(c._id) === String(childId) ||
+                String(c.id)  === String(childId)
+        );
+        if (!match) {
+          console.warn("[ChildDashboard] childId not found in parent's children — redirecting");
+          navigate("/parent-dashboard", { replace: true });
+          return;
+        } 
       if (!nameFromUrl) {
         setChildInfo({
           display_name: match.display_name || match.username,
@@ -465,10 +468,16 @@ useEffect(() => {
     const rid = item.response_id || item.attempt_id; if (!rid) return;
     setResultLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/results/${encodeURIComponent(rid)}`, {
-        headers: { Accept: "application/json", "Cache-Control": "no-cache", ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}) },
-        cache: "no-store",
-      });
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/results/${encodeURIComponent(rid)}`, {
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+        ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+      },
+      cache: "no-store",
+    });
+
       if (!res.ok) throw new Error();
       const data = await res.json();
       setSelectedQuizResult({
