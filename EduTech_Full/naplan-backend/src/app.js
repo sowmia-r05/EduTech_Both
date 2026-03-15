@@ -62,7 +62,15 @@ app.use(
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:", "https://*.stripe.com"],
+        // ✅ FIX — also allow your own API domain and all HTTPS for uploaded images
+        imgSrc: [
+          "'self'",
+          "data:",
+          "blob:",
+          "https://*.stripe.com",
+          "https://naplanapi.kaisolutions.ai",   // ← ADD THIS
+          "https:",                               // ← ADD THIS (allows all https images)
+        ],
         connectSrc: [
           "'self'",
           "https://api.stripe.com",
@@ -70,7 +78,12 @@ app.use(
         ],
         fontSrc: ["'self'"],
         objectSrc: ["'none'"],
-        mediaSrc: ["'self'", "blob:"],
+        mediaSrc: [
+        "'self'",
+        "blob:",
+        "https://naplanapi.kaisolutions.ai",   // ← ADD THIS
+        "https:",                               // ← ADD THIS
+      ],
         frameSrc: ["https://checkout.stripe.com", "https://js.stripe.com"],
         frameAncestors: ["'none'"],
         formAction: ["'self'"],
