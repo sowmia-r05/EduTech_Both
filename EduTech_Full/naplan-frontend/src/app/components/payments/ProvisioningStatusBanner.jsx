@@ -20,9 +20,10 @@ export default function ProvisioningStatusBanner({ parentToken }) {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/payments/history`, {
-          headers: { Authorization: `Bearer ${parentToken}`, Accept: "application/json" },
-        });
+      const res = await fetch(`${API_BASE}/api/payments/history`, {
+        credentials: "include",
+        headers: { Authorization: `Bearer ${parentToken}`, Accept: "application/json" },
+      });
         if (!res.ok) return;
         const data = await res.json();
         const purchases = Array.isArray(data) ? data : data?.purchases || [];
@@ -38,6 +39,7 @@ export default function ProvisioningStatusBanner({ parentToken }) {
     try {
       const res = await fetch(`${API_BASE}/api/payments/retry-provision/${purchaseId}`, {
         method: "POST",
+        credentials: "include",
         headers: { Authorization: `Bearer ${parentToken}`, Accept: "application/json" },
       });
       if (res.ok) setPendingPurchases((prev) => prev.filter((p) => p._id !== purchaseId));

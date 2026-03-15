@@ -146,9 +146,9 @@ export default function ResultPage() {
   const responseId    = String(location.state?.r        || searchParams.get("r")        || "").trim();
   const usernameParam = String(location.state?.username  || searchParams.get("username") || "").trim();
 
-  const childIdParam  = String(searchParams.get("childId")    || "").trim();
-  const childNameParam= String(searchParams.get("childName")  || "").trim();
-  const yearLevelParam= String(searchParams.get("yearLevel")  || "").trim();
+  const childIdParam  = String(location.state?.childId || "").trim();
+  const childNameParam= String(location.state?.childName  || "").trim();
+  const yearLevelParam= String(location.state?.yearLevel  || "").trim();
 
   const [doc, setDoc]                       = useState(null);
   const [writingsList, setWritingsList]     = useState([]);
@@ -160,7 +160,10 @@ export default function ResultPage() {
 
   const { childToken, childProfile, parentToken, logout } = useAuth();
   const activeToken = childToken || parentToken || null;
-  const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
+  const authOpts = {
+    credentials: "inclue",
+    headers: activeToken ? { Authorization: `Bearee ${activeToken}` } : {},
+  }
 
   const isParentViewing = !childToken && !!parentToken;
   const [childStatus, setChildStatus] = useState("trial");

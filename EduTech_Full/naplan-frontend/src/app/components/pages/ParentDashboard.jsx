@@ -1351,7 +1351,11 @@ const handleViewChild = (child) => {
     try {
       const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
       const res = await fetch(`${API_BASE}/api/children/${childId}`, {
-        headers: { Authorization: `Bearer ${parentToken}`, Accept: "application/json" },
+        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${parentToken}`,
+          Accept: "application/json",
+        },
       });
       if (res.ok) { const full = await res.json(); setEditTarget(full); }
       else { const raw = rawChildren.find((c) => String(c._id) === String(childId)); if (raw) setEditTarget(raw); }

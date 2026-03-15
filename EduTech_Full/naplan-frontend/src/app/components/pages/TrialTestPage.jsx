@@ -28,13 +28,10 @@ export default function TrialTestPage() {
   const navigate    = useNavigate();
   const { parentProfile, childProfile } = useAuth();
 
-  const searchParams = new URLSearchParams(location.search);
 
-  // ✅ Sanitize name — strip any HTML/JS injection
   const name = sanitizeName(searchParams.get("name"));
-
-  // ✅ Whitelist year — reject anything outside allowed values
   const rawYear = searchParams.get("year") || "3";
+
   const year    = ALLOWED_YEARS.includes(rawYear) ? rawYear : "3";
 
   const quizId = QUIZ_MAP[year];
