@@ -154,19 +154,19 @@ function TabSlider({ activeTab, onChange }) {
   );
 }
 
-function assertAllowedParams(searchParams, navigate) {
-  const ALLOWED = new Set([
-   "tab",
-  ]);
+function assertAllowedParams(searchParams, navigate, isParentViewing) {
+  const ALLOWED = new Set(["tab"]);
   for (const key of searchParams.keys()) {
     if (!ALLOWED.has(key)) {
-      console.warn(`[ChildDashboard] Unexpected URL param stripped: ${key}`);
-      navigate("/parent-dashboard", {replace: true });
+      console.warn(`[ChildDashboard] Blocked unknown URL param: ${key}`);
+      // Parent goes back to parent dashboard, child goes to home
+      navigate(isParentViewing ? "/parent-dashboard" : "/", { replace: true });
       return false;
-      }
+    }
   }
   return true;
 }
+
 
 
 /* ══════════════════════════════════════════════
@@ -239,7 +239,7 @@ const getInitialTab = () => {
   }, [childToken, logoutChild, logout, navigate]);
 
   useEffect(() => {
-    assertAllowedParams(searchParams, navigate);
+    assertAllowedParams(searchParams, navigate, isParentViewing);
   }, []);
 
   /* ─── Resolve child info (original) ─── */
