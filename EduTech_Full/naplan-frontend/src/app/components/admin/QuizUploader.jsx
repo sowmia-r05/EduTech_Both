@@ -1,13 +1,9 @@
 /**
  * QuizUploader.jsx  (v2 — VOICE/VIDEO SUPPORT)
  * 
- * Handles the full upload flow:
- *   1. Download template (link)
- *   2. Upload filled Excel file (supports BOTH our template AND FlexiQuiz exports)
- *   3. Client-side parse & validate (using SheetJS)
- *   4. Preview questions in a table
- *   5. Submit to backend
- *   ✅ NEW: voice_url and video_url parsed from Excel + editable in preview
+ * FIXES IN THIS VERSION:
+ *   ✅ FIX 1: parseFlexiQuiz now sets correct: true/false on each option
+ *   ✅ FIX 2: handleSubmit maps correct field from correct_answer labels as safety net
  * 
  * Place in: src/app/components/admin/QuizUploader.jsx
  */
@@ -17,7 +13,6 @@ import * as XLSX from "xlsx";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
-// ✅ FIX: Try multiple common token key names to avoid 403 Forbidden
 function getAuthToken() {
   return (
     localStorage.getItem("admin_token") ||
@@ -33,23 +28,13 @@ function getAuthToken() {
 
 function adminFetch(url, opts = {}) {
   const token = getAuthToken();
-
-  if (!token) {
-    console.error("❌ No auth token found! Check localStorage key name.");
-  }
-
+  if (!token) console.error("❌ No auth token found!");
   return fetch(`${API}${url}`, {
     ...opts,
-    headers: {
-      ...opts.headers,
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { ...opts.headers, Authorization: `Bearer ${token}` },
   });
 }
 
-/* ═══════════════════════════════════════════════════════
-   Strip HTML tags to plain text (for FlexiQuiz HTML content)
-   ═══════════════════════════════════════════════════════ */
 function stripHtml(html) {
   if (!html) return "";
   return String(html)
@@ -61,18 +46,12 @@ function stripHtml(html) {
     .trim();
 }
 
-/* ═══════════════════════════════════════════════════════
-   Extract image URL from HTML (for FlexiQuiz questions with images)
-   ═══════════════════════════════════════════════════════ */
 function extractImageUrl(html) {
   if (!html) return "";
   const match = String(html).match(/src=["']([^"']+)["']/i);
   return match ? match[1] : "";
 }
 
-/* ═══════════════════════════════════════════════════════
-   Detect format: "custom" (our template) or "flexiquiz" (FlexiQuiz export)
-   ═══════════════════════════════════════════════════════ */
 function detectFormat(workbook) {
   const names = workbook.SheetNames;
   if (names.includes("Questions") && names.includes("Quiz Info")) return "custom";
@@ -90,6 +69,7 @@ function detectFormat(workbook) {
 
 /* ═══════════════════════════════════════════════════════
    Parse FlexiQuiz export format
+   ✅ FIX 1: Each option now has correct: true/false
    ═══════════════════════════════════════════════════════ */
 function parseFlexiQuiz(workbook, fileName) {
   const errors = [];
@@ -177,6 +157,7 @@ function parseFlexiQuiz(workbook, fileName) {
     const options = [];
     let correctAnswer = [];
     let hasImageOptions = false;
+
     for (let n = 1; n <= 10; n++) {
       const optRaw = row[colIdx[`opt${n}_text`]];
       if (optRaw === undefined || optRaw === null) continue;
@@ -191,15 +172,19 @@ function parseFlexiQuiz(workbook, fileName) {
       if (optImage && !cleanText) hasImageOptions = true;
 
       const label = String.fromCharCode(64 + options.length + 1);
-      const isCorrect = String(row[colIdx[`opt${n}_correct`]] || "").toLowerCase();
+      const isCorrectRaw = String(row[colIdx[`opt${n}_correct`]] || "").toLowerCase();
+
+      // ✅ FIX 1: Determine correct boolean BEFORE pushing to options
+      const isCorrectBool = isCorrectRaw === "yes" || isCorrectRaw === "true" || isCorrectRaw === "1";
 
       options.push({
         label,
         text: cleanText || "[Image]",
         image_url: optImage || null,
+        correct: isCorrectBool,   // ✅ FIX 1: correct field now set correctly
       });
 
-      if (isCorrect === "yes" || isCorrect === "true" || isCorrect === "1") {
+      if (isCorrectBool) {
         correctAnswer.push(label);
       }
     }
@@ -313,12 +298,19 @@ function parseCustomTemplate(workbook) {
       return;
     }
 
+    const correctLabels = q.correct_answer.split(",").map((s) => s.trim());
     const optionLetters = ["a", "b", "c", "d", "e"];
     optionLetters.forEach((letter) => {
       const text = String(row[`option_${letter}`] || "").trim();
       const image = String(row[`option_${letter}_image`] || "").trim();
       if (text || image) {
-        q.options.push({ label: letter.toUpperCase(), text, image_url: image || null });
+        const label = letter.toUpperCase();
+        q.options.push({
+          label,
+          text,
+          image_url: image || null,
+          correct: correctLabels.includes(label), // ✅ Also set correct for custom template
+        });
       }
     });
 
@@ -349,33 +341,17 @@ function parseCustomTemplate(workbook) {
   return { quizMeta, questions, errors };
 }
 
-/* ═══════════════════════════════════════════════════════
-   Master parse function — detects format and dispatches
-   ═══════════════════════════════════════════════════════ */
 function parseExcel(workbook, fileName) {
   const format = detectFormat(workbook);
-  
-  if (format === "custom") {
-    return { ...parseCustomTemplate(workbook), format: "custom" };
-  }
-  
-  if (format === "flexiquiz") {
-    return { ...parseFlexiQuiz(workbook, fileName), format: "flexiquiz" };
-  }
-
+  if (format === "custom") return { ...parseCustomTemplate(workbook), format: "custom" };
+  if (format === "flexiquiz") return { ...parseFlexiQuiz(workbook, fileName), format: "flexiquiz" };
   return {
-    quizMeta: null,
-    questions: [],
-    errors: [
-      "Unrecognized file format. Please use either:",
-      "• Our template (download from this page)",
-      "• A FlexiQuiz export file (.xlsx)",
-    ],
+    quizMeta: null, questions: [],
+    errors: ["Unrecognized file format. Please use either:", "• Our template (download from this page)", "• A FlexiQuiz export file (.xlsx)"],
     format: "unknown",
   };
 }
 
-// ─── Badge ───
 function Badge({ type }) {
   const styles = {
     radio_button: "bg-blue-500/10 text-blue-400 border-blue-500/20",
@@ -390,9 +366,6 @@ function Badge({ type }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════
-   MAIN COMPONENT
-   ═══════════════════════════════════════════════════════ */
 export default function QuizUploader({ onUploadSuccess }) {
   const [step, setStep] = useState("select");
   const [file, setFile] = useState(null);
@@ -407,19 +380,16 @@ export default function QuizUploader({ onUploadSuccess }) {
     if (!f) return;
     setFile(f);
     setUploadError("");
-
     try {
       const buf = await f.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
       const result = parseExcel(wb, f.name);
       setParsed(result);
-
       if (result.quizMeta?._needsReview) {
         setEditMeta({ ...result.quizMeta });
       } else {
         setEditMeta(null);
       }
-
       if (result.errors.length === 0 && result.questions.length > 0) {
         setStep("preview");
       }
@@ -439,7 +409,6 @@ export default function QuizUploader({ onUploadSuccess }) {
     if (![3, 5, 7, 9].includes(finalMeta.year_level)) { setUploadError("Year level must be 3, 5, 7, or 9"); setStep("preview"); return; }
     if (!["Maths", "Reading", "Writing", "Conventions"].includes(finalMeta.subject)) { setUploadError("Subject must be Maths, Reading, Writing, or Conventions"); setStep("preview"); return; }
 
-    // ✅ FIX: Warn in console if token is missing before sending
     const token = getAuthToken();
     if (!token) {
       setUploadError("You are not authenticated. Please log out and log in again.");
@@ -464,28 +433,35 @@ export default function QuizUploader({ onUploadSuccess }) {
             voice_url: finalMeta.voice_url || null,
             video_url: finalMeta.video_url || null,
           },
-          questions: parsed.questions.map((q) => ({
-            question_text: q.question_text,
-            type: q.type,
-            options: q.options,
-            correct_answer: q.correct_answer,
-            points: q.points,
-            category: q.category,
-            image_url: q.image_url || "",
-            explanation: q.explanation || "",
-          })),
+          // ✅ FIX 2: Safety net — ensure correct field is always set from correct_answer labels
+          questions: parsed.questions.map((q) => {
+            const correctLabels = (q.correct_answer || "")
+              .toUpperCase()
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+            return {
+              question_text: q.question_text,
+              type: q.type,
+              options: (q.options || []).map((opt) => ({
+                ...opt,
+                correct: opt.correct === true ||
+                         correctLabels.includes((opt.label || "").toUpperCase()),
+              })),
+              correct_answer: q.correct_answer,
+              points: q.points,
+              category: q.category,
+              image_url: q.image_url || "",
+              explanation: q.explanation || "",
+            };
+          }),
         }),
       });
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        // ✅ FIX: Friendlier 403 error message
-        if (res.status === 403) {
-          throw new Error("Access denied (403). Your session may have expired — please log out and log in again.");
-        }
-        if (res.status === 401) {
-          throw new Error("Unauthorized (401). Please log out and log in again.");
-        }
+        if (res.status === 403) throw new Error("Access denied (403). Your session may have expired — please log out and log in again.");
+        if (res.status === 401) throw new Error("Unauthorized (401). Please log out and log in again.");
         throw new Error(body.error || `Upload failed (${res.status})`);
       }
 
@@ -500,12 +476,8 @@ export default function QuizUploader({ onUploadSuccess }) {
   };
 
   const resetAll = () => {
-    setStep("select");
-    setFile(null);
-    setParsed(null);
-    setUploadError("");
-    setUploadResult(null);
-    setEditMeta(null);
+    setStep("select"); setFile(null); setParsed(null);
+    setUploadError(""); setUploadResult(null); setEditMeta(null);
     if (fileRef.current) fileRef.current.value = "";
   };
 
@@ -515,7 +487,6 @@ export default function QuizUploader({ onUploadSuccess }) {
   if (step === "select") {
     return (
       <div className="space-y-6">
-        {/* Download template link */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <div className="flex items-center justify-between">
             <div>
@@ -532,7 +503,6 @@ export default function QuizUploader({ onUploadSuccess }) {
           </div>
         </div>
 
-        {/* Format notice */}
         <div className="bg-indigo-900/20 border border-indigo-800/50 rounded-xl p-4">
           <p className="text-sm text-indigo-300 font-medium mb-1">📎 Supports two formats:</p>
           <ul className="text-xs text-indigo-400/80 space-y-1 ml-4">
@@ -541,7 +511,6 @@ export default function QuizUploader({ onUploadSuccess }) {
           </ul>
         </div>
 
-        {/* File info if already selected */}
         {file && parsed && (
           <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-4">
             <div className="flex items-center gap-3">
@@ -558,23 +527,16 @@ export default function QuizUploader({ onUploadSuccess }) {
                 </p>
               </div>
             </div>
-            <button onClick={resetAll} className="text-sm text-slate-400 hover:text-white transition-colors">
-              Choose Different File
-            </button>
+            <button onClick={resetAll} className="text-sm text-slate-400 hover:text-white transition-colors">Choose Different File</button>
           </div>
         )}
 
-        {/* Errors */}
         {parsed?.errors?.length > 0 && (
           <div className="bg-red-900/20 border border-red-800 rounded-xl p-4">
-            <p className="text-sm font-medium text-red-400 mb-2">
-              {parsed.errors.length} validation error{parsed.errors.length > 1 ? "s" : ""} found:
-            </p>
+            <p className="text-sm font-medium text-red-400 mb-2">{parsed.errors.length} validation error{parsed.errors.length > 1 ? "s" : ""} found:</p>
             <ul className="space-y-1">
               {parsed.errors.map((e, i) => (
-                <li key={i} className="text-sm text-red-300 flex items-start gap-2">
-                  <span className="text-red-500 mt-0.5">&#x2022;</span> {e}
-                </li>
+                <li key={i} className="text-sm text-red-300 flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span> {e}</li>
               ))}
             </ul>
             <p className="text-xs text-red-400/70 mt-3">Fix these errors in your Excel file and re-upload.</p>
@@ -582,34 +544,20 @@ export default function QuizUploader({ onUploadSuccess }) {
         )}
 
         {uploadError && (
-          <div className="bg-red-900/30 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3">
-            {uploadError}
-          </div>
+          <div className="bg-red-900/30 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3">{uploadError}</div>
         )}
 
-        {/* Upload area */}
         <div className="space-y-4">
           <div>
-            <label
-              htmlFor="quiz-file-upload"
-              className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer bg-slate-900/50 hover:bg-slate-900 hover:border-indigo-500/50 transition-colors"
-            >
+            <label htmlFor="quiz-file-upload"
+              className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer bg-slate-900/50 hover:bg-slate-900 hover:border-indigo-500/50 transition-colors">
               <svg className="w-10 h-10 text-slate-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
               </svg>
-              <p className="text-sm text-slate-400">
-                <span className="text-indigo-400 font-medium">Click to upload</span> or drag and drop
-              </p>
+              <p className="text-sm text-slate-400"><span className="text-indigo-400 font-medium">Click to upload</span> or drag and drop</p>
               <p className="text-xs text-slate-500 mt-1">.xlsx files — our template or FlexiQuiz export</p>
             </label>
-            <input
-              id="quiz-file-upload"
-              ref={fileRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleFile}
-            />
+            <input id="quiz-file-upload" ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
           </div>
         </div>
       </div>
@@ -625,7 +573,6 @@ export default function QuizUploader({ onUploadSuccess }) {
 
     return (
       <div className="space-y-6">
-        {/* File info */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
@@ -641,22 +588,15 @@ export default function QuizUploader({ onUploadSuccess }) {
               </p>
             </div>
           </div>
-          <button onClick={resetAll} className="text-sm text-slate-400 hover:text-white transition-colors">
-            Choose Different File
-          </button>
+          <button onClick={resetAll} className="text-sm text-slate-400 hover:text-white transition-colors">Choose Different File</button>
         </div>
 
-        {/* Errors */}
         {hasErrors && (
           <div className="bg-red-900/20 border border-red-800 rounded-xl p-4">
-            <p className="text-sm font-medium text-red-400 mb-2">
-              {parsed.errors.length} validation error{parsed.errors.length > 1 ? "s" : ""} found:
-            </p>
+            <p className="text-sm font-medium text-red-400 mb-2">{parsed.errors.length} validation error{parsed.errors.length > 1 ? "s" : ""} found:</p>
             <ul className="space-y-1">
               {parsed.errors.map((e, i) => (
-                <li key={i} className="text-sm text-red-300 flex items-start gap-2">
-                  <span className="text-red-500 mt-0.5">&#x2022;</span> {e}
-                </li>
+                <li key={i} className="text-sm text-red-300 flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span> {e}</li>
               ))}
             </ul>
             <p className="text-xs text-red-400/70 mt-3">Fix these errors in your Excel file and re-upload.</p>
@@ -664,25 +604,19 @@ export default function QuizUploader({ onUploadSuccess }) {
         )}
 
         {uploadError && (
-          <div className="bg-red-900/30 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3">
-            {uploadError}
-          </div>
+          <div className="bg-red-900/30 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3">{uploadError}</div>
         )}
 
-        {/* Quiz Metadata — editable for FlexiQuiz imports */}
         {meta && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Quiz Info</h3>
               {parsed.format === "flexiquiz" && (
-                <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-                  ✏️ Review & edit before uploading
-                </span>
+                <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">✏️ Review & edit before uploading</span>
               )}
             </div>
 
             {editMeta ? (
-              /* Editable form for FlexiQuiz imports */
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Quiz Name *</label>
@@ -758,7 +692,6 @@ export default function QuizUploader({ onUploadSuccess }) {
                 </div>
               </div>
             ) : (
-              /* Read-only display for our template format */
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div><span className="text-slate-500">Name:</span> <span className="text-white font-medium ml-1">{meta.quiz_name || "—"}</span></div>
                 <div><span className="text-slate-500">Year:</span> <span className="text-white font-medium ml-1">{meta.year_level || "—"}</span></div>
@@ -773,7 +706,6 @@ export default function QuizUploader({ onUploadSuccess }) {
           </div>
         )}
 
-        {/* Questions Preview Table */}
         {parsed.questions.length > 0 && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-800">
@@ -808,14 +740,9 @@ export default function QuizUploader({ onUploadSuccess }) {
           </div>
         )}
 
-        {/* Action buttons */}
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleSubmit}
-            disabled={hasErrors || parsed.questions.length === 0}
-            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed
-                       text-white text-sm font-medium rounded-lg transition-colors"
-          >
+          <button onClick={handleSubmit} disabled={hasErrors || parsed.questions.length === 0}
+            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors">
             Upload {parsed.questions.length} Questions
           </button>
           <button onClick={resetAll} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition-colors">
@@ -854,16 +781,10 @@ export default function QuizUploader({ onUploadSuccess }) {
           {uploadResult?.quiz_name || "Quiz"} — {uploadResult?.question_count || parsed?.questions?.length || 0} questions saved.
         </p>
         <div className="flex items-center justify-center gap-3 mt-6">
-          <button
-            onClick={() => { resetAll(); }}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition-colors"
-          >
+          <button onClick={resetAll} className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition-colors">
             Upload Another
           </button>
-          <button
-            onClick={() => onUploadSuccess?.()}
-            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors"
-          >
+          <button onClick={() => onUploadSuccess?.()} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors">
             View All Quizzes
           </button>
         </div>
