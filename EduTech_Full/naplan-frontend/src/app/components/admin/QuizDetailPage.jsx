@@ -8,22 +8,27 @@
  *   ✅ Collapsible image resize widget (no more endless scrolling)
  *   ✅ Student writing area preview when free_text is selected
  *   ✅ File upload buttons for Audio (.mp3/.wav/.ogg), Video (.mp4/.webm/.mov), and Images
+ *   ✅ FIX: Uses ADMIN_PATH constant instead of hardcoded "/admin"
+ *   ✅ FIX: adminFetch includes credentials: "include" for cookie auth
  *
  * Place in: src/app/components/admin/QuizDetailPage.jsx
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { ADMIN_PATH } from "@/app/App";          // ✅ FIX 1: Import ADMIN_PATH
 import QuizSettingsExtras from "./QuizSettingsExtras";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import FreeTextPreview from "./FreeTextPreview";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
+// ✅ FIX 2: Added credentials: "include" so the httpOnly cookie is sent
 function adminFetch(url, opts = {}) {
   const token = localStorage.getItem("admin_token");
   return fetch(`${API}${url}`, {
     ...opts,
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...opts.headers, Authorization: `Bearer ${token}` },
   });
 }
@@ -455,7 +460,8 @@ export default function QuizDetailPage() {
     try {
       setLoading(true);
       const res = await adminFetch(`/api/admin/quizzes/${quizId}`);
-      if (res.status === 401 || res.status === 403) { navigate("/admin"); return; }
+      // ✅ FIX 3: Use ADMIN_PATH instead of hardcoded "/admin"
+      if (res.status === 401 || res.status === 403) { navigate(ADMIN_PATH); return; }
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
       setQuiz(data); setQuestions(data.questions || []);
@@ -516,7 +522,8 @@ export default function QuizDetailPage() {
     <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
       <div className="text-center">
         <p className="text-lg">Quiz not found</p>
-        <button onClick={() => navigate("/admin/dashboard")} className="mt-3 text-indigo-400 hover:text-indigo-300 text-sm">← Back</button>
+        {/* ✅ FIX 4: Use ADMIN_PATH instead of hardcoded "/admin/dashboard" */}
+        <button onClick={() => navigate(`${ADMIN_PATH}/dashboard`)} className="mt-3 text-indigo-400 hover:text-indigo-300 text-sm">← Back</button>
       </div>
     </div>
   );
@@ -527,7 +534,8 @@ export default function QuizDetailPage() {
       <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-xl border-b border-slate-800">
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button onClick={() => navigate("/admin/dashboard")} className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition">
+            {/* ✅ FIX 4: Use ADMIN_PATH instead of hardcoded "/admin/dashboard" */}
+            <button onClick={() => navigate(`${ADMIN_PATH}/dashboard`)} className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
               Back
             </button>
