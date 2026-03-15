@@ -1,24 +1,4 @@
-// src/app/components/dashboardComponents/QuickChildLoginModal.jsx
-//
-// ✅ NEW FILE — Quick Child Login from Parent Dashboard
-//
-// Allows a parent to hand the device to their child without logging out.
-// The child picks their profile, enters their PIN, and gets a child JWT
-// layered on top of the existing parent session.
-//
-// When the child logs out (via logoutChild()), the parent session is
-// automatically restored — no re-authentication needed.
-//
-// Place in: naplan-frontend/src/app/components/dashboardComponents/QuickChildLoginModal.jsx
-//
-// Usage in ParentDashboard.jsx:
-//   import QuickChildLoginModal from "@/app/components/dashboardComponents/QuickChildLoginModal";
-//
-//   <QuickChildLoginModal
-//     isOpen={isChildLoginModalOpen}
-//     onClose={() => setIsChildLoginModalOpen(false)}
-//     childrenList={children}
-//   />
+
 
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -100,7 +80,15 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
       // Layer child token on top of existing parent session
       loginChild(data.token, data.child);
       onClose();
-      navigate("/child-dashboard", { replace: true });
+      navigate("/child-dashboard", { 
+        replace: true,
+      state: {
+        childId: data.child?.childId || null,
+        childName: data.child?.display_name || null,
+        yearLevel: data.child?.yearLevel || null,
+        username: data.child?.username || null,
+      },
+     });
     } catch (err) {
       setError(err.message || "Login failed. Check username and PIN.");
       setPin("");

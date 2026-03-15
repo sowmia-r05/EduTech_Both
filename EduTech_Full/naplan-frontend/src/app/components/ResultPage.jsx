@@ -280,20 +280,15 @@ useEffect(() => {
     return idx >= 0 ? idx + 1 : null;
   }, [activeDoc, quizAttempts]);
 
-  const backToDashboard = useMemo(() => {
-    const childId   = childIdParam  || childProfile?._id || doc?.child_id || "";
-    const childName = childNameParam || activeDoc?.user?.first_name || "";
-    const year      = yearLevelParam || yearLevel || "";
-    const username  = usernameParam  || activeDoc?.user?.user_name || "";
-    const p = new URLSearchParams();
-    if (childId)   p.set("childId",   childId);
-    if (childName) p.set("childName", childName);
-    if (year)      p.set("yearLevel", year);
-    if (username)  p.set("username",  username);
-    return `/child-dashboard?${p.toString()}`;
-  }, [childIdParam, childNameParam, yearLevelParam, childProfile, activeDoc, yearLevel, usernameParam, doc]);
+const backToDashboardState = useMemo(() => ({
+  childId:   childIdParam  || childProfile?._id || doc?.child_id || null,
+  childName: childNameParam || activeDoc?.user?.first_name || null,
+  yearLevel: yearLevelParam || yearLevel || null,
+  username:  usernameParam  || activeDoc?.user?.user_name || null,
+}), [childIdParam, childNameParam, yearLevelParam, childProfile, activeDoc, yearLevel, usernameParam, doc]);
 
-  const handleLogout = () => { logout?.(); navigate("/login"); };
+
+  const handleLogout = () => { logout?.(); navigate("/", { replace: true }); };
 
   const displayName     = `${activeDoc?.user?.first_name || ""} ${activeDoc?.user?.last_name || ""}`.trim() || childNameParam || "Student";
   const displayQuizName = activeDoc?.quiz_name || doc?.quiz_name || "";
@@ -309,7 +304,7 @@ useEffect(() => {
   if (isProcessing) {
   return (
     <>
-      <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate(backToDashboard)} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")} />
+      <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState })} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")} />
       <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-2xl shadow-lg">
           <CardContent className="flex flex-col items-center justify-center py-12 px-6">
@@ -331,7 +326,7 @@ useEffect(() => {
   if (error || isAiError) {
     return (
       <>
-        <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate(backToDashboard)} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")} />
+        <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState })} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")} />
         <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
           <Card className="w-full max-w-lg shadow-lg">
             <CardContent className="flex flex-col items-center justify-center py-8 text-center">
@@ -376,7 +371,7 @@ return (
     <TopBar
       displayName={displayName}
       onLogout={handleLogout}
-      onBackToChildDashboard={() => navigate(backToDashboard)} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")}
+      onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState })} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")}
     />
     <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="writing" viewerType={viewerType} yearLevel={yearLevel}>
       <div className="relative min-h-screen bg-gray-100">
