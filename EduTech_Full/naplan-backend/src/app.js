@@ -178,7 +178,7 @@ app.use("/api", apiLimiter);
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, otpAuth);
-app.use("/api/auth", childAuthRoutes);
+app.use("/api/auth", authLimiter, childAuthRoutes);
 app.use("/api/auth", sessionRoutes);
 
 // ─── Parent routes ────────────────────────────────────────────────────────────

@@ -227,49 +227,88 @@ const getInitialTab = () => {
   }, [childToken, logoutChild, logout, navigate]);
 
   /* ─── Resolve child info (original) ─── */
-  const resolveChildInfo = useCallback(async () => {
-    const nameFromUrl     = searchParams.get("childName");
-    const yearFromUrl     = searchParams.get("yearLevel");
-    const usernameFromUrl = searchParams.get("username");
-    if (nameFromUrl) {
-      setChildInfo({ display_name: decodeURIComponent(nameFromUrl), year_level: yearFromUrl ? Number(yearFromUrl) : null, username: usernameFromUrl || null });
-    } else if (childProfile) {
-      setChildInfo({ display_name: childProfile.displayName || childProfile.username || null, year_level: childProfile.yearLevel || null, username: childProfile.username || null });
+
+ const resolveChildInfo = useCallback(async () => {
+  // ✅ FIX-4: Validate URL params against allowlist (logs in dev)
+  assertAllowedParams(searchParams);
+
+  // ✅ FIX-1: Reset childStatus immediately — prevents stale status flash
+  setChildStatus(null);
+
+  // ✅ FIX-2: Sanitize URL params before using them
+  const rawName     = searchParams.get("childName");
+  const rawYear     = searchParams.get("yearLevel");
+  const rawUsername = searchParams.get("username");
+
+  const nameFromUrl     = rawName     ? sanitizeText(rawName) : null;
+  const yearFromUrl     = rawYear     ? sanitizeYearLevel(rawYear) : null;
+  const usernameFromUrl = rawUsername ? sanitizeText(rawUsername) : null;
+
+  if (nameFromUrl) {
+    setChildInfo({
+      display_name: nameFromUrl,
+      year_level:   yearFromUrl,
+      username:     usernameFromUrl,
+    });
+  } else if (childProfile) {
+    setChildInfo({
+      display_name: childProfile.displayName || childProfile.username || null,
+      year_level:   childProfile.yearLevel || null,
+      username:     childProfile.username || null,
+    });
+  }
+
+  if (parentToken && childId) {
+    try {
+      const children = await fetchChildrenSummaries(parentToken);
+
+      // ✅ FIX-3: Frontend ownership guard
+      const match = children.find((c) => String(c._id) === String(childId));
+      if (!match) {
+        // This childId doesn't belong to the authenticated parent
+        console.warn("[ChildDashboard] childId not found in parent's children — redirecting");
+        navigate("/parent-dashboard", { replace: true });
+        return;
+      }
+
+      if (!nameFromUrl) {
+        setChildInfo({
+          display_name: match.display_name || match.username,
+          year_level:   match.year_level,
+          username:     match.username || null,
+        });
+      }
+      setChildEntitledQuizIds(match.entitled_quiz_ids || []);
+      if (match.status) setChildStatus(match.status);
+    } catch {
+      setChildEntitledQuizIds([]);
     }
-    if (parentToken && childId) {
-      try {
-        const children = await fetchChildrenSummaries(parentToken);
-        const match = children.find((c) => String(c._id) === String(childId));
-        if (match) {
-          if (!nameFromUrl) setChildInfo({ display_name: match.display_name || match.username, year_level: match.year_level, username: match.username || null });
-          setChildEntitledQuizIds(match.entitled_quiz_ids || []);
-          if (match.status) setChildStatus(match.status);
-        } else setChildEntitledQuizIds([]);
-      } catch { setChildEntitledQuizIds([]); }
-    } else if (childProfile) {
-      setChildEntitledQuizIds(childProfile.entitled_quiz_ids || []);
-    }
-  }, [searchParams, childProfile, parentToken, childId]);
+  } else if (childProfile) {
+    setChildEntitledQuizIds(childProfile.entitled_quiz_ids || []);
+  }
+}, [searchParams, childProfile, parentToken, childId, navigate]);
+
 
   useEffect(() => { resolveChildInfo(); }, [resolveChildInfo]);
 
   /* ─── Load available quizzes (original) ─── */
-  useEffect(() => {
-    if (!activeToken || !childId) {
-      setQuizzesLoading(false);
-      return;
-    }
-    setQuizzesLoading(true);
-    fetchAvailableQuizzes(activeToken, childId)
-      .then((data) => {
-        const q = Array.isArray(data) ? data : data?.quizzes || [];
-        setAvailableQuizzes(q.map((x) => ({ ...x, subject: normalizeSubject(x.subject) })));
-        // ✅ B-01 fix: childStatus comes ONLY from the API response — never from URL params
-        if (data?.child_status) setChildStatus(data.child_status);
-      })
-      .catch(() => setAvailableQuizzes([]))
-      .finally(() => setQuizzesLoading(false));
-  }, [activeToken, childId]);
+useEffect(() => {
+  if (!activeToken || !childId) {
+    setQuizzesLoading(false);
+    return;
+  }
+  setQuizzesLoading(true);
+  fetchAvailableQuizzes(activeToken, childId)
+    .then((data) => {
+      const q = Array.isArray(data) ? data : data?.quizzes || [];
+      setAvailableQuizzes(q.map((x) => ({ ...x, subject: normalizeSubject(x.subject) })));
+
+      // ✅ childStatus comes ONLY from API response — never from URL params
+      if (data?.child_status) setChildStatus(data.child_status);
+    })
+    .catch(() => setAvailableQuizzes([]))
+    .finally(() => setQuizzesLoading(false));
+}, [activeToken, childId]);
 
 
 
@@ -279,7 +318,7 @@ const getInitialTab = () => {
     Promise.all([fetchChildResults(activeToken, childId), fetchChildWriting(activeToken, childId)])
       .then(([results, writingDocs]) => {
         const nonWriting = results.map((r) => ({
-          id: r._id, response_id: r.response_id, quiz_id: r.quiz_id,
+          id: r._id, response_id: r.response_id || r.attempt_id, quiz_id: r.quiz_id,
           subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
           name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
           date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name,
@@ -302,7 +341,7 @@ const getInitialTab = () => {
     Promise.all([fetchChildResults(activeToken, childId), fetchChildWriting(activeToken, childId)])
       .then(([results, writingDocs]) => {
         const nonWriting = results.map((r) => ({
-          id: r._id, response_id: r.response_id, quiz_id: r.quiz_id,
+          id: r._id, response_id: r.response_id || r.attempt_id, quiz_id: r.quiz_id,
           subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
           name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
           date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name,
@@ -413,7 +452,7 @@ const getInitialTab = () => {
 
   /* ─── handleViewResult (original) ─── */
   const handleViewResult = useCallback(async (item) => {
-    const rid = item.response_id; if (!rid) return;
+    const rid = item.response_id || item.attempt_id; if (!rid) return;
     setResultLoading(true);
     try {
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/results/${encodeURIComponent(rid)}`, {
