@@ -326,51 +326,73 @@ useEffect(() => {
 
 
   /* ─── refreshData (original) ─── */
-  const refreshData = useCallback(() => {
-    if (!activeToken || !childId) return;
-    Promise.all([fetchChildResults(activeToken, childId), fetchChildWriting(activeToken, childId)])
-      .then(([results, writingDocs]) => {
-        const nonWriting = results.map((r) => ({
-          id: r._id, response_id: r.response_id || r.attempt_id, quiz_id: r.quiz_id,
-          subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
-          name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
-          date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name,
-          grade: r.score?.grade || "", duration: r.duration || 0, source: r.source || "native",
-          ai_status: r.ai_feedback_meta?.status || null,
-        }));
-        const writing = (writingDocs || []).map((w) => {
-          const overall = w?.ai?.feedback?.overall;
-          const total = overall?.total_score || 0; const max = overall?.max_score || 0;
-          return { id: w._id, response_id: w.response_id, quiz_id: w.quiz_id, subject: "Writing", name: w.quiz_name || "Untitled Quiz", score: max > 0 ? Math.round((total / max) * 100) : 0, date: w.submitted_at || w.createdAt, quiz_name: w.quiz_name, grade: "", duration: w.duration_sec || 0, source: "writing", ai_status: w?.ai?.status || "pending" };
-        });
-        setTests([...nonWriting, ...writing]);
-      })
-      .catch(() => {});
-  }, [activeToken, childId]);
+const refreshData = useCallback(async () => {
+  if (!activeToken || !childId) return;
+  const [results, writingDocs] = await Promise.all([
+    fetchChildResults(activeToken, childId).catch(() => []),
+    fetchChildWriting(activeToken, childId).catch(() => []),
+  ]);
+  const nonWriting = results.map((r) => ({
+    id: r._id, response_id: r.response_id || r.attempt_id, quiz_id: r.quiz_id,
+    subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
+    name: r.quiz_name || "Untitled Quiz",
+    score: r.score?.percentage != null ? Math.round(r.score.percentage) : null,
+    date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name,
+    grade: r.score?.grade || "", duration: r.duration || 0, source: r.source || "native",
+  }));
+
+  const writing = (writingDocs || []).map((w) => {
+    const overall = w?.ai?.feedback?.overall;
+    const total = overall?.total_score || 0; const max = overall?.max_score || 0;
+    return { id: w._id, response_id: w.response_id, quiz_id: w.quiz_id, subject: "Writing", name: w.quiz_name || "Untitled Quiz", score: max > 0 ? Math.round((total / max) * 100) : null, date: w.submitted_at || w.createdAt, quiz_name: w.quiz_name, grade: "", duration: w.duration_sec || 0, source: "writing", ai_status: w?.ai?.status || "pending" };
+  });
+  // ✅ Deduplicate — a writing attempt may exist in both collections simultaneously
+  const seen = new Set();
+  const merged = [...nonWriting, ...writing].filter((t) => {
+    const key = String(t.response_id || t.id || "");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  setTests(merged);
+}, [activeToken, childId]);
+
 
   /* ─── Initial load (original) ─── */
-  useEffect(() => {
-    if (!activeToken || !childId) { setLoading(false); return; }
-    setLoading(true);
-    Promise.all([fetchChildResults(activeToken, childId), fetchChildWriting(activeToken, childId)])
-      .then(([results, writingDocs]) => {
-        const nonWriting = results.map((r) => ({
-          id: r._id, response_id: r.response_id || r.attempt_id, quiz_id: r.quiz_id,
-          subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
-          name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
-          date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name,
-          grade: r.score?.grade || "", duration: r.duration || 0, source: r.source || "native",
-        }));
-        const writing = (writingDocs || []).map((w) => {
-          const overall = w?.ai?.feedback?.overall;
-          const total = overall?.total_score || 0; const max = overall?.max_score || 0;
-          return { id: w._id, response_id: w.response_id, quiz_id: w.quiz_id, subject: "Writing", name: w.quiz_name || "Untitled Quiz", score: max > 0 ? Math.round((total / max) * 100) : 0, date: w.submitted_at || w.createdAt, quiz_name: w.quiz_name, grade: "", duration: w.duration_sec || 0, source: "writing" };
-        });
-        setTests([...nonWriting, ...writing]); setError(null);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [activeToken, childId]);
+useEffect(() => {
+  if (!activeToken || !childId) { setLoading(false); return; }
+  setLoading(true);
+  Promise.all([
+    fetchChildResults(activeToken, childId).catch(() => []),
+    fetchChildWriting(activeToken, childId).catch(() => []),
+  ])
+    .then(([results, writingDocs]) => {
+      const nonWriting = results.map((r) => ({
+        id: r._id, response_id: r.response_id || r.attempt_id, quiz_id: r.quiz_id,
+        subject: normalizeSubject(r.subject || inferSubject(r.quiz_name)),
+        name: r.quiz_name || "Untitled Quiz", score: r.score?.percentage != null ? Math.round(r.score.percentage) : null,
+        date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name,
+        grade: r.score?.grade || "", duration: r.duration || 0, source: r.source || "native",
+      }));
+      const writing = (writingDocs || []).map((w) => {
+        const overall = w?.ai?.feedback?.overall;
+        const total = overall?.total_score || 0; const max = overall?.max_score || 0;
+        return { id: w._id, response_id: w.response_id, quiz_id: w.quiz_id, subject: "Writing", name: w.quiz_name || "Untitled Quiz", score: max > 0 ? Math.round((total / max) * 100) : null, date: w.submitted_at || w.createdAt, quiz_name: w.quiz_name, grade: "", duration: w.duration_sec || 0, source: "writing" };
+      });
+      // ✅ Deduplicate — a writing attempt may exist in both collections simultaneously
+      const seen = new Set();
+      const merged = [...nonWriting, ...writing].filter((t) => {
+        const key = String(t.response_id || t.id || "");
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setTests(merged); setError(null);
+    })
+    .catch((err) => setError(err.message))
+    .finally(() => setLoading(false));
+}, [activeToken, childId]);
+
 
   /* ─── Entitled tests (original) ─── */
   const entitledCatalog = useMemo(() => availableQuizzes, [availableQuizzes]);
@@ -382,13 +404,23 @@ useEffect(() => {
     const catalogNames = new Set(entitledCatalog.map((q) => (q.quiz_name || q.name || "").toLowerCase().trim()));
     return tests.filter((t) => {
       const n = (t.name || t.quiz_name || "").toLowerCase().trim();
-      return [...names].some((q) => n === q || n.includes(q) || q.includes(n));
+      return [...catalogNames].some((q) => n === q || n.includes(q) || q.includes(n));
     });
   }, [tests, entitledCatalog, quizzesLoading, childStatus]);
 
   /* ─── Gamification stats (original) ─── */
   const hasTests       = entitledTests.length > 0;
-  const overallAverage = useMemo(() => !entitledTests.length ? 0 : Math.round(entitledTests.reduce((s, t) => s + t.score, 0) / entitledTests.length), [entitledTests]);
+
+const overallAverage = useMemo(() => {
+  const scored = entitledTests.filter(t => t.score !== null && t.score !== undefined);
+  return scored.length
+    ? Math.round(scored.reduce((s, t) => s + t.score, 0) / scored.length)
+    : 0;
+}, [entitledTests]);
+
+
+
+
   const totalXP        = useMemo(() => entitledTests.reduce((s, t) => s + t.score * 10, 0), [entitledTests]);
   const level          = useMemo(() => Math.max(1, Math.floor(totalXP / 500) + 1), [totalXP]);
   const xpProgress     = useMemo(() => ((totalXP % 500) / 500) * 100, [totalXP]);
@@ -405,9 +437,10 @@ useEffect(() => {
 
   /* Best subject — highest average among subjects with at least 1 test */
   const topSubject = useMemo(() => {
-    const bySubject = SUBJECTS.map((s) => {
-      const ts = entitledTests.filter((t) => t.subject === s);
-      return { subject: s, avg: ts.length ? Math.round(ts.reduce((a, t) => a + t.score, 0) / ts.length) : -1 };
+  const bySubject = SUBJECTS.map((s) => {
+    const ts = entitledTests.filter((t) => t.subject === s && t.score !== null && t.score !== undefined);
+    return { subject: s, avg: ts.length ? Math.round(ts.reduce((a, t) => a + t.score, 0) / ts.length) : -1 };
+
     }).filter((x) => x.avg >= 0);
     if (!bySubject.length) return null;
     return bySubject.sort((a, b) => b.avg - a.avg)[0];
@@ -416,8 +449,8 @@ useEffect(() => {
   /* ─── mergedQuizzes (original — drives the quiz table) ─── */
   const mergedQuizzes = useMemo(() => entitledCatalog.map((quiz) => {
     const matches = tests.filter((t) => {
+      // Guard: never match a writing quiz against a non-writing attempt or vice versa
       if ((quiz.subject === "Writing") !== (t.subject === "Writing")) return false;
-      // Primary: quiz_id match
       if (quiz.quiz_id && t.quiz_id) return quiz.quiz_id === t.quiz_id;
       // Fallback: normalised name match
       const catalogName = (quiz.quiz_name || "").toLowerCase().replace(/\s+/g, " ").trim();

@@ -25,7 +25,9 @@ import {
   checkUsername,
   fetchChildResults,
   fetchChildWriting,
+  fetchAvailableQuizzes,
 } from "@/app/utils/api-children";
+
 import {
   createCheckout,
   fetchPurchaseHistory,
@@ -1153,46 +1155,53 @@ const loadChildren = useCallback(async () => {
     const enriched = await Promise.all(
       childList.map(async (child) => {
         try {
-          const [results, writing] = await Promise.all([
-            fetchChildResults(parentToken, child._id),
-            fetchChildWriting(parentToken, child._id),
-          ]);
+        const [results, writing, catalogData] = await Promise.all([
+          fetchChildResults(parentToken, child._id).catch(() => []),
+          fetchChildWriting(parentToken, child._id).catch(() => []),
+          fetchAvailableQuizzes(parentToken, child._id).catch(() => ({ quizzes: [] })),
+        ]);
 
-          // Deduplicate — writing quizzes appear in both collections
-          const seen = new Set();
-          const allAttempts = [
-            ...(Array.isArray(results) ? results : []),
-            ...(Array.isArray(writing) ? writing : []),
-          ].filter((r) => {
-            const key = String(r._id || r.response_id || r.attempt_id || "");
-            if (!key || seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          });
+        // ✅ Catalog size = same number child sees in their "All" tab
+        const catalog = Array.isArray(catalogData)
+          ? catalogData
+          : (catalogData?.quizzes || []);
+        const quizCount = catalog.length;
 
-          if (allAttempts.length === 0) return child;
+        const seen = new Set();
+        const allAttempts = [
+          ...(Array.isArray(results) ? results : []),
+          ...(Array.isArray(writing) ? writing : []),
+        ].filter((r) => {
+          const key = String(r.response_id || r.attempt_id || r._id || "");
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
 
-          const scores = allAttempts
-            .map((r) => {
-              const overall = r?.ai?.feedback?.overall;
-              if (overall?.max_score > 0) return (overall.total_score / overall.max_score) * 100;
-              return r?.score?.percentage ?? null;
-            })
-            .filter((s) => s !== null && s >= 0);
+        const scores = allAttempts
+          .map((r) => {
+            const overall = r?.ai?.feedback?.overall;
+            if (overall?.max_score > 0) {
+              return (overall.total_score / overall.max_score) * 100;
+            }
+            return r?.score?.percentage ?? null;
+          })
+          .filter((s) => s !== null && s >= 0);
 
-          const dates = allAttempts
-            .map((r) => r.date_submitted || r.submitted_at || r.createdAt)
-            .filter(Boolean)
-            .sort((a, b) => new Date(b) - new Date(a));
+        const dates = allAttempts
+          .map((r) => r.date_submitted || r.submitted_at || r.createdAt)
+          .filter(Boolean)
+          .sort((a, b) => new Date(b) - new Date(a));
 
-          return {
-            ...child,
-            quizCount:    allAttempts.length,
-            averageScore: scores.length > 0
-              ? scores.reduce((a, b) => a + b, 0) / scores.length
-              : null,
-            lastActivity: dates[0] || child.lastActivity || null,
-          };
+        return {
+          ...child,
+          quizCount,                          // ← catalog size, matches child's All tab
+          averageScore: scores.length > 0
+            ? scores.reduce((a, b) => a + b, 0) / scores.length
+            : null,
+          lastActivity: dates[0] || child.lastActivity || null,
+        };
+
         } catch {
           return child;
         }
