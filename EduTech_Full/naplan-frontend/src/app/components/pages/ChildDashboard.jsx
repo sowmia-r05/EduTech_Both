@@ -336,6 +336,7 @@ useEffect(() => {
           name: r.quiz_name || "Untitled Quiz", score: Math.round(r.score?.percentage || 0),
           date: r.date_submitted || r.createdAt, quiz_name: r.quiz_name,
           grade: r.score?.grade || "", duration: r.duration || 0, source: r.source || "native",
+          ai_status: r.ai_feedback_meta?.status || null,
         }));
         const writing = (writingDocs || []).map((w) => {
           const overall = w?.ai?.feedback?.overall;
@@ -377,7 +378,8 @@ useEffect(() => {
   const entitledTests = useMemo(() => {
     if (childStatus === "active") return tests;
     if (quizzesLoading || entitledCatalog.length === 0) return [];
-    const names = new Set(entitledCatalog.map((q) => (q.quiz_name || q.name || "").toLowerCase().trim()));
+    const catalogIds = new Set(entitledCatalog.map((q) => q.quiz_id).filter(Boolean));
+    const catalogNames = new Set(entitledCatalog.map((q) => (q.quiz_name || q.name || "").toLowerCase().trim()));
     return tests.filter((t) => {
       const n = (t.name || t.quiz_name || "").toLowerCase().trim();
       return [...names].some((q) => n === q || n.includes(q) || q.includes(n));
@@ -415,8 +417,12 @@ useEffect(() => {
   const mergedQuizzes = useMemo(() => entitledCatalog.map((quiz) => {
     const matches = tests.filter((t) => {
       if ((quiz.subject === "Writing") !== (t.subject === "Writing")) return false;
-      if (quiz.quiz_id && t.quiz_id && quiz.quiz_id === t.quiz_id) return true;
-      return (t.name || t.quiz_name || "").toLowerCase().trim() === (quiz.quiz_name || "").toLowerCase().trim();
+      // Primary: quiz_id match
+      if (quiz.quiz_id && t.quiz_id) return quiz.quiz_id === t.quiz_id;
+      // Fallback: normalised name match
+      const catalogName = (quiz.quiz_name || "").toLowerCase().replace(/\s+/g, " ").trim();
+      const testName    = (t.name || t.quiz_name || "").toLowerCase().replace(/\s+/g, " ").trim();
+      return catalogName === testName;
     });
     const m = matches.length ? matches.sort((a, b) => new Date(b.date) - new Date(a.date))[0] : null;
     return {
@@ -786,7 +792,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
         // Update URL so reload returns to same tab
         const newParams = new URLSearchParams(searchParams);
         newParams.set("tab", t);
-        navigate(`?${newParams.toString()}`, { replace: true });
+        navigate(`?${newParams.toString()}`, { replace: true, state: location.state });
       }} />
 
       {/* Tab Content */}
@@ -953,7 +959,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
                             {/* View Results — opens specific test dashboard */}
                             <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                               {isCompleted && quiz.response_id
-                                ? <button onClick={() => handleViewResultk(quiz)}
+                                ? <button onClick={() => handleViewResult(quiz)}
                                     className={`inline-flex items-center justify-center px-3 py-1.5 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap ${(quiz.subject || "").toLowerCase() === "writing" ? "bg-purple-600 hover:bg-purple-700" : "bg-indigo-600 hover:bg-indigo-700"}`}>
                                     View Results
                                   </button>
