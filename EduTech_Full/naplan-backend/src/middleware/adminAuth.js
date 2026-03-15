@@ -1,7 +1,7 @@
 /**
  * middleware/adminAuth.js
  *
- * Admin authentication middleware — Email + Password version.
+ * Admin authentication middleware.
  *
  * Flow:
  *   POST /api/admin/login  { email, password }  → returns JWT
@@ -18,7 +18,7 @@ const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
 function requireAdmin(req, res, next) {
   const header = req.headers.authorization || "";
   const fromHeader = header.startsWith("Bearer ") ? header.slice(7) : null;
-  const fromCookie = req.cookies?.admin_token || null; //
+  const fromCookie = req.cookies?.admin_token || null;
   const token = fromHeader || fromCookie;
 
   if (!token) {
@@ -27,7 +27,7 @@ function requireAdmin(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    if (decoded.role !== "admin" && decoded.role !== "super_admin") {
+    if (decoded.role !== "admin") {
       return res.status(403).json({ error: "Admin access required" });
     }
     req.admin = decoded;
