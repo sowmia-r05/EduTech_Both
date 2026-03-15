@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 
 import {
   Card,
@@ -40,6 +40,8 @@ const isAiPending = (d) => {
   if (["error", "failed"].includes(s)) return false;
   return true;
 };
+
+
 
 /* ─── No Data Modal ─── */
 const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
@@ -140,8 +142,10 @@ export default function ResultPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const responseId    = String(searchParams.get("r")         || "").trim();
-  const usernameParam = String(searchParams.get("username")   || "").trim();
+  const location = useLocation();
+  const responseId    = String(location.state?.r        || searchParams.get("r")        || "").trim();
+  const usernameParam = String(location.state?.username  || searchParams.get("username") || "").trim();
+
   const childIdParam  = String(searchParams.get("childId")    || "").trim();
   const childNameParam= String(searchParams.get("childName")  || "").trim();
   const yearLevelParam= String(searchParams.get("yearLevel")  || "").trim();

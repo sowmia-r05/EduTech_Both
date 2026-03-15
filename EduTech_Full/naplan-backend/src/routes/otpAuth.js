@@ -141,7 +141,7 @@ router.post("/otp/verify", async (req, res) => {
     const record = otpStore.get(username);
     if (!record) return res.status(401).json({ error: "OTP not requested" });
 
-    if (Date.now() > record.expiresAt) {
+    if (!record || Date.now() > record.expiresAt) {
       otpStore.delete(username);
       return res.status(401).json({ error: "OTP expired" });
     }

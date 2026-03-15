@@ -16,19 +16,25 @@ const API_BASE =
 async function authGet(path, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "GET",
+    credentials: "include",
     headers: {
       Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(body?.error || `Request failed: ${res.status}`);
+    err.code = body?.code || null;
+    throw err;
+  }
   return body;
 }
 
 async function authPost(path, data, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -46,6 +52,9 @@ async function authPost(path, data, token) {
   }
   return body;
 }
+
+
+
 
 // ─── Bundle Catalog (public) ───
 

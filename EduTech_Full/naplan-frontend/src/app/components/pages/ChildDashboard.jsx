@@ -50,6 +50,16 @@ const SUBJECT_STYLE = {
   Other:    { bg: "bg-slate-100",   text: "text-slate-600",   icon: Library   },
 };
 
+function sanitizeText(raw) {
+  return String(raw || "").replace(/[<>"']/g, "").trim().slice(0, 100);
+}
+
+function sanitizeYearLevel(raw){
+  const n = parseInt(raw, 10);
+  return [3,5,7,9].includes(n) ? n : null;
+}
+
+
 function getTimeGreeting() {
   const h = new Date().getHours();
   if (h < 12) return "Good morning";
@@ -144,15 +154,18 @@ function TabSlider({ activeTab, onChange }) {
   );
 }
 
-function assertAllowedParams(searchParams) {
+function assertAllowedParams(searchParams, navigate) {
   const ALLOWED = new Set([
-    "childId", "childName", "yearLevel", "username", "tab",
+   "tab",
   ]);
   for (const key of searchParams.keys()) {
     if (!ALLOWED.has(key)) {
       console.warn(`[ChildDashboard] Unexpected URL param stripped: ${key}`);
-    }
+      navigate("/parent-dashboard", {replace: true });
+      return false;
+      }
   }
+  return true;
 }
 
 
@@ -163,12 +176,18 @@ export default function ChildDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const location = useLocation ();
-  const { childToken, childProfile, parentToken, logoutChild, logout } = useAuth();
+  const { childToken, childProfile, parentToken, logoutChild, logout, isInitializing } = useAuth();
   
 
-  const childId     = location.state?.childId || searchParams.get("childId") || childProfile?.childId;
+  const childId     = location.state?.childId || childProfile?.childId;
   const activeToken = childToken || parentToken;
   const isParentViewing = !childToken && !!parentToken;
+
+  useEffect(() => {
+    if (!isInitializing && isParentViewing && !childId){
+      navigate("/parent-dashboard", {replace: true});
+    }
+  }, [isInitializing, isParentViewing, childId, navigate]);
 
   /* ─── Initial tab from URL ─── */
 // ✅ AFTER:
@@ -183,7 +202,7 @@ const getInitialTab = () => {
 
   /* ─── STATE ─── */
   const [tests,                setTests]                = useState([]);
-  const [childStatus, setChildStatus] = useState(() => childProfile?.status || "trial");
+  const [childStatus, setChildStatus] = useState("trial");
   const [loading,              setLoading]              = useState(true);
   const [error,                setError]                = useState(null);
   const [currentPage,          setCurrentPage]          = useState(1);
@@ -193,21 +212,12 @@ const getInitialTab = () => {
   const [childInfo,            setChildInfo]            = useState(null);
   const [activeTab,            setActiveTab]            = useState(getInitialTab);
   const [activeQuiz,           setActiveQuiz]           = useState(null);
-  const [selectedQuizResult, setSelectedQuizResult] = useState(() => {
-    try {
-      const saved = sessionStorage.getItem("quizResultState");
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
-  });
-    useEffect(() => {
-    try {
-      if (selectedQuizResult) {
-        sessionStorage.setItem("quizResultState", JSON.stringify(selectedQuizResult));
-      } else {
-        sessionStorage.removeItem("quizResultState");
-      }
-    } catch {}
-  }, [selectedQuizResult]);
+  const [selectedQuizResult, setSelectedQuizResult] = useState(null);
+
+  useEffect(() => {
+    try { sessionStorage.removeItem("quizResultState"); } catch {}
+  },[]);
+
   const [resultLoading,        setResultLoading]        = useState(false);
   const [viewMode,             setViewMode]             = useState("all");
   const [childEntitledQuizIds, setChildEntitledQuizIds] = useState(null);
@@ -228,28 +238,29 @@ const getInitialTab = () => {
     navigate("/");
   }, [childToken, logoutChild, logout, navigate]);
 
+  useEffect(() => {
+    assertAllowedParams(searchParams, navigate);
+  }, []);
+
   /* ─── Resolve child info (original) ─── */
-
- const resolveChildInfo = useCallback(async () => {
-  assertAllowedParams(searchParams);
-
-
   // ✅ FIX-2: Sanitize URL params before using them
-  const rawName     = searchParams.get("childName");
-  const rawYear     = searchParams.get("yearLevel");
-  const rawUsername = searchParams.get("username");
+  const resolveChildInfo = useCallback(async () => {
+  
 
-  const nameFromUrl     = rawName     ? sanitizeText(rawName) : null;
-  const yearFromUrl     = rawYear     ? sanitizeYearLevel(rawYear) : null;
-  const usernameFromUrl = rawUsername ? sanitizeText(rawUsername) : null;
+    // Read display context from location.state (never from URL params)
+    // ParentDashboard and FreeTrialOnboarding already pass these via state
+    const nameFromState     = location.state?.childName  || null;
+    const yearFromState     = location.state?.yearLevel   || null;
+    const usernameFromState = location.state?.username    || null;
 
-  if (nameFromUrl) {
-    setChildInfo({
-      display_name: nameFromUrl,
-      year_level:   yearFromUrl,
-      username:     usernameFromUrl,
-    });
-  } else if (childProfile) {
+    if (nameFromState) {
+      setChildInfo({
+        display_name: sanitizeText(nameFromState),
+        year_level:   yearFromState ? sanitizeYearLevel(String(yearFromState)) : null,
+        username:     usernameFromState ? sanitizeText(usernameFromState) : null,
+      });
+    } else if (childProfile) {
+
     setChildInfo({
       display_name: childProfile.displayName || childProfile.username || null,
       year_level:   childProfile.yearLevel || null,
@@ -257,19 +268,17 @@ const getInitialTab = () => {
     });
   }
 
-  if (parentToken && childId) {
-    try {
-      const children = await fetchChildrenSummaries(parentToken);
 
-      // ✅ FIX-3: Frontend ownership guard
-      const match = children.find((c) => String(c._id) === String(childId));
-      if (!match) {
-        // This childId doesn't belong to the authenticated parent
-        console.warn("[ChildDashboard] childId not found in parent's children — redirecting");
-        navigate("/parent-dashboard", { replace: true });
-        return;
-      }
 
+if (isParentViewing && parentToken && childId) {
+  try {
+    const children = await fetchChildrenSummaries(parentToken);
+    const match = children.find((c) => String(c._id) === String(childId));
+    if (!match) {
+      console.warn("[ChildDashboard] childId not found in parent's children — redirecting");
+      navigate("/parent-dashboard", { replace: true });
+      return;
+    } 
       if (!nameFromUrl) {
         setChildInfo({
           display_name: match.display_name || match.username,
@@ -285,7 +294,9 @@ const getInitialTab = () => {
   } else if (childProfile) {
     setChildEntitledQuizIds(childProfile.entitled_quiz_ids || []);
   }
-}, [searchParams, childProfile, parentToken, childId, navigate]);
+}, [location.state, childProfile, parentToken, childId, navigate, searchParams]);
+
+
 
 
   useEffect(() => { resolveChildInfo(); }, [resolveChildInfo]);
@@ -488,21 +499,18 @@ useEffect(() => {
 
 
 const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
- setSelectedQuizResult(null);
- const params = new URLSearchParams({ r: attemptId });
- 
- const username = childInfo?.username || childProfile?.username || null;
- if (username) params.set("username", username);
- if (subject)  params.set("subject", subject);
- if (name)     params.set("quiz_name", name);
- // ✅ FIX B-01: DO NOT set params.set("status", childStatus) — removed entirely
- 
- navigate(
-   (subject || "").toLowerCase() === "writing"
-     ? `/writing-feedback/result?${params}`
-     : `/NonWritingLookupQuizResults/results?${params}`
- );
+  setSelectedQuizResult(null);
+  const username = childInfo?.username || childProfile?.username || null;
+  const state = { r: attemptId, username, subject, quiz_name: name };
+
+  navigate(
+    (subject || "").toLowerCase() === "writing"
+      ? "/writing-feedback/result"
+      : "/NonWritingLookupQuizResults/results",
+    { state }
+  );
 }, [navigate, childInfo, childProfile]);
+
 
 
   /* ─── handleQuizClose (original) ─── */
@@ -575,14 +583,13 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
       childStatus={childStatus}
       onViewAnalytics={() => setActiveTab("cumulative")}
       onViewAIFeedback={(attemptId, subject, name) => {
-        const params = new URLSearchParams({ r: attemptId });
-        const username = childInfo?.username || childProfile?.username || searchParams.get("username") || null;
-        if (username) params.set("username", username);
-        if (subject) params.set("subject", subject);
-        if (name) params.set("quiz_name", name);
-        navigate((subject || "").toLowerCase() === "writing"
-          ? `/writing-feedback/result?${params}`
-          : `/NonWritingLookupQuizResults/results?${params}`
+        const username = childInfo?.username || childProfile?.username || null;
+        const state = { r: attemptId, username, subject, quiz_name: name };
+        navigate(
+          (subject || "").toLowerCase() === "writing"
+            ? "/writing-feedback/result"
+            : "/NonWritingLookupQuizResults/results",
+          { state }
         );
       }}
     />
@@ -613,19 +620,13 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
       }}
       onViewAIFeedback={(attemptId, subject, name) => {
         setSelectedQuizResult(null);
-        const params = new URLSearchParams({ r: attemptId });
-        const username =
-          childInfo?.username ||
-          childProfile?.username ||
-          searchParams.get("username") ||
-          null;
-        if (username) params.set("username", username);
-        if (subject)  params.set("subject",  subject);
-        if (name)     params.set("quiz_name", name);
+        const username = childInfo?.username || childProfile?.username || null;
+        const state = { r: attemptId, username, subject, quiz_name: name };
         navigate(
           (subject || "").toLowerCase() === "writing"
-            ? `/writing-feedback/result?${params}`
-            : `/NonWritingLookupQuizResults/results?${params}`
+            ? "/writing-feedback/result"
+            : "/NonWritingLookupQuizResults/results",
+          { state }
         );
       }}
     />
