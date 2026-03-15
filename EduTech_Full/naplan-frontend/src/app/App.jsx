@@ -10,8 +10,6 @@ import ChildDashboard from "@/app/components/pages/ChildDashboard";
 import ChildLoginPage from "@/app/components/pages/ChildLoginPage";
 import NotFound from "@/app/components/pages/NotFound";
 import FreeTrialPage from "@/app/components/landing/FreeTrialPage";
-import StartTestPage from "@/app/components/StartTestPage";
-import TrialTestPage from "@/app/components/pages/TrialTestPage";
 import TermsPage from "@/app/components/pages/TermsPage";
 import PrivacyPage from "@/app/components/pages/PrivacyPage";
 import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
@@ -25,6 +23,8 @@ import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin  from "@/app/components/admin/RequireAdmin";
 import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
 import {useAuth} from "@/app/context/AuthContext";
+import IdleTimeoutProvider from "./components/auth/IdleTimeoutProvider";
+import ChildIdleTimeoutProvider from "./components/auth/ChildIdleTimeoutProvider";
 
 // Read from env var — add VITE_ADMIN_PATH=/your-secret-path to frontend .env
 const ADMIN_PATH = import.meta.env.VITE_ADMIN_PATH || "/admin";
@@ -114,8 +114,6 @@ export default function AppRoutes() {
         {/* ─── Public ─── */}
         <Route path="/" element={<WelcomePage />} />
         <Route path="/free-trial" element={<FreeTrialPage />} />
-        <Route path="/start-test" element={<RequireParent><StartTestPage /></RequireParent>} />
-        <Route path="/trial-test" element={<RequireAuth><TrialTestPage/></RequireAuth>} />
         <Route path="/terms"   element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} /> 
         <Route path="/bundles" element={<RequireParent><WithFooter><BundleSelectionPage /></WithFooter></RequireParent>} />
@@ -143,7 +141,9 @@ export default function AppRoutes() {
           path="/parent-dashboard"
           element={
             <RequireParent>
+              <IdleTimeoutProvider>
               <WithFooter><ParentDashboard /></WithFooter>
+              </IdleTimeoutProvider>
             </RequireParent>
           }
         />
@@ -161,7 +161,9 @@ export default function AppRoutes() {
           path="/child-dashboard"
           element={
             <RequireAuth>
+              <ChildIdleTimeoutProvider>
               <WithFooter><ChildDashboard /></WithFooter>
+              </ChildIdleTimeoutProvider>
             </RequireAuth>
           }
         />

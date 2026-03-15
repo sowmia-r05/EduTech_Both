@@ -9,7 +9,7 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 
 const { sendBrevoEmail } = require("../services/brevoEmail");
-const Parent = require("../models/parent"); // ✅ Use Parent instead of User
+const Parent = require("../models/parent"); 
 
 
 const router = express.Router();
@@ -62,6 +62,15 @@ async function lookupEmailByUsername(username) {
 // In-memory OTP store (Render restarts clear this; Mongo storage is better later)
 const otpStore = new Map();
 
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of otpStore.entries()) {
+    if (!record || now > record.expiresAt) {
+      otpStore.delete(key);
+    }
+  }
+}, 60 *1000).unref?.();
+
 function hashOtp(username, otp) {
   
   return crypto
@@ -102,7 +111,11 @@ router.post("/otp/request", async (req, res) => {
     const hash = hashOtp(username, otp);
     const expiresAt = now + otpExpiresSeconds() * 1000;
 
-    otpStore.set(username, { email, hash, expiresAt, attempts: 0, lastSentAt: now });
+    otpStore.set(username, { 
+      otpHash: hashOtp(username, otp),
+      expiresAt: Date.now() + (otpExpiresSeconds() * 1000),
+      attempts: 0,
+    });
 
     await sendBrevoEmail({
       toEmail: email,
@@ -139,7 +152,10 @@ router.post("/otp/verify", async (req, res) => {
     }
 
     const record = otpStore.get(username);
-    if (!record) return res.status(401).json({ error: "OTP not requested" });
+    if (!record || Date.now() > record.expiresAt) {
+      otpStore.delete(username);
+      return res.status(401).json({ error: "OTP expired. Please request a new one" });
+    } 
 
     if (!record || Date.now() > record.expiresAt) {
       otpStore.delete(username);
