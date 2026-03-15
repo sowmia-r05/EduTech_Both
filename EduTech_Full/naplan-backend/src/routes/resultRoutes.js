@@ -33,29 +33,47 @@ function inferSubjectFromQuizName(name) {
 function normalizeQuizAttempt(attempt, child) {
   if (!attempt) return null;
   const metaStatus = attempt.ai_feedback_meta?.status || "pending";
+
+  // Normalize topic_breakdown — stored as Map in Mongoose, needs plain object
+  let topicBreakdown = {};
+  if (attempt.topic_breakdown instanceof Map) {
+    for (const [k, v] of attempt.topic_breakdown) topicBreakdown[k] = v;
+  } else if (
+    attempt.topic_breakdown &&
+    typeof attempt.topic_breakdown === "object"
+  ) {
+    topicBreakdown = attempt.topic_breakdown;
+  }
+
   return {
-    _id:         attempt._id,
+    _id: attempt._id,
     response_id: attempt.attempt_id,
-    quiz_id:     attempt.quiz_id,
-    quiz_name:   attempt.quiz_name || "Untitled Quiz",
-    subject:     attempt.subject   || inferSubjectFromQuizName(attempt.quiz_name),
-    year_level:  attempt.year_level || child?.year_level,
-    child_id:    attempt.child_id,
-    username:    child?.username    || attempt.username,
+    quiz_id: attempt.quiz_id,
+    quiz_name: attempt.quiz_name || "Untitled Quiz",
+    subject: attempt.subject || inferSubjectFromQuizName(attempt.quiz_name),
+    year_level: attempt.year_level || child?.year_level,
+    child_id: attempt.child_id,
+    username: child?.username || attempt.username,
     display_name: child?.display_name,
     date_submitted: attempt.submitted_at || attempt.createdAt,
     score: attempt.score || null,
     duration: attempt.duration_sec || 0,
-    answers:  attempt.answers || [],
-    ai_feedback:      attempt.ai_feedback      || null,
+    answers: attempt.answers || [],
+    topicBreakdown, // ✅ camelCase for frontend
+    topic_breakdown: topicBreakdown, // ✅ also snake_case as fallback
+    ai_feedback: attempt.ai_feedback || null,
     performance_analysis: attempt.performance_analysis || null,
     ai_feedback_meta: {
-      status:       metaStatus === "done" ? "done" : metaStatus,
-      message:      attempt.ai_feedback_meta?.status_message || (metaStatus === "done" ? "Feedback ready" : "Generating AI feedback..."),
-      error:        metaStatus === "error" ? "AI feedback generation failed" : null,
+      status: metaStatus === "done" ? "done" : metaStatus,
+      message:
+        attempt.ai_feedback_meta?.status_message ||
+        (metaStatus === "done"
+          ? "Feedback ready"
+          : "Generating AI feedback..."),
+      error: metaStatus === "error" ? "AI feedback generation failed" : null,
       evaluated_at: attempt.ai_feedback_meta?.generated_at || null,
     },
-    source:     "native",
+    source: "native",
   };
 }
 
