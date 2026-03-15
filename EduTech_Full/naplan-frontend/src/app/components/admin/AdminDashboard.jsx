@@ -236,7 +236,8 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
                 </div>
               ))}
             </div>
-            <QuizSettingsExtras form={form} onChange={(f) => setForm((p) => ({ ...p, ...f }))} />
+            // ✅ FIXED — pass setForm directly so function updaters work correctly
+                <QuizSettingsExtras form={form} onChange={setForm} />
             <div className="space-y-2 pt-2">
               {[
                 { label: "Active",               field: "is_active"           },
@@ -289,24 +290,35 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
 
   const handleSave = async () => {
     setSaving(true);
-    const toAdd    = [...selected].filter((id) => !assignedBundleIds.includes(id));
-    const toRemove = assignedBundleIds.filter((id) => !selected.has(id));
-    await Promise.all([
-      ...toAdd.map((bundleId) =>
-        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
-          method: "POST", body: JSON.stringify({ quiz_id: quizId }),
-        })
-      ),
-      ...toRemove.map((bundleId) =>
-        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
-          method: "DELETE", body: JSON.stringify({ quiz_id: quizId }),
-        })
-      ),
-    ]);
-    await onRefresh();
-    setSaving(false);
-    onClose();
-  };
+    setError("");
+    try {
+      const toAdd    = [...selected].filter((id) => !assignedBundleIds.includes(id));
+      const toRemove = assignedBundleIds.filter((id) => !selected.has(id));
+      const results = await Promise.all([
+        ...toAdd.map((bundleId) =>
+          adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
+            method: "POST", body: JSON.stringify({ quiz_id: quizId }),
+          })
+        ),
+        ...toRemove.map((bundleId) =>
+          adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
+            method: "DELETE", body: JSON.stringify({ quiz_id: quizId }),
+          })
+        ),
+      ]);
+      const failed = results.find((r) => !r.ok);
+      if (failed) {
+        const d = await failed.json().catch(() => ({}));
+        throw new Error(d.error || "Failed to update bundle mapping");
+      }
+      await onRefresh();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+};
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
@@ -687,7 +699,14 @@ export default function AdminDashboard() {
       {/* Modals */}
       {showInvite    && <InviteModal onClose={() => setShowInvite(false)} />}
       {settingsQuiz  && <QuizSettingsModal quiz={settingsQuiz} onSave={() => { setSettingsQuiz(null); fetchQuizzes(); }} onClose={() => setSettingsQuiz(null)} />}
-      {bundleMapQuiz && <BundleMappingModal quiz={bundleMapQuiz} bundles={bundles} onClose={() => setBundleMapQuiz(null)} onRefresh={fetchBundles} />}
+     {bundleMapQuiz && (
+  <BundleMappingModal
+    quiz={bundleMapQuiz}
+    bundles={bundles}
+    onClose={() => setBundleMapQuiz(null)}
+    onRefresh={async () => { await fetchBundles(); await fetchQuizzes(); }}
+  />
+)}
     </div>
   );
 }
