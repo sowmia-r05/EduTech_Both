@@ -1,10 +1,13 @@
 /**
- * QuizUploader.jsx  (v2 — VOICE/VIDEO SUPPORT)
- * 
+ * QuizUploader.jsx  (v3 — SIMPLE FORMAT SUPPORT)
+ *
  * FIXES IN THIS VERSION:
  *   ✅ FIX 1: parseFlexiQuiz now sets correct: true/false on each option
  *   ✅ FIX 2: handleSubmit maps correct field from correct_answer labels as safety net
- * 
+ *   ✅ NEW:   Supports "simple" questions-only format (single Questions sheet,
+ *             columns: question_text, type, option_a…option_d, correct_answer,
+ *             points, category, image_url, explanation — no Quiz Info sheet needed)
+ *
  * Place in: src/app/components/admin/QuizUploader.jsx
  */
 
@@ -52,9 +55,26 @@ function extractImageUrl(html) {
   return match ? match[1] : "";
 }
 
+// ─────────────────────────────────────────────────────────────
+// FORMAT DETECTION
+// Priority: custom (Questions + Quiz Info) → simple (Questions only)
+//           → flexiquiz → unknown
+// ─────────────────────────────────────────────────────────────
 function detectFormat(workbook) {
   const names = workbook.SheetNames;
+
+  // 1. Full custom template: requires BOTH sheets
   if (names.includes("Questions") && names.includes("Quiz Info")) return "custom";
+
+  // 2. Simple questions-only sheet (no Quiz Info)
+  if (names.includes("Questions")) {
+    const sheet = workbook.Sheets["Questions"];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    const header = (rows[0] || []).map((h) => String(h || "").toLowerCase());
+    if (header.includes("question_text") && header.includes("option_a")) return "simple";
+  }
+
+  // 3. FlexiQuiz export
   for (const name of names) {
     const sheet = workbook.Sheets[name];
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
@@ -64,6 +84,7 @@ function detectFormat(workbook) {
       return "flexiquiz";
     }
   }
+
   return "unknown";
 }
 
@@ -73,7 +94,7 @@ function detectFormat(workbook) {
    ═══════════════════════════════════════════════════════ */
 function parseFlexiQuiz(workbook, fileName) {
   const errors = [];
-  
+
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
@@ -181,7 +202,7 @@ function parseFlexiQuiz(workbook, fileName) {
         label,
         text: cleanText || "[Image]",
         image_url: optImage || null,
-        correct: isCorrectBool,   // ✅ FIX 1: correct field now set correctly
+        correct: isCorrectBool,
       });
 
       if (isCorrectBool) {
@@ -204,14 +225,8 @@ function parseFlexiQuiz(workbook, fileName) {
     };
 
     if (type !== "free_text") {
-      if (options.length < 2) {
-        errors.push(`Row ${r + 1}: MCQ needs at least 2 options`);
-        continue;
-      }
-      if (correctAnswer.length === 0) {
-        errors.push(`Row ${r + 1}: No correct answer marked for "${questionText.substring(0, 40)}..."`);
-        continue;
-      }
+      if (options.length < 2) { errors.push(`Row ${r + 1}: MCQ needs at least 2 options`); continue; }
+      if (correctAnswer.length === 0) { errors.push(`Row ${r + 1}: No correct answer marked for "${questionText.substring(0, 40)}..."`); continue; }
     }
 
     questions.push(q);
@@ -226,6 +241,7 @@ function parseFlexiQuiz(workbook, fileName) {
 
 /* ═══════════════════════════════════════════════════════
    Parse our custom template format
+   (requires both "Questions" and "Quiz Info" sheets)
    ═══════════════════════════════════════════════════════ */
 function parseCustomTemplate(workbook) {
   const errors = [];
@@ -299,8 +315,7 @@ function parseCustomTemplate(workbook) {
     }
 
     const correctLabels = q.correct_answer.split(",").map((s) => s.trim());
-    const optionLetters = ["a", "b", "c", "d", "e"];
-    optionLetters.forEach((letter) => {
+    ["a", "b", "c", "d", "e"].forEach((letter) => {
       const text = String(row[`option_${letter}`] || "").trim();
       const image = String(row[`option_${letter}_image`] || "").trim();
       if (text || image) {
@@ -309,7 +324,7 @@ function parseCustomTemplate(workbook) {
           label,
           text,
           image_url: image || null,
-          correct: correctLabels.includes(label), // ✅ Also set correct for custom template
+          correct: correctLabels.includes(label),
         });
       }
     });
@@ -341,23 +356,141 @@ function parseCustomTemplate(workbook) {
   return { quizMeta, questions, errors };
 }
 
+/* ═══════════════════════════════════════════════════════
+   ✅ NEW: Parse "simple" questions-only format
+   Single "Questions" sheet, no "Quiz Info" sheet.
+   Expected columns:
+     question_text | type | option_a | option_b | option_c | option_d
+     correct_answer | points | category | image_url | explanation
+   Admin must confirm quiz name / year / subject before uploading.
+   ═══════════════════════════════════════════════════════ */
+function parseSimpleTemplate(workbook, fileName) {
+  const errors = [];
+
+  // Derive quiz name from filename — strip date suffix & extension
+  const guessedName = fileName
+    .replace(/\.(xlsx?|xls)$/i, "")
+    .replace(/_\d{8}_\d+$/, "")   // strip _20260316_010630
+    .replace(/_/g, " ")
+    .trim();
+
+  // Infer year level from filename (e.g. "Year3", "year_5")
+  const yearMatch = fileName.match(/year\s*([3579])/i);
+  const guessedYear = yearMatch ? parseInt(yearMatch[1]) : 0;
+
+  const quizMeta = {
+    quiz_name:          guessedName,
+    year_level:         guessedYear,
+    subject:            "",     // admin must select
+    tier:               "A",
+    time_limit_minutes: null,
+    difficulty:         null,
+    set_number:         1,
+    is_trial:           false,
+    voice_url:          null,
+    video_url:          null,
+    _needsReview:       true,   // triggers the edit-before-upload UI
+  };
+
+  const qSheet = workbook.Sheets["Questions"];
+  const qRows  = XLSX.utils.sheet_to_json(qSheet, { defval: "" });
+
+  // Skip the instruction/header example row
+  const dataRows = qRows.filter(
+    (row) => row.question_text && !String(row.question_text).startsWith("The question text")
+  );
+
+  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox"];
+  const questions  = [];
+
+  dataRows.forEach((row, idx) => {
+    const rowNum = idx + 2; // row 1 = header, row 2 = first data row
+    const q = {
+      _rowNum:        rowNum,
+      question_text:  String(row.question_text  || "").trim(),
+      type:           String(row.type           || "radio_button").trim().toLowerCase(),
+      options:        [],
+      correct_answer: String(row.correct_answer || "").trim().toUpperCase(),
+      points:         parseInt(row.points)      || 1,
+      category:       String(row.category       || "").trim(),
+      image_url:      String(row.image_url      || "").trim(),
+      explanation:    String(row.explanation    || "").trim(),
+    };
+
+    if (!q.question_text) { errors.push(`Row ${rowNum}: Missing question text`); return; }
+    if (!validTypes.includes(q.type)) {
+      errors.push(`Row ${rowNum}: Invalid type "${q.type}". Must be: ${validTypes.join(", ")}`);
+      return;
+    }
+
+    const correctLabels = q.correct_answer.split(",").map((s) => s.trim());
+    ["a", "b", "c", "d", "e"].forEach((letter) => {
+      const text  = String(row[`option_${letter}`]       || "").trim();
+      const image = String(row[`option_${letter}_image`] || "").trim();
+      if (text || image) {
+        const label = letter.toUpperCase();
+        q.options.push({
+          label,
+          text,
+          image_url: image || null,
+          correct:   correctLabels.includes(label),
+        });
+      }
+    });
+
+    if (q.type === "free_text") {
+      q.correct_answer = "";
+    } else {
+      if (q.options.length < 2) { errors.push(`Row ${rowNum}: MCQ needs at least 2 options`); return; }
+      if (!q.correct_answer)    { errors.push(`Row ${rowNum}: Missing correct_answer`); return; }
+      const validLabels   = q.options.map((o) => o.label);
+      const answerLetters = q.correct_answer.split(",").map((s) => s.trim());
+      for (const a of answerLetters) {
+        if (!validLabels.includes(a)) {
+          errors.push(`Row ${rowNum}: Correct answer "${a}" doesn't match options (${validLabels.join(",")})`);
+        }
+      }
+      if (q.type !== "checkbox" && answerLetters.length > 1) {
+        errors.push(`Row ${rowNum}: radio_button can only have one correct answer`);
+      }
+    }
+
+    questions.push(q);
+  });
+
+  if (questions.length === 0 && errors.length === 0) {
+    errors.push("No questions found in Questions sheet.");
+  }
+
+  return { quizMeta, questions, errors };
+}
+
+/* ═══════════════════════════════════════════════════════
+   Main dispatcher
+   ═══════════════════════════════════════════════════════ */
 function parseExcel(workbook, fileName) {
   const format = detectFormat(workbook);
-  if (format === "custom") return { ...parseCustomTemplate(workbook), format: "custom" };
-  if (format === "flexiquiz") return { ...parseFlexiQuiz(workbook, fileName), format: "flexiquiz" };
+  if (format === "custom")    return { ...parseCustomTemplate(workbook),           format: "custom"    };
+  if (format === "simple")    return { ...parseSimpleTemplate(workbook, fileName),  format: "simple"    }; // ✅ NEW
+  if (format === "flexiquiz") return { ...parseFlexiQuiz(workbook, fileName),       format: "flexiquiz" };
   return {
     quizMeta: null, questions: [],
-    errors: ["Unrecognized file format. Please use either:", "• Our template (download from this page)", "• A FlexiQuiz export file (.xlsx)"],
+    errors: [
+      "Unrecognized file format. Please use one of:",
+      "• Our template (download from this page)",
+      "• A simple Questions-only sheet (columns: question_text, type, option_a…d, correct_answer, points, category, image_url, explanation)",
+      "• A FlexiQuiz export file (.xlsx)",
+    ],
     format: "unknown",
   };
 }
 
 function Badge({ type }) {
   const styles = {
-    radio_button: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
     picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    free_text: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    checkbox: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
   };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>
@@ -367,12 +500,12 @@ function Badge({ type }) {
 }
 
 export default function QuizUploader({ onUploadSuccess }) {
-  const [step, setStep] = useState("select");
-  const [file, setFile] = useState(null);
-  const [parsed, setParsed] = useState(null);
-  const [uploadError, setUploadError] = useState("");
+  const [step,         setStep]         = useState("select");
+  const [file,         setFile]         = useState(null);
+  const [parsed,       setParsed]       = useState(null);
+  const [uploadError,  setUploadError]  = useState("");
   const [uploadResult, setUploadResult] = useState(null);
-  const [editMeta, setEditMeta] = useState(null);
+  const [editMeta,     setEditMeta]     = useState(null);
   const fileRef = useRef(null);
 
   const handleFile = async (e) => {
@@ -382,7 +515,7 @@ export default function QuizUploader({ onUploadSuccess }) {
     setUploadError("");
     try {
       const buf = await f.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
+      const wb  = XLSX.read(buf, { type: "array" });
       const result = parseExcel(wb, f.name);
       setParsed(result);
       if (result.quizMeta?._needsReview) {
@@ -405,9 +538,13 @@ export default function QuizUploader({ onUploadSuccess }) {
 
     const finalMeta = editMeta || parsed.quizMeta;
 
-    if (!finalMeta.quiz_name) { setUploadError("Quiz name is required"); setStep("preview"); return; }
+    if (!finalMeta.quiz_name)  { setUploadError("Quiz name is required"); setStep("preview"); return; }
     if (![3, 5, 7, 9].includes(finalMeta.year_level)) { setUploadError("Year level must be 3, 5, 7, or 9"); setStep("preview"); return; }
-    if (!["Maths", "Reading", "Writing", "Conventions"].includes(finalMeta.subject)) { setUploadError("Subject must be Maths, Reading, Writing, or Conventions"); setStep("preview"); return; }
+    if (!["Maths", "Reading", "Writing", "Conventions"].includes(finalMeta.subject)) {
+      setUploadError("Subject must be Maths, Reading, Writing, or Conventions");
+      setStep("preview");
+      return;
+    }
 
     const token = getAuthToken();
     if (!token) {
@@ -422,16 +559,16 @@ export default function QuizUploader({ onUploadSuccess }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           quiz: {
-            quiz_name: finalMeta.quiz_name,
-            year_level: finalMeta.year_level,
-            subject: finalMeta.subject,
-            tier: finalMeta.tier || "A",
+            quiz_name:          finalMeta.quiz_name,
+            year_level:         finalMeta.year_level,
+            subject:            finalMeta.subject,
+            tier:               finalMeta.tier               || "A",
             time_limit_minutes: finalMeta.time_limit_minutes || null,
-            difficulty: finalMeta.difficulty || null,
-            set_number: finalMeta.set_number || 1,
-            is_trial: finalMeta.is_trial || false,
-            voice_url: finalMeta.voice_url || null,
-            video_url: finalMeta.video_url || null,
+            difficulty:         finalMeta.difficulty         || null,
+            set_number:         finalMeta.set_number         || 1,
+            is_trial:           finalMeta.is_trial           || false,
+            voice_url:          finalMeta.voice_url          || null,
+            video_url:          finalMeta.video_url          || null,
           },
           // ✅ FIX 2: Safety net — ensure correct field is always set from correct_answer labels
           questions: parsed.questions.map((q) => {
@@ -442,17 +579,18 @@ export default function QuizUploader({ onUploadSuccess }) {
               .filter(Boolean);
             return {
               question_text: q.question_text,
-              type: q.type,
+              type:          q.type,
               options: (q.options || []).map((opt) => ({
                 ...opt,
-                correct: opt.correct === true ||
-                         correctLabels.includes((opt.label || "").toUpperCase()),
+                correct:
+                  opt.correct === true ||
+                  correctLabels.includes((opt.label || "").toUpperCase()),
               })),
               correct_answer: q.correct_answer,
-              points: q.points,
-              category: q.category,
-              image_url: q.image_url || "",
-              explanation: q.explanation || "",
+              points:         q.points,
+              category:       q.category,
+              image_url:      q.image_url   || "",
+              explanation:    q.explanation || "",
             };
           }),
         }),
@@ -503,10 +641,12 @@ export default function QuizUploader({ onUploadSuccess }) {
           </div>
         </div>
 
+        {/* ✅ Updated to mention 3 supported formats */}
         <div className="bg-indigo-900/20 border border-indigo-800/50 rounded-xl p-4">
-          <p className="text-sm text-indigo-300 font-medium mb-1">📎 Supports two formats:</p>
+          <p className="text-sm text-indigo-300 font-medium mb-1">📎 Supports three formats:</p>
           <ul className="text-xs text-indigo-400/80 space-y-1 ml-4">
-            <li>• <span className="text-indigo-300">Our template</span> — download above, fill & upload</li>
+            <li>• <span className="text-indigo-300">Our template</span> — download above (Questions + Quiz Info sheets)</li>
+            <li>• <span className="text-indigo-300">Simple questions sheet</span> — single Questions sheet with columns: question_text, type, option_a…d, correct_answer, points, category, image_url, explanation</li>
             <li>• <span className="text-indigo-300">FlexiQuiz export</span> — upload directly, we'll auto-detect it</li>
           </ul>
         </div>
@@ -524,6 +664,7 @@ export default function QuizUploader({ onUploadSuccess }) {
                 <p className="text-xs text-slate-400">
                   {parsed.questions.length} questions parsed
                   {parsed.format === "flexiquiz" && <span className="ml-2 text-indigo-400">(FlexiQuiz format detected)</span>}
+                  {parsed.format === "simple"    && <span className="ml-2 text-green-400">(Simple format detected)</span>}
                 </p>
               </div>
             </div>
@@ -555,7 +696,7 @@ export default function QuizUploader({ onUploadSuccess }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
               </svg>
               <p className="text-sm text-slate-400"><span className="text-indigo-400 font-medium">Click to upload</span> or drag and drop</p>
-              <p className="text-xs text-slate-500 mt-1">.xlsx files — our template or FlexiQuiz export</p>
+              <p className="text-xs text-slate-500 mt-1">.xlsx files — our template, simple questions sheet, or FlexiQuiz export</p>
             </label>
             <input id="quiz-file-upload" ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
           </div>
@@ -585,6 +726,7 @@ export default function QuizUploader({ onUploadSuccess }) {
               <p className="text-xs text-slate-400">
                 {parsed.questions.length} questions parsed
                 {parsed.format === "flexiquiz" && <span className="ml-2 text-indigo-400">(FlexiQuiz format)</span>}
+                {parsed.format === "simple"    && <span className="ml-2 text-green-400">(Simple format)</span>}
               </p>
             </div>
           </div>
@@ -611,8 +753,10 @@ export default function QuizUploader({ onUploadSuccess }) {
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Quiz Info</h3>
-              {parsed.format === "flexiquiz" && (
-                <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">✏️ Review & edit before uploading</span>
+              {(parsed.format === "flexiquiz" || parsed.format === "simple") && (
+                <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+                  ✏️ Review & edit before uploading
+                </span>
               )}
             </div>
 
@@ -693,14 +837,14 @@ export default function QuizUploader({ onUploadSuccess }) {
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div><span className="text-slate-500">Name:</span> <span className="text-white font-medium ml-1">{meta.quiz_name || "—"}</span></div>
-                <div><span className="text-slate-500">Year:</span> <span className="text-white font-medium ml-1">{meta.year_level || "—"}</span></div>
-                <div><span className="text-slate-500">Subject:</span> <span className="text-white font-medium ml-1">{meta.subject || "—"}</span></div>
-                <div><span className="text-slate-500">Tier:</span> <span className="text-white font-medium ml-1">{meta.tier || "—"}</span></div>
-                {meta.time_limit_minutes && <div><span className="text-slate-500">Time:</span> <span className="text-white ml-1">{meta.time_limit_minutes} min</span></div>}
-                {meta.difficulty && <div><span className="text-slate-500">Difficulty:</span> <span className="text-white ml-1">{meta.difficulty}</span></div>}
-                {meta.voice_url && <div><span className="text-slate-500">🔊 Voice:</span> <span className="text-indigo-400 ml-1 truncate text-xs">{meta.voice_url}</span></div>}
-                {meta.video_url && <div><span className="text-slate-500">🎬 Video:</span> <span className="text-indigo-400 ml-1 truncate text-xs">{meta.video_url}</span></div>}
+                <div><span className="text-slate-500">Name:</span>    <span className="text-white font-medium ml-1">{meta.quiz_name    || "—"}</span></div>
+                <div><span className="text-slate-500">Year:</span>    <span className="text-white font-medium ml-1">{meta.year_level  || "—"}</span></div>
+                <div><span className="text-slate-500">Subject:</span> <span className="text-white font-medium ml-1">{meta.subject     || "—"}</span></div>
+                <div><span className="text-slate-500">Tier:</span>    <span className="text-white font-medium ml-1">{meta.tier        || "—"}</span></div>
+                {meta.time_limit_minutes && <div><span className="text-slate-500">Time:</span>       <span className="text-white ml-1">{meta.time_limit_minutes} min</span></div>}
+                {meta.difficulty         && <div><span className="text-slate-500">Difficulty:</span> <span className="text-white ml-1">{meta.difficulty}</span></div>}
+                {meta.voice_url          && <div><span className="text-slate-500">🔊 Voice:</span>  <span className="text-indigo-400 ml-1 truncate text-xs">{meta.voice_url}</span></div>}
+                {meta.video_url          && <div><span className="text-slate-500">🎬 Video:</span>  <span className="text-indigo-400 ml-1 truncate text-xs">{meta.video_url}</span></div>}
               </div>
             )}
           </div>

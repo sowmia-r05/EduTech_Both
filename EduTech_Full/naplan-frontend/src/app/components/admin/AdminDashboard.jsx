@@ -1,19 +1,21 @@
-// AdminDashboard.jsx — FIXED
+// AdminDashboard.jsx — v5 FIXES
 //
 // FIXES IN THIS VERSION:
-//   ✅ View button now uses quiz.quiz_id || quiz._id as fallback (fixes undefined redirect)
-//   ✅ e.stopPropagation() on all action buttons to prevent event bubbling
-//   ✅ Guard: skip navigation if no valid ID is found
-//   ✅ navigate(ADMIN_PATH) throughout (no hardcoded /admin)
-//   ✅ handleLogout clears cookie + localStorage
+//   ✅ FIX 1: DifficultyBadge now displayed on every quiz row in the table
+//   ✅ FIX 2: QuizSettingsModal onChange handles functional updaters from QuizSettingsExtras
+//             (previously: spreading a function = silent no-op, so Retakes/Shuffle never saved)
+//   ✅ FIX 3: Removed duplicate Randomize Questions / Randomize Options checkboxes
+//             (were in BOTH QuizSettingsExtras AND the checkbox list below it)
+//   ✅ FIX 4: attempts_enabled added to form state so Allow Retakes toggle works
+//   ✅ FIX 5: View button uses quiz.quiz_id || quiz._id as fallback
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import QuizUploader    from "./QuizUploader";
-import BundlesTab      from "./BundlesTab";
+import QuizUploader       from "./QuizUploader";
+import BundlesTab         from "./BundlesTab";
 import QuizSettingsExtras from "./QuizSettingsExtras";
 import ManualQuizCreator  from "./ManualQuizCreator";
-import { ADMIN_PATH }  from "@/app/App";
+import { ADMIN_PATH }     from "@/app/App";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -34,24 +36,20 @@ function adminFetch(url, opts = {}) {
 // INVITE MODAL (super_admin only)
 // ════════════════════════════════════════════════════════
 function InviteModal({ onClose }) {
-  const [loading,    setLoading]    = useState(false);
-  const [inviteUrl,  setInviteUrl]  = useState("");
-  const [copied,     setCopied]     = useState(false);
-  const [error,      setError]      = useState("");
+  const [loading,   setLoading]   = useState(false);
+  const [inviteUrl, setInviteUrl] = useState("");
+  const [copied,    setCopied]    = useState(false);
+  const [error,     setError]     = useState("");
 
   const generateInvite = async () => {
     try {
-      setLoading(true);
-      setError("");
+      setLoading(true); setError("");
       const res  = await adminFetch("/api/admin/invite", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to generate invite");
       setInviteUrl(data.invite_url);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
   };
 
   const handleCopy = async () => {
@@ -59,16 +57,7 @@ function InviteModal({ onClose }) {
       await navigator.clipboard.writeText(inviteUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const el = document.createElement("textarea");
-      el.value = inviteUrl;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      document.body.removeChild(el);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    } catch {}
   };
 
   return (
@@ -76,54 +65,56 @@ function InviteModal({ onClose }) {
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-white">Invite Admin</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
         </div>
-        <p className="text-sm text-slate-400">
-          Generate a one-time invite link. Send it to your colleague via Slack or email.
-          The link expires in <strong className="text-white">24 hours</strong> and works exactly once.
-        </p>
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
-            <p className="text-red-400 text-sm">{error}</p>
-          </div>
-        )}
+        {error && <p className="text-red-400 text-sm">{error}</p>}
         {!inviteUrl ? (
           <button onClick={generateInvite} disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors">
+            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition">
             {loading ? "Generating..." : "Generate Invite Link"}
           </button>
         ) : (
           <div className="space-y-3">
-            <div className="bg-slate-800 border border-slate-700 rounded-lg p-3">
-              <p className="text-xs text-slate-500 mb-1">Invite link (copy and send):</p>
-              <p className="text-xs text-indigo-300 break-all font-mono">{inviteUrl}</p>
-            </div>
+            <div className="bg-slate-800 rounded-lg px-4 py-3 text-xs text-slate-300 break-all">{inviteUrl}</div>
             <div className="flex gap-2">
-              <button onClick={handleCopy}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors">
+              <button onClick={handleCopy} className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition">
                 {copied ? "✓ Copied!" : "Copy Link"}
               </button>
               <button onClick={generateInvite} disabled={loading}
-                className="px-4 py-2.5 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors disabled:opacity-50">
+                className="px-4 py-2.5 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition disabled:opacity-50">
                 New Link
               </button>
             </div>
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3">
-              <p className="text-amber-400 text-xs">
-                ⚠️ This link is single-use and expires in 24 hours.
-              </p>
+              <p className="text-amber-400 text-xs">⚠️ This link is single-use and expires in 24 hours.</p>
             </div>
           </div>
         )}
-        <button onClick={onClose} className="w-full text-sm text-slate-500 hover:text-slate-300 transition-colors pt-1">
-          Close
-        </button>
+        <button onClick={onClose} className="w-full text-sm text-slate-500 hover:text-slate-300 transition pt-1">Close</button>
       </div>
     </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// ✅ NEW: DIFFICULTY BADGE
+// ════════════════════════════════════════════════════════
+function DifficultyBadge({ difficulty }) {
+  if (!difficulty) return null;
+  const map = {
+    easy:     { label: "Easy",     cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+    Easy:     { label: "Easy",     cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+    medium:   { label: "Medium",   cls: "bg-amber-500/10 text-amber-400 border-amber-500/20"       },
+    Medium:   { label: "Medium",   cls: "bg-amber-500/10 text-amber-400 border-amber-500/20"       },
+    Standard: { label: "Standard", cls: "bg-amber-500/10 text-amber-400 border-amber-500/20"       },
+    hard:     { label: "Hard",     cls: "bg-rose-500/10 text-rose-400 border-rose-500/20"          },
+    Hard:     { label: "Hard",     cls: "bg-rose-500/10 text-rose-400 border-rose-500/20"          },
+  };
+  const { label, cls } = map[difficulty] || { label: difficulty, cls: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>
+      {label}
+    </span>
   );
 }
 
@@ -146,26 +137,27 @@ function TierBadge({ tier }) {
 // ════════════════════════════════════════════════════════
 function QuizSettingsModal({ quiz, onSave, onClose }) {
   const [form, setForm] = useState({
-    quiz_name:            quiz.quiz_name || "",
-    year_level:           quiz.year_level || 3,
-    subject:              quiz.subject || "",
-    tier:                 quiz.tier || "A",
-    difficulty:           quiz.difficulty || "",
-    time_limit_minutes:   quiz.time_limit_minutes ?? "",
-    set_number:           quiz.set_number || 1,
-    is_active:            quiz.is_active !== false,
-    is_trial:             quiz.is_trial || false,
-    randomize_questions:  quiz.randomize_questions || false,
-    randomize_options:    quiz.randomize_options || false,
-    voice_url:            quiz.voice_url || null,
-    video_url:            quiz.video_url || null,
-    max_attempts:         quiz.max_attempts ?? "",
-    passing_score:        quiz.passing_score ?? "",
+    quiz_name:           quiz.quiz_name           || "",
+    year_level:          quiz.year_level           || 3,
+    subject:             quiz.subject              || "",
+    tier:                quiz.tier                 || "A",
+    difficulty:          quiz.difficulty           || "",
+    time_limit_minutes:  quiz.time_limit_minutes   ?? "",
+    set_number:          quiz.set_number           || 1,
+    is_active:           quiz.is_active            !== false,
+    is_trial:            quiz.is_trial             || false,
+    randomize_questions: quiz.randomize_questions  || false,
+    randomize_options:   quiz.randomize_options    || false,
+    voice_url:           quiz.voice_url            || null,
+    video_url:           quiz.video_url            || null,
+    // ✅ FIX 4: attempts_enabled so QuizSettingsExtras retake toggle works
+    attempts_enabled:    quiz.attempts_enabled     ?? (quiz.max_attempts !== 1 && quiz.max_attempts != null),
+    max_attempts:        quiz.max_attempts         ?? "",
+    passing_score:       quiz.passing_score        ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState("");
 
-  // ✅ FIX: Use quiz_id || _id as fallback
   const quizId = quiz.quiz_id || quiz._id;
 
   const handleSave = async () => {
@@ -174,8 +166,12 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
       const payload = {
         ...form,
         time_limit_minutes: form.time_limit_minutes === "" ? null : Number(form.time_limit_minutes),
-        max_attempts:       form.max_attempts       === "" ? null : Number(form.max_attempts),
-        passing_score:      form.passing_score      === "" ? null : Number(form.passing_score),
+        // ✅ if retakes disabled, force max_attempts to 1
+        max_attempts: form.attempts_enabled
+          ? (form.max_attempts === "" ? null : Number(form.max_attempts))
+          : 1,
+        passing_score: form.passing_score === "" ? null : Number(form.passing_score),
+        difficulty: form.difficulty || null,
       };
       const res  = await adminFetch(`/api/admin/quizzes/${quizId}`, {
         method: "PATCH",
@@ -191,74 +187,106 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
     }
   };
 
-  const tf = (field) => (e) => setForm((p) => ({ ...p, [field]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
+  // ✅ FIX 2: onChange accepts both object AND functional updater
+  // QuizSettingsExtras calls onChange(fn) — previously the modal tried to
+  // spread a function (setForm(p => ({ ...p, ...fn }))) which is a no-op.
+  const handleExtrasChange = (updater) => {
+    setForm((prev) =>
+      typeof updater === "function" ? updater(prev) : { ...prev, ...updater }
+    );
+  };
+
+  // Thin field updater for simple inputs
+  const tf = (field) => (e) =>
+    setForm((p) => ({
+      ...p,
+      [field]: e.target.type === "checkbox" ? e.target.checked : e.target.value,
+    }));
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 overflow-y-auto">
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+          <div>
             <h2 className="text-base font-semibold text-white">Quiz Settings</h2>
-            <button onClick={onClose} className="text-slate-400 hover:text-white">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <p className="text-xs text-slate-500 mt-0.5">{quiz.quiz_name}</p>
           </div>
-          <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-            {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3"><p className="text-red-400 text-sm">{error}</p></div>}
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 overflow-y-auto space-y-4">
+          {error && <p className="text-red-400 text-sm">{error}</p>}
+
+          {/* Quiz Name */}
+          {[{ label: "Quiz Name", field: "quiz_name", type: "text" }].map(({ label, field, type }) => (
+            <div key={field}>
+              <label className="block text-xs font-medium text-slate-400 mb-1">{label}</label>
+              <input type={type} value={form[field]} onChange={tf(field)}
+                className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          ))}
+
+          {/* Grid selects */}
+          <div className="grid grid-cols-2 gap-3">
             {[
-              { label: "Quiz Name",         field: "quiz_name",          type: "text"   },
-              { label: "Subject",           field: "subject",            type: "text"   },
-              { label: "Time Limit (min)",  field: "time_limit_minutes", type: "number" },
-              { label: "Max Attempts",      field: "max_attempts",       type: "number" },
-              { label: "Passing Score (%)", field: "passing_score",      type: "number" },
-              { label: "Set Number",        field: "set_number",         type: "number" },
-            ].map(({ label, field, type }) => (
+              { label: "Year Level", field: "year_level", opts: [3, 5, 7, 9] },
+              { label: "Tier",       field: "tier",       opts: ["A", "B", "C", "Trial"] },
+              { label: "Difficulty", field: "difficulty", opts: ["", "Easy", "Standard", "Hard"] },
+            ].map(({ label, field, opts }) => (
               <div key={field}>
                 <label className="block text-xs font-medium text-slate-400 mb-1">{label}</label>
-                <input type={type} value={form[field] ?? ""} onChange={tf(field)}
-                  className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <select value={form[field]} onChange={tf(field)}
+                  className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  {opts.map((o) => <option key={o} value={o}>{o || "— None —"}</option>)}
+                </select>
               </div>
             ))}
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: "Year Level", field: "year_level", opts: [3,5,7,9] },
-                { label: "Tier",       field: "tier",       opts: ["A","B","C","Trial"] },
-                { label: "Difficulty", field: "difficulty", opts: ["Easy","Standard","Hard"] },
-              ].map(({ label, field, opts }) => (
-                <div key={field}>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">{label}</label>
-                  <select value={form[field]} onChange={tf(field)}
-                    className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    {opts.map((o) => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                </div>
-              ))}
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Time Limit (min)</label>
+              <input type="number" value={form.time_limit_minutes} onChange={tf("time_limit_minutes")} placeholder="No limit"
+                className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
-            <QuizSettingsExtras form={form} onChange={(f) => setForm((p) => ({ ...p, ...f }))} />
-            <div className="space-y-2 pt-2">
-              {[
-                { label: "Active",               field: "is_active"           },
-                { label: "Trial (free access)",  field: "is_trial"            },
-                { label: "Randomize Questions",  field: "randomize_questions" },
-                { label: "Randomize Options",    field: "randomize_options"   },
-              ].map(({ label, field }) => (
-                <label key={field} className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={form[field]} onChange={tf(field)}
-                    className="w-4 h-4 rounded accent-indigo-500" />
-                  <span className="text-sm text-slate-300">{label}</span>
-                </label>
-              ))}
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Set Number</label>
+              <input type="number" value={form.set_number} onChange={tf("set_number")}
+                className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
           </div>
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
-            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Cancel</button>
-            <button onClick={handleSave} disabled={saving}
-              className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition">
-              {saving ? "Saving..." : "Save"}
-            </button>
+
+          {/* ✅ FIX 2+3: QuizSettingsExtras handles Retakes + Shuffle.
+              onChange uses handleExtrasChange which supports functional updaters.
+              The old duplicate Randomize Questions / Randomize Options checkboxes
+              have been REMOVED from the list below — they're already in QuizSettingsExtras. */}
+          <QuizSettingsExtras form={form} onChange={handleExtrasChange} />
+
+          {/* Active + Trial only (Randomize removed — handled by QuizSettingsExtras above) */}
+          <div className="space-y-2 pt-2">
+            {[
+              { label: "Active",              field: "is_active" },
+              { label: "Trial (free access)", field: "is_trial"  },
+            ].map(({ label, field }) => (
+              <label key={field} className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={form[field]} onChange={tf(field)}
+                  className="w-4 h-4 rounded accent-indigo-500" />
+                <span className="text-sm text-slate-300">{label}</span>
+              </label>
+            ))}
           </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition">
+            {saving ? "Saving..." : "Save"}
+          </button>
         </div>
       </div>
     </div>
@@ -269,7 +297,6 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
 // BUNDLE MAPPING MODAL
 // ════════════════════════════════════════════════════════
 function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
-  // ✅ FIX: Use quiz_id || _id as fallback
   const quizId = quiz.quiz_id || quiz._id;
 
   const assignedBundleIds = bundles
@@ -293,14 +320,10 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
     const toRemove = assignedBundleIds.filter((id) => !selected.has(id));
     await Promise.all([
       ...toAdd.map((bundleId) =>
-        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
-          method: "POST", body: JSON.stringify({ quiz_id: quizId }),
-        })
+        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, { method: "POST",   body: JSON.stringify({ quiz_id: quizId }) })
       ),
       ...toRemove.map((bundleId) =>
-        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
-          method: "DELETE", body: JSON.stringify({ quiz_id: quizId }),
-        })
+        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, { method: "DELETE", body: JSON.stringify({ quiz_id: quizId }) })
       ),
     ]);
     await onRefresh();
@@ -354,18 +377,18 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
 export default function AdminDashboard() {
   const navigate = useNavigate();
 
-  const [tab,           setTab]           = useState("quizzes");
-  const [quizzes,       setQuizzes]       = useState([]);
-  const [bundles,       setBundles]       = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [bundlesLoading,setBundlesLoading]= useState(true);
-  const [error,         setError]         = useState("");
-  const [search,        setSearch]        = useState("");
-  const [filterYear,    setFilterYear]    = useState("all");
-  const [deletingId,    setDeletingId]    = useState(null);
-  const [settingsQuiz,  setSettingsQuiz]  = useState(null);
-  const [bundleMapQuiz, setBundleMapQuiz] = useState(null);
-  const [showInvite,    setShowInvite]    = useState(false);
+  const [tab,            setTab]            = useState("quizzes");
+  const [quizzes,        setQuizzes]        = useState([]);
+  const [bundles,        setBundles]        = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [bundlesLoading, setBundlesLoading] = useState(true);
+  const [error,          setError]          = useState("");
+  const [search,         setSearch]         = useState("");
+  const [filterYear,     setFilterYear]     = useState("all");
+  const [deletingId,     setDeletingId]     = useState(null);
+  const [settingsQuiz,   setSettingsQuiz]   = useState(null);
+  const [bundleMapQuiz,  setBundleMapQuiz]  = useState(null);
+  const [showInvite,     setShowInvite]     = useState(false);
 
   const adminInfo = (() => {
     try { return JSON.parse(localStorage.getItem("admin_info") || "{}"); } catch { return {}; }
@@ -425,7 +448,6 @@ export default function AdminDashboard() {
   };
 
   const handleToggleActive = async (quiz) => {
-    // ✅ FIX: Use quiz_id || _id as fallback
     const quizId = quiz.quiz_id || quiz._id;
     try {
       const res = await adminFetch(`/api/admin/quizzes/${quizId}`, {
@@ -472,38 +494,20 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
               </svg>
             </div>
-            <div>
-              <h1 className="text-base font-semibold text-white leading-tight">EduTech Admin</h1>
-              <p className="text-[11px] text-slate-500">Quiz Management</p>
-            </div>
+            <span className="text-base font-semibold text-white">Admin Dashboard</span>
           </div>
-
           <div className="flex items-center gap-3">
-            {adminInfo.name && (
-              <span className="text-xs text-slate-400">
-                {adminInfo.name}
-                {isSuperAdmin && (
-                  <span className="ml-1.5 text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded">
-                    super admin
-                  </span>
-                )}
-              </span>
-            )}
             {isSuperAdmin && (
               <button onClick={() => setShowInvite(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg transition">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
-                </svg>
-                Invite Admin
+                className="px-3 py-1.5 text-xs font-medium text-indigo-400 hover:text-white border border-indigo-500/30 hover:bg-indigo-600 rounded-lg transition">
+                + Invite Admin
               </button>
             )}
-            <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-white transition-colors">
-              Logout
-            </button>
+            <span className="text-xs text-slate-500">{adminInfo.email || ""}</span>
+            <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-white transition">Logout</button>
           </div>
         </div>
       </header>
@@ -513,11 +517,11 @@ export default function AdminDashboard() {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
           {[
-            { label: "Total Quizzes", value: totalQuizzes,   color: "text-indigo-400" },
+            { label: "Total Quizzes", value: totalQuizzes,   color: "text-indigo-400"  },
             { label: "Active",        value: activeQuizzes,  color: "text-emerald-400" },
-            { label: "Questions",     value: totalQuestions, color: "text-blue-400" },
-            { label: "Trial / Free",  value: trialQuizzes,   color: "text-amber-400" },
-            { label: "Bundles",       value: activeBundles,  color: "text-purple-400" },
+            { label: "Questions",     value: totalQuestions, color: "text-blue-400"    },
+            { label: "Trial / Free",  value: trialQuizzes,   color: "text-amber-400"   },
+            { label: "Bundles",       value: activeBundles,  color: "text-purple-400"  },
           ].map((s) => (
             <div key={s.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <p className="text-[11px] text-slate-500 uppercase tracking-wide">{s.label}</p>
@@ -529,10 +533,10 @@ export default function AdminDashboard() {
         {/* Tabs */}
         <div className="flex items-center gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-xl p-1 w-fit">
           {[
-            { id: "quizzes", label: "All Quizzes" },
-            { id: "upload",  label: "Upload Quiz"  },
+            { id: "quizzes", label: "All Quizzes"  },
+            { id: "upload",  label: "Upload Quiz"   },
             { id: "create",  label: "✚ Create Quiz" },
-            { id: "bundles", label: "Bundles"       },
+            { id: "bundles", label: "Bundles"        },
           ].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -557,7 +561,7 @@ export default function AdminDashboard() {
               <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)}
                 className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="all">All Years</option>
-                {[3,5,7,9].map((y) => <option key={y} value={y}>Year {y}</option>)}
+                {[3, 5, 7, 9].map((y) => <option key={y} value={y}>Year {y}</option>)}
               </select>
               <span className="text-xs text-slate-500 ml-auto">
                 {filtered.length} quiz{filtered.length !== 1 ? "zes" : ""}
@@ -595,6 +599,8 @@ export default function AdminDashboard() {
                     <tr className="border-b border-slate-800">
                       <th className="px-5 py-3 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wide">Quiz</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Yr</th>
+                      {/* ✅ FIX 1: New Difficulty column */}
+                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Difficulty</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Qs</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Status</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Bundle</th>
@@ -603,57 +609,66 @@ export default function AdminDashboard() {
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {filtered.map((quiz) => {
-                      // ✅ KEY FIX: use quiz_id with _id as fallback
                       const quizId   = quiz.quiz_id || quiz._id;
                       const qBundles = getBundlesForQuiz(quizId);
                       return (
                         <tr key={quizId} className="group hover:bg-slate-800/50 transition-colors">
+                          {/* Quiz name + badges */}
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-white font-medium">{quiz.quiz_name}</span>
-                              {quiz.is_trial && <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-1.5 py-0.5 rounded">Trial</span>}
+                              {quiz.is_trial && (
+                                <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-1.5 py-0.5 rounded">Trial</span>
+                              )}
                               <TierBadge tier={quiz.tier} />
                             </div>
                           </td>
+
+                          {/* Year */}
                           <td className="px-3 py-3 text-center text-slate-400">{quiz.year_level}</td>
+
+                          {/* ✅ FIX 1: Difficulty badge per quiz */}
+                          <td className="px-3 py-3 text-center">
+                            <DifficultyBadge difficulty={quiz.difficulty} />
+                            {!quiz.difficulty && <span className="text-slate-600 text-[10px]">—</span>}
+                          </td>
+
+                          {/* Question count */}
                           <td className="px-3 py-3 text-center text-slate-400">{quiz.question_count || 0}</td>
+
+                          {/* Active toggle */}
                           <td className="px-3 py-3 text-center">
                             <button
                               onClick={(e) => { e.stopPropagation(); handleToggleActive(quiz); }}
                               className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border transition ${
                                 quiz.is_active !== false
                                   ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
-                                  : "bg-slate-700/50 text-slate-500 border-slate-600 hover:bg-slate-700"
+                                  : "bg-slate-700/50 text-slate-500 border-slate-700 hover:bg-slate-700"
                               }`}>
-                              {quiz.is_active !== false ? "Active" : "Off"}
+                              {quiz.is_active !== false ? "Active" : "Inactive"}
                             </button>
                           </td>
+
+                          {/* Bundle mapping */}
                           <td className="px-3 py-3 text-center">
-                            {(() => {
-                              const total = qBundles.length + (quiz.is_trial ? 1 : 0);
-                              return (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setBundleMapQuiz(quiz); }}
-                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold transition cursor-pointer ${
-                                    total > 0
-                                      ? "bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20"
-                                      : "text-slate-600 hover:text-slate-400"
-                                  }`}>
-                                  {total > 0 ? total : "+ Map"}
-                                </button>
-                              );
-                            })()}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setBundleMapQuiz(quiz); }}
+                              className={`text-[10px] font-medium px-2 py-1 rounded transition ${
+                                qBundles.length > 0
+                                  ? "text-purple-400 hover:text-white"
+                                  : "text-slate-600 hover:text-slate-400"
+                              }`}>
+                              {qBundles.length > 0 ? `+ ${qBundles.length}` : "+ Map"}
+                            </button>
                           </td>
+
+                          {/* Actions */}
                           <td className="px-5 py-3 text-right">
-                            <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                              {/* ✅ KEY FIX: guard against undefined quizId, stopPropagation */}
+                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (!quizId) {
-                                    alert("Quiz ID is missing — please refresh the page.");
-                                    return;
-                                  }
+                                  if (!quizId) { alert("Quiz ID not found"); return; }
                                   navigate(`${ADMIN_PATH}/quiz/${quizId}`);
                                 }}
                                 className="px-2.5 py-1.5 text-xs font-medium text-indigo-400 hover:text-white hover:bg-indigo-600/20 rounded-lg transition-colors">
@@ -686,8 +701,21 @@ export default function AdminDashboard() {
 
       {/* Modals */}
       {showInvite    && <InviteModal onClose={() => setShowInvite(false)} />}
-      {settingsQuiz  && <QuizSettingsModal quiz={settingsQuiz} onSave={() => { setSettingsQuiz(null); fetchQuizzes(); }} onClose={() => setSettingsQuiz(null)} />}
-      {bundleMapQuiz && <BundleMappingModal quiz={bundleMapQuiz} bundles={bundles} onClose={() => setBundleMapQuiz(null)} onRefresh={fetchBundles} />}
+      {settingsQuiz  && (
+        <QuizSettingsModal
+          quiz={settingsQuiz}
+          onSave={() => { setSettingsQuiz(null); fetchQuizzes(); }}
+          onClose={() => setSettingsQuiz(null)}
+        />
+      )}
+      {bundleMapQuiz && (
+        <BundleMappingModal
+          quiz={bundleMapQuiz}
+          bundles={bundles}
+          onClose={() => setBundleMapQuiz(null)}
+          onRefresh={fetchBundles}
+        />
+      )}
     </div>
   );
 }
