@@ -31,8 +31,12 @@ function getChildAnswer(card) {
 }
 
 function getCorrectAnswer(card) {
+  if (Array.isArray(card.correct_answers) && card.correct_answers.length > 0) {
+    return card.correct_answers.join(", ");
+  }
   return card.correct_answer || card.correct_answer_text || "—";
 }
+
 
 function getIsCorrect(card) {
   if (card.is_correct === true)  return true;
@@ -69,6 +73,23 @@ function QuestionImage({ card }) {
     </div>
   );
 }
+
+
+function stripHtml(html) {
+  if (!html) return "";
+  return String(html)
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/p>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+
 
 /* ═══════════════════════════════════════
    MAIN: AnswersModal
@@ -113,8 +134,9 @@ export default function AnswersModal({ attemptId, quizName, score, topics, onClo
   }, [onClose]);
 
   // ─── Summary stats ───
-  const totalCorrect   = flashcards.filter((f) => getIsCorrect(f)).length;
-  const totalQuestions = flashcards.length;
+  const totalCorrect   = score?.correct ?? flashcards.filter((f) => getIsCorrect(f)).length;
+  const totalQuestions = score?.total   ?? flashcards.length;
+
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 pt-8 pb-8">
@@ -232,7 +254,7 @@ export default function AnswersModal({ attemptId, quizName, score, topics, onClo
                             Question {idx + 1}
                           </p>
                           <p className="text-sm text-slate-800 font-medium leading-relaxed">
-                            {card.question_text}
+                            {stripHtml(card.question_text)}
                           </p>
 
                           {/* ── Question Image ── */}
