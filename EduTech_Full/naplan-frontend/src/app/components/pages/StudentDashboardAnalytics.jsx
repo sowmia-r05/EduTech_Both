@@ -15,6 +15,7 @@ import {
   BookOpen, PenLine, Hash, Languages, Library, LayoutDashboard,
   TrendingUp, TrendingDown, AlertTriangle, Target, Star,
   Lightbulb, CheckCircle2, Minus, Flame, Trophy, Zap,
+  Users, User, Dumbbell, Sparkles,
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════
@@ -33,7 +34,6 @@ const SUBJECT_BG       = { Reading: "bg-blue-500",   Writing: "bg-purple-500", N
 const SUBJECT_LIGHT_BG = { Reading: "bg-blue-50",    Writing: "bg-purple-50",  Numeracy: "bg-amber-50",    Language: "bg-emerald-50"  };
 const SUBJECT_TEXT     = { Reading: "text-blue-700", Writing: "text-purple-700",Numeracy: "text-amber-700", Language: "text-emerald-700"};
 const SUBJECT_BORDER   = { Reading: "border-blue-200",Writing: "border-purple-200",Numeracy:"border-amber-200",Language:"border-emerald-200"};
-const SUBJECT_EMOJI    = { Reading: "📖", Writing: "✏️", Numeracy: "🔢", Language: "💬" };
 const SUBJECT_ICON     = { Reading: BookOpen, Writing: PenLine, Numeracy: Hash, Language: Languages, Other: Library, All: LayoutDashboard };
 
 const TIME_FILTERS = [
@@ -166,6 +166,21 @@ function SubjectIconEl({ subject, className = "w-4 h-4" }) {
   return <Icon className={className} />;
 }
 
+function SubjectIconBadge({ subject, size = "md" }) {
+  const Icon = SUBJECT_ICON[subject] || Library;
+  const bg     = SUBJECT_LIGHT_BG[subject]  || "bg-slate-50";
+  const color  = SUBJECT_TEXT[subject]       || "text-slate-500";
+  const ring   = SUBJECT_BORDER[subject]     || "border-slate-200";
+  const dims   = size === "sm" ? "w-7 h-7"  : size === "lg" ? "w-11 h-11" : "w-9 h-9";
+  const icon   = size === "sm" ? "w-3.5 h-3.5" : size === "lg" ? "w-5 h-5" : "w-4 h-4";
+  return (
+    <div className={`${dims} ${bg} border ${ring} rounded-xl flex items-center justify-center flex-shrink-0`}>
+      <Icon className={`${icon} ${color}`} />
+    </div>
+  );
+}
+
+
 const Card = React.forwardRef(function Card({ children, className = "" }, ref) {
   return <div ref={ref} className={"bg-white rounded-2xl shadow-sm border border-slate-100 p-5 " + className}>{children}</div>;
 });
@@ -251,10 +266,10 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
   const maxWeek    = weeklyData.length ? Math.max(...weeklyData.map((w) => w.count)) : 0;
 
   const statusConfig = {
-    "great":     { emoji: "✅", headline: displayName + " is doing great!",     sub: "Keep up the encouragement — they're on track.",       bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" },
-    "okay":      { emoji: "📈", headline: displayName + " is making progress",  sub: "A little extra practice will make a big difference.",  bg: "bg-amber-50",   border: "border-amber-200",   text: "text-amber-700",   badge: "bg-amber-100 text-amber-700"    },
-    "needs-help":{ emoji: "💪", headline: displayName + " needs more practice", sub: "Now is a great time to encourage daily quizzes.",      bg: "bg-rose-50",    border: "border-rose-200",    text: "text-rose-700",    badge: "bg-rose-100 text-rose-700"      },
-    "no-data":   { emoji: "👋", headline: "Welcome!",                           sub: displayName + " hasn't started any quizzes yet.",       bg: "bg-slate-50",   border: "border-slate-200",   text: "text-slate-600",   badge: "bg-slate-100 text-slate-600"    },
+    "great":     { Icon: CheckCircle2, iconColor: "text-emerald-500", headline: displayName + " is doing great!",     sub: "Keep up the encouragement — they're on track.",       bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" },
+    "okay":      { Icon: TrendingUp,   iconColor: "text-amber-500",   headline: displayName + " is making progress",  sub: "A little extra practice will make a big difference.",  bg: "bg-amber-50",   border: "border-amber-200",   text: "text-amber-700",   badge: "bg-amber-100 text-amber-700"    },
+    "needs-help":{ Icon: Dumbbell,     iconColor: "text-rose-500",    headline: displayName + " needs more practice", sub: "Now is a great time to encourage daily quizzes.",      bg: "bg-rose-50",    border: "border-rose-200",    text: "text-rose-700",    badge: "bg-rose-100 text-rose-700"      },
+    "no-data":   { Icon: Sparkles,     iconColor: "text-slate-400",   headline: "Welcome!",                           sub: displayName + " hasn't started any quizzes yet.",       bg: "bg-slate-50",   border: "border-slate-200",   text: "text-slate-600",   badge: "bg-slate-100 text-slate-600"    },
   }[status];
 
   // AI feedback for "Overall"
@@ -285,8 +300,9 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
       ════════════════════════════════════════════ */}
       <div className={"rounded-2xl border-2 p-5 " + statusConfig.bg + " " + statusConfig.border}>
         <div className="flex items-start gap-4">
-          <span className="text-4xl leading-none mt-1">{statusConfig.emoji}</span>
-          <div className="flex-1">
+          <div className={"w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 mt-0.5 " + statusConfig.bg + " border " + statusConfig.border}>
+            <statusConfig.Icon className={"w-6 h-6 " + statusConfig.iconColor} />
+          </div>          <div className="flex-1">
             <h2 className={"text-lg font-bold " + statusConfig.text}>{statusConfig.headline}</h2>
             <p className="text-sm text-slate-600 mt-1">{statusConfig.sub}</p>
 
@@ -317,8 +333,10 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
           4 subject tiles — stars not percentages
       ════════════════════════════════════════════ */}
       <div>
-        <h3 className="text-sm font-bold text-slate-700 mb-3">📚 How are they doing in each subject?</h3>
-        <div className="grid grid-cols-2 gap-3">
+       <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+          <BookOpen className="w-4 h-4 text-indigo-500" />
+          How are they doing in each subject?
+        </h3>        <div className="grid grid-cols-2 gap-3">
           {subjectStats.map((s) => {
             const stars  = scoreToStars(s.avg);
             const hasData = s.count > 0;
@@ -328,11 +346,10 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
               <div key={s.subject}
                 className={"rounded-2xl border-2 p-4 transition-all " + (hasData ? SUBJECT_LIGHT_BG[s.subject] + " " + SUBJECT_BORDER[s.subject] : "bg-slate-50 border-slate-200")}>
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{SUBJECT_EMOJI[s.subject]}</span>
+                                    <div className="flex items-center gap-2">
+                    <SubjectIconBadge subject={s.subject} size="sm" />
                     <span className={"text-sm font-bold " + (hasData ? SUBJECT_TEXT[s.subject] : "text-slate-400")}>{s.subject}</span>
-                  </div>
-                  {hasData && (
+                  </div>                  {hasData && (
                     <span className={"text-[10px] font-bold px-1.5 py-0.5 rounded-full " + (trendUp ? "bg-emerald-100 text-emerald-700" : trendDn ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-500")}>
                       {trendUp ? "↑ Up" : trendDn ? "↓ Down" : "→ Steady"}
                     </span>
@@ -577,8 +594,7 @@ function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, re
         {level.next !== null && (
           <div className="mt-4">
             <div className="flex justify-between text-xs text-indigo-200 mb-1">
-              <span>⚡ XP Progress</span>
-              <span>{level.xp} / {level.next} quizzes to next level</span>
+              <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-indigo-300" /> XP Progress</span>              <span>{level.xp} / {level.next} quizzes to next level</span>
             </div>
             <div className="h-2.5 bg-white/20 rounded-full overflow-hidden">
               <div className="h-full bg-white rounded-full transition-all duration-700" style={{ width: Math.min((level.xp / level.next) * 100, 100) + "%" }} />
@@ -593,17 +609,18 @@ function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, re
       {totalTests > 0 && (
         <div className="grid grid-cols-3 gap-3">
           {[
-            { icon: "🎯", label: "Avg Score",  value: avgScore + "%",       color: "text-indigo-600" },
-            { icon: "🔥", label: "Streak",     value: streak + " days",     color: "text-orange-500" },
-            { icon: "✅", label: "Quizzes",    value: String(totalTests),   color: "text-emerald-600" },
+            { icon: <Target className="w-4 h-4 text-indigo-500" />,    bg: "bg-indigo-50",  label: "Avg Score",  value: avgScore + "%",     color: "text-indigo-600" },
+            { icon: <Flame  className="w-4 h-4 text-orange-500" />,    bg: "bg-orange-50",  label: "Streak",     value: streak + " days",   color: "text-orange-500" },
+            { icon: <CheckCircle2 className="w-4 h-4 text-emerald-500" />, bg: "bg-emerald-50", label: "Quizzes", value: String(totalTests), color: "text-emerald-600" },
           ].map((stat) => (
             <div key={stat.label} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 text-center">
-              <span className="text-xl">{stat.icon}</span>
-              <p className={"text-lg font-black mt-1 " + stat.color}>{stat.value}</p>
+              <div className={"w-8 h-8 rounded-xl " + stat.bg + " flex items-center justify-center mx-auto"}>
+                {stat.icon}
+              </div>
+              <p className={"text-lg font-black mt-1.5 " + stat.color}>{stat.value}</p>
               <p className="text-[10px] text-slate-400 font-medium">{stat.label}</p>
             </div>
-          ))}
-        </div>
+          ))}        </div>
       )}
 
       {/* ════════════════════════════════════════════
@@ -675,8 +692,7 @@ function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, re
                       );
                     }} />
                     <ReferenceLine y={70} stroke={subjectColor} strokeDasharray="5 3" strokeOpacity={0.3}
-                      label={{ value: "🎯 Keep aiming up!", position: "insideTopRight", fontSize: 9, fill: subjectColor }} />
-                    <Line type="monotone" dataKey="score" stroke={subjectColor} strokeWidth={3}
+                      label={{ value: "Target: 70%", position: "insideTopRight", fontSize: 9, fill: subjectColor }} />                    <Line type="monotone" dataKey="score" stroke={subjectColor} strokeWidth={3}
                       dot={{ r: 5, fill: subjectColor, stroke: "#fff", strokeWidth: 2 }} activeDot={{ r: 7 }} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -687,7 +703,9 @@ function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, re
           {/* Chart 2 — Subject Power Cards (All view) */}
           {selectedSubject === "All" && (
             <Card>
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">⚡ Your Subject Power</h4>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5 flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-amber-400" /> Your Subject Power
+              </h4>              
               <p className="text-[11px] text-slate-400 mb-3">How strong you are in each subject</p>
               <div className="space-y-2.5">
                 {subjectStats.map((s) => {
@@ -695,8 +713,7 @@ function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, re
                   const stars = scoreToStars(s.avg);
                   return (
                     <div key={s.subject} className="flex items-center gap-3">
-                      <span className="text-lg w-6 text-center">{SUBJECT_EMOJI[s.subject]}</span>
-                      <div className="flex-1">
+                    <SubjectIconBadge subject={s.subject} size="sm" />                      <div className="flex-1">
                         <div className="flex justify-between mb-1">
                           <span className={"text-xs font-bold " + (s.count > 0 ? SUBJECT_TEXT[s.subject] : "text-slate-300")}>{s.subject}</span>
                           <span className="text-xs text-slate-500 font-semibold">{s.count > 0 ? pct + "%" : "Not started"}</span>
@@ -1021,8 +1038,13 @@ export default function StudentDashboardAnalytics({
             </div>
             {/* View mode pill */}
             <div className={"inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold border " + (isParentView ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-indigo-600 text-white border-indigo-600")}>
-              <span>{isParentView ? "👨‍👩‍👧 Parent View" : "🧒 " + displayName + "'s View"}</span>
-            </div>
+             <span className="flex items-center gap-1.5">
+                {isParentView
+                  ? <><Users className="w-3.5 h-3.5" /> Parent View</>
+                  : <><User  className="w-3.5 h-3.5" /> {displayName}'s View</>
+                }
+              </span>            
+              </div>
           </header>
         )}
 
