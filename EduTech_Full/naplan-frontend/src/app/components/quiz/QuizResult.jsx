@@ -445,8 +445,8 @@ useEffect(() => {
           else navigate("/child-dashboard");
         }}
         onBackToParent={() => {
-          if (onClose) onClose();
-          navigate("/parent-dashboard");
+          navigate("/parent-dashboard", {replace: true});
+
         }}
       />
 
@@ -488,29 +488,7 @@ useEffect(() => {
 
             <TopicBreakdown entries={topicEntries}/>
 
-            {/* Writing AI status banner */}
-            {isWriting && (
-              <div className={`rounded-2xl p-5 flex items-center gap-4 border ${
-                aiStatus==="error"?"bg-red-50 border-red-200":"bg-violet-50 border-violet-200"}`}>
-                <div className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center ${
-                  aiStatus==="error"?"bg-red-100":"bg-violet-100"}`}>
-                  {aiStatus==="done"
-                    ? <svg className="w-5 h-5 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    : aiStatus==="error"
-                    ? <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
-                    : <div className="w-5 h-5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin"/>
-                  }
-                </div>
-                <div>
-                  <p className={`text-sm font-semibold ${aiStatus==="error"?"text-red-700":"text-violet-800"}`}>
-                    {aiStatus==="done"?"AI Feedback Ready":aiStatus==="error"?"AI Feedback Unavailable":"Generating AI Feedback…"}
-                  </p>
-                  <p className={`text-xs mt-0.5 ${aiStatus==="error"?"text-red-500":"text-violet-500"}`}>
-                    {aiStatus==="done"?"View detailed writing analysis below":aiStatus==="error"?"Something went wrong. Try again later.":"This may take up to 30 seconds"}
-                  </p>
-                </div>
-              </div>
-            )}
+
 
             {/* Action buttons */}
             <div className="space-y-3 pt-2">

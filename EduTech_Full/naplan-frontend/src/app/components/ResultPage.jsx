@@ -161,9 +161,10 @@ export default function ResultPage() {
   const { childToken, childProfile, parentToken, logout } = useAuth();
   const activeToken = childToken || parentToken || null;
   const authOpts = {
-    credentials: "inclue",
-    headers: activeToken ? { Authorization: `Bearee ${activeToken}` } : {},
+    credentials: "include",
+    headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
   }
+
 
   const isParentViewing = !childToken && !!parentToken;
   const [childStatus, setChildStatus] = useState("trial");
@@ -307,7 +308,17 @@ const backToDashboardState = useMemo(() => ({
   if (isProcessing) {
   return (
     <>
-      <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState })} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")} />
+      <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
+  if (window.self !== window.top) {
+    // We are inside an iframe (QuizResult's AI Feedback tab)
+    // navigate() only changes the iframe's URL, not the top window
+    // So we must tell the TOP window to navigate instead
+    window.top.location.hash = "#/parent-dashboard";
+  } else {
+    // Normal full-page navigation
+    navigate("/parent-dashboard", { replace: true });
+  }
+}} /> 
       <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-2xl shadow-lg">
           <CardContent className="flex flex-col items-center justify-center py-12 px-6">
@@ -326,25 +337,52 @@ const backToDashboardState = useMemo(() => ({
 }
 
   /* ── Error ── */
-  if (error || isAiError) {
-    return (
-      <>
-        <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState })} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")} />
-        <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
-          <Card className="w-full max-w-lg shadow-lg">
-            <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-              <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">Evaluation Error</h2>
-              <p className="text-sm text-gray-600 mb-6">{error || aiMessage || "Something went wrong during evaluation."}</p>
-              <button onClick={() => navigate("/child-dashboard", { state: backToDashboardState })} className="px-5 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition">
-                Back to Dashboard
-              </button>
-            </CardContent>
-          </Card>
-        </div>
-      </>
-    );
+if (error || isAiError) {
+  return (
+    <>
+      <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => {
+  if (window.self !== window.top) {
+    // Inside iframe — navigate the top window
+    window.top.location.hash = "#/child-dashboard";
+  } else {
+    navigate("/child-dashboard", { state: backToDashboardState, replace: true });
   }
+}} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
+  if (window.self !== window.top) {
+    // We are inside an iframe (QuizResult's AI Feedback tab)
+    // navigate() only changes the iframe's URL, not the top window
+    // So we must tell the TOP window to navigate instead
+    window.top.location.hash = "#/parent-dashboard";
+  } else {
+    // Normal full-page navigation
+    navigate("/parent-dashboard", { replace: true });
+  }
+}} />
+      <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
+        <Card className="w-full max-w-lg shadow-lg">
+          <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+            <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Evaluation Error</h2>
+            <p className="text-sm text-gray-600 mb-6">{error || aiMessage || "Something went wrong during evaluation."}</p>
+            <button
+              onClick={() => {
+                if (isParentViewing) {
+                  navigate("/parent-dashboard", { replace: true });
+                } else {
+                  navigate("/child-dashboard", { state: backToDashboardState, replace: true });
+                }
+              }}
+              className="px-5 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition"
+            >
+              Back to Dashboard
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  );
+}
+
 
   if (!activeDoc) return null;
 
@@ -374,8 +412,19 @@ return (
     <TopBar
       displayName={displayName}
       onLogout={handleLogout}
-      onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState })} isParentViewing={isParentViewing} onBackToParentDashboard={() => navigate("/parent-dashboard")}
-    />
+      onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })}
+      isParentViewing={isParentViewing}
+      onBackToParentDashboard={() => {
+  if (window.self !== window.top) {
+        // We are inside an iframe (QuizResult's AI Feedback tab)
+        // navigate() only changes the iframe's URL, not the top window
+        // So we must tell the TOP window to navigate instead
+        window.top.location.hash = "#/parent-dashboard";
+      } else {
+        // Normal full-page navigation
+        navigate("/parent-dashboard", { replace: true });
+      }
+    }} />
     <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="writing" viewerType={viewerType} yearLevel={yearLevel}>
       <div className="relative min-h-screen bg-gray-100">
 
