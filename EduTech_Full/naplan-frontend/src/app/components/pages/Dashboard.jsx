@@ -25,6 +25,10 @@ import DashboardTour from "@/app/components/dashboardComponents/DashboardTour";
 import DashboardTourModal from "@/app/components/dashboardComponents/DashboardTourModal";
 import TrialGateOverlay from "@/app/components/common/TrialGateOverlay";
 
+import DashboardHeader from "@/app/components/layout/DashboardHeader";
+import AvatarMenu from "@/app/components/dashboardComponents/DashboardAvatarMenu";
+
+
 
 
 import { useAuth } from "@/app/context/AuthContext";
@@ -204,6 +208,7 @@ export default function Dashboard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const fromQuizResult = location.state?.fromQuizResult === true;
 
   const { activeToken, isInitializing, childToken, childProfile, parentToken } = useAuth();
 
@@ -443,34 +448,40 @@ export default function Dashboard() {
   const resultStatus = getResultStatus(percentage);
   const quizName = selectedResult?.quiz_name || "Quiz";
   const totalAttempts = quizAttempts.length;
-  const fromQuizResult = location.state?.fromQuizResult === true;
+
+
+
 
 return (
-  <TrialGateOverlay
-    isTrialUser={childStatus === "trial"}
-    preset="nonwriting"
-    viewerType={viewerType}
-    yearLevel={yearLevel}
-  >
-    <div className="relative min-h-screen bg-gray-100">
+  <>
+    <DashboardHeader>
+      <AvatarMenu />
+    </DashboardHeader>
 
-      {/* ── Back to Results button — only shows when coming from QuizResult ── */}
-      {fromQuizResult && (
-        <div className="px-6 pt-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
-                       bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm transition-all"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to Results
-          </button>
-        </div>
-      )}
-       
-        {aiPending && <AiPendingOverlay aiMessage={latestResult?.ai?.message} />}
+    <TrialGateOverlay
+      isTrialUser={childStatus === "trial"}
+      preset="nonwriting"
+      viewerType={viewerType}
+      yearLevel={yearLevel}
+    >
+      <div className="relative min-h-screen bg-gray-100">
+
+        {fromQuizResult && (
+          <div className="px-6 pt-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
+                         bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm transition-all"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              Back to Results
+            </button>
+          </div>
+        )}
+
+         {aiPending && <AiPendingOverlay aiMessage={latestResult?.ai?.message} />}
         <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
         <DashboardTourModal
           isOpen={showTourModal}
@@ -689,5 +700,6 @@ return (
         </div>
       </div>
     </TrialGateOverlay>
-  );
+  </>
+);
 }

@@ -402,19 +402,21 @@ const backToDashboardState = useMemo(() => ({
 
   /* ── Main UI ── */
 return (
-  <>
-  <TopBar
+   <> 
+    <TopBar
       displayName={displayName}
       onLogout={handleLogout}
       onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })}
       isParentViewing={isParentViewing}
       onBackToParentDashboard={() => {
-  if (window.self !== window.top) {
-        window.top.location.hash = "#/parent-dashboard";
-      } else {
-        navigate("/parent-dashboard", { replace: true });
-      }
-    }} />
+        if (window.self !== window.top) {
+          window.top.location.hash = "#/parent-dashboard";
+        } else {
+          navigate("/parent-dashboard", { replace: true });
+        }
+      }}
+    />
+
     <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="writing" viewerType={viewerType} yearLevel={yearLevel}>
       <div className="relative min-h-screen bg-gray-100">
 

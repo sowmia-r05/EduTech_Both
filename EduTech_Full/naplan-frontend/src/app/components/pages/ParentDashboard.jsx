@@ -1272,18 +1272,34 @@ useEffect(() => {
 
 
   // ── CRUD handlers ─────────────────────────────────────────────
-  const handleAddChild = async (formData) => {
-    try {
-      setActionLoading(true);
-      await createChild(parentToken, formData);
-      setIsAddModalOpen(false);
-      await loadChildren();
-    } catch (err) {
-      alert(err?.message || "Failed to add child");
-    } finally {
-      setActionLoading(false);
+const handleAddChild = async (formData) => {
+  try {
+    setActionLoading(true);
+    const newChild = await createChild(parentToken, formData);
+    setIsAddModalOpen(false);
+
+    // ── Step 1: Optimistic update — card appears instantly ──
+    if (newChild?._id) {
+      setRawChildren((prev) => [
+        ...prev,
+        {
+          ...newChild,
+          quizCount:    0,
+          averageScore: null,
+          lastActivity: null,
+        },
+      ]);
     }
-  };
+
+    // ── Step 2: Full refresh — sync accurate enriched data ──
+    await loadChildren();
+  } catch (err) {
+    alert(err?.message || "Failed to add child");
+  } finally {
+    setActionLoading(false);
+  }
+};
+
 
   const handleEditChild = async (childId, updates) => {
     try {
