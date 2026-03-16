@@ -12,6 +12,17 @@ import { useAuth } from "@/app/context/AuthContext";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+// ADD this after the API_BASE constant at the top
+function resolveImgSrc(url) {
+  if (!url) return null;
+  const u = url.trim();
+  // Already absolute — S3 https://, base64 data:, or blob:
+  if (u.startsWith("http") || u.startsWith("data:") || u.startsWith("blob:")) return u;
+  // Relative path — prepend backend base
+  return `${API_BASE}${u}`;
+}
+
+
 // Re-enter fullscreen if it was exited (e.g. by file picker dialog)
 function reEnterFullscreen() {
   const isFs = !!(
@@ -25,6 +36,8 @@ function reEnterFullscreen() {
     if (fn) fn.call(el).catch(() => {});
   }
 }
+
+
 
 /* ═══════════════════════════════════════
    IMAGE ZOOM MODAL
@@ -79,7 +92,7 @@ function RadioQuestion({ question, answer, onAnswer }) {
             </div>
               {opt.image_url && (
                 <img
-                  src={opt.image_url.startsWith("http") ? opt.image_url : `${API_BASE}${opt.image_url}`}
+                  src={resolveImgSrc(opt.image_url)}
                   alt={opt.text}
                   className="h-16 object-contain rounded"
                 />
@@ -115,7 +128,7 @@ function PictureChoiceQuestion({ question, answer, onAnswer }) {
           >
           {opt.image_url && (
             <img
-              src={opt.image_url.startsWith("http") ? opt.image_url : `${API_BASE}${opt.image_url}`}
+              src={resolveImgSrc(opt.image_url)}
               alt={opt.text}
               className="w-full h-32 object-cover"
             />
@@ -561,7 +574,7 @@ export default function QuestionRenderer({
       {question.image_url && (
         <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
           <img
-            src={question.image_url && question.image_url.startsWith("http") ? question.image_url : `${API_BASE}${question.image_url}`}
+            src={resolveImgSrc(question.image_url)}
             alt="Question image"
             className="max-w-full max-h-96 object-contain mx-auto rounded-lg cursor-zoom-in"
             style={{
@@ -569,13 +582,8 @@ export default function QuestionRenderer({
               ...(question.image_height ? { height: `${question.image_height}px`, objectFit: "contain" } : {}),
             }}
 
-            onClick={() =>
-            setZoomImg(
-              question.image_url?.startsWith("http")
-                ? question.image_url
-                : `${API_BASE}${question.image_url}`
-            )
-          }
+            onClick={() => setZoomImg(resolveImgSrc(question.image_url))}
+
 
           />
         </div>

@@ -419,38 +419,38 @@ useEffect(() => {
     <div className="min-h-screen bg-slate-50">
 
       {/* ONE sticky bar: logo + tabs + avatar */}
+
       <QuizHeader
-        activeTab={activeTab}
-        onTabChange={(tabId) => {
-          if (tabId === 0) {
-            setActiveTab(0);
-            return;
-          }
+          activeTab={activeTab}
           quizName={quizName}
-          displayName={displayName}
-          // Tab 1 — navigate directly, no iframe
-          if (!attemptId) return;
-          const cp = authRef.current?.childProfile;
-          const state = {
-            r:         attemptId,
-            username:  cp?.username || null,
-            subject:   result?.subject || null,
-            quiz_name: quizName || null,
-            fromQuizResult: true,   // ← signals the result page to show a back button
-          };
-          if (onViewAIFeedback) {
-            onViewAIFeedback(attemptId, result?.subject, quizName);
-          } else {
-            navigate(
-              isWriting ? "/writing-feedback/result" : "/NonWritingLookupQuizResults/results",
-              { state }
-            );
-          }
-        }}
-
-
-
-      />
+          displayName={resolvedName}
+          isParentViewing={isParentViewing || false}
+          onBack={onClose}
+          onBackToParent={() => navigate("/parent-dashboard")}
+          onTabChange={(tabId) => {
+            if (tabId === 0) {
+              setActiveTab(0);
+              return;
+            }
+            if (!attemptId) return;
+            const cp = authRef.current?.childProfile;
+            const state = {
+              r:              attemptId,
+              username:       cp?.username || null,
+              subject:        result?.subject || null,
+              quiz_name:      quizName || null,
+              fromQuizResult: true,
+            };
+            if (onViewAIFeedback) {
+              onViewAIFeedback(attemptId, result?.subject, quizName);
+            } else {
+              navigate(
+                isWriting ? "/writing-feedback/result" : "/NonWritingLookupQuizResults/results",
+                { state }
+              );
+            }
+          }}
+        />
 
       {/* ── TAB 1: RESULTS ── */}
       {activeTab === 0 && (
@@ -494,12 +494,6 @@ useEffect(() => {
             {/* Action buttons */}
             <div className="space-y-3 pt-2">
               {/* AI Feedback — just switches to the tab, no navigate away */}
-              <ActionBtn
-                onClick={() => onTabChange(1)}
-                icon={<IcAI/>}
-                label="View AI Feedback"
-                variant="indigo"
-              />
               {!isWriting && <ActionBtn onClick={() => setShowAnswers(true)} icon={<IcAnswers/>} label="View My Answers"/>}
               {onRetake && <ActionBtn onClick={onRetake} icon={<IcRetake/>} label="Retake Quiz"/>}
             </div>
