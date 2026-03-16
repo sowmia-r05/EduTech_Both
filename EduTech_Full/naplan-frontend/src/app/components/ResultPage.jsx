@@ -167,21 +167,30 @@ export default function ResultPage() {
 
 
   const isParentViewing = !childToken && !!parentToken;
-  const [childStatus, setChildStatus] = useState("trial");
- 
-useEffect(() => {
- const id = childIdParam || childProfile?.childId;
- if (!activeToken || !id) return;
- 
- fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/children/${id}/available-quizzes`, {
-   headers: { Authorization: `Bearer ${activeToken}` }
- })
-   .then(r => r.ok ? r.json() : null)
-   .then(data => {
-     if (data?.child_status) setChildStatus(data.child_status);
-   })
-   .catch(() => {}); // Failure means we stay on trial (safe default)
-}, [activeToken, childIdParam, childProfile]);
+    // ✅ Seed from childProfile.status immediately — no async delay
+    const [childStatus, setChildStatus] = useState(
+      () => childProfile?.status || "trial"
+    );
+
+    useEffect(() => {
+      // ✅ If childProfile already has status, use it — skip API call
+      if (childProfile?.status) {
+        setChildStatus(childProfile.status);
+        return;
+      }
+      const id = childIdParam || childProfile?.childId;
+      if (!activeToken || !id) return;
+
+      fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/children/${id}/available-quizzes`, {
+        headers: { Authorization: `Bearer ${activeToken}` }
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.child_status) setChildStatus(data.child_status);
+        })
+        .catch(() => {});
+    }, [activeToken, childIdParam, childProfile]);
+
 
 
   const yearLevel   = yearLevelParam || childProfile?.yearLevel || null;
