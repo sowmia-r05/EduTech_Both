@@ -223,13 +223,17 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
 router.get("/quizzes/:quizId/questions", async (req, res) => {
   try {
     await connectDB();
-    const quiz = await Quiz.findOne({ quiz_id: req.params.quizId, is_active: true }).lean();
+    const quiz = await Quiz.findOne({
+      quiz_id: req.params.quizId,
+      is_active: true,
+    }).lean();
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
     const questions = await Question.find({ quiz_ids: quiz.quiz_id })
       .sort({ order: 1 })
       .lean();
 
+    // AFTER
     const safeQuestions = questions.map((q) => ({
       question_id: q.question_id,
       type: q.type,
@@ -237,11 +241,14 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       options: q.options.map((opt) => ({
         option_id: opt.option_id,
         text: opt.text,
-        image_url: opt.image_url,
+        image_url: opt.image_url || null,
       })),
       points: q.points,
       categories: q.categories,
-      image_url: q.image_url,
+      image_url: q.image_url || null,
+      image_width: q.image_width || null, // ← ADD
+      image_height: q.image_height || null, // ← ADD
+      image_size: q.image_size || "medium", // ← ADD
       order: q.order,
       voice_url: q.voice_url || null,
       video_url: q.video_url || null,
@@ -250,7 +257,10 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
     if (quiz.randomize_questions) {
       for (let i = safeQuestions.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [safeQuestions[i], safeQuestions[j]] = [safeQuestions[j], safeQuestions[i]];
+        [safeQuestions[i], safeQuestions[j]] = [
+          safeQuestions[j],
+          safeQuestions[i],
+        ];
       }
     }
 

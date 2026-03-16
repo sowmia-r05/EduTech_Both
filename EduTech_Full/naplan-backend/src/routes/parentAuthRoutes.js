@@ -8,7 +8,7 @@ const { sendBrevoEmail } = require("../services/brevoEmail");
 const { setAuthCookie, clearAuthCookie } = require("../utils/setCookies");
 
 const PARENT_SECRET = process.env.PARENT_JWT_SECRET || process.env.JWT_SECRET;
-const PARENT_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const PARENT_COOKIE_MAX_AGE = 356 * 24 * 60 * 60 * 1000;
 const OTP_TTL_MS = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 30 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
@@ -199,7 +199,7 @@ router.post("/verify-otp", async (req, res) => {
         email: parent.email,
       },
       PARENT_SECRET,
-      { expiresIn: "7d" },
+      { expiresIn: "365d" },
     );
 
     // ✅ FIX: was `token` (undefined) — now correctly `parent_token`
@@ -347,7 +347,7 @@ router.post("/verify-login-otp", async (req, res) => {
         email: parent.email,
       },
       PARENT_SECRET,
-      { expiresIn: "7d" },
+      { expiresIn: "365d" },
     );
 
     setAuthCookie(res, "parent_token", parent_token, PARENT_COOKIE_MAX_AGE);

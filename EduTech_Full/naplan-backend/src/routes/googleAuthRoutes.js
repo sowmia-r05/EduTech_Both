@@ -32,6 +32,10 @@ const router = express.Router();
 const PARENT_SECRET = process.env.PARENT_JWT_SECRET;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 
+const { setAuthCookie } = require("../utils/setCookies");
+const PARENT_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000;
+
+
 /**
  * Verify Google ID token using Google's tokeninfo endpoint.
  * This is simpler than using the google-auth-library and doesn't
@@ -159,6 +163,7 @@ router.post("/google", async (req, res) => {
       PARENT_SECRET,
       { expiresIn: "365d" }
     );
+    setAuthCookie(res, "parent_token", parent_token, PARENT_COOKIE_MAX_AGE);
 
     return res.json({
       ok: true,
