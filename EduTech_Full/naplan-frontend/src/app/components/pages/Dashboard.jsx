@@ -442,9 +442,18 @@ export default function Dashboard() {
   const duration = formatDuration(selectedResult?.duration);
   const attemptsUsed = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
   const { strongTopics, weakTopics } = buildTopicStrength(selectedResult?.topicBreakdown || {});
-  const violations = selectedResult?.proctoring_summary?.total_violations || 0;
+  const violations =
+    selectedResult?.proctoring_summary?.total_violations ||
+    selectedResult?.proctoring?.violations ||
+    selectedResult?.violations ||
+    0;
   const suggestions = buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
-  const displayName = `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim() || "Student";
+
+  const displayName = `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim()
+  || location.state?.childName
+  || childProfile?.displayName
+  || "Student";
+
   const resultStatus = getResultStatus(percentage);
   const quizName = selectedResult?.quiz_name || "Quiz";
   const totalAttempts = quizAttempts.length;
@@ -622,9 +631,11 @@ return (
               </p>
               {violations > 0 && (
                 <p className="text-[10px] text-rose-400 font-medium">
-                  {(selectedResult?.proctoring_summary?.tab_switches || 0)} tab · {(selectedResult?.proctoring_summary?.fullscreen_exits || 0)} fs
+                  {(selectedResult?.proctoring_summary?.tab_switches || selectedResult?.proctoring?.tab_switches || 0)} tab ·{" "}
+                  {(selectedResult?.proctoring_summary?.fullscreen_exits || selectedResult?.proctoring?.fullscreen_exits || 0)} fs
                 </p>
               )}
+
             </div>
           </div>
 
