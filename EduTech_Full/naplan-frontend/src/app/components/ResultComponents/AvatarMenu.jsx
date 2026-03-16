@@ -5,9 +5,16 @@ export default function AvatarMenu({ className = "" }) {
   const navigate = useNavigate();
   const { childToken, logoutChild, logout } = useAuth();
 
-  const handleBackToDashboard = () => {
-    navigate("/child-dashboard");
+const handleBackToDashboard = () => {
+    if (window.self !== window.top) {
+      window.top.location.hash = "#/child-dashboard";
+    } else {
+      navigate("/child-dashboard");
+    }
   };
+
+
+
 
   const handleLogout = () => {
     if (childToken) {

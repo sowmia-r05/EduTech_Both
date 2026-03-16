@@ -146,7 +146,7 @@ export default function ResultPage() {
   const responseId    = String(location.state?.r        || searchParams.get("r")        || "").trim();
   const usernameParam = String(location.state?.username  || searchParams.get("username") || "").trim();
 
-  const childIdParam  = String(location.state?.childId || "").trim();
+  const childIdParam = String(location.state?.childId || searchParams.get("childId") || "").trim();
   const childNameParam= String(location.state?.childName  || "").trim();
   const yearLevelParam= String(location.state?.yearLevel  || "").trim();
 
@@ -182,6 +182,7 @@ useEffect(() => {
    })
    .catch(() => {}); // Failure means we stay on trial (safe default)
 }, [activeToken, childIdParam, childProfile]);
+
 
   const yearLevel   = yearLevelParam || childProfile?.yearLevel || null;
   const viewerType  = childToken && !isParentViewing ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
@@ -305,20 +306,17 @@ const backToDashboardState = useMemo(() => ({
   const isProcessing   = loading || (activeDoc && isAiPending(activeDoc));
 
   /* ── Loading ── */
-  if (isProcessing) {
-  return (
-    <>
-      <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
-  if (window.self !== window.top) {
-    // We are inside an iframe (QuizResult's AI Feedback tab)
-    // navigate() only changes the iframe's URL, not the top window
-    // So we must tell the TOP window to navigate instead
-    window.top.location.hash = "#/parent-dashboard";
-  } else {
-    // Normal full-page navigation
-    navigate("/parent-dashboard", { replace: true });
-  }
-}} /> 
+    if (isProcessing) {
+      return (
+        <>
+     <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
+      if (window.self !== window.top) {
+        window.top.location.hash = "#/parent-dashboard";
+      } else {
+        navigate("/parent-dashboard", { replace: true });
+      }
+    }} />
+
       <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-2xl shadow-lg">
           <CardContent className="flex flex-col items-center justify-center py-12 px-6">
@@ -337,27 +335,23 @@ const backToDashboardState = useMemo(() => ({
 }
 
   /* ── Error ── */
-if (error || isAiError) {
-  return (
-    <>
+    if (error || isAiError) {
+      return (
+        <>
       <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => {
-  if (window.self !== window.top) {
-    // Inside iframe — navigate the top window
-    window.top.location.hash = "#/child-dashboard";
-  } else {
-    navigate("/child-dashboard", { state: backToDashboardState, replace: true });
-  }
-}} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
-  if (window.self !== window.top) {
-    // We are inside an iframe (QuizResult's AI Feedback tab)
-    // navigate() only changes the iframe's URL, not the top window
-    // So we must tell the TOP window to navigate instead
-    window.top.location.hash = "#/parent-dashboard";
-  } else {
-    // Normal full-page navigation
-    navigate("/parent-dashboard", { replace: true });
-  }
-}} />
+      if (window.self !== window.top) {
+        window.top.location.hash = "#/child-dashboard";
+      } else {
+        navigate("/child-dashboard", { state: backToDashboardState, replace: true });
+      }
+    }} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
+      if (window.self !== window.top) {
+        window.top.location.hash = "#/parent-dashboard";
+      } else {
+        navigate("/parent-dashboard", { replace: true });
+      }
+    }} />
+
       <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-lg shadow-lg">
           <CardContent className="flex flex-col items-center justify-center py-8 text-center">
@@ -409,19 +403,15 @@ if (error || isAiError) {
   /* ── Main UI ── */
 return (
   <>
-    <TopBar
+  <TopBar
       displayName={displayName}
       onLogout={handleLogout}
       onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })}
       isParentViewing={isParentViewing}
       onBackToParentDashboard={() => {
   if (window.self !== window.top) {
-        // We are inside an iframe (QuizResult's AI Feedback tab)
-        // navigate() only changes the iframe's URL, not the top window
-        // So we must tell the TOP window to navigate instead
         window.top.location.hash = "#/parent-dashboard";
       } else {
-        // Normal full-page navigation
         navigate("/parent-dashboard", { replace: true });
       }
     }} />

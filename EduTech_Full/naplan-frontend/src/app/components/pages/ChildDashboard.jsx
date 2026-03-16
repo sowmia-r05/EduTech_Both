@@ -650,6 +650,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
       childStatus={childStatus}
       displayName={displayName}
       isParentViewing={isParentViewing}
+      childId={childId}
       onClose={() => setSelectedQuizResult(null)}
       onRetake={() => {
         const quiz = mergedQuizzes.find(
