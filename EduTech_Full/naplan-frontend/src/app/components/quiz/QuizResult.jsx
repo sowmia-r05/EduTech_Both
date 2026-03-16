@@ -516,7 +516,7 @@ useEffect(() => {
         <AnswersModal
           attemptId={attemptId}
           quizName={quizName}
-          score={score}
+          score={{...score, correct: score.points, total: score.available }}
           topics={topics}
           onClose={() => setShowAnswers(false)}
         />
