@@ -139,13 +139,13 @@ export default function AnswersModal({ attemptId, quizName, score, topics, onClo
 
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 pt-8 pb-8">
+      <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 pt-[60px] pb-8">
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ─── Modal Header ─── */}
-        <div className="sticky top-0 bg-white border-b border-slate-200 rounded-t-2xl px-6 py-4 flex items-center justify-between z-10">
+        <div className="sticky top-0 bg-white border-b border-slate-400 rounded-t-2xl px-6 py-4 flex items-center justify-between z-10">
           <div>
             <h2 className="text-lg font-bold text-slate-800">Your Answers</h2>
             <p className="text-xs text-slate-500 mt-0.5">{quizName}</p>

@@ -50,6 +50,11 @@ const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const path = require("path");
+const { s3, BUCKET } = require("./utils/s3Upload");
+const { GetObjectCommand } = require("@aws-sdk/client-s3");
+
+
+
 
 const app = express();
 app.set("trust proxy", 1);
@@ -57,6 +62,7 @@ app.set("trust proxy", 1);
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(
   helmet({
+    crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -269,8 +275,29 @@ app.use("/api/payments", paymentRoutes);
 // ─── OCR ──────────────────────────────────────────────────────────────────────
 app.use("/api/ocr", ocrRoute);
 
-// ─── Static file serving ──────────────────────────────────────────────────────
-app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
+// S3 image proxy — serves old relative /uploads/... paths from S3
+app.use("/uploads", async (req, res) => {
+  const s3Key = "uploads" + req.path; // e.g. "uploads/2025-01/image.jpg"
+  try {
+    const command = new GetObjectCommand({ Bucket: BUCKET, Key: s3Key });
+    const s3Response = await s3.send(command);
+    res.setHeader("Content-Type", s3Response.ContentType || "application/octet-stream");
+    res.setHeader("Cache-Control", "public, max-age=31536000");
+    s3Response.Body.pipe(res);
+  } catch (err) {
+    const localPath = path.join(__dirname, "public", "uploads", req.path);
+    res.sendFile(localPath, (sendErr) => {
+      if (sendErr) res.status(404).json({ error: "Image not found" });
+    });
+  }
+});
+
+
+
+
+
+
+
 
 // ─── Cron jobs ────────────────────────────────────────────────────────────────
 try {
