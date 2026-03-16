@@ -1026,8 +1026,9 @@ export default function StudentDashboardAnalytics({
           </header>
         )}
 
-        {/* ── Route to correct experience ── */}
-        {isParentView ? (
+        {/* Year 3: same layout for both parent & child (use parent layout)
+            Year 5, 7, 9: distinguish parent vs child views */}
+        {(Number(yearLevel) === 3 || isParentView) ? (
           <ParentView {...sharedProps} />
         ) : (
           <ChildView
@@ -1036,6 +1037,7 @@ export default function StudentDashboardAnalytics({
             setSelectedSubject={setSelectedSubject}
           />
         )}
+
 
       </div>
     </div>
