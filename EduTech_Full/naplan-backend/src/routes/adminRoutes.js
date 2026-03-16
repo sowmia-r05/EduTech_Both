@@ -12,8 +12,6 @@ const { setAuthCookie }    = require("../utils/setCookies");
 const ADMIN_COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // ✅ FIX 2: was 2 hours, now 24 hours
 
 const express    = require("express");
-const path       = require("path");
-const fs         = require("fs");
 const jwt        = require("jsonwebtoken");
 const bcrypt     = require("bcrypt");
 const { v4: uuidv4 } = require("uuid");
@@ -29,6 +27,9 @@ const QuizCatalog       = require("../models/quizCatalog");
 const Child             = require("../models/child");
 const Purchase          = require("../models/purchase");
 const connectDB         = require("../config/db");
+// ADD this line after the other requires
+const { uploadToS3 } = require("../utils/s3Upload");
+const ExcelJS = require("exceljs");
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
@@ -300,6 +301,70 @@ router.get("/admins/pending", async (req, res) => {
   }
 });
 
+// GET /api/admin/quizzes/:quizId/export — download questions as xlsx
+router.get("/quizzes/:quizId/export", async (req, res) => {
+  try {
+    await connectDB();
+    let quiz = await Quiz.findOne({ quiz_id: req.params.quizId }).lean();
+    if (!quiz) quiz = await Quiz.findById(req.params.quizId).lean();
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    const questions = await Question.find({
+      $or: [
+        { quiz_ids: req.params.quizId },
+        { quiz_ids: quiz.quiz_id },
+      ],
+    }).sort({ createdAt: 1 }).lean();
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Questions");
+    ws.columns = [
+      { header: "#",             key: "num",            width: 5  },
+      { header: "question_text", key: "question_text",  width: 60 },
+      { header: "type",          key: "type",           width: 16 },
+      { header: "option_a",      key: "option_a",       width: 30 },
+      { header: "option_b",      key: "option_b",       width: 30 },
+      { header: "option_c",      key: "option_c",       width: 30 },
+      { header: "option_d",      key: "option_d",       width: 30 },
+      { header: "correct_answer",key: "correct_answer", width: 16 },
+      { header: "points",        key: "points",         width: 8  },
+      { header: "category",      key: "category",       width: 20 },
+      { header: "image_url",     key: "image_url",      width: 50 },
+      { header: "explanation",   key: "explanation",    width: 40 },
+    ];
+    ws.getRow(1).font = { bold: true };
+
+    questions.forEach((q, idx) => {
+      const opts = Array.isArray(q.options) ? q.options : [];
+      const correctAnswer = opts.filter(o => o.correct).map(o => o.label).join(", ") || q.correct_answer || "";
+      const cleanText = (q.text || q.question_text || "").replace(/<[^>]+>/g, "").trim();
+      ws.addRow({
+        num:            idx + 1,
+        question_text:  cleanText,
+        type:           q.type || "radio_button",
+        option_a:       opts[0]?.text || "",
+        option_b:       opts[1]?.text || "",
+        option_c:       opts[2]?.text || "",
+        option_d:       opts[3]?.text || "",
+        correct_answer: correctAnswer,
+        points:         q.points || 1,
+        category:       q.categories?.[0]?.name || q.category || "",
+        image_url:      q.image_url || "",
+        explanation:    q.explanation || "",
+      });
+    });
+
+    const filename = `${(quiz.quiz_name || "quiz").replace(/[^a-zA-Z0-9_]/g, "_")}_questions.xlsx`;
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error("Export error:", err);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
+});
+
 router.patch("/admins/:adminId", async (req, res) => {
   try {
     await connectDB();
@@ -361,25 +426,11 @@ router.delete("/admins/:adminId", async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 // FILE UPLOAD
 // ═══════════════════════════════════════════════════════════
-const uploadDir = path.join(__dirname, "..", "public", "uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-const multerStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const sub = new Date().toISOString().slice(0, 7);
-    const dir = path.join(uploadDir, sub);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext  = path.extname(file.originalname).toLowerCase();
-    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50);
-    cb(null, `${base}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}${ext}`);
-  },
-});
-
+// ═══════════════════════════════════════════════════════════
+// FILE UPLOAD (AWS S3)
+// ═══════════════════════════════════════════════════════════
 const uploadMiddleware = multer({
-  storage: multerStorage,
+  storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     const ok = [
       "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
@@ -393,24 +444,35 @@ const uploadMiddleware = multer({
 });
 
 router.post("/upload", (req, res) => {
-  uploadMiddleware.single("file")(req, res, (err) => {
-    if (err) {
+  uploadMiddleware.single("file")(req, res, async (err) => {
+    if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "File too large. Max 50MB." });
       return res.status(400).json({ error: err.message });
     }
+    if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-    const relPath = req.file.path
-      .replace(path.join(__dirname, "..", "public"), "")
-      .replace(/\\/g, "/");
-    return res.json({
-      ok: true,
-      url: relPath,
-      filename: req.file.filename,
-      size: req.file.size,
-      mimetype: req.file.mimetype,
-    });
+
+    try {
+      const result = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype
+      );
+      return res.json({
+        ok:       true,
+        url:      result.url,  // ← full S3 public URL
+        key:      result.key,
+        filename: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size:     result.size,
+      });
+    } catch (uploadErr) {
+      console.error("S3 upload error:", uploadErr.message);
+      return res.status(500).json({ error: `S3 upload failed: ${uploadErr.message}` });
+    }
   });
 });
+     
 
 // ═══════════════════════════════════════════════════════════
 // QUIZ ROUTES

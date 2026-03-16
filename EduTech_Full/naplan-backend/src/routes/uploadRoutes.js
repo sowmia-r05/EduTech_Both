@@ -1,54 +1,31 @@
 /**
- * routes/uploadRoutes.js
+ * routes/uploadRoutes.js  (v2 — AWS S3 Storage)
  *
- * File upload API for admin — images and PDFs.
- * Stores files in /public/uploads/ and returns accessible URLs.
+ * File upload API for admin — images, PDFs, audio, and video.
+ * All files are stored in AWS S3 (or S3-compatible, e.g. MinIO).
+ * Returns a public S3 URL instead of a local path.
  *
- * Supports: .jpg, .jpeg, .png, .gif, .webp, .svg, .pdf
- * Max size: 10MB
+ * Required env vars:
+ *   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION,
+ *   S3_BUCKET_NAME, S3_ENDPOINT_URL (optional, for MinIO)
+ *
+ * Supported files: images (.jpg/.png/.gif/.webp/.svg), PDF,
+ *                  audio (.mp3/.wav/.ogg), video (.mp4/.webm/.mov)
+ * Max size: 50MB
  *
  * Mount in app.js:
  *   const uploadRoutes = require("./routes/uploadRoutes");
  *   app.use("/api/admin", uploadRoutes);
- *
- * Also add static serving in app.js:
- *   app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
  */
 
-const express = require("express");
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const express  = require("express");
+const multer   = require("multer");
 const { requireAdmin } = require("../middleware/adminAuth");
+const { uploadToS3 }   = require("../utils/s3Upload");
 
 const router = express.Router();
 
-// Ensure upload directory exists
-const uploadDir = path.join(__dirname, "..", "public", "uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Multer storage config
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const subfolder = new Date().toISOString().slice(0, 7); // e.g. "2026-03"
-    const dir = path.join(uploadDir, subfolder);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const baseName = path
-      .basename(file.originalname, ext)
-      .replace(/[^a-zA-Z0-9_-]/g, "_")
-      .slice(0, 50);
-    const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    cb(null, `${baseName}_${unique}${ext}`);
-  },
-});
-
-// File filter — images + PDFs
+// ── Multer: keep files in memory (we stream to S3 directly) ──────────────────
 const fileFilter = (req, file, cb) => {
   const allowed = [
     "image/jpeg", "image/png", "image/gif",
@@ -64,17 +41,17 @@ const fileFilter = (req, file, cb) => {
 };
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(), // buffer in RAM → stream to S3
   fileFilter,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
 });
 
-// ─── POST /upload — Single file upload ───
+// ─── POST /api/admin/upload ────────────────────────────────────────────────────
 router.post("/upload", requireAdmin, (req, res) => {
-  upload.single("file")(req, res, (err) => {
+  upload.single("file")(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") {
-        return res.status(400).json({ error: "File too large. Max 10MB." });
+        return res.status(400).json({ error: "File too large. Max 50MB." });
       }
       return res.status(400).json({ error: err.message });
     }
@@ -85,17 +62,27 @@ router.post("/upload", requireAdmin, (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    const subfolder = new Date().toISOString().slice(0, 7);
-    const fileUrl = `/uploads/${subfolder}/${req.file.filename}`;
+    try {
+      const result = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype
+      );
 
-    res.json({
-      ok: true,
-      url: fileUrl,
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size,
-    });
+      return res.json({
+        ok:           true,
+        url:          result.url,       // ← full public S3 URL
+        key:          result.key,       // ← S3 object key
+        bucket:       result.bucket,
+        filename:     req.file.originalname,
+        originalName: req.file.originalname,
+        mimetype:     req.file.mimetype,
+        size:         result.size,
+      });
+    } catch (uploadErr) {
+      console.error("S3 upload error:", uploadErr.message);
+      return res.status(500).json({ error: `S3 upload failed: ${uploadErr.message}` });
+    }
   });
 });
 
