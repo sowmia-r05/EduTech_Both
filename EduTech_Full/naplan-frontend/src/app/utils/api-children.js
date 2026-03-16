@@ -67,21 +67,21 @@ async function authGet(path, token) {
 
 
 
+// ✅ FIXED — Content-Type tells Express to parse the JSON body
 async function authPost(path, data, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json",    // ← ADD THIS LINE
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(data),
   });
-    const body = await res.json().catch(() => null);
-    if (!res.ok)
-      throw new Error(body?.error || `Request failed: ${res.status}`);
-    return body;
 }
+
 
 
 async function authPut(path, data, token) {
@@ -89,17 +89,15 @@ async function authPut(path, data, token) {
     method: "PUT",
     credentials: "include",
     headers: {
+      "Content-Type": "application/json", // ← ADD THIS HERE TOO
       Accept: "application/json",
       "Cache-Control": "no-cache",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(data),
   });
-    const body = await res.json().catch(() => null);
-    if (!res.ok)
-      throw new Error(body?.error || `Request failed: ${res.status}`);
-    return body;
 }
+
 
 async function authDelete(path, token) {
   const res = await fetch(`${API_BASE}${path}`, {

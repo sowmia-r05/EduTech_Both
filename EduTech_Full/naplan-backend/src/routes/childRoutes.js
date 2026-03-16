@@ -214,9 +214,9 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       display_name,
       username,
       year_level,
+      pin_hash: pin,
       status:       "trial",
     });
-    await child.setPin(pin);
     await child.save();
 
     return res.status(201).json({
@@ -334,7 +334,7 @@ router.put("/:childId", verifyToken, requireParent, async (req, res) => {
     if (req.body.pin !== undefined) {
       const pin = String(req.body.pin).trim();
       if (!/^\d{6}$/.test(pin)) return res.status(400).json({ error: "PIN must be exactly 6 digits" });
-      await child.setPin(pin);
+      child.pin_hash = pin;
       await child.save();
     }
     if (req.body.email_notifications !== undefined) {
