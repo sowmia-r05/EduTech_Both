@@ -44,7 +44,7 @@ import {
 const unwrapDate = (d) =>
   d && typeof d === "object" && "$date" in d ? d.$date : d;
 
-const fromQuizResult = location.state?.fromQuizResult === true;
+
 
 const formatDuration = (seconds) => {
   const secs = Number(seconds);
@@ -449,14 +449,70 @@ export default function Dashboard() {
   const quizName = selectedResult?.quiz_name || "Quiz";
   const totalAttempts = quizAttempts.length;
 
-
-
-
 return (
   <>
-    <DashboardHeader>
-      <AvatarMenu />
-    </DashboardHeader>
+    {fromQuizResult ? (
+      <nav style={{
+        background:"#fff", borderBottom:"1px solid #E5E7EB",
+        height:"58px", display:"flex", alignItems:"center",
+        justifyContent:"space-between", padding:"0 24px",
+        position:"sticky", top:0, zIndex:100, gap:16,
+      }}>
+        {/* Left: KAI Logo */}
+        <div onClick={() => navigate("/")} style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", flexShrink:0 }}>
+          <div style={{ width:36, height:36, borderRadius:9, background:"linear-gradient(135deg,#7C3AED,#6D28D9)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+              <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+            </svg>
+          </div>
+          <div>
+            <div style={{ fontSize:14, fontWeight:700, color:"#111827" }}>KAI Solutions</div>
+            <div style={{ fontSize:10, color:"#9CA3AF", letterSpacing:"0.08em" }}>NAPLAN PREP</div>
+          </div>
+        </div>
+
+
+        {/* Centre: Results | AI Feedback tab pills */}
+        <div style={{ position:"absolute", left:"50%", transform:"translateX(-50%)", display:"flex", alignItems:"center", background:"#F1F5F9", borderRadius:10, padding:4, gap:4, zIndex:1 }}>
+        <button onClick={() => {
+          navigate("/child-dashboard", {
+            state: {
+              ...location.state,              // ← spreads childId, childName, yearLevel etc.
+              fromQuizResult: undefined,
+              savedQuizResult: undefined,
+              restoreQuizResult: location.state?.savedQuizResult,
+            }
+          });
+        }} style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 16px", borderRadius:8, border:"1px solid transparent", background:"transparent", color:"#64748B", fontWeight:600, fontSize:14, cursor:"pointer" }}>
+          Results
+        </button>
+          <button style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 16px", borderRadius:8, border:"1px solid #E2E8F0", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.08)", color:"#1E293B", fontWeight:600, fontSize:14, cursor:"default" }}>
+            AI Feedback
+            <span style={{ fontSize:9, fontWeight:700, padding:"2px 5px", borderRadius:4, background:"linear-gradient(135deg,#7C3AED,#6D28D9)", color:"#fff", letterSpacing:"0.06em" }}>AI</span>
+          </button>
+        </div>
+
+
+        {/* Right: quiz name + avatar */}
+        <div style={{ display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+          <span style={{ fontSize:13, color:"#6B7280", fontWeight:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:220 }}>
+            {quizNameParam}
+          </span>
+          <ChildAvatarMenu
+            displayName={displayName}
+            isParentViewing={isParentViewing}
+            onBackToChildDashboard={() => navigate("/child-dashboard")}
+            onBackToParent={() => navigate("/parent-dashboard")}
+          />
+        </div>
+      </nav>
+    ) : (
+      <DashboardHeader>
+        <AvatarMenu />
+      </DashboardHeader>
+    )}
+
 
     <TrialGateOverlay
       isTrialUser={childStatus === "trial"}
@@ -465,21 +521,6 @@ return (
       yearLevel={yearLevel}
     >
       <div className="relative min-h-screen bg-gray-100">
-
-        {fromQuizResult && (
-          <div className="px-6 pt-3">
-            <button
-              onClick={() => navigate(-1)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
-                         bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm transition-all"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-              Back to Results
-            </button>
-          </div>
-        )}
 
          {aiPending && <AiPendingOverlay aiMessage={latestResult?.ai?.message} />}
         <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
