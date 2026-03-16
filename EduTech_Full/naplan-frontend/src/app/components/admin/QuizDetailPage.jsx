@@ -20,6 +20,7 @@ import { ADMIN_PATH } from "@/app/App";          // ✅ FIX 1: Import ADMIN_PATH
 import QuizSettingsExtras from "./QuizSettingsExtras";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import FreeTextPreview from "./FreeTextPreview";
+import DownloadExcelButton from "./DownloadExcelButton";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -558,6 +559,10 @@ export default function QuizDetailPage() {
               className={`px-3 py-1.5 text-xs rounded-lg transition ${showSettings ? "bg-indigo-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-slate-300"}`}>
               ⚙️ Settings
             </button>
+            <DownloadExcelButton
+                quizId={quiz?.quiz_id || quiz?._id}
+                quizName={quiz?.quiz_name}
+              />
           </div>
         </div>
 
