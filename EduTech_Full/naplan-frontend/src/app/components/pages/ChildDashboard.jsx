@@ -242,6 +242,19 @@ const getInitialTab = () => {
     assertAllowedParams(searchParams, navigate, isParentViewing);
   }, []);
 
+  // ADD this new useEffect:
+    useEffect(() => {
+      if (location.state?.restoreQuizResult) {
+        setSelectedQuizResult(location.state.restoreQuizResult);
+        // Clear it from history state so refresh doesn't re-trigger
+        window.history.replaceState(
+          { ...window.history.state, usr: { ...location.state, restoreQuizResult: undefined } },
+          ""
+        );
+      }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+
   /* ─── Resolve child info (original) ─── */
   // ✅ FIX-2: Sanitize URL params before using them
   const resolveChildInfo = useCallback(async () => {
@@ -547,17 +560,26 @@ const overallAverage = useMemo(() => {
 
 
 const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
-  setSelectedQuizResult(null);
   const username = childInfo?.username || childProfile?.username || null;
-  const state = { r: attemptId, username, subject, quiz_name: name };
-
+  const resolvedName = childInfo?.display_name || childProfile?.displayName || "Student";
+  const resolvedYear = childInfo?.year_level || childProfile?.yearLevel || null;
+  const state = {
+    r: attemptId, username, subject, quiz_name: name,
+    fromQuizResult: true,
+    childId,
+    childName: resolvedName,
+    yearLevel: resolvedYear,
+  };
+  setSelectedQuizResult(null);
   navigate(
     (subject || "").toLowerCase() === "writing"
       ? "/writing-feedback/result"
       : "/NonWritingLookupQuizResults/results",
     { state }
   );
-}, [navigate, childInfo, childProfile]);
+}, [navigate, childInfo, childProfile, childId]);
+
+
 
 
 
@@ -630,16 +652,31 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
       childId={childId}
       childStatus={childStatus}
       onViewAnalytics={() => setActiveTab("cumulative")}
-      onViewAIFeedback={(attemptId, subject, name) => {
-        const username = childInfo?.username || childProfile?.username || null;
-        const state = { r: attemptId, username, subject, quiz_name: name };
-        navigate(
-          (subject || "").toLowerCase() === "writing"
-            ? "/writing-feedback/result"
-            : "/NonWritingLookupQuizResults/results",
-          { state }
-        );
-      }}
+        onViewAIFeedback={(attemptId, subject, name) => {
+          const username = childInfo?.username || childProfile?.username || null;
+          const resolvedName = childInfo?.display_name || childProfile?.displayName || "Student";
+          const resolvedYear = childInfo?.year_level || childProfile?.yearLevel || null;
+          const state = {
+            r: attemptId,
+            username,
+            subject,
+            quiz_name: name,
+            fromQuizResult: true,
+            childId,
+            childName: resolvedName,
+            yearLevel: resolvedYear,
+          };
+          navigate(
+            (subject || "").toLowerCase() === "writing"
+              ? "/writing-feedback/result"
+              : "/NonWritingLookupQuizResults/results",
+            { state }
+          );
+        }}
+
+
+
+
     />
   );
 
@@ -668,9 +705,21 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
         setActiveTab("cumulative");
       }}
       onViewAIFeedback={(attemptId, subject, name) => {
-        setSelectedQuizResult(null);
         const username = childInfo?.username || childProfile?.username || null;
-        const state = { r: attemptId, username, subject, quiz_name: name };
+        const resolvedName = childInfo?.display_name || childProfile?.displayName || "Student";
+        const resolvedYear = childInfo?.year_level || childProfile?.yearLevel || null;
+        const state = {
+          r: attemptId,
+          username,
+          subject,
+          quiz_name: name,
+          fromQuizResult: true,
+          childId,
+          childName: resolvedName,
+          yearLevel: resolvedYear,
+          savedQuizResult: selectedQuizResult,
+        };
+        setSelectedQuizResult(null);
         navigate(
           (subject || "").toLowerCase() === "writing"
             ? "/writing-feedback/result"
@@ -678,6 +727,8 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
           { state }
         );
       }}
+
+
     />
   );
  
