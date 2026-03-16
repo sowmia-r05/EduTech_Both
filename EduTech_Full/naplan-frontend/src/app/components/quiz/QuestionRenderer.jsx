@@ -77,9 +77,13 @@ function RadioQuestion({ question, answer, onAnswer }) {
             >
               {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
             </div>
-            {opt.image_url && (
-              <img src={opt.image_url} alt={opt.text} className="h-16 object-contain rounded" />
-            )}
+              {opt.image_url && (
+                <img
+                  src={opt.image_url.startsWith("http") ? opt.image_url : `${API_BASE}${opt.image_url}`}
+                  alt={opt.text}
+                  className="h-16 object-contain rounded"
+                />
+              )}
             <span className={`text-sm ${isSelected ? "text-indigo-700 font-medium" : "text-slate-700"}`}>
               {opt.text}
             </span>
@@ -109,9 +113,13 @@ function PictureChoiceQuestion({ question, answer, onAnswer }) {
                 : "border-slate-200 hover:border-slate-300"
             }`}
           >
-            {opt.image_url && (
-              <img src={opt.image_url} alt={opt.text} className="w-full h-32 object-cover" />
-            )}
+          {opt.image_url && (
+            <img
+              src={opt.image_url.startsWith("http") ? opt.image_url : `${API_BASE}${opt.image_url}`}
+              alt={opt.text}
+              className="w-full h-32 object-cover"
+            />
+          )}
             <div
               className={`px-3 py-2 text-sm text-center ${
                 isSelected ? "bg-indigo-50 text-indigo-700 font-medium" : "bg-white text-slate-600"
@@ -560,7 +568,15 @@ export default function QuestionRenderer({
               ...(question.image_width ? { width: `${question.image_width}px`, maxWidth: "100%" } : {}),
               ...(question.image_height ? { height: `${question.image_height}px`, objectFit: "contain" } : {}),
             }}
-            onClick={() => setZoomImg(question.image_url)}
+
+            onClick={() =>
+            setZoomImg(
+              question.image_url?.startsWith("http")
+                ? question.image_url
+                : `${API_BASE}${question.image_url}`
+            )
+          }
+
           />
         </div>
       )}

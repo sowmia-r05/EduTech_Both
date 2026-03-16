@@ -14,12 +14,13 @@ const API_BASE =
 // This is safer than localStorage (less persistent) while avoiding
 // the timing/rehydration problems of memory-only storage
 function saveToken(key, val) {
-  try { if (val) sessionStorage.setItem(key, val);
-        else sessionStorage.removeItem(key); } catch {}
+  try { if (val) localStorage.setItem(key, val);
+        else localStorage.removeItem(key); } catch {}
 }
 function loadToken(key) {
-  try { return sessionStorage.getItem(key) || null; } catch { return null; }
+  try { return localStorage.getItem(key) || null; } catch { return null; }
 }
+
 
 // ─── Profile cache — localStorage for display only (non-sensitive) ────────────
 function saveProfile(key, data) {
