@@ -782,10 +782,13 @@ function AddChildModal({ onClose, onAdd, loading }) {
 
           <div>
             <label style={LABEL_STYLE}>Year Level</label>
-            <select style={{ ...INPUT_STYLE, appearance: "auto" }} value={yearLevel} onChange={(e) => setYearLevel(e.target.value)}>
-              <option value="">Select year level</option>
-              {YEAR_OPTIONS.map((y) => <option key={y} value={y}>Year {y}</option>)}
-            </select>
+              <select style={{ ...INPUT_STYLE, appearance: "auto" }} value={yearLevel} onChange={(e) => setYearLevel(e.target.value)}>
+                <option value="">Select year level</option>
+                <option value="3">Year 3</option>
+                <option value="5" disabled>Year 5 — Coming Soon</option>
+                <option value="7" disabled>Year 7 — Coming Soon</option>
+                <option value="9" disabled>Year 9 — Coming Soon</option>
+              </select>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
