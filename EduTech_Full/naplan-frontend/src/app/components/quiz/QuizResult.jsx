@@ -119,7 +119,7 @@ function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentVie
           {quizName}
         </span>
         <ChildAvatarMenu
-          displayName={displayName || "Student"}
+          displayName={displayName}
           isParentViewing={isParentViewing || false}
           onBackToChildDashboard={onBack}
           onBackToParent={onBackToParent}
@@ -256,6 +256,7 @@ export default function QuizResult({
   childStatus:     childStatusProp,
   displayName,        // ← pass from ChildDashboard
   isParentViewing,    // ← pass from ChildDashboard
+  childId,
 }) {
   const navigate = useNavigate();
   const { childProfile, apiFetch, childToken, parentToken } = useAuth();
@@ -339,21 +340,7 @@ useEffect(() => {
     else navigate("/child-dashboard");
   }, [navigate, onViewAnalytics]);
 
-  const handleViewAIFeedback = useCallback(() => {
-    if (!attemptId) return;
-    if (onViewAIFeedback) { onViewAIFeedback(attemptId, result?.subject, quizName); return; }
-    const { childProfile: cp } = authRef.current;
-    const state = {
-      r: attemptId,
-      username: cp?.username || null,
-      subject: result?.subject || null,
-      quiz_name: quizName || null,
-    };
-    navigate(
-      isWriting ? "/writing-feedback/result" : "/NonWritingLookupQuizResults/results",
-      { state }
-    );
-  }, [attemptId, result?.subject, quizName, isWriting, onViewAIFeedback, navigate]);
+
 
 
   // Navigates to the full Dashboard.jsx for this attempt
@@ -435,19 +422,34 @@ useEffect(() => {
       <QuizHeader
         activeTab={activeTab}
         onTabChange={(tabId) => {
-          setActiveTab(tabId);
+          if (tabId === 0) {
+            setActiveTab(0);
+            return;
+          }
+          quizName={quizName}
+          displayName={displayName}
+          // Tab 1 — navigate directly, no iframe
+          if (!attemptId) return;
+          const cp = authRef.current?.childProfile;
+          const state = {
+            r:         attemptId,
+            username:  cp?.username || null,
+            subject:   result?.subject || null,
+            quiz_name: quizName || null,
+            fromQuizResult: true,   // ← signals the result page to show a back button
+          };
+          if (onViewAIFeedback) {
+            onViewAIFeedback(attemptId, result?.subject, quizName);
+          } else {
+            navigate(
+              isWriting ? "/writing-feedback/result" : "/NonWritingLookupQuizResults/results",
+              { state }
+            );
+          }
         }}
-        quizName={quizName}
-        displayName={resolvedName}
-        isParentViewing={isParentViewing}
-        onBack={() => {
-          if (onClose) onClose();
-          else navigate("/child-dashboard");
-        }}
-        onBackToParent={() => {
-          navigate("/parent-dashboard", {replace: true});
 
-        }}
+
+
       />
 
       {/* ── TAB 1: RESULTS ── */}
@@ -489,9 +491,15 @@ useEffect(() => {
             <TopicBreakdown entries={topicEntries}/>
 
 
-
             {/* Action buttons */}
             <div className="space-y-3 pt-2">
+              {/* AI Feedback — just switches to the tab, no navigate away */}
+              <ActionBtn
+                onClick={() => onTabChange(1)}
+                icon={<IcAI/>}
+                label="View AI Feedback"
+                variant="indigo"
+              />
               {!isWriting && <ActionBtn onClick={() => setShowAnswers(true)} icon={<IcAnswers/>} label="View My Answers"/>}
               {onRetake && <ActionBtn onClick={onRetake} icon={<IcRetake/>} label="Retake Quiz"/>}
             </div>
@@ -503,52 +511,6 @@ useEffect(() => {
 
     {/* ── TAB 1: AI FEEDBACK (non-writing — embedded iframe) ── */}
 
-{activeTab === 1 && !isWriting && attemptId && (() => {
-        const cp = authRef.current?.childProfile;
-        const s  = subscriptionStatus || childStatusProp || cp?.status || "trial";
-        const p  = new URLSearchParams({ r: attemptId });
-        if (cp?.username)    p.set("username",  cp.username);
-        if (result?.subject) p.set("subject",   result.subject);
-        if (quizName)        p.set("quiz_name", quizName);
-        // Same URL the old handleViewDashboard was navigating to — just embedded now
-      const iframeSrc = `${window.location.origin}/#/NonWritingLookupQuizResults/results?${p.toString()}`;        
-        return (
-          <iframe
-            key={iframeSrc}
-            src={iframeSrc}
-            title="AI Feedback"
-            style={{
-              width:   "100%",
-              height:  "calc(100vh - 58px)",
-              border:  "none",
-              display: "block",
-            }}
-          />
-        );
-      })()}
- 
-      {/* TAB 1 — AI FEEDBACK for writing quizzes (opens full writing feedback page) */}
-      {activeTab === 1 && isWriting && attemptId && (() => {
-        const cp = authRef.current?.childProfile;
-        const s  = subscriptionStatus || childStatusProp || cp?.status || "trial";
-        const p  = new URLSearchParams({ r: attemptId });
-        if (cp?.username) p.set("username",  cp.username);
-        if (quizName)     p.set("quiz_name", quizName);
-        const iframeSrc = `${window.location.origin}/#/writing-feedback/result?${p.toString()}`;
-        return (
-          <iframe
-            key={iframeSrc}
-            src={iframeSrc}
-            title="Writing AI Feedback"
-            style={{
-              width:   "100%",
-              height:  "calc(100vh - 58px)",
-              border:  "none",
-              display: "block",
-            }}
-          />
-        );
-      })()}
  
       {showAnswers && !isWriting && (
         <AnswersModal

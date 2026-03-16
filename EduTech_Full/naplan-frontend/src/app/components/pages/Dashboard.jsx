@@ -40,6 +40,8 @@ import {
 const unwrapDate = (d) =>
   d && typeof d === "object" && "$date" in d ? d.$date : d;
 
+const fromQuizResult = location.state?.fromQuizResult === true;
+
 const formatDuration = (seconds) => {
   const secs = Number(seconds);
   if (!Number.isFinite(secs) || secs <= 0) return "—";
@@ -222,6 +224,7 @@ export default function Dashboard() {
   const [showTourModal, setShowTourModal] = useState(false);
   const [selectedAttemptOverride, setSelectedAttemptOverride] = useState(null);
   const [aiPending, setAiPending] = useState(false);
+
 
   const isParentViewing = !childToken && !!parentToken;
    const [childStatus, setChildStatus] = useState("trial");
@@ -429,6 +432,7 @@ export default function Dashboard() {
     return <ResultNotFound errorMessage={loadError} onGoBack={() => navigate(-1)} />;
   }
 
+
   const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
   const duration = formatDuration(selectedResult?.duration);
   const attemptsUsed = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
@@ -439,15 +443,33 @@ export default function Dashboard() {
   const resultStatus = getResultStatus(percentage);
   const quizName = selectedResult?.quiz_name || "Quiz";
   const totalAttempts = quizAttempts.length;
+  const fromQuizResult = location.state?.fromQuizResult === true;
 
-  return (
-    <TrialGateOverlay
-      isTrialUser={childStatus === "trial"}
-      preset="nonwriting"
-      viewerType={viewerType}
-      yearLevel={yearLevel}
-    >
-      <div className="relative min-h-screen bg-gray-100">
+return (
+  <TrialGateOverlay
+    isTrialUser={childStatus === "trial"}
+    preset="nonwriting"
+    viewerType={viewerType}
+    yearLevel={yearLevel}
+  >
+    <div className="relative min-h-screen bg-gray-100">
+
+      {/* ── Back to Results button — only shows when coming from QuizResult ── */}
+      {fromQuizResult && (
+        <div className="px-6 pt-3">
+          <button
+            onClick={() => navigate(-1)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
+                       bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm transition-all"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Results
+          </button>
+        </div>
+      )}
+       
         {aiPending && <AiPendingOverlay aiMessage={latestResult?.ai?.message} />}
         <DashboardTour isTourActive={isTourActive} setIsTourActive={setIsTourActive} />
         <DashboardTourModal
