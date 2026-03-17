@@ -112,7 +112,8 @@ function ShortAnswerEditor({ form, setForm }) {
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const resolvedShuffle = question.shuffle_options != null ? question.shuffle_options : (quizRandomizeOptions || false);
   const [form, setForm] = useState({
-    text: question.text || "", type: question.type || "radio_button", points: question.points || 1,
+    text: question.text || question.question_text || "",
+   type: question.type || "radio_button", points: question.points || 1,
     category: question.categories?.[0]?.name || "", image_url: question.image_url || "",
     image_size: question.image_size || "medium", image_width: question.image_width || null, image_height: question.image_height || null,
     explanation: question.explanation || "", shuffle_options: resolvedShuffle,

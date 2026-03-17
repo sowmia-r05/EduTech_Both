@@ -1,22 +1,16 @@
 /**
- * QuizDetailPage.jsx  (v9 — FILE UPLOAD FOR VOICE/VIDEO)
+ * QuizDetailPage.jsx  (v11 — ALL BUG FIXES)
  *
- *   ✅ Inline "Add Question" — create new questions directly on this page
- *   ✅ Shuffle cascade: quiz-level master → per-question override
- *   ✅ Per-question: voice_url, video_url, image resize (width + height)
- *   ✅ Simplified settings, no quiz-level voice/video
- *   ✅ Collapsible image resize widget (no more endless scrolling)
- *   ✅ Student writing area preview when free_text is selected
- *   ✅ File upload buttons for Audio (.mp3/.wav/.ogg), Video (.mp4/.webm/.mov), and Images
- *   ✅ FIX: Uses ADMIN_PATH constant instead of hardcoded "/admin"
- *   ✅ FIX: adminFetch includes credentials: "include" for cookie auth
- *
- * Place in: src/app/components/admin/QuizDetailPage.jsx
+ *   ✅ BUG 1 FIX: question.text || question.question_text (field mismatch)
+ *   ✅ BUG 5 FIX: Settings form stale state — resetSettingsForm helper
+ *   ✅ BUG 7 FIX: Correct answer tick missing for XLSX questions
+ *   ✅ BUG 7 FIX: Grid layout fixed — Image field outside grid
+ *   ✅ sub_topic field added to both forms + card display
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ADMIN_PATH } from "@/app/App";          // ✅ FIX 1: Import ADMIN_PATH
+import { ADMIN_PATH } from "@/app/App";
 import QuizSettingsExtras from "./QuizSettingsExtras";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import FreeTextPreview from "./FreeTextPreview";
@@ -24,7 +18,6 @@ import DownloadExcelButton from "./DownloadExcelButton";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
-// ✅ FIX 2: Added credentials: "include" so the httpOnly cookie is sent
 function adminFetch(url, opts = {}) {
   const token = localStorage.getItem("admin_token");
   return fetch(`${API}${url}`, {
@@ -111,7 +104,7 @@ function OptionsEditor({ form, setForm }) {
             <span className="text-xs text-slate-500 w-4">{String.fromCharCode(65 + i)}</span>
             <input type="text" value={opt.text} onChange={(e) => updateOption(i, "text", e.target.value)} placeholder="Option text..."
               className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
-              {form.type === "picture_choice" && (
+            {form.type === "picture_choice" && (
               <>
                 <input type="text" value={opt.image_url || ""} onChange={(e) => updateOption(i, "image_url", e.target.value)} placeholder="Image URL..."
                   className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
@@ -126,7 +119,7 @@ function OptionsEditor({ form, setForm }) {
   );
 }
 
-/* ── Shared: Per-question settings block (with file upload) ── */
+/* ── Shared: Per-question settings block ── */
 function QuestionSettingsBlock({ form, setForm, quizRandomizeOptions }) {
   return (
     <div className="pt-3 border-t border-slate-700 space-y-3">
@@ -208,7 +201,6 @@ function ShortAnswerEditor({ form, setForm }) {
         Case-sensitive grading
         <span className="text-[10px] text-slate-500">(default: ignores case)</span>
       </label>
-      {/* Student preview */}
       <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-3">
         <p className="text-[10px] text-slate-500 mb-2 uppercase tracking-wider">Student View Preview:</p>
         <div className="bg-white rounded-lg px-4 py-3 border border-slate-300">
@@ -227,14 +219,34 @@ function ShortAnswerEditor({ form, setForm }) {
    ═══════════════════════════════════════ */
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const resolvedShuffle = question.shuffle_options != null ? question.shuffle_options : (quizRandomizeOptions || false);
+
+  // ✅ BUG 7 FIX: recalculate correct from correct_answer labels for XLSX questions
+  const correctLabelsInit = (question.correct_answer || "")
+    .toUpperCase().split(",").map(s => s.trim()).filter(Boolean);
+
   const [form, setForm] = useState({
-    text: question.text || "", type: question.type || "radio_button", points: question.points || 1,
-    category: question.categories?.[0]?.name || "", image_url: question.image_url || "",
-    image_size: question.image_size || "medium", image_width: question.image_width || null, image_height: question.image_height || null,
-    explanation: question.explanation || "", shuffle_options: resolvedShuffle,
-    voice_url: question.voice_url || "", video_url: question.video_url || "",
-    correct_answer: question.correct_answer || "", case_sensitive: question.case_sensitive || false,
-    options: (question.options || []).map((o) => ({ option_id: o.option_id, text: o.text || "", image_url: o.image_url || "", correct: o.correct || false })),
+    text: question.text || question.question_text || "",
+    type: question.type || "radio_button",
+    points: question.points || 1,
+    category: question.categories?.[0]?.name || "",
+    image_url: question.image_url || "",
+    image_size: question.image_size || "medium",
+    image_width: question.image_width || null,
+    image_height: question.image_height || null,
+    explanation: question.explanation || "",
+    shuffle_options: resolvedShuffle,
+    voice_url: question.voice_url || "",
+    video_url: question.video_url || "",
+    correct_answer: question.correct_answer || "",
+    case_sensitive: question.case_sensitive || false,
+    sub_topic: question.sub_topic || "",
+    // ✅ BUG 7 FIX: support both boolean correct AND string label from XLSX
+    options: (question.options || []).map((o, idx) => ({
+      option_id: o.option_id,
+      text: o.text || "",
+      image_url: o.image_url || "",
+      correct: o.correct === true || correctLabelsInit.includes(String.fromCharCode(65 + idx)),
+    })),
   });
   const [saving, setSaving] = useState(false);
 
@@ -246,6 +258,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       explanation: form.explanation, shuffle_options: form.shuffle_options,
       voice_url: form.voice_url || null, video_url: form.video_url || null,
       correct_answer: form.correct_answer || null, case_sensitive: form.case_sensitive,
+      sub_topic: form.sub_topic || null,
       options: form.options,
     });
     setSaving(false);
@@ -268,13 +281,18 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           </div>
         )}
       </div>
-      <div className="grid grid-cols-3 gap-3">
+
+      {/* ✅ BUG 7 FIX: grid-cols-4, Image field is OUTSIDE the grid */}
+      <div className="grid grid-cols-4 gap-3">
         <div>
           <label className="block text-xs text-slate-400 mb-1">Type</label>
           <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
-            <option value="radio_button">Single Choice</option><option value="checkbox">Multiple Choice</option>
-            <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text</option><option value="short_answer">Short Answer</option>
+            <option value="radio_button">Single Choice</option>
+            <option value="checkbox">Multiple Choice</option>
+            <option value="picture_choice">Picture Choice</option>
+            <option value="free_text">Free Text</option>
+            <option value="short_answer">Short Answer</option>
           </select>
         </div>
         <div>
@@ -287,7 +305,15 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           <input type="text" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
         </div>
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Sub-Topic</label>
+          <input type="text" value={form.sub_topic} onChange={(e) => setForm((f) => ({ ...f, sub_topic: e.target.value }))}
+            placeholder="e.g. Addition Facts"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+        </div>
       </div>
+
+      {/* ✅ Image field is OUTSIDE the grid */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">Image (paste URL or upload)</label>
         <div className="flex items-center gap-2">
@@ -302,6 +328,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           <a href={form.image_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-red-400 hover:text-red-300">📄 PDF — click to preview</a>
         )}
       </div>
+
       <CollapsibleImageResize form={form} setForm={setForm} />
       <div>
         <label className="block text-xs text-slate-400 mb-1">Explanation</label>
@@ -333,6 +360,7 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
     explanation: "", shuffle_options: quizRandomizeOptions || false,
     voice_url: "", video_url: "",
     correct_answer: "", case_sensitive: false,
+    sub_topic: "",
     options: [
       { option_id: "", text: "", image_url: "", correct: false },
       { option_id: "", text: "", image_url: "", correct: false },
@@ -361,6 +389,7 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
           explanation: form.explanation.trim() || null, shuffle_options: form.shuffle_options,
           voice_url: form.voice_url.trim() || null, video_url: form.video_url.trim() || null,
           correct_answer: form.correct_answer.trim() || null, case_sensitive: form.case_sensitive,
+          sub_topic: form.sub_topic.trim() || null,
           options: (form.type === "free_text" || form.type === "short_answer") ? [] : form.options.filter((o) => o.text.trim()).map((o) => ({ text: o.text.trim(), image_url: o.image_url?.trim() || null, correct: o.correct })),
         }),
       });
@@ -387,7 +416,8 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
           </div>
         )}
       </div>
-      <div className="grid grid-cols-3 gap-3">
+
+      <div className="grid grid-cols-4 gap-3">
         <div>
           <label className="block text-xs text-slate-400 mb-1">Type *</label>
           <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
@@ -406,7 +436,14 @@ function AddQuestionForm({ quizId, quizRandomizeOptions, onSuccess, onCancel }) 
           <input type="text" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. Number patterns"
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
         </div>
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Sub-Topic</label>
+          <input type="text" value={form.sub_topic} onChange={(e) => setForm((f) => ({ ...f, sub_topic: e.target.value }))}
+            placeholder="e.g. Addition Facts"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+        </div>
       </div>
+
       <div>
         <label className="block text-xs text-slate-400 mb-1">Image (paste URL or upload)</label>
         <div className="flex items-center gap-2">
@@ -457,24 +494,33 @@ export default function QuizDetailPage() {
   const [settingsForm, setSettingsForm] = useState({});
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // ✅ BUG 5 FIX: reusable reset helper — declared BEFORE fetchDetail
+  const resetSettingsForm = useCallback((data) => {
+    setSettingsForm({
+      quiz_name:           data.quiz_name || "",
+      time_limit_minutes:  data.time_limit_minutes ?? "",
+      difficulty:          data.difficulty || "",
+      is_active:           data.is_active !== false,
+      is_trial:            data.is_trial || false,
+      randomize_questions: data.randomize_questions || false,
+      randomize_options:   data.randomize_options || false,
+      max_attempts:        data.max_attempts ?? null,
+    });
+  }, []);
+
   const fetchDetail = useCallback(async () => {
     try {
       setLoading(true);
       const res = await adminFetch(`/api/admin/quizzes/${quizId}`);
-      // ✅ FIX 3: Use ADMIN_PATH instead of hardcoded "/admin"
       if (res.status === 401 || res.status === 403) { navigate(ADMIN_PATH); return; }
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
-      setQuiz(data); setQuestions(data.questions || []);
-      setSettingsForm({
-        quiz_name: data.quiz_name || "", time_limit_minutes: data.time_limit_minutes ?? "",
-        difficulty: data.difficulty || "", is_active: data.is_active !== false, is_trial: data.is_trial || false,
-        randomize_questions: data.randomize_questions || false, randomize_options: data.randomize_options || false,
-        max_attempts: data.max_attempts ?? null,
-      });
+      setQuiz(data);
+      setQuestions(data.questions || []);
+      resetSettingsForm(data);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
-  }, [quizId, navigate]);
+  }, [quizId, navigate, resetSettingsForm]);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
 
@@ -502,8 +548,11 @@ export default function QuizDetailPage() {
         body: JSON.stringify({
           quiz_name: settingsForm.quiz_name,
           time_limit_minutes: settingsForm.time_limit_minutes === "" ? null : Number(settingsForm.time_limit_minutes),
-          difficulty: settingsForm.difficulty || null, is_active: settingsForm.is_active, is_trial: settingsForm.is_trial,
-          randomize_questions: settingsForm.randomize_questions, randomize_options: settingsForm.randomize_options,
+          difficulty: settingsForm.difficulty || null,
+          is_active: settingsForm.is_active,
+          is_trial: settingsForm.is_trial,
+          randomize_questions: settingsForm.randomize_questions,
+          randomize_options: settingsForm.randomize_options,
           max_attempts: settingsForm.max_attempts,
         }),
       });
@@ -523,7 +572,6 @@ export default function QuizDetailPage() {
     <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
       <div className="text-center">
         <p className="text-lg">Quiz not found</p>
-        {/* ✅ FIX 4: Use ADMIN_PATH instead of hardcoded "/admin/dashboard" */}
         <button onClick={() => navigate(`${ADMIN_PATH}/dashboard`)} className="mt-3 text-indigo-400 hover:text-indigo-300 text-sm">← Back</button>
       </div>
     </div>
@@ -535,7 +583,6 @@ export default function QuizDetailPage() {
       <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-xl border-b border-slate-800">
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {/* ✅ FIX 4: Use ADMIN_PATH instead of hardcoded "/admin/dashboard" */}
             <button onClick={() => navigate(`${ADMIN_PATH}/dashboard`)} className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
               Back
@@ -555,14 +602,18 @@ export default function QuizDetailPage() {
               className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition">
               + Add Question
             </button>
-            <button onClick={() => setShowSettings(!showSettings)}
+            <button
+              onClick={() => {
+                if (!showSettings && quiz) resetSettingsForm(quiz);
+                setShowSettings(!showSettings);
+              }}
               className={`px-3 py-1.5 text-xs rounded-lg transition ${showSettings ? "bg-indigo-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-slate-300"}`}>
               ⚙️ Settings
             </button>
             <DownloadExcelButton
-                quizId={quiz?.quiz_id || quiz?._id}
-                quizName={quiz?.quiz_name}
-              />
+              quizId={quiz?.quiz_id || quiz?._id}
+              quizName={quiz?.quiz_name}
+            />
           </div>
         </div>
 
@@ -598,7 +649,11 @@ export default function QuizDetailPage() {
                   <input type="checkbox" checked={settingsForm.is_trial} onChange={(e) => setSettingsForm((f) => ({ ...f, is_trial: e.target.checked }))} className="rounded border-slate-600 bg-slate-800" /> Trial (free)
                 </label>
                 <div className="flex-1" />
-                <button onClick={() => setShowSettings(false)} className="px-3 py-1 text-xs text-slate-400 hover:text-white">Cancel</button>
+                <button
+                  onClick={() => { setShowSettings(false); if (quiz) resetSettingsForm(quiz); }}
+                  className="px-3 py-1 text-xs text-slate-400 hover:text-white">
+                  Cancel
+                </button>
                 <button onClick={handleSaveSettings} disabled={savingSettings}
                   className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg">
                   {savingSettings ? "Saving..." : "Save Settings"}
@@ -642,6 +697,7 @@ export default function QuizDetailPage() {
               ...(q.image_height ? { height: `${q.image_height}px`, objectFit: "contain" } : {}),
             } : undefined;
             const effectiveShuffle = q.shuffle_options != null ? q.shuffle_options : (quiz.randomize_options || false);
+            const questionText = q.text || q.question_text || "";
 
             return (
               <div key={q.question_id} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden group hover:border-slate-700 transition">
@@ -651,6 +707,11 @@ export default function QuizDetailPage() {
                     <TypeBadge type={q.type} />
                     <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
                     {q.categories?.[0]?.name && <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>}
+                    {q.sub_topic && (
+                      <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">
+                        📚 {q.sub_topic}
+                      </span>
+                    )}
                     {effectiveShuffle && <span className="text-[10px] px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-medium">🔀 Shuffle</span>}
                     {q.voice_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">🔊 Audio</span>}
                     {q.video_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20 font-medium">🎬 Video</span>}
@@ -661,11 +722,10 @@ export default function QuizDetailPage() {
                   </div>
                 </div>
                 <div className="px-5 py-4">
-                  <HtmlContent html={q.text} className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
-                  {q.image_url && !q.text?.includes(q.image_url) && (
+                  <HtmlContent html={questionText} className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
+                  {q.image_url && !questionText.includes(q.image_url) && (
                     <div className="mt-3"><img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} /></div>
                   )}
-                  {/* Audio & Video preview players */}
                   {(q.voice_url || q.video_url) && (
                     <div className="mt-3 ml-6 space-y-2">
                       {q.voice_url && (
@@ -682,8 +742,7 @@ export default function QuizDetailPage() {
                               src={`https://www.youtube.com/embed/${q.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)?.[1]}`}
                               className="w-full aspect-video max-h-48 rounded-lg"
                               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                              allowFullScreen
-                              title="Quiz Video"
+                              allowFullScreen title="Quiz Video"
                             />
                           ) : (
                             <video src={q.video_url} controls preload="metadata" className="w-full max-h-48 rounded-lg" />
@@ -696,10 +755,14 @@ export default function QuizDetailPage() {
                     <div className="space-y-1.5 mt-4 ml-6">
                       {q.options.map((opt, oi) => {
                         const letter = String.fromCharCode(65 + oi);
+                        // ✅ BUG 7 FIX: fallback to correct_answer string label for XLSX questions
+                        const correctLabels = (q.correct_answer || "")
+                          .toUpperCase().split(",").map(s => s.trim()).filter(Boolean);
+                        const isCorrect = opt.correct === true || correctLabels.includes(letter);
                         return (
-                          <div key={opt.option_id || oi} className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${opt.correct ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-slate-800/50"}`}>
-                            <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"}`}>
-                              {opt.correct ? "✓" : letter}
+                          <div key={opt.option_id || oi} className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${isCorrect ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-slate-800/50"}`}>
+                            <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${isCorrect ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"}`}>
+                              {isCorrect ? "✓" : letter}
                             </span>
                             <span className="text-slate-300 text-sm">{opt.text}</span>
                             {opt.image_url && <img src={opt.image_url} alt={`Option ${letter}`} className="w-16 h-16 rounded-lg object-cover border border-slate-700" />}
