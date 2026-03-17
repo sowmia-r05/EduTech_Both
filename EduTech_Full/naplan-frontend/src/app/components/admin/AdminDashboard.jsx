@@ -417,19 +417,30 @@ export default function AdminDashboard() {
   }, [navigate]);
 
   const fetchBundles = useCallback(async () => {
-    try {
-      setBundlesLoading(true);
-      const res = await adminFetch("/api/admin/bundles");
-      if (res.ok) {
-        const data = await res.json();
-        setBundles(Array.isArray(data) ? data : []);
-      }
-    } catch (err) {
-      console.error("Bundles:", err);
-    } finally {
-      setBundlesLoading(false);
+  try {
+    setBundlesLoading(true);
+    const res = await adminFetch("/api/admin/bundles");
+
+    // ✅ Same 401 handling as fetchQuizzes — redirect to login if token expired
+    if (res.status === 401 || res.status === 403) {
+      localStorage.removeItem("admin_token");
+      localStorage.removeItem("admin_info");
+      navigate(ADMIN_PATH);
+      return;
     }
-  }, []);
+
+    if (res.ok) {
+      const data = await res.json();
+      setBundles(Array.isArray(data) ? data : []);
+    } else {
+      console.error("Failed to load bundles:", res.status);
+    }
+  } catch (err) {
+    console.error("Bundles:", err);
+  } finally {
+    setBundlesLoading(false);
+  }
+}, [navigate]); // ✅ add navigate to deps
 
   useEffect(() => { fetchQuizzes(); fetchBundles(); }, [fetchQuizzes, fetchBundles]);
 
