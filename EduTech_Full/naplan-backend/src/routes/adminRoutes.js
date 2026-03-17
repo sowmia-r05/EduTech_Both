@@ -552,32 +552,76 @@ router.get("/quizzes/:quizId", async (req, res) => {
 });
 
 // PATCH /api/admin/quizzes/:quizId — update quiz settings
-router.patch("/quizzes/:quizId", async (req, res) => {
+// PATCH /api/admin/questions/:questionId/verify
+router.patch("/questions/:questionId/verify", async (req, res) => {
   try {
     await connectDB();
-    // ✅ CORRECT — these are quiz fields
-    const allowedFields = [
-      "quiz_name", "year_level", "subject", "sub_topic", "tier", "difficulty",
-      "time_limit_minutes", "set_number", "is_active", "is_trial",
-      "randomize_questions", "randomize_options", "voice_url", "video_url",
-      "max_attempts", "passing_score",
-    ];
-    const updates = {};
-    for (const f of allowedFields) {
-      if (req.body[f] !== undefined) updates[f] = req.body[f];
-    }
-    if (Object.keys(updates).length === 0)
-      return res.status(400).json({ error: "No valid fields to update" });
+    const { status, rejection_reason } = req.body;
 
-    const quiz = await Quiz.findOneAndUpdate(
-      { quiz_id: req.params.quizId },
-      { $set: updates },
+    if (!["approved", "rejected", "pending"].includes(status)) {
+      return res.status(400).json({ error: "status must be 'approved', 'rejected', or 'pending'" });
+    }
+    if (status === "rejected" && !rejection_reason?.trim()) {
+      return res.status(400).json({ error: "rejection_reason is required when rejecting" });
+    }
+
+    const update = {
+      "tutor_verification.status": status,
+      "tutor_verification.verified_by": req.admin.email,
+      "tutor_verification.verified_at": new Date(),
+      "tutor_verification.rejection_reason": status === "rejected" ? rejection_reason.trim() : null,
+    };
+
+    const question = await Question.findOneAndUpdate(
+      { question_id: req.params.questionId },
+      { $set: update },
       { new: true }
     ).lean();
 
-    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
-    return res.json(quiz);
+    if (!question) return res.status(404).json({ error: "Question not found" });
+    return res.json({ ok: true, question });
   } catch (err) {
+    console.error("Verify question error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/verification-summary
+router.get("/verification-summary", async (req, res) => {
+  try {
+    await connectDB();
+    const stats = await Question.aggregate([
+      {
+        $group: {
+          _id: {
+            quiz_id: { $arrayElemAt: ["$quiz_ids", 0] },
+            status: "$tutor_verification.status",
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $group: {
+          _id: "$_id.quiz_id",
+          statuses: { $push: { status: "$_id.status", count: "$count" } },
+          total: { $sum: "$count" },
+        },
+      },
+    ]);
+
+    const summary = {};
+    for (const row of stats) {
+      if (!row._id) continue;
+      const entry = { quiz_id: row._id, total: row.total, approved: 0, rejected: 0, pending: 0 };
+      for (const s of row.statuses) {
+        entry[s.status || "pending"] = s.count;
+      }
+      summary[row._id] = entry;
+    }
+
+    return res.json({ ok: true, summary });
+  } catch (err) {
+    console.error("Verification summary error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -679,37 +723,76 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
 
 // PATCH /api/admin/questions/:questionId — edit a question
 // PATCH /api/admin/questions/:questionId — edit a question
-router.patch("/questions/:questionId", async (req, res) => {
+// PATCH /api/admin/questions/:questionId/verify
+router.patch("/questions/:questionId/verify", async (req, res) => {
   try {
     await connectDB();
-    const allowedFields = [
-      "text", "question_text", "type", "options", "correct_answer",
-      "case_sensitive", "points", "categories", "category", "sub_topic", "image_url",
-      "image_size", "image_width", "image_height", "explanation",
-      "shuffle_options", "voice_url", "video_url",
-    ];
-    const updates = {};  // ← declare FIRST
-    for (const f of allowedFields) {
-      if (req.body[f] !== undefined) {
-        if (f === "category") {
-          updates["categories"] = req.body.category ? [{ name: req.body.category }] : [];
-        } else if (f === "question_text") {
-          updates["text"] = req.body.question_text; // ← alias fix
-        } else {
-          updates[f] = req.body[f];
-        }
-      }
+    const { status, rejection_reason } = req.body;
+
+    if (!["approved", "rejected", "pending"].includes(status)) {
+      return res.status(400).json({ error: "status must be 'approved', 'rejected', or 'pending'" });
     }
+    if (status === "rejected" && !rejection_reason?.trim()) {
+      return res.status(400).json({ error: "rejection_reason is required when rejecting" });
+    }
+
+    const update = {
+      "tutor_verification.status": status,
+      "tutor_verification.verified_by": req.admin.email,
+      "tutor_verification.verified_at": new Date(),
+      "tutor_verification.rejection_reason": status === "rejected" ? rejection_reason.trim() : null,
+    };
 
     const question = await Question.findOneAndUpdate(
       { question_id: req.params.questionId },
-      { $set: updates },
+      { $set: update },
       { new: true }
     ).lean();
 
     if (!question) return res.status(404).json({ error: "Question not found" });
-    return res.json(question);
+    return res.json({ ok: true, question });
   } catch (err) {
+    console.error("Verify question error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/verification-summary
+router.get("/verification-summary", async (req, res) => {
+  try {
+    await connectDB();
+    const stats = await Question.aggregate([
+      {
+        $group: {
+          _id: {
+            quiz_id: { $arrayElemAt: ["$quiz_ids", 0] },
+            status: "$tutor_verification.status",
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $group: {
+          _id: "$_id.quiz_id",
+          statuses: { $push: { status: "$_id.status", count: "$count" } },
+          total: { $sum: "$count" },
+        },
+      },
+    ]);
+
+    const summary = {};
+    for (const row of stats) {
+      if (!row._id) continue;
+      const entry = { quiz_id: row._id, total: row.total, approved: 0, rejected: 0, pending: 0 };
+      for (const s of row.statuses) {
+        entry[s.status || "pending"] = s.count;
+      }
+      summary[row._id] = entry;
+    }
+
+    return res.json({ ok: true, summary });
+  } catch (err) {
+    console.error("Verification summary error:", err);
     return res.status(500).json({ error: err.message });
   }
 });

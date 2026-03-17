@@ -1,11 +1,10 @@
 /**
- * models/admin.js
+ * models/admin.js  (v2 — TUTOR ROLE)
  *
- * Admin user model with email + password authentication.
- * Stored in MongoDB — completely separate from Parent/Child auth.
- *
- * To seed your first admin, run:
- *   node scripts/seedAdmin.js
+ * CHANGES:
+ *   ✅ Added "tutor" to role enum
+ *     Tutors can log in via the same admin login page but only have
+ *     access to question verification endpoints.
  */
 
 const mongoose = require("mongoose");
@@ -33,14 +32,18 @@ const AdminSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["super_admin", "admin"],
+      enum: ["super_admin", "admin", "tutor"],
       default: "admin",
     },
     status: {
       type: String,
-      enum: ["active", "suspended"],
+      enum: ["active", "suspended", "pending"],
       default: "active",
     },
+    // Approval fields (used when status is pending)
+    approved_by: { type: String, default: null },
+    approved_at: { type: Date, default: null },
+
     last_login_at: { type: Date, default: null },
     login_count: { type: Number, default: 0 },
   },
@@ -52,7 +55,7 @@ const AdminSchema = new mongoose.Schema(
  */
 AdminSchema.pre("save", async function () {
   if (!this.isModified("password_hash")) return;
-  // ✅ Skip if already hashed (prevents double-hashing when we pre-hash in the route)
+  // Skip if already hashed
   if (
     this.password_hash.startsWith("$2b$") ||
     this.password_hash.startsWith("$2a$")
