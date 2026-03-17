@@ -73,14 +73,18 @@ async function authPost(path, data, token) {
     method: "POST",
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",    // ← ADD THIS LINE
+      "Content-Type": "application/json",
       Accept: "application/json",
       "Cache-Control": "no-cache",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(data),
   });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
+  return body; 
 }
+
 
 
 
