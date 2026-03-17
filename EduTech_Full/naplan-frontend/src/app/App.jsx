@@ -23,7 +23,7 @@ import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin   from "@/app/components/admin/RequireAdmin";
 import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
 import Tutorlogin     from "@/app/components/admin/Tutorlogin";
-import Tutordashboard from "@/app/components/admin/Tutordashboard";
+import Tutordashboard from "@/app/components/admin/TutorDashboard";
 import RequireTutor   from "@/app/components/admin/RequireTutor";
 import { useAuth } from "@/app/context/AuthContext";
 import IdleTimeoutProvider from "./components/auth/IdleTimeoutProvider";
