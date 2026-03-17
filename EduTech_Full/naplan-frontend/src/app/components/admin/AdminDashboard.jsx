@@ -1,18 +1,16 @@
-// AdminDashboard.jsx — v5 FIXES
+// AdminDashboard.jsx — v6 VERIFICATION SUMMARY
 //
-// FIXES IN THIS VERSION:
-//   ✅ FIX 1: DifficultyBadge now displayed on every quiz row in the table
-//   ✅ FIX 2: QuizSettingsModal onChange handles functional updaters from QuizSettingsExtras
-//             (previously: spreading a function = silent no-op, so Retakes/Shuffle never saved)
-//   ✅ FIX 3: Removed duplicate Randomize Questions / Randomize Options checkboxes
-//             (were in BOTH QuizSettingsExtras AND the checkbox list below it)
-//   ✅ FIX 4: attempts_enabled added to form state so Allow Retakes toggle works
-//   ✅ FIX 5: View button uses quiz.quiz_id || quiz._id as fallback
+// CHANGES FROM v5:
+//   ✅ Added VerificationSummaryBadge component
+//   ✅ Added verificationSummary state + fetchVerificationSummary()
+//   ✅ Added "Verified" column to quiz table showing X✓ | Y✗ | Z⋯ per quiz
+//   ✅ fetchVerificationSummary called on mount alongside fetchQuizzes/fetchBundles
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import QuizUploader       from "./QuizUploader";
 import BundlesTab         from "./BundlesTab";
+import TutorsTab          from "./Tutorstab";
 import QuizSettingsExtras from "./QuizSettingsExtras";
 import ManualQuizCreator  from "./ManualQuizCreator";
 import { ADMIN_PATH }     from "@/app/App";
@@ -97,7 +95,7 @@ function InviteModal({ onClose }) {
 }
 
 // ════════════════════════════════════════════════════════
-// ✅ NEW: DIFFICULTY BADGE
+// DIFFICULTY BADGE
 // ════════════════════════════════════════════════════════
 function DifficultyBadge({ difficulty }) {
   if (!difficulty) return null;
@@ -133,6 +131,50 @@ function TierBadge({ tier }) {
 }
 
 // ════════════════════════════════════════════════════════
+// ✅ NEW: VERIFICATION SUMMARY BADGE
+// Shows per-quiz approved / rejected / pending counts in the table
+// ════════════════════════════════════════════════════════
+function VerificationSummaryBadge({ stats }) {
+  if (!stats) {
+    return <span className="text-[10px] text-slate-600">—</span>;
+  }
+
+  const { approved = 0, rejected = 0, pending = 0, total = 0 } = stats;
+  const allApproved = approved === total && total > 0;
+  const hasRejected = rejected > 0;
+
+  return (
+    <div className="flex items-center justify-center gap-1.5">
+      {/* Approved */}
+      <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold ${allApproved ? "text-emerald-400" : "text-slate-400"}`}>
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+        {approved}
+      </span>
+
+      <span className="text-slate-700 text-[10px]">/</span>
+      <span className="text-[11px] text-slate-500">{total}</span>
+
+      {/* Rejected count — only shown if any */}
+      {hasRejected && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-red-400 ml-0.5">
+          <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+          {rejected}
+        </span>
+      )}
+
+      {/* Green dot when fully verified */}
+      {allApproved && (
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-0.5" title="All questions verified" />
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
 // QUIZ SETTINGS MODAL
 // ════════════════════════════════════════════════════════
 function QuizSettingsModal({ quiz, onSave, onClose }) {
@@ -150,7 +192,6 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
     randomize_options:   quiz.randomize_options    || false,
     voice_url:           quiz.voice_url            || null,
     video_url:           quiz.video_url            || null,
-    // ✅ FIX 4: attempts_enabled so QuizSettingsExtras retake toggle works
     attempts_enabled:    quiz.attempts_enabled     ?? (quiz.max_attempts !== 1 && quiz.max_attempts != null),
     max_attempts:        quiz.max_attempts         ?? "",
     passing_score:       quiz.passing_score        ?? "",
@@ -166,7 +207,6 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
       const payload = {
         ...form,
         time_limit_minutes: form.time_limit_minutes === "" ? null : Number(form.time_limit_minutes),
-        // ✅ if retakes disabled, force max_attempts to 1
         max_attempts: form.attempts_enabled
           ? (form.max_attempts === "" ? null : Number(form.max_attempts))
           : 1,
@@ -187,16 +227,12 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
     }
   };
 
-  // ✅ FIX 2: onChange accepts both object AND functional updater
-  // QuizSettingsExtras calls onChange(fn) — previously the modal tried to
-  // spread a function (setForm(p => ({ ...p, ...fn }))) which is a no-op.
   const handleExtrasChange = (updater) => {
     setForm((prev) =>
       typeof updater === "function" ? updater(prev) : { ...prev, ...updater }
     );
   };
 
-  // Thin field updater for simple inputs
   const tf = (field) => (e) =>
     setForm((p) => ({
       ...p,
@@ -206,7 +242,6 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
           <div>
             <h2 className="text-base font-semibold text-white">Quiz Settings</h2>
@@ -219,11 +254,9 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
           </button>
         </div>
 
-        {/* Body */}
         <div className="px-6 py-5 overflow-y-auto space-y-4">
           {error && <p className="text-red-400 text-sm">{error}</p>}
 
-          {/* Quiz Name */}
           {[{ label: "Quiz Name", field: "quiz_name", type: "text" }].map(({ label, field, type }) => (
             <div key={field}>
               <label className="block text-xs font-medium text-slate-400 mb-1">{label}</label>
@@ -232,7 +265,6 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
             </div>
           ))}
 
-          {/* Grid selects */}
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: "Year Level", field: "year_level", opts: [3, 5, 7, 9] },
@@ -259,13 +291,8 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
             </div>
           </div>
 
-          {/* ✅ FIX 2+3: QuizSettingsExtras handles Retakes + Shuffle.
-              onChange uses handleExtrasChange which supports functional updaters.
-              The old duplicate Randomize Questions / Randomize Options checkboxes
-              have been REMOVED from the list below — they're already in QuizSettingsExtras. */}
           <QuizSettingsExtras form={form} onChange={handleExtrasChange} />
 
-          {/* Active + Trial only (Randomize removed — handled by QuizSettingsExtras above) */}
           <div className="space-y-2 pt-2">
             {[
               { label: "Active",              field: "is_active" },
@@ -280,7 +307,6 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Cancel</button>
           <button onClick={handleSave} disabled={saving}
@@ -377,23 +403,24 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
 export default function AdminDashboard() {
   const navigate = useNavigate();
 
-  const [tab,            setTab]            = useState("quizzes");
-  const [quizzes,        setQuizzes]        = useState([]);
-  const [bundles,        setBundles]        = useState([]);
-  const [loading,        setLoading]        = useState(true);
-  const [bundlesLoading, setBundlesLoading] = useState(true);
-  const [error,          setError]          = useState("");
-  const [search,         setSearch]         = useState("");
-  const [filterYear,     setFilterYear]     = useState("all");
-  const [deletingId,     setDeletingId]     = useState(null);
-  const [settingsQuiz,   setSettingsQuiz]   = useState(null);
-  const [bundleMapQuiz,  setBundleMapQuiz]  = useState(null);
-  const [showInvite,     setShowInvite]     = useState(false);
+  const [tab,                  setTab]                  = useState("quizzes");
+  const [quizzes,              setQuizzes]              = useState([]);
+  const [bundles,              setBundles]              = useState([]);
+  const [loading,              setLoading]              = useState(true);
+  const [bundlesLoading,       setBundlesLoading]       = useState(true);
+  const [error,                setError]                = useState("");
+  const [search,               setSearch]               = useState("");
+  const [filterYear,           setFilterYear]           = useState("all");
+  const [deletingId,           setDeletingId]           = useState(null);
+  const [settingsQuiz,         setSettingsQuiz]         = useState(null);
+  const [bundleMapQuiz,        setBundleMapQuiz]        = useState(null);
+  const [showInvite,           setShowInvite]           = useState(false);
+  // ✅ NEW: verification summary map { [quiz_id]: { approved, rejected, pending, total } }
+  const [verificationSummary,  setVerificationSummary]  = useState({});
 
   const adminInfo = (() => {
     try { return JSON.parse(localStorage.getItem("admin_info") || "{}"); } catch { return {}; }
   })();
-  const isSuperAdmin = adminInfo.role === "super_admin";
 
   const fetchQuizzes = useCallback(async () => {
     try {
@@ -417,32 +444,47 @@ export default function AdminDashboard() {
   }, [navigate]);
 
   const fetchBundles = useCallback(async () => {
-  try {
-    setBundlesLoading(true);
-    const res = await adminFetch("/api/admin/bundles");
-
-    // ✅ Same 401 handling as fetchQuizzes — redirect to login if token expired
-    if (res.status === 401 || res.status === 403) {
-      localStorage.removeItem("admin_token");
-      localStorage.removeItem("admin_info");
-      navigate(ADMIN_PATH);
-      return;
+    try {
+      setBundlesLoading(true);
+      const res = await adminFetch("/api/admin/bundles");
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem("admin_token");
+        localStorage.removeItem("admin_info");
+        navigate(ADMIN_PATH);
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        setBundles(Array.isArray(data) ? data : []);
+      } else {
+        console.error("Failed to load bundles:", res.status);
+      }
+    } catch (err) {
+      console.error("Bundles:", err);
+    } finally {
+      setBundlesLoading(false);
     }
+  }, [navigate]);
 
-    if (res.ok) {
-      const data = await res.json();
-      setBundles(Array.isArray(data) ? data : []);
-    } else {
-      console.error("Failed to load bundles:", res.status);
+  // ✅ NEW: fetch verification summary
+  const fetchVerificationSummary = useCallback(async () => {
+    try {
+      const res = await adminFetch("/api/admin/verification-summary");
+      if (res.ok) {
+        const data = await res.json();
+        setVerificationSummary(data.summary || {});
+      }
+    } catch (err) {
+      console.error("Verification summary:", err);
     }
-  } catch (err) {
-    console.error("Bundles:", err);
-  } finally {
-    setBundlesLoading(false);
-  }
-}, [navigate]); // ✅ add navigate to deps
+  }, []);
 
-  useEffect(() => { fetchQuizzes(); fetchBundles(); }, [fetchQuizzes, fetchBundles]);
+  // ✅ All three fetched on mount
+  useEffect(() => {
+    fetchQuizzes();
+    fetchBundles();
+    fetchVerificationSummary();
+  }, [fetchQuizzes, fetchBundles, fetchVerificationSummary]);
 
   const handleDelete = async (quizId, quizName) => {
     if (!confirm(`Delete "${quizName}"?\nThis cannot be undone.`)) return;
@@ -490,8 +532,7 @@ export default function AdminDashboard() {
   }), [quizzes, filterYear, search]);
 
   const totalQuizzes   = quizzes.length;
-  // ✅ FIX — only count explicitly true, not undefined
- const activeQuizzes = quizzes.filter((q) => q.is_active === true).length;
+  const activeQuizzes  = quizzes.filter((q) => q.is_active === true).length;
   const totalQuestions = quizzes.reduce((s, q) => s + (q.question_count || 0), 0);
   const trialQuizzes   = quizzes.filter((q) => q.is_trial).length;
   const activeBundles  = bundles.filter((b) => b.is_active).length;
@@ -512,7 +553,7 @@ export default function AdminDashboard() {
             <span className="text-base font-semibold text-white">Admin Dashboard</span>
           </div>
           <div className="flex items-center gap-3">
-            {isSuperAdmin && (
+            {adminInfo.role === "admin" && (
               <button onClick={() => setShowInvite(true)}
                 className="px-3 py-1.5 text-xs font-medium text-indigo-400 hover:text-white border border-indigo-500/30 hover:bg-indigo-600 rounded-lg transition">
                 + Invite Admin
@@ -549,6 +590,7 @@ export default function AdminDashboard() {
             { id: "upload",  label: "Upload Quiz"   },
             { id: "create",  label: "✚ Create Quiz" },
             { id: "bundles", label: "Bundles"        },
+            { id: "tutors",  label: "👤 Tutors"      },
           ].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -562,6 +604,7 @@ export default function AdminDashboard() {
         {tab === "upload"  && <QuizUploader onUploadSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
         {tab === "create"  && <ManualQuizCreator isOpen onClose={() => setTab("quizzes")} onSuccess={() => { setTab("quizzes"); fetchQuizzes(); }} />}
         {tab === "bundles" && <BundlesTab bundles={bundles} loading={bundlesLoading} quizzes={quizzes} onRefresh={fetchBundles} />}
+        {tab === "tutors"  && <TutorsTab quizzes={quizzes} verificationSummary={verificationSummary} />}
 
         {tab === "quizzes" && (
           <>
@@ -609,14 +652,15 @@ export default function AdminDashboard() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-800">
-                      <th className="px-5 py-3 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wide">Quiz</th>
+                      <th className="px-5 py-3 text-left   text-[11px] font-medium text-slate-500 uppercase tracking-wide">Quiz</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Yr</th>
-                      {/* ✅ FIX 1: New Difficulty column */}
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Difficulty</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Qs</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Status</th>
+                      {/* ✅ NEW: Verified column */}
+                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Verified</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Bundle</th>
-                      <th className="px-5 py-3 text-right text-[11px] font-medium text-slate-500 uppercase tracking-wide">Actions</th>
+                      <th className="px-5 py-3 text-right  text-[11px] font-medium text-slate-500 uppercase tracking-wide">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
@@ -625,6 +669,7 @@ export default function AdminDashboard() {
                       const qBundles = getBundlesForQuiz(quizId);
                       return (
                         <tr key={quizId} className="group hover:bg-slate-800/50 transition-colors">
+
                           {/* Quiz name + badges */}
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -639,7 +684,7 @@ export default function AdminDashboard() {
                           {/* Year */}
                           <td className="px-3 py-3 text-center text-slate-400">{quiz.year_level}</td>
 
-                          {/* ✅ FIX 1: Difficulty badge per quiz */}
+                          {/* Difficulty */}
                           <td className="px-3 py-3 text-center">
                             <DifficultyBadge difficulty={quiz.difficulty} />
                             {!quiz.difficulty && <span className="text-slate-600 text-[10px]">—</span>}
@@ -659,6 +704,11 @@ export default function AdminDashboard() {
                               }`}>
                               {quiz.is_active !== false ? "Active" : "Inactive"}
                             </button>
+                          </td>
+
+                          {/* ✅ NEW: Verification summary badge */}
+                          <td className="px-3 py-3 text-center">
+                            <VerificationSummaryBadge stats={verificationSummary[quizId]} />
                           </td>
 
                           {/* Bundle mapping */}

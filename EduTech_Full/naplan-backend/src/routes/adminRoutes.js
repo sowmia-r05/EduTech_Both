@@ -1,19 +1,10 @@
 /**
  * routes/adminRoutes.js
- *
- * FIXES IN THIS VERSION:
- *   ✅ FIX 1: Added GET /quizzes/:quizId route (was MISSING — caused View page to fail)
- *   ✅ FIX 2: Token expiry increased from 2h → 365d (cookie + JWT)
- *   ✅ FIX 3: Added POST/DELETE /bundles/:bundleId/quizzes for bundle mapping
- *   ✅ FIX 4: /quizzes/upload now sets correct: true/false on each option from correct_answer labels
- *   ✅ FIX 5: Added missing `const path = require("path")` (template route was crashing)
- *   ✅ FIX 6: Removed duplicate requireAdmin on /upload (already covered by router.use)
- *   ✅ FIX 7: Fixed sub_topic: { type, default } schema syntax used as value in Quiz.create()
  */
 
-const path             = require("path"); // ✅ FIX 5: was missing, caused /template to crash
+const path             = require("path");
 const { setAuthCookie, clearAuthCookie } = require("../utils/setCookies");
-const ADMIN_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000; // 365 days
+const ADMIN_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000;
 
 const express    = require("express");
 const jwt        = require("jsonwebtoken");
@@ -38,7 +29,7 @@ const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
 
 // ═══════════════════════════════════════════════════════════
-// Strict rate limiter for login — 5 attempts / 15 min per IP
+// Rate limiter for login
 // ═══════════════════════════════════════════════════════════
 const adminLoginLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
@@ -62,7 +53,7 @@ router.get("/check", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// PUBLIC: Admin Register — requires a valid invite token
+// PUBLIC: Admin Register
 // ═══════════════════════════════════════════════════════════
 router.post("/register", async (req, res) => {
   try {
@@ -74,26 +65,19 @@ router.post("/register", async (req, res) => {
     const password     = String(req.body?.password     || "");
 
     if (!invite_token) {
-      return res.status(403).json({
-        error: "A valid invite link is required to register. Ask an admin for an invite.",
-      });
+      return res.status(403).json({ error: "A valid invite link is required to register." });
     }
 
     const invite = await AdminInvite.findOne({
-      token:     invite_token,
-      used:      false,
-      expiresAt: { $gt: new Date() },
+      token: invite_token, used: false, expiresAt: { $gt: new Date() },
     });
 
     if (!invite) {
-      return res.status(403).json({
-        error: "This invite link is invalid or has expired. Ask an admin for a new one.",
-      });
+      return res.status(403).json({ error: "This invite link is invalid or has expired." });
     }
 
     if (!name)  return res.status(400).json({ error: "Name is required" });
     if (!email) return res.status(400).json({ error: "Email is required" });
-
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: "Valid email is required" });
     }
@@ -116,19 +100,12 @@ router.post("/register", async (req, res) => {
     await invite.save();
 
     const password_hash = await bcrypt.hash(password, 12);
-
-    const admin = await Admin.create({
-      email,
-      name,
-      password_hash,
-      role:   "admin",
-      status: "active",
-    });
+    const admin = await Admin.create({ email, name, password_hash, role: "admin", status: "active" });
 
     return res.status(201).json({
-      ok:      true,
+      ok: true,
       message: "Account created. You can now log in.",
-      admin:   { name: admin.name, email: admin.email, role: admin.role, status: admin.status },
+      admin: { name: admin.name, email: admin.email, role: admin.role, status: admin.status },
     });
   } catch (err) {
     console.error("Admin register error:", err);
@@ -151,20 +128,16 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
     }
 
     const admin = await Admin.findOne({ email });
-    if (!admin) {
-      return res.status(401).json({ error: "Invalid email or password" });
-    }
+    if (!admin) return res.status(401).json({ error: "Invalid email or password" });
 
     const isValid = await admin.comparePassword(password);
-    if (!isValid) {
-      return res.status(401).json({ error: "Invalid email or password" });
-    }
+    if (!isValid) return res.status(401).json({ error: "Invalid email or password" });
 
     if (admin.status === "pending") {
       return res.status(403).json({ error: "Your account is pending approval.", status: "pending" });
     }
     if (admin.status === "suspended") {
-      return res.status(403).json({ error: "Your account has been suspended. Contact another admin.", status: "suspended" });
+      return res.status(403).json({ error: "Your account has been suspended.", status: "suspended" });
     }
 
     admin.last_login_at = new Date();
@@ -180,7 +153,7 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
     setAuthCookie(res, "admin_token", token, ADMIN_COOKIE_MAX_AGE);
 
     return res.json({
-      ok:    true,
+      ok: true,
       token,
       admin: { name: admin.name, email: admin.email, role: admin.role, status: admin.status },
     });
@@ -194,7 +167,7 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
 // PUBLIC: Logout
 // ═══════════════════════════════════════════════════════════
 router.post("/logout", (req, res) => {
-  clearAuthCookie(res, "admin_token"); // ✅ already imported at top
+  clearAuthCookie(res, "admin_token");
   return res.json({ ok: true });
 });
 
@@ -235,6 +208,7 @@ router.get("/me", async (req, res) => {
 router.post("/invite", async (req, res) => {
   try {
     await connectDB();
+    if (req.admin.role !== "admin") return res.status(403).json({ error: "Admin access required" });
     const invite = await AdminInvite.create({ created_by: req.admin.email });
     const FRONTEND_URL = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
     const invite_url = `${FRONTEND_URL}/#/kai-ops-9281/register?invite=${invite.token}`;
@@ -284,7 +258,6 @@ router.get("/admins", async (req, res) => {
       .lean();
     return res.json(admins);
   } catch (err) {
-    console.error("List admins error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -314,7 +287,7 @@ router.patch("/admins/:adminId", async (req, res) => {
     switch (action) {
       case "approve":
         if (admin.status !== "pending") return res.status(400).json({ error: "Admin is not pending" });
-        admin.status      = "active";
+        admin.status = "active";
         admin.approved_by = req.admin.email;
         admin.approved_at = new Date();
         break;
@@ -335,7 +308,6 @@ router.patch("/admins/:adminId", async (req, res) => {
       admin: { _id: admin._id, email: admin.email, name: admin.name, role: admin.role, status: admin.status },
     });
   } catch (err) {
-    console.error("Update admin error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -355,7 +327,128 @@ router.delete("/admins/:adminId", async (req, res) => {
     await admin.deleteOne();
     return res.json({ ok: true, deleted: admin.email });
   } catch (err) {
-    console.error("Delete admin error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// TUTOR MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+
+// GET /api/admin/tutors — list all tutors
+router.get("/tutors", async (req, res) => {
+  try {
+    await connectDB();
+    if (req.admin.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    const tutors = await Admin.find({ role: "tutor" })
+      .select("email name role status assigned_quiz_ids last_login_at createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+    return res.json(tutors);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/tutors — create a tutor account
+router.post("/tutors", async (req, res) => {
+  try {
+    await connectDB();
+    if (req.admin.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+
+    const name     = String(req.body?.name     || "").trim();
+    const email    = String(req.body?.email    || "").trim().toLowerCase();
+    const password = String(req.body?.password || "");
+
+    if (!name)  return res.status(400).json({ error: "Name is required" });
+    if (!email) return res.status(400).json({ error: "Email is required" });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "Valid email is required" });
+    }
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+
+    const existing = await Admin.findOne({ email });
+    if (existing) return res.status(409).json({ error: "An account with this email already exists" });
+
+    const tutor = await Admin.create({
+      name, email, password_hash: password, role: "tutor", status: "active",
+    });
+
+    return res.status(201).json({
+      ok: true,
+      tutor: {
+        _id: tutor._id, name: tutor.name, email: tutor.email,
+        role: tutor.role, status: tutor.status, assigned_quiz_ids: [],
+        createdAt: tutor.createdAt,
+      },
+    });
+  } catch (err) {
+    console.error("Create tutor error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/tutors/:tutorId/quizzes — assign quizzes to a tutor
+router.patch("/tutors/:tutorId/quizzes", async (req, res) => {
+  try {
+    await connectDB();
+    if (req.admin.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+
+    const { quiz_ids } = req.body;
+    if (!Array.isArray(quiz_ids)) return res.status(400).json({ error: "quiz_ids must be an array" });
+
+    const tutor = await Admin.findOneAndUpdate(
+      { _id: req.params.tutorId, role: "tutor" },
+      { $set: { assigned_quiz_ids: quiz_ids } },
+      { new: true }
+    ).lean();
+
+    if (!tutor) return res.status(404).json({ error: "Tutor not found" });
+    return res.json({ ok: true, tutor });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/tutors/:tutorId — suspend / reactivate tutor
+router.patch("/tutors/:tutorId", async (req, res) => {
+  try {
+    await connectDB();
+    if (req.admin.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+
+    const tutor = await Admin.findOne({ _id: req.params.tutorId, role: "tutor" });
+    if (!tutor) return res.status(404).json({ error: "Tutor not found" });
+
+    const { action } = req.body;
+    if (action === "suspend")         tutor.status = "suspended";
+    else if (action === "reactivate") tutor.status = "active";
+    else return res.status(400).json({ error: "action must be 'suspend' or 'reactivate'" });
+
+    await tutor.save();
+    return res.json({
+      ok: true,
+      tutor: {
+        _id: tutor._id, name: tutor.name, email: tutor.email,
+        role: tutor.role, status: tutor.status,
+        assigned_quiz_ids: tutor.assigned_quiz_ids || [],
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/tutors/:tutorId — delete a tutor
+router.delete("/tutors/:tutorId", async (req, res) => {
+  try {
+    await connectDB();
+    if (req.admin.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    const tutor = await Admin.findOneAndDelete({ _id: req.params.tutorId, role: "tutor" });
+    if (!tutor) return res.status(404).json({ error: "Tutor not found" });
+    return res.json({ ok: true, deleted: tutor.email });
+  } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });
@@ -377,7 +470,6 @@ const uploadMiddleware = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// ✅ FIX 6: Removed duplicate requireAdmin here — already applied by router.use(requireAdmin) above
 router.post("/upload", (req, res) => {
   uploadMiddleware.single("file")(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
@@ -388,18 +480,10 @@ router.post("/upload", (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
     try {
-      const result = await uploadToS3(
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype
-      );
+      const result = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype);
       return res.json({
-        ok:       true,
-        url:      result.url,
-        key:      result.key,
-        filename: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size:     result.size,
+        ok: true, url: result.url, key: result.key,
+        filename: req.file.originalname, mimetype: req.file.mimetype, size: result.size,
       });
     } catch (uploadErr) {
       console.error("S3 upload error:", uploadErr.message);
@@ -412,7 +496,6 @@ router.post("/upload", (req, res) => {
 // QUIZ ROUTES
 // ═══════════════════════════════════════════════════════════
 
-// GET /api/admin/quizzes — list all quizzes
 router.get("/quizzes", async (req, res) => {
   try {
     await connectDB();
@@ -426,7 +509,6 @@ router.get("/quizzes", async (req, res) => {
   }
 });
 
-// GET /api/admin/quizzes/:quizId — fetch single quiz WITH questions
 router.get("/quizzes/:quizId", async (req, res) => {
   try {
     await connectDB();
@@ -435,27 +517,48 @@ router.get("/quizzes/:quizId", async (req, res) => {
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
     const questions = await Question.find({
-      $or: [
-        { quiz_ids: req.params.quizId },
-        { quiz_ids: quiz.quiz_id },
-      ],
+      $or: [{ quiz_ids: req.params.quizId }, { quiz_ids: quiz.quiz_id }],
     }).sort({ createdAt: 1 }).lean();
-
-    const totalPoints = questions.reduce((sum, q) => sum + (q.points || 1), 0);
 
     return res.json({
       ...quiz,
       questions,
-      total_points:   totalPoints,
+      total_points:   questions.reduce((sum, q) => sum + (q.points || 1), 0),
       question_count: questions.length,
     });
   } catch (err) {
-    console.error("Fetch quiz detail error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/admin/quizzes/:quizId/export — download questions as xlsx
+router.patch("/quizzes/:quizId", async (req, res) => {
+  try {
+    await connectDB();
+    const allowedFields = [
+      "quiz_name", "year_level", "subject", "sub_topic", "tier", "difficulty",
+      "time_limit_minutes", "set_number", "is_active", "is_trial",
+      "randomize_questions", "randomize_options", "voice_url", "video_url",
+      "max_attempts", "passing_score", "attempts_enabled",
+    ];
+    const updates = {};
+    for (const f of allowedFields) {
+      if (req.body[f] !== undefined) updates[f] = req.body[f];
+    }
+    if (Object.keys(updates).length === 0)
+      return res.status(400).json({ error: "No valid fields to update" });
+
+    const quiz = await Quiz.findOneAndUpdate(
+      { quiz_id: req.params.quizId },
+      { $set: updates },
+      { new: true }
+    ).lean();
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+    return res.json(quiz);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.get("/quizzes/:quizId/export", async (req, res) => {
   try {
     await connectDB();
@@ -464,10 +567,7 @@ router.get("/quizzes/:quizId/export", async (req, res) => {
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
     const questions = await Question.find({
-      $or: [
-        { quiz_ids: req.params.quizId },
-        { quiz_ids: quiz.quiz_id },
-      ],
+      $or: [{ quiz_ids: req.params.quizId }, { quiz_ids: quiz.quiz_id }],
     }).sort({ createdAt: 1 }).lean();
 
     const wb = new ExcelJS.Workbook();
@@ -490,38 +590,17 @@ router.get("/quizzes/:quizId/export", async (req, res) => {
 
     questions.forEach((q, idx) => {
       const opts = Array.isArray(q.options) ? q.options : [];
-      const correctAnswer = opts
-        .filter(o => o.correct)
-        .map((o, i) => o.label || String.fromCharCode(65 + i))
-        .join(", ") || q.correct_answer || "";
-
+      const correctAnswer = opts.filter(o => o.correct).map((o, i) => o.label || String.fromCharCode(65 + i)).join(", ") || q.correct_answer || "";
       const rawText = q.text || q.question_text || "";
-      const extractedImageUrl = (() => {
-        const m = rawText.match(/src=["'](https?:\/\/[^"']+)["']/i);
-        return m ? m[1] : "";
-      })();
-      const cleanText = rawText
-        .replace(/<img[^>]*>/gi, "")
-        .replace(/<br\s*\/?>/gi, " ")
-        .replace(/<[^>]+>/g, "")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .trim();
-      const finalImageUrl = q.image_url || extractedImageUrl || "";
-
+      const extractedImageUrl = (() => { const m = rawText.match(/src=["'](https?:\/\/[^"']+)["']/i); return m ? m[1] : ""; })();
+      const cleanText = rawText.replace(/<img[^>]*>/gi, "").replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").trim();
       ws.addRow({
-        num:            idx + 1,
-        question_text:  cleanText,
-        type:           q.type || "radio_button",
-        option_a:       opts[0]?.text || "",
-        option_b:       opts[1]?.text || "",
-        option_c:       opts[2]?.text || "",
-        option_d:       opts[3]?.text || "",
-        correct_answer: correctAnswer,
-        points:         q.points || 1,
-        category:       q.categories?.[0]?.name || q.category || "",
-        image_url:      finalImageUrl,
-        explanation:    q.explanation || "",
+        num: idx + 1, question_text: cleanText, type: q.type || "radio_button",
+        option_a: opts[0]?.text || "", option_b: opts[1]?.text || "",
+        option_c: opts[2]?.text || "", option_d: opts[3]?.text || "",
+        correct_answer: correctAnswer, points: q.points || 1,
+        category: q.categories?.[0]?.name || q.category || "",
+        image_url: q.image_url || extractedImageUrl || "", explanation: q.explanation || "",
       });
     });
 
@@ -536,7 +615,6 @@ router.get("/quizzes/:quizId/export", async (req, res) => {
   }
 });
 
-// DELETE /api/admin/quizzes/:quizId
 router.delete("/quizzes/:quizId", async (req, res) => {
   try {
     await connectDB();
@@ -547,22 +625,15 @@ router.delete("/quizzes/:quizId", async (req, res) => {
 
     const affectedBundles = await QuizCatalog.find({ quiz_ids: req.params.quizId }).lean();
     if (affectedBundles.length > 0) {
-      await QuizCatalog.updateMany(
-        { quiz_ids: req.params.quizId },
-        { $pull: { quiz_ids: req.params.quizId } }
-      );
+      await QuizCatalog.updateMany({ quiz_ids: req.params.quizId }, { $pull: { quiz_ids: req.params.quizId } });
       for (const bundle of affectedBundles) {
         const newCount = (bundle.quiz_ids || []).filter((id) => id !== req.params.quizId).length;
-        await QuizCatalog.findOneAndUpdate(
-          { bundle_id: bundle.bundle_id },
-          { $set: { quiz_count: newCount } }
-        );
+        await QuizCatalog.findOneAndUpdate({ bundle_id: bundle.bundle_id }, { $set: { quiz_count: newCount } });
       }
     }
 
     return res.json({ ok: true, deleted: req.params.quizId, bundles_updated: affectedBundles.length });
   } catch (err) {
-    console.error("Delete quiz error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -571,7 +642,6 @@ router.delete("/quizzes/:quizId", async (req, res) => {
 // QUESTION ROUTES
 // ═══════════════════════════════════════════════════════════
 
-// PATCH /api/admin/questions/:questionId/verify
 router.patch("/questions/:questionId/verify", async (req, res) => {
   try {
     await connectDB();
@@ -582,64 +652,45 @@ router.patch("/questions/:questionId/verify", async (req, res) => {
     if (status === "rejected" && !rejection_reason?.trim()) {
       return res.status(400).json({ error: "rejection_reason is required when rejecting" });
     }
-    const update = {
-      "tutor_verification.status":           status,
-      "tutor_verification.verified_by":      req.admin.email,
-      "tutor_verification.verified_at":      new Date(),
-      "tutor_verification.rejection_reason": status === "rejected" ? rejection_reason.trim() : null,
-    };
     const question = await Question.findOneAndUpdate(
       { question_id: req.params.questionId },
-      { $set: update },
+      {
+        $set: {
+          "tutor_verification.status":           status,
+          "tutor_verification.verified_by":      req.admin.email,
+          "tutor_verification.verified_at":      new Date(),
+          "tutor_verification.rejection_reason": status === "rejected" ? rejection_reason.trim() : null,
+        },
+      },
       { new: true }
     ).lean();
     if (!question) return res.status(404).json({ error: "Question not found" });
     return res.json({ ok: true, question });
   } catch (err) {
-    console.error("Verify question error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/admin/verification-summary
 router.get("/verification-summary", async (req, res) => {
   try {
     await connectDB();
     const stats = await Question.aggregate([
-      {
-        $group: {
-          _id: {
-            quiz_id: { $arrayElemAt: ["$quiz_ids", 0] },
-            status:  "$tutor_verification.status",
-          },
-          count: { $sum: 1 },
-        },
-      },
-      {
-        $group: {
-          _id:      "$_id.quiz_id",
-          statuses: { $push: { status: "$_id.status", count: "$count" } },
-          total:    { $sum: "$count" },
-        },
-      },
+      { $group: { _id: { quiz_id: { $arrayElemAt: ["$quiz_ids", 0] }, status: "$tutor_verification.status" }, count: { $sum: 1 } } },
+      { $group: { _id: "$_id.quiz_id", statuses: { $push: { status: "$_id.status", count: "$count" } }, total: { $sum: "$count" } } },
     ]);
     const summary = {};
     for (const row of stats) {
       if (!row._id) continue;
       const entry = { quiz_id: row._id, total: row.total, approved: 0, rejected: 0, pending: 0 };
-      for (const s of row.statuses) {
-        entry[s.status || "pending"] = s.count;
-      }
+      for (const s of row.statuses) { entry[s.status || "pending"] = s.count; }
       summary[row._id] = entry;
     }
     return res.json({ ok: true, summary });
   } catch (err) {
-    console.error("Verification summary error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/admin/quizzes/:quizId/questions — add a new question
 router.post("/quizzes/:quizId/questions", async (req, res) => {
   try {
     await connectDB();
@@ -676,12 +727,10 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
 
     return res.status(201).json({ ok: true, question });
   } catch (err) {
-    console.error("Add question error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// PATCH /api/admin/questions/:questionId — edit a question
 router.patch("/questions/:questionId", async (req, res) => {
   try {
     await connectDB();
@@ -694,13 +743,9 @@ router.patch("/questions/:questionId", async (req, res) => {
     const updates = {};
     for (const f of allowedFields) {
       if (req.body[f] !== undefined) {
-        if (f === "category") {
-          updates["categories"] = req.body.category ? [{ name: req.body.category }] : [];
-        } else if (f === "question_text") {
-          updates["text"] = req.body.question_text;
-        } else {
-          updates[f] = req.body[f];
-        }
+        if (f === "category") updates["categories"] = req.body.category ? [{ name: req.body.category }] : [];
+        else if (f === "question_text") updates["text"] = req.body.question_text;
+        else updates[f] = req.body[f];
       }
     }
     const question = await Question.findOneAndUpdate(
@@ -715,7 +760,6 @@ router.patch("/questions/:questionId", async (req, res) => {
   }
 });
 
-// DELETE /api/admin/questions/:questionId
 router.delete("/questions/:questionId", async (req, res) => {
   try {
     await connectDB();
@@ -724,16 +768,12 @@ router.delete("/questions/:questionId", async (req, res) => {
     if (!question) return res.status(404).json({ error: "Question not found" });
 
     if (quiz_id) {
-      await Quiz.findOneAndUpdate(
-        { quiz_id },
-        { $pull: { question_ids: req.params.questionId } }
-      );
+      await Quiz.findOneAndUpdate({ quiz_id }, { $pull: { question_ids: req.params.questionId } });
       const updatedQuiz = await Quiz.findOne({ quiz_id }).lean();
       if (updatedQuiz) {
-        const actualCount = (updatedQuiz.question_ids || []).length;
         await Quiz.findOneAndUpdate(
           { quiz_id },
-          { $set: { question_count: Math.max(0, actualCount) } }
+          { $set: { question_count: Math.max(0, (updatedQuiz.question_ids || []).length) } }
         );
       }
     }
@@ -760,37 +800,21 @@ router.post("/quizzes/upload", async (req, res) => {
 
     const questions = await Question.insertMany(
       questionsData.map((q) => {
-        const correctLabels = (q.correct_answer || "")
-          .toUpperCase()
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-
+        const correctLabels = (q.correct_answer || "").toUpperCase().split(",").map((s) => s.trim()).filter(Boolean);
         const mappedOptions = (q.options || []).map((opt, idx) => {
           const label = opt.label || String.fromCharCode(65 + idx);
-          return {
-            ...opt,
-            option_id: opt.option_id || uuidv4(),
-            correct:   opt.correct === true || correctLabels.includes(label.toUpperCase()),
-          };
+          return { ...opt, option_id: opt.option_id || uuidv4(), correct: opt.correct === true || correctLabels.includes(label.toUpperCase()) };
         });
-
         return {
-          question_id:    uuidv4(),
-          quiz_ids:       [quiz_id],
-          text:           q.question_text || q.text || "",
-          type:           q.type || "radio_button",
-          options:        mappedOptions,
-          correct_answer: q.correct_answer || null,
-          points:         q.points || 1,
-          categories:     q.category ? [{ name: q.category }] : (q.categories || []),
-          image_url:      q.image_url    || null,
-          explanation:    q.explanation  || "",
-          sub_topic:      q.sub_topic    || null,
-          voice_url:      q.voice_url    || null,
-          video_url:      q.video_url    || null,
-          image_width:    q.image_width  || null,
-          image_height:   q.image_height || null,
+          question_id: uuidv4(), quiz_ids: [quiz_id],
+          text: q.question_text || q.text || "", type: q.type || "radio_button",
+          options: mappedOptions, correct_answer: q.correct_answer || null,
+          points: q.points || 1,
+          categories: q.category ? [{ name: q.category }] : (q.categories || []),
+          image_url: q.image_url || null, explanation: q.explanation || "",
+          sub_topic: q.sub_topic || null, voice_url: q.voice_url || null,
+          video_url: q.video_url || null, image_width: q.image_width || null,
+          image_height: q.image_height || null,
         };
       })
     );
@@ -800,7 +824,7 @@ router.post("/quizzes/upload", async (req, res) => {
       quiz_name:          quizData.quiz_name.trim(),
       year_level:         quizData.year_level         || null,
       subject:            quizData.subject            || null,
-      sub_topic:          quizData.sub_topic          || null, // ✅ FIX 7: was schema syntax, not a value
+      sub_topic:          quizData.sub_topic          || null,
       tier:               quizData.tier               || "A",
       time_limit_minutes: quizData.time_limit_minutes || null,
       difficulty:         quizData.difficulty         || null,
@@ -813,12 +837,7 @@ router.post("/quizzes/upload", async (req, res) => {
       question_count:     questions.length,
     });
 
-    return res.status(201).json({
-      ok:             true,
-      quiz_id:        quiz.quiz_id,
-      quiz_name:      quiz.quiz_name,
-      question_count: questions.length,
-    });
+    return res.status(201).json({ ok: true, quiz_id: quiz.quiz_id, quiz_name: quiz.quiz_name, question_count: questions.length });
   } catch (err) {
     console.error("Quiz upload error:", err);
     return res.status(500).json({ error: err.message });
@@ -832,11 +851,7 @@ router.get("/bundles", async (req, res) => {
   try {
     await connectDB();
     const bundles = await QuizCatalog.find().sort({ year_level: 1, tier: 1 }).lean();
-    return res.json(bundles.map((b) => ({
-      ...b,
-      quiz_ids: b.quiz_ids || b.flexiquiz_quiz_ids || [],
-      currency: b.currency || "aud",
-    })));
+    return res.json(bundles.map((b) => ({ ...b, quiz_ids: b.quiz_ids || b.flexiquiz_quiz_ids || [], currency: b.currency || "aud" })));
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -847,11 +862,7 @@ router.get("/bundles/:bundleId", async (req, res) => {
     await connectDB();
     const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId }).lean();
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
-    return res.json({
-      ...bundle,
-      quiz_ids: bundle.quiz_ids || bundle.flexiquiz_quiz_ids || [],
-      currency: bundle.currency || "aud",
-    });
+    return res.json({ ...bundle, quiz_ids: bundle.quiz_ids || bundle.flexiquiz_quiz_ids || [], currency: bundle.currency || "aud" });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -860,37 +871,21 @@ router.get("/bundles/:bundleId", async (req, res) => {
 router.post("/bundles", async (req, res) => {
   try {
     await connectDB();
-    const {
-      bundle_name, description, year_level, tier, price_cents,
-      currency, max_quiz_count, questions_per_quiz,
-      distribution_mode, swap_eligible_from, subjects,
-    } = req.body;
+    const { bundle_name, description, year_level, tier, price_cents, currency, max_quiz_count, questions_per_quiz, distribution_mode, swap_eligible_from, subjects } = req.body;
+    if (!bundle_name?.trim()) return res.status(400).json({ error: "bundle_name is required" });
+    if (price_cents === undefined || Number(price_cents) < 0) return res.status(400).json({ error: "price_cents is required and must be >= 0" });
 
-    if (!bundle_name?.trim())
-      return res.status(400).json({ error: "bundle_name is required" });
-    if (price_cents === undefined || Number(price_cents) < 0)
-      return res.status(400).json({ error: "price_cents is required and must be >= 0" });
-
-    const yearSlug  = year_level   ? String(year_level).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")   : "general";
-    const tierSlug  = tier         ? String(tier).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")         : "standard";
+    const yearSlug  = year_level ? String(year_level).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_") : "general";
+    const tierSlug  = tier       ? String(tier).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")       : "standard";
     const nameSlug  = bundle_name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 30);
     const bundle_id = `bundle_${yearSlug}_${tierSlug}_${nameSlug}_${Date.now()}`;
 
     const bundle = await QuizCatalog.create({
-      bundle_id,
-      bundle_name:        bundle_name.trim(),
-      description:        description        || "",
-      year_level:         year_level         || null,
-      tier:               tier               || "A",
-      price_cents:        Number(price_cents),
-      currency:           currency           || "aud",
-      max_quiz_count:     max_quiz_count     || null,
-      questions_per_quiz: questions_per_quiz || null,
-      distribution_mode:  distribution_mode  || "fixed",
-      swap_eligible_from: swap_eligible_from || null,
-      subjects:           subjects           || [],
-      quiz_ids:           [],
-      is_active:          true,
+      bundle_id, bundle_name: bundle_name.trim(), description: description || "",
+      year_level: year_level || null, tier: tier || "A", price_cents: Number(price_cents),
+      currency: currency || "aud", max_quiz_count: max_quiz_count || null,
+      questions_per_quiz: questions_per_quiz || null, distribution_mode: distribution_mode || "fixed",
+      swap_eligible_from: swap_eligible_from || null, subjects: subjects || [], quiz_ids: [], is_active: true,
     });
     return res.status(201).json(bundle);
   } catch (err) {
@@ -901,20 +896,10 @@ router.post("/bundles", async (req, res) => {
 router.patch("/bundles/:bundleId", async (req, res) => {
   try {
     await connectDB();
-    const allowedFields = [
-      "bundle_name", "description", "year_level", "tier", "price_cents",
-      "currency", "is_active", "max_quiz_count", "questions_per_quiz",
-      "distribution_mode", "swap_eligible_from", "subjects",
-    ];
+    const allowedFields = ["bundle_name", "description", "year_level", "tier", "price_cents", "currency", "is_active", "max_quiz_count", "questions_per_quiz", "distribution_mode", "swap_eligible_from", "subjects"];
     const updates = {};
-    for (const f of allowedFields) {
-      if (req.body[f] !== undefined) updates[f] = req.body[f];
-    }
-    const bundle = await QuizCatalog.findOneAndUpdate(
-      { bundle_id: req.params.bundleId },
-      { $set: updates },
-      { new: true }
-    ).lean();
+    for (const f of allowedFields) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
+    const bundle = await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $set: updates }, { new: true }).lean();
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
     return res.json(bundle);
   } catch (err) {
@@ -933,62 +918,40 @@ router.delete("/bundles/:bundleId", async (req, res) => {
   }
 });
 
-// POST /bundles/:bundleId/quizzes — add a quiz to a bundle
 router.post("/bundles/:bundleId/quizzes", async (req, res) => {
   try {
     await connectDB();
     const { quiz_id } = req.body;
     if (!quiz_id) return res.status(400).json({ error: "quiz_id is required" });
-    const bundle = await QuizCatalog.findOneAndUpdate(
-      { bundle_id: req.params.bundleId },
-      { $addToSet: { quiz_ids: quiz_id } },
-      { new: true }
-    ).lean();
+    const bundle = await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $addToSet: { quiz_ids: quiz_id } }, { new: true }).lean();
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
-    await QuizCatalog.findOneAndUpdate(
-      { bundle_id: req.params.bundleId },
-      { $set: { quiz_count: bundle.quiz_ids.length } }
-    );
+    await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $set: { quiz_count: bundle.quiz_ids.length } });
     return res.json({ ok: true, bundle });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-// DELETE /bundles/:bundleId/quizzes — remove a quiz from a bundle
 router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
   try {
     await connectDB();
     const { quiz_id } = req.body;
     if (!quiz_id) return res.status(400).json({ error: "quiz_id is required" });
-    const bundle = await QuizCatalog.findOneAndUpdate(
-      { bundle_id: req.params.bundleId },
-      { $pull: { quiz_ids: quiz_id } },
-      { new: true }
-    ).lean();
+    const bundle = await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $pull: { quiz_ids: quiz_id } }, { new: true }).lean();
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
-    await QuizCatalog.findOneAndUpdate(
-      { bundle_id: req.params.bundleId },
-      { $set: { quiz_count: bundle.quiz_ids.length } }
-    );
+    await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $set: { quiz_count: bundle.quiz_ids.length } });
     return res.json({ ok: true, bundle });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-// PATCH /bundles/:bundleId/quizzes — replace the full quiz_ids list
 router.patch("/bundles/:bundleId/quizzes", async (req, res) => {
   try {
     await connectDB();
     const { quiz_ids } = req.body;
-    if (!Array.isArray(quiz_ids))
-      return res.status(400).json({ error: "quiz_ids must be an array" });
-    const bundle = await QuizCatalog.findOneAndUpdate(
-      { bundle_id: req.params.bundleId },
-      { $set: { quiz_ids, quiz_count: quiz_ids.length } },
-      { new: true }
-    ).lean();
+    if (!Array.isArray(quiz_ids)) return res.status(400).json({ error: "quiz_ids must be an array" });
+    const bundle = await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $set: { quiz_ids, quiz_count: quiz_ids.length } }, { new: true }).lean();
     if (!bundle) return res.status(404).json({ error: "Bundle not found" });
     return res.json(bundle);
   } catch (err) {
@@ -1004,8 +967,7 @@ router.get("/children", async (req, res) => {
     await connectDB();
     const children = await Child.find()
       .select("name username year_level entitled_bundle_ids parent_id createdAt")
-      .sort({ createdAt: -1 })
-      .lean();
+      .sort({ createdAt: -1 }).lean();
     return res.json(children);
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -1016,13 +978,8 @@ router.patch("/children/:childId/bundles", async (req, res) => {
   try {
     await connectDB();
     const { bundle_ids } = req.body;
-    if (!Array.isArray(bundle_ids))
-      return res.status(400).json({ error: "bundle_ids must be an array" });
-    const child = await Child.findByIdAndUpdate(
-      req.params.childId,
-      { $set: { entitled_bundle_ids: bundle_ids } },
-      { new: true }
-    ).lean();
+    if (!Array.isArray(bundle_ids)) return res.status(400).json({ error: "bundle_ids must be an array" });
+    const child = await Child.findByIdAndUpdate(req.params.childId, { $set: { entitled_bundle_ids: bundle_ids } }, { new: true }).lean();
     if (!child) return res.status(404).json({ error: "Child not found" });
     return res.json({ ok: true, child });
   } catch (err) {

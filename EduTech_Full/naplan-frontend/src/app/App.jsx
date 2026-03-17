@@ -17,22 +17,26 @@ import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
 import StudentDashboardAnalytics from "@/app/components/pages/StudentDashboardAnalytics";
 import BundleSelectionPage from "@/app/components/pages/Bundleselectionpage";
-import AdminLogin    from "@/app/components/admin/AdminLogin";
-import AdminRegister from "@/app/components/admin/AdminRegister";
+import AdminLogin     from "@/app/components/admin/AdminLogin";
+import AdminRegister  from "@/app/components/admin/AdminRegister";
 import AdminDashboard from "@/app/components/admin/AdminDashboard";
-import RequireAdmin  from "@/app/components/admin/RequireAdmin";
+import RequireAdmin   from "@/app/components/admin/RequireAdmin";
 import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
-import {useAuth} from "@/app/context/AuthContext";
+import Tutorlogin     from "@/app/components/admin/Tutorlogin";
+import Tutordashboard from "@/app/components/admin/Tutordashboard";
+import RequireTutor   from "@/app/components/admin/RequireTutor";
+import { useAuth } from "@/app/context/AuthContext";
 import IdleTimeoutProvider from "./components/auth/IdleTimeoutProvider";
 import ChildIdleTimeoutProvider from "./components/auth/ChildIdleTimeoutProvider";
 
 // Read from env var — add VITE_ADMIN_PATH=/your-secret-path to frontend .env
 const ADMIN_PATH = import.meta.env.VITE_ADMIN_PATH || "/admin";
 
-if(ADMIN_PATH === "/admin"){
-  console.warn( "[security] VITE_ADMIN_PATH is not set. Admin pannel is exposed at /admin - "+
+if (ADMIN_PATH === "/admin") {
+  console.warn(
+    "[security] VITE_ADMIN_PATH is not set. Admin panel is exposed at /admin - " +
     "set VITE_ADMIN_PATH to secret path in env file before deploying"
-  )
+  );
 }
 
 export { ADMIN_PATH };
@@ -46,66 +50,38 @@ function WithFooter({ children }) {
   );
 }
 
-/**
- * RequireNoChild
- *
- * Prevents a child who is already logged in from reaching the child login page.
- * If a child session is active → redirect to /child-dashboard.
- * If no child session → render the login page normally.
- *
- * This is different from RequireChild (which REQUIRES a child session).
- * This guard BLOCKS entry when a child session EXISTS.
- */
 function RequireNoChild({ children }) {
   const { isChild, isInitializing } = useAuth();
-  if (isInitializing) return <LoadingSpinner />;
+  if (isInitializing) return null;
   if (isChild) return <Navigate to="/child-dashboard" replace />;
   return children;
 }
 
-
-// Check if an admin is already logged in (reads localStorage, same as RequireAdmin.jsx)
+// Only admin role redirects to dashboard on register guard
 function isAdminLoggedIn() {
   const token = localStorage.getItem("admin_token");
   if (!token) return false;
   try {
     const payload = JSON.parse(atob(token.split(".")[1]));
     if (payload.exp * 1000 < Date.now()) return false;
-    return payload.role === "admin" || payload.role === "super_admin";
+    return payload.role === "admin";
   } catch {
     return false;
   }
 }
 
-
-/**
- * AdminRegisterGuard
- *
- * Protects the register route with two checks:
- * 1. Must have ?invite= token in the URL — without it, redirect to admin login
- * 2. If already logged in as admin, redirect straight to dashboard
- *
- * The backend independently validates the invite token on submit —
- * this is just a frontend first line of defence.
- */
 function AdminRegisterGuard() {
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get("invite") || "";
 
-  // Already logged in as admin → go to dashboard
   if (isAdminLoggedIn()) {
     return <Navigate to={`${ADMIN_PATH}/dashboard`} replace />;
   }
-
-  // No invite token in URL → go to admin login, not registration
   if (!inviteToken) {
     return <Navigate to={ADMIN_PATH} replace />;
   }
-
-  // Valid invite token present → show registration form
   return <AdminRegister />;
 }
-
 
 export default function AppRoutes() {
   return (
@@ -115,7 +91,7 @@ export default function AppRoutes() {
         <Route path="/" element={<WelcomePage />} />
         <Route path="/free-trial" element={<FreeTrialPage />} />
         <Route path="/terms"   element={<TermsPage />} />
-        <Route path="/privacy" element={<PrivacyPage />} /> 
+        <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/bundles" element={<RequireParent><WithFooter><BundleSelectionPage /></WithFooter></RequireParent>} />
 
         {/* ─── Parent Auth ─── */}
@@ -124,7 +100,7 @@ export default function AppRoutes() {
         <Route path="/parent-login"  element={<ParentLoginPage />} />
 
         {/* ─── Child Auth ─── */}
-        <Route path="/child-login" element={<RequireNoChild><ChildLoginPage/> </RequireNoChild>} />
+        <Route path="/child-login" element={<RequireNoChild><ChildLoginPage /></RequireNoChild>} />
 
         {/* ─── Analytics ─── */}
         <Route
@@ -142,27 +118,19 @@ export default function AppRoutes() {
           element={
             <RequireParent>
               <IdleTimeoutProvider>
-              <WithFooter><ParentDashboard /></WithFooter>
+                <WithFooter><ParentDashboard /></WithFooter>
               </IdleTimeoutProvider>
             </RequireParent>
           }
         />
 
-        {/*
-          ─── Child Dashboard ───
-          Uses RequireAuth (NOT RequireChild) because:
-          - A parent navigates here to VIEW a child's dashboard (no PIN needed)
-            e.g. /child-dashboard?childId=xxx&childName=yyy
-          - A child navigates here after PIN login via QuickChildLoginModal
-          Both cases have a valid token (parent or child), so RequireAuth covers both.
-          ChildDashboard.jsx internally checks whether it's a parent or child viewing.
-        */}
+        {/* ─── Child Dashboard ─── */}
         <Route
           path="/child-dashboard"
           element={
             <RequireAuth>
               <ChildIdleTimeoutProvider>
-              <WithFooter><ChildDashboard /></WithFooter>
+                <WithFooter><ChildDashboard /></WithFooter>
               </ChildIdleTimeoutProvider>
             </RequireAuth>
           }
@@ -171,24 +139,16 @@ export default function AppRoutes() {
         {/* ─── Results ─── */}
         <Route
           path="/NonWritingLookupQuizResults/results"
-          element={
-            <RequireAuth>
-              <WithFooter><Dashboard /></WithFooter>
-            </RequireAuth>
-          }
+          element={<RequireAuth><WithFooter><Dashboard /></WithFooter></RequireAuth>}
         />
         <Route
           path="/writing-feedback/result"
-          element={
-            <RequireAuth>
-              <WithFooter><ResultPage /></WithFooter>
-            </RequireAuth>
-          }
+          element={<RequireAuth><WithFooter><ResultPage /></WithFooter></RequireAuth>}
         />
 
         {/* ─── Admin ─── */}
-        <Route path={ADMIN_PATH} element={<AdminLogin />} />
-        <Route path={`${ADMIN_PATH}/register`} element={<AdminRegisterGuard />} />
+        <Route path={ADMIN_PATH}                   element={<AdminLogin />} />
+        <Route path={`${ADMIN_PATH}/register`}     element={<AdminRegisterGuard />} />
         <Route
           path={`${ADMIN_PATH}/dashboard`}
           element={<RequireAdmin><AdminDashboard /></RequireAdmin>}
@@ -198,10 +158,15 @@ export default function AppRoutes() {
           element={<RequireAdmin><QuizDetailPage /></RequireAdmin>}
         />
 
+        {/* ─── Tutor ─── */}
+        <Route path={`${ADMIN_PATH}/tutor`}           element={<Tutorlogin />} />
+        <Route
+          path={`${ADMIN_PATH}/tutor/dashboard`}
+          element={<RequireTutor><Tutordashboard /></RequireTutor>}
+        />
+
         <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
       </Routes>
     </AuthProvider>
   );
 }
-
-

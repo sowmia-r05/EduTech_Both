@@ -1,11 +1,11 @@
 /**
- * RequireAdmin.jsx
+ * RequireTutor.jsx
  */
 
 import { Navigate } from "react-router-dom";
 import { ADMIN_PATH } from "@/app/App";
 
-function isAdminTokenValid() {
+function isTutorTokenValid() {
   const token = localStorage.getItem("admin_token");
   if (!token) return false;
   try {
@@ -15,7 +15,9 @@ function isAdminTokenValid() {
       localStorage.removeItem("admin_info");
       return false;
     }
-    if (payload.role !== "admin") {
+    if (!["admin", "tutor"].includes(payload.role)) {
+      localStorage.removeItem("admin_token");
+      localStorage.removeItem("admin_info");
       return false;
     }
     return true;
@@ -26,9 +28,9 @@ function isAdminTokenValid() {
   }
 }
 
-export default function RequireAdmin({ children }) {
-  if (!isAdminTokenValid()) {
-    return <Navigate to={ADMIN_PATH} replace />;
+export default function RequireTutor({ children }) {
+  if (!isTutorTokenValid()) {
+    return <Navigate to={`${ADMIN_PATH}/tutor`} replace />;
   }
   return children;
 }
