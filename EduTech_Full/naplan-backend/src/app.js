@@ -5,8 +5,6 @@ const dns = require("dns");
 dns.setDefaultResultOrder("ipv4first");
 
 // ─── Startup env validation ───────────────────────────────────────────────────
-// Throw immediately with a clear message if critical vars are missing.
-// Prevents silent failures like CORS blocking all requests in production.
 (function validateRequiredEnv() {
   const missing = [];
 
@@ -23,7 +21,6 @@ dns.setDefaultResultOrder("ipv4first");
     if (!process.env.STRIPE_WEBHOOK_SECRET)
       missing.push("STRIPE_WEBHOOK_SECRET");
   } else {
-    // Warn (don't throw) in dev
     ["FRONTEND_ORIGIN", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"].forEach(
       (k) => {
         if (!process.env[k])
@@ -53,9 +50,6 @@ const path = require("path");
 const { s3, BUCKET } = require("./utils/s3Upload");
 const { GetObjectCommand } = require("@aws-sdk/client-s3");
 
-
-
-
 const app = express();
 app.set("trust proxy", 1);
 
@@ -63,19 +57,20 @@ app.set("trust proxy", 1);
 app.use(
   helmet({
     crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // ✅ FIX — allows images to load cross-origin
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        // ✅ FIX — also allow your own API domain and all HTTPS for uploaded images
         imgSrc: [
           "'self'",
           "data:",
           "blob:",
           "https://*.stripe.com",
-          "https://naplanapi.kaisolutions.ai",   // ← ADD THIS
-          "https:",                               // ← ADD THIS (allows all https images)
+          "https://naplanapi.kaisolutions.ai",
+          "https://naplan-bucket.s3.ap-southeast-2.amazonaws.com",
+          "https:",
         ],
         connectSrc: [
           "'self'",
@@ -85,11 +80,11 @@ app.use(
         fontSrc: ["'self'"],
         objectSrc: ["'none'"],
         mediaSrc: [
-        "'self'",
-        "blob:",
-        "https://naplanapi.kaisolutions.ai",   // ← ADD THIS
-        "https:",                               // ← ADD THIS
-      ],
+          "'self'",
+          "blob:",
+          "https://naplanapi.kaisolutions.ai",
+          "https:",
+        ],
         frameSrc: ["https://checkout.stripe.com", "https://js.stripe.com"],
         frameAncestors: ["'none'"],
         formAction: ["'self'"],
@@ -127,9 +122,6 @@ app.use(
 app.use(cookieParser());
 
 // ── Stripe webhook — must be registered BEFORE express.json() ────────────────
-// Stripe signature verification requires the raw unparsed body (a Buffer).
-// express.raw() captures it cleanly for this one route only.
-// All other routes use express.json() below.
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 
 // ── All other routes — JSON body parser ──────────────────────────────────────
@@ -137,12 +129,10 @@ app.use(
   express.json({
     limit: "1mb",
     verify: (req, res, buf) => {
-      // Keep this as a safety net for any other route that needs rawBody
       req.rawBody = buf;
     },
   }),
 );
-
 
 // ─── Route imports ────────────────────────────────────────────────────────────
 const healthRoutes = require("./routes/healthRoutes");
@@ -168,8 +158,6 @@ const sessionRoutes = require("./routes/sessionRoutes");
 const resultRoutes = require("./routes/resultRoutes");
 const regenerateAiRoute = require("./routes/regenerateAiRoute");
 
-// FIX: FlexiQuiz is removed — legacy routes now require auth on ALL methods.
-// No more unauthenticated POST allowed through.
 const {
   secureLegacyResults,
   secureLegacyWriting,
@@ -180,7 +168,6 @@ app.use("/api", healthRoutes);
 
 // ─── Rate limiters ────────────────────────────────────────────────────────────
 
-// General: 1000 req/min across all API routes
 const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 1000,
@@ -189,7 +176,6 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Auth: 10 req/min on signup/login routes (prevents credential stuffing)
 const authLimiter = rateLimit({
   windowMs: 11 * 60 * 1000,
   max: 10,
@@ -198,18 +184,15 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// OTP: 5 attempts per 15 minutes per IP — strict for brute-force prevention
-// Applies to both OTP request and OTP verify endpoints
 const otpLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,  // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 5,
   message: { error: "Too many OTP attempts. Please wait 15 minutes before trying again." },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, // only count failed/rejected requests
+  skipSuccessfulRequests: true,
 });
 
-// Child PIN: 10 attempts per 15 minutes per IP
 const childLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -219,31 +202,27 @@ const childLoginLimiter = rateLimit({
   skipSuccessfulRequests: true,
 });
 
-
-
-
 app.use("/api", apiLimiter);
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, otpAuth);
-app.use("/api/auth/child-login", childLoginLimiter); // strict child PIN limiter
+app.use("/api/auth/child-login", childLoginLimiter);
 app.use("/api/auth", authLimiter, childAuthRoutes);
 app.use("/api/auth", sessionRoutes);
 
 // ─── Parent routes ────────────────────────────────────────────────────────────
 app.use("/api/parents", parentRoutes);
-app.use("/api/parents/auth/send-otp",   otpLimiter);   // strict OTP request limiter
-app.use("/api/parents/auth/verify-otp", otpLimiter);   // strict OTP verify limiter
-app.use("/api/parents/auth/login-otp",  otpLimiter);   // login OTP if present
+app.use("/api/parents/auth/send-otp",   otpLimiter);
+app.use("/api/parents/auth/verify-otp", otpLimiter);
+app.use("/api/parents/auth/login-otp",  otpLimiter);
 app.use("/api/parents/auth", authLimiter, parentAuthRoutes);
 app.use("/api/parents/auth", authLimiter, googleAuthRoutes);
-
 
 // ─── Children routes ──────────────────────────────────────────────────────────
 app.use("/api/children", childRoutes);
 app.use("/api/children/:childId/cumulative-feedback", cumulativeFeedbackRoutes);
 
-// ─── Writing & results (auth required on all methods — FlexiQuiz removed) ────
+// ─── Writing & results ────────────────────────────────────────────────────────
 app.use("/api/writing", secureLegacyWriting, writingRoutes);
 app.use("/api/results", secureLegacyResults, resultRoutes);
 app.use("/api/results", secureLegacyResults, regenerateAiRoute);
@@ -275,13 +254,18 @@ app.use("/api/payments", paymentRoutes);
 // ─── OCR ──────────────────────────────────────────────────────────────────────
 app.use("/api/ocr", ocrRoute);
 
-// S3 image proxy — serves old relative /uploads/... paths from S3
+// ─── S3 image proxy ───────────────────────────────────────────────────────────
+// Serves /uploads/... paths by proxying from S3.
+// ✅ Cross-origin headers set FIRST so browsers (child dashboard) can load images.
 app.use("/uploads", async (req, res) => {
-  const s3Key = "uploads" + req.path; // e.g. "uploads/2025-01/image.jpg"
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  const s3Key = "uploads" + req.path; // e.g. "uploads/2026-03/image.jpg"
   try {
     const command = new GetObjectCommand({ Bucket: BUCKET, Key: s3Key });
     const s3Response = await s3.send(command);
-    res.setHeader("Content-Type", s3Response.ContentType || "application/octet-stream");
+    res.setHeader("Content-Type", s3Response.ContentType || "image/jpeg");
     res.setHeader("Cache-Control", "public, max-age=31536000");
     s3Response.Body.pipe(res);
   } catch (err) {
@@ -291,13 +275,6 @@ app.use("/uploads", async (req, res) => {
     });
   }
 });
-
-
-
-
-
-
-
 
 // ─── Cron jobs ────────────────────────────────────────────────────────────────
 try {
@@ -317,9 +294,6 @@ try {
 }
 
 // ─── Global error handler ─────────────────────────────────────────────────────
-// Catches any error thrown inside a route handler and returns clean JSON
-// instead of crashing the process or leaking a stack trace to the client.
-// Must be defined LAST, after all routes.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;
