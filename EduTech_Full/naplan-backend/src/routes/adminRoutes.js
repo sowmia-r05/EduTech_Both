@@ -341,7 +341,7 @@ router.get("/quizzes/:quizId/export", async (req, res) => {
         .filter(o => o.correct)
         .map((o, i) => o.label || String.fromCharCode(65 + i))
         .join(", ") || q.correct_answer || "";
-      c// ✅ FIX — strip base64 from text, extract S3 URL instead
+      // ✅ FIX — strip base64 from text, extract S3 URL instead
       const rawText = q.text || q.question_text || "";
 
       // Extract S3 URL from embedded <img> if present
