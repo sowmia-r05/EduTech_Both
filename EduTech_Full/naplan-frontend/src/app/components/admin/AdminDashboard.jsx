@@ -479,7 +479,8 @@ export default function AdminDashboard() {
   }), [quizzes, filterYear, search]);
 
   const totalQuizzes   = quizzes.length;
-  const activeQuizzes  = quizzes.filter((q) => q.is_active !== false).length;
+  // ✅ FIX — only count explicitly true, not undefined
+ const activeQuizzes = quizzes.filter((q) => q.is_active === true).length;
   const totalQuestions = quizzes.reduce((s, q) => s + (q.question_count || 0), 0);
   const trialQuizzes   = quizzes.filter((q) => q.is_trial).length;
   const activeBundles  = bundles.filter((b) => b.is_active).length;

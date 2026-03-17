@@ -34,9 +34,11 @@ const s3Config = {
   },
 };
 
-if (process.env.S3_ENDPOINT_URL) {
-  s3Config.endpoint        = process.env.S3_ENDPOINT_URL;
-  s3Config.forcePathStyle  = true; // required for MinIO
+// ✅ FIX — trim whitespace + validate before using
+const S3_ENDPOINT = (process.env.S3_ENDPOINT_URL || "").trim();
+if (S3_ENDPOINT) {
+  s3Config.endpoint       = S3_ENDPOINT;
+  s3Config.forcePathStyle = true;
 }
 
 const s3 = new S3Client(s3Config);
@@ -92,13 +94,13 @@ async function uploadToS3(buffer, originalName, mimeType, folder) {
 
   // Build public URL
   let url;
-  if (process.env.S3_ENDPOINT_URL) {
-    // MinIO / custom: endpoint + bucket + key
-    const endpoint = process.env.S3_ENDPOINT_URL.replace(/\/$/, "");
+  // ✅ FIX — use trimmed variable, clean region
+  const region = (process.env.AWS_REGION || "us-east-1").trim();
+  if (S3_ENDPOINT) {
+    const endpoint = S3_ENDPOINT.replace(/\/$/, "");
     url = `${endpoint}/${BUCKET}/${key}`;
   } else {
-    // Standard AWS S3 public URL
-    url = `https://${BUCKET}.s3.${process.env.AWS_REGION || "us-east-1"}.amazonaws.com/${key}`;
+    url = `https://${BUCKET}.s3.${region}.amazonaws.com/${key}`;
   }
 
   return { url, key, bucket: BUCKET, size: buffer.length };

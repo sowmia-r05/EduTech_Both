@@ -76,6 +76,8 @@ const QuestionSchema = new mongoose.Schema(
 
     // ✅ NEW: Case sensitive grading (default false = case-insensitive)
     case_sensitive: { type: Boolean, default: false },
+    sub_topic: { type: String, default: null }, // ✅ e.g. "Addition Facts"
+
   },
   { timestamps: true, versionKey: false }
 );

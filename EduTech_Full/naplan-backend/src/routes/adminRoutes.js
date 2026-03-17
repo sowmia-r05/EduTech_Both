@@ -9,7 +9,7 @@
  */
 
 const { setAuthCookie }    = require("../utils/setCookies");
-const ADMIN_COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // ✅ FIX 2: was 2 hours, now 24 hours
+const ADMIN_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000; // ✅ 365 days// ✅ FIX 2: was 2 hours, now 24 hours
 
 const express    = require("express");
 const jwt        = require("jsonwebtoken");
@@ -170,10 +170,10 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
 
     // ✅ FIX 2: JWT expiry increased from "2h" to "24h"
     const token = jwt.sign(
-      { adminId: admin._id, email: admin.email, name: admin.name, role: admin.role },
-      JWT_SECRET,
-      { expiresIn: "24h" },
-    );
+  { adminId: admin._id, email: admin.email, name: admin.name, role: admin.role },
+  JWT_SECRET,
+  { expiresIn: "365d" }, // ✅ 365 days
+);
 
     setAuthCookie(res, "admin_token", token, ADMIN_COOKIE_MAX_AGE);
 
@@ -336,11 +336,35 @@ router.get("/quizzes/:quizId/export", async (req, res) => {
 
     questions.forEach((q, idx) => {
       const opts = Array.isArray(q.options) ? q.options : [];
-      const correctAnswer = opts.filter(o => o.correct).map(o => o.label).join(", ") || q.correct_answer || "";
-      const cleanText = (q.text || q.question_text || "").replace(/<[^>]+>/g, "").trim();
+      // ✅ FIX — handles missing labels
+      const correctAnswer = opts
+        .filter(o => o.correct)
+        .map((o, i) => o.label || String.fromCharCode(65 + i))
+        .join(", ") || q.correct_answer || "";
+      c// ✅ FIX — strip base64 from text, extract S3 URL instead
+      const rawText = q.text || q.question_text || "";
+
+      // Extract S3 URL from embedded <img> if present
+      const extractedImageUrl = (() => {
+        const m = rawText.match(/src=["'](https?:\/\/[^"']+)["']/i);
+        return m ? m[1] : "";
+      })();
+
+      // Strip ALL <img> tags + HTML tags for clean text
+      const cleanText = rawText
+        .replace(/<img[^>]*>/gi, "")   // ✅ remove base64 img tags
+        .replace(/<br\s*\/?>/gi, " ")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .trim();
+
+      // Use question.image_url first, then extracted S3 URL
+      const finalImageUrl = q.image_url || extractedImageUrl || "";
+
       ws.addRow({
         num:            idx + 1,
-        question_text:  cleanText,
+        question_text:  cleanText,       // ✅ no base64 bloat
         type:           q.type || "radio_button",
         option_a:       opts[0]?.text || "",
         option_b:       opts[1]?.text || "",
@@ -349,11 +373,10 @@ router.get("/quizzes/:quizId/export", async (req, res) => {
         correct_answer: correctAnswer,
         points:         q.points || 1,
         category:       q.categories?.[0]?.name || q.category || "",
-        image_url:      q.image_url || "",
+        image_url:      finalImageUrl,   // ✅ S3 URL, not base64
         explanation:    q.explanation || "",
       });
     });
-
     const filename = `${(quiz.quiz_name || "quiz").replace(/[^a-zA-Z0-9_]/g, "_")}_questions.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -443,7 +466,8 @@ const uploadMiddleware = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-router.post("/upload", (req, res) => {
+// ✅ FIX — add requireAdmin
+router.post("/upload", requireAdmin, (req, res) => {
   uploadMiddleware.single("file")(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "File too large. Max 50MB." });
@@ -531,8 +555,9 @@ router.get("/quizzes/:quizId", async (req, res) => {
 router.patch("/quizzes/:quizId", async (req, res) => {
   try {
     await connectDB();
+    // ✅ CORRECT — these are quiz fields
     const allowedFields = [
-      "quiz_name", "year_level", "subject", "tier", "difficulty",
+      "quiz_name", "year_level", "subject", "sub_topic", "tier", "difficulty",
       "time_limit_minutes", "set_number", "is_active", "is_trial",
       "randomize_questions", "randomize_options", "voice_url", "video_url",
       "max_attempts", "passing_score",
@@ -558,14 +583,48 @@ router.patch("/quizzes/:quizId", async (req, res) => {
 });
 
 // DELETE /api/admin/quizzes/:quizId
+// DELETE /api/admin/quizzes/:quizId
 router.delete("/quizzes/:quizId", async (req, res) => {
   try {
     await connectDB();
     const quiz = await Quiz.findOneAndDelete({ quiz_id: req.params.quizId });
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    // ✅ FIX 1 — Delete all questions belonging to this quiz
     await Question.deleteMany({ quiz_ids: req.params.quizId });
-    return res.json({ ok: true, deleted: req.params.quizId });
+
+    // ✅ FIX 2 — Remove quiz from ALL bundles that contain it
+    const affectedBundles = await QuizCatalog.find({
+      quiz_ids: req.params.quizId
+    }).lean();
+
+    if (affectedBundles.length > 0) {
+      // Remove quizId from all bundles at once
+      await QuizCatalog.updateMany(
+        { quiz_ids: req.params.quizId },
+        { $pull: { quiz_ids: req.params.quizId } }
+      );
+
+      // ✅ FIX 3 — Update quiz_count for each affected bundle
+      for (const bundle of affectedBundles) {
+        const newCount = (bundle.quiz_ids || []).filter(
+          (id) => id !== req.params.quizId
+        ).length;
+
+        await QuizCatalog.findOneAndUpdate(
+          { bundle_id: bundle.bundle_id },
+          { $set: { quiz_count: newCount } }
+        );
+      }
+    }
+
+    return res.json({
+      ok:      true,
+      deleted: req.params.quizId,
+      bundles_updated: affectedBundles.length, // ← useful for debugging
+    });
   } catch (err) {
+    console.error("Delete quiz error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -586,11 +645,12 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
     const question = await Question.create({
       question_id,
       quiz_ids:       [quizId],
-      text:           req.body.text || "",
+      text: req.body.text || req.body.question_text || "",
       type:           req.body.type || "radio_button",
       options:        req.body.options || [],
       correct_answer: req.body.correct_answer || null,
       case_sensitive: req.body.case_sensitive || false,
+      sub_topic: { type: String, default: null }, // ✅ ADD
       points:         req.body.points || 1,
       categories:     req.body.category ? [{ name: req.body.category }] : (req.body.categories || []),
       image_url:      req.body.image_url || null,
@@ -598,6 +658,7 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
       image_width:    req.body.image_width || null,
       image_height:   req.body.image_height || null,
       explanation:    req.body.explanation || null,
+       sub_topic:      req.body.sub_topic || null,  // ✅ ADD
       shuffle_options: req.body.shuffle_options ?? null,
       voice_url:      req.body.voice_url || null,
       video_url:      req.body.video_url || null,
@@ -617,20 +678,23 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
 });
 
 // PATCH /api/admin/questions/:questionId — edit a question
+// PATCH /api/admin/questions/:questionId — edit a question
 router.patch("/questions/:questionId", async (req, res) => {
   try {
     await connectDB();
     const allowedFields = [
-      "text", "type", "options", "correct_answer", "case_sensitive",
-      "points", "categories", "category", "image_url", "image_size",
-      "image_width", "image_height", "explanation", "shuffle_options",
-      "voice_url", "video_url",
+      "text", "question_text", "type", "options", "correct_answer",
+      "case_sensitive", "points", "categories", "category", "sub_topic", "image_url",
+      "image_size", "image_width", "image_height", "explanation",
+      "shuffle_options", "voice_url", "video_url",
     ];
-    const updates = {};
+    const updates = {};  // ← declare FIRST
     for (const f of allowedFields) {
       if (req.body[f] !== undefined) {
         if (f === "category") {
           updates["categories"] = req.body.category ? [{ name: req.body.category }] : [];
+        } else if (f === "question_text") {
+          updates["text"] = req.body.question_text; // ← alias fix
         } else {
           updates[f] = req.body[f];
         }
@@ -651,6 +715,7 @@ router.patch("/questions/:questionId", async (req, res) => {
 });
 
 // DELETE /api/admin/questions/:questionId
+// DELETE /api/admin/questions/:questionId
 router.delete("/questions/:questionId", async (req, res) => {
   try {
     await connectDB();
@@ -658,12 +723,21 @@ router.delete("/questions/:questionId", async (req, res) => {
     const question = await Question.findOneAndDelete({ question_id: req.params.questionId });
     if (!question) return res.status(404).json({ error: "Question not found" });
 
-    // Remove from quiz's question_ids and decrement count
     if (quiz_id) {
+      // ✅ Pull first
       await Quiz.findOneAndUpdate(
         { quiz_id },
-        { $pull: { question_ids: req.params.questionId }, $inc: { question_count: -1 } }
+        { $pull: { question_ids: req.params.questionId } }
       );
+      // ✅ Then recount from actual array — never goes negative
+      const updatedQuiz = await Quiz.findOne({ quiz_id }).lean();
+      if (updatedQuiz) {
+        const actualCount = (updatedQuiz.question_ids || []).length;
+        await Quiz.findOneAndUpdate(
+          { quiz_id },
+          { $set: { question_count: Math.max(0, actualCount) } }
+        );
+      }
     }
     return res.json({ ok: true, deleted: req.params.questionId });
   } catch (err) {
@@ -715,6 +789,7 @@ router.post("/quizzes/upload", async (req, res) => {
           categories:     q.category ? [{ name: q.category }] : (q.categories || []),
           image_url:      q.image_url  || null,
           explanation:    q.explanation || "",
+          sub_topic:      q.sub_topic || null,  // ✅ ADD
           voice_url:      q.voice_url  || null,
           video_url:      q.video_url  || null,
           image_width:    q.image_width  || null,
@@ -728,6 +803,7 @@ router.post("/quizzes/upload", async (req, res) => {
       quiz_name:          quizData.quiz_name.trim(),
       year_level:         quizData.year_level || null,
       subject:            quizData.subject || null,
+      sub_topic: { type: String, default: null },
       tier:               quizData.tier || "A",
       time_limit_minutes: quizData.time_limit_minutes || null,
       difficulty:         quizData.difficulty || null,
