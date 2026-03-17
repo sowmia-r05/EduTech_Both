@@ -148,6 +148,7 @@ const childRoutes = require("./routes/childRoutes");
 const childAuthRoutes = require("./routes/childAuthRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const tutorRoutes = require("./routes/Tutorroutes");
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const quizRoutes = require("./routes/quizRoutes");
 const availableQuizzesRoute = require("./routes/availableQuizzesRoute");
@@ -242,6 +243,8 @@ app.get("/", (req, res) => {
 // ─── Admin ────────────────────────────────────────────────────────────────────
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
+// add right below it:
+app.use("/api/tutor", tutorRoutes);
 
 // ─── Quiz, flashcards, available quizzes ─────────────────────────────────────
 app.use("/api", quizRoutes);
@@ -305,5 +308,7 @@ app.use((err, req, res, next) => {
     ...(IS_DEV ? { detail: err.message } : {}),
   });
 });
+
+
 
 module.exports = app;
