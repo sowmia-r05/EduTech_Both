@@ -33,8 +33,7 @@ function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentVie
 
       {/* ── Left: KAI logo (identical to DashboardHeader.jsx) ── */}
       <div
-        onClick={() => navigate("/")}
-        style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", flexShrink:0 }}
+        style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}
       >
         <div style={{
           width:36, height:36, borderRadius:9,

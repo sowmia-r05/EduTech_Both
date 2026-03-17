@@ -468,7 +468,7 @@ return (
         position:"sticky", top:0, zIndex:100, gap:16,
       }}>
         {/* Left: KAI Logo */}
-        <div onClick={() => navigate("/")} style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
           <div style={{ width:36, height:36, borderRadius:9, background:"linear-gradient(135deg,#7C3AED,#6D28D9)", display:"flex", alignItems:"center", justifyContent:"center" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
@@ -493,7 +493,7 @@ return (
               restoreQuizResult: location.state?.savedQuizResult,
             }
           });
-        }} style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 16px", borderRadius:8, border:"1px solid transparent", background:"transparent", color:"#64748B", fontWeight:600, fontSize:14, cursor:"pointer" }}>
+        }} style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 16px", borderRadius:8, border:"1px solid transparent", background:"transparent", color:"#64748B", fontWeight:600, fontSize:14 }}>
           Results
         </button>
           <button style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 16px", borderRadius:8, border:"1px solid #E2E8F0", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.08)", color:"#1E293B", fontWeight:600, fontSize:14, cursor:"default" }}>
