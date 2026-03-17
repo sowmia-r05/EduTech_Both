@@ -57,7 +57,6 @@ function readValidToken(key) {
   try {
     localStorage.removeItem("parent_token");
     localStorage.removeItem("child_token");
-    localStorage.removeItem("admin_token");
   } catch {}
 })();
 
