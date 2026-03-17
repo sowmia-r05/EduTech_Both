@@ -169,7 +169,7 @@ export default function ResultPage() {
   const isParentViewing = !childToken && !!parentToken;
     // ✅ Seed from childProfile.status immediately — no async delay
     const [childStatus, setChildStatus] = useState(
-      () => childProfile?.status || "trial"
+      () => childProfile?.status || null
     );
 
     useEffect(() => {
@@ -426,7 +426,7 @@ return (
       }}
     />
 
-    <TrialGateOverlay isTrialUser={childStatus === "trial"} preset="writing" viewerType={viewerType} yearLevel={yearLevel}>
+    <TrialGateOverlay isTrialUser={childStatus !== null && childStatus === "trial"} preset="writing" viewerType={viewerType} yearLevel={yearLevel}>
       <div className="relative min-h-screen bg-gray-100">
 
         <NoDataModal
