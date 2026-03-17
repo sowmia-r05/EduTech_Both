@@ -1,15 +1,13 @@
 /**
- * models/question.js  (v2 — SHORT ANSWER SUPPORT)
- *
- * Individual quiz question. Belongs to one or more quizzes via quiz_ids.
+ * models/question.js  (v3 — TUTOR VERIFICATION)
  *
  * CHANGES:
- *   ✅ shuffle_options — per-question toggle to randomize option order
- *   ✅ voice_url, video_url — per-question media
- *   ✅ image_size, image_width, image_height — image display control
- *   ✅ NEW: "short_answer" type — student types answer, auto-graded against correct_answer
- *   ✅ NEW: correct_answer field — stores the expected answer(s) for short_answer questions
- *   ✅ NEW: case_sensitive — whether grading should be case-sensitive (default: false)
+ *   ✅ Added tutor_verification sub-document
+ *     - status: "pending" | "approved" | "rejected"
+ *     - verified_by: tutor's email
+ *     - verified_at: timestamp
+ *     - rejection_reason: optional note
+ *   Rejected questions are filtered out when serving to child quiz pages.
  */
 
 const mongoose = require("mongoose");
@@ -29,6 +27,21 @@ const CategorySchema = new mongoose.Schema(
   {
     category_id: { type: String, default: () => uuidv4() },
     name: { type: String, required: true },
+  },
+  { _id: false }
+);
+
+// ✅ NEW: Tutor verification sub-document
+const TutorVerificationSchema = new mongoose.Schema(
+  {
+    status: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+    verified_by: { type: String, default: null },   // tutor email
+    verified_at: { type: Date, default: null },
+    rejection_reason: { type: String, default: null },
   },
   { _id: false }
 );
@@ -70,19 +83,23 @@ const QuestionSchema = new mongoose.Schema(
     image_width: { type: Number, default: null },
     image_height: { type: Number, default: null },
 
-    // ✅ NEW: Short answer — correct answer(s), pipe-separated for multiple accepted answers
-    // Example: "1025" or "1 025" or "1025|1 025|one thousand twenty five"
+    // Short answer grading
     correct_answer: { type: String, default: null },
-
-    // ✅ NEW: Case sensitive grading (default false = case-insensitive)
     case_sensitive: { type: Boolean, default: false },
-    sub_topic: { type: String, default: null }, // ✅ e.g. "Addition Facts"
 
+    sub_topic: { type: String, default: null },
+
+    // ✅ NEW: Tutor verification
+    tutor_verification: {
+      type: TutorVerificationSchema,
+      default: () => ({ status: "pending", verified_by: null, verified_at: null, rejection_reason: null }),
+    },
   },
   { timestamps: true, versionKey: false }
 );
 
 // Compound indexes for efficient queries
 QuestionSchema.index({ quiz_ids: 1, order: 1 });
+QuestionSchema.index({ "tutor_verification.status": 1 });
 
 module.exports = mongoose.model("Question", QuestionSchema);
