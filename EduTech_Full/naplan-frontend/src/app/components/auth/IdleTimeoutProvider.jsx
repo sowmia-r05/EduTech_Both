@@ -53,17 +53,11 @@ export default function IdleTimeoutProvider({ children, idleMinutes, warningSeco
     idleMinutes: idleMinutes ?? IDLE_MINUTES,
     warningSeconds: warningSeconds ?? WARNING_SECONDS,
     onLogout: handleIdleLogout,
-    enabled: true,
+    enabled: false,
   });
 
   return (
     <>
-      {/* ─── Floating idle timer badge (top-right, always visible) ─── */}
-      {isParent && !showWarning && (
-        <div className="fixed top-4 right-4 z-[100]">
-          <IdleTimerBadge totalSecondsLeft={totalSecondsLeft} />
-        </div>
-      )}
 
       {children}
 
