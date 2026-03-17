@@ -3,13 +3,17 @@
  *
  * FIXES IN THIS VERSION:
  *   ✅ FIX 1: Added GET /quizzes/:quizId route (was MISSING — caused View page to fail)
- *   ✅ FIX 2: Token expiry increased from 2h → 24h (cookie + JWT)
+ *   ✅ FIX 2: Token expiry increased from 2h → 365d (cookie + JWT)
  *   ✅ FIX 3: Added POST/DELETE /bundles/:bundleId/quizzes for bundle mapping
  *   ✅ FIX 4: /quizzes/upload now sets correct: true/false on each option from correct_answer labels
+ *   ✅ FIX 5: Added missing `const path = require("path")` (template route was crashing)
+ *   ✅ FIX 6: Removed duplicate requireAdmin on /upload (already covered by router.use)
+ *   ✅ FIX 7: Fixed sub_topic: { type, default } schema syntax used as value in Quiz.create()
  */
 
-const { setAuthCookie }    = require("../utils/setCookies");
-const ADMIN_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000; // ✅ 365 days// ✅ FIX 2: was 2 hours, now 24 hours
+const path             = require("path"); // ✅ FIX 5: was missing, caused /template to crash
+const { setAuthCookie, clearAuthCookie } = require("../utils/setCookies");
+const ADMIN_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000; // 365 days
 
 const express    = require("express");
 const jwt        = require("jsonwebtoken");
@@ -27,9 +31,8 @@ const QuizCatalog       = require("../models/quizCatalog");
 const Child             = require("../models/child");
 const Purchase          = require("../models/purchase");
 const connectDB         = require("../config/db");
-// ADD this line after the other requires
-const { uploadToS3 } = require("../utils/s3Upload");
-const ExcelJS = require("exceljs");
+const { uploadToS3 }    = require("../utils/s3Upload");
+const ExcelJS           = require("exceljs");
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
@@ -77,8 +80,8 @@ router.post("/register", async (req, res) => {
     }
 
     const invite = await AdminInvite.findOne({
-      token:    invite_token,
-      used:     false,
+      token:     invite_token,
+      used:      false,
       expiresAt: { $gt: new Date() },
     });
 
@@ -168,12 +171,11 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
     admin.login_count   = (admin.login_count || 0) + 1;
     await admin.save();
 
-    // ✅ FIX 2: JWT expiry increased from "2h" to "24h"
     const token = jwt.sign(
-  { adminId: admin._id, email: admin.email, name: admin.name, role: admin.role },
-  JWT_SECRET,
-  { expiresIn: "365d" }, // ✅ 365 days
-);
+      { adminId: admin._id, email: admin.email, name: admin.name, role: admin.role },
+      JWT_SECRET,
+      { expiresIn: "365d" },
+    );
 
     setAuthCookie(res, "admin_token", token, ADMIN_COOKIE_MAX_AGE);
 
@@ -192,8 +194,7 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
 // PUBLIC: Logout
 // ═══════════════════════════════════════════════════════════
 router.post("/logout", (req, res) => {
-  const { clearAuthCookie } = require("../utils/setCookies");
-  clearAuthCookie(res, "admin_token");
+  clearAuthCookie(res, "admin_token"); // ✅ already imported at top
   return res.json({ ok: true });
 });
 
@@ -205,7 +206,7 @@ router.get("/template", (req, res) => {
   res.download(templatePath, "Quiz_Upload_Template.xlsx", (err) => {
     if (err) {
       console.error("Template download error:", err.message);
-      res.status(404).json({ error: "Template file not found" });
+      if (!res.headersSent) res.status(404).json({ error: "Template file not found" });
     }
   });
 });
@@ -301,93 +302,6 @@ router.get("/admins/pending", async (req, res) => {
   }
 });
 
-// GET /api/admin/quizzes/:quizId/export — download questions as xlsx
-router.get("/quizzes/:quizId/export", async (req, res) => {
-  try {
-    await connectDB();
-    let quiz = await Quiz.findOne({ quiz_id: req.params.quizId }).lean();
-    if (!quiz) quiz = await Quiz.findById(req.params.quizId).lean();
-    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
-
-    const questions = await Question.find({
-      $or: [
-        { quiz_ids: req.params.quizId },
-        { quiz_ids: quiz.quiz_id },
-      ],
-    }).sort({ createdAt: 1 }).lean();
-
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet("Questions");
-    ws.columns = [
-      { header: "#",             key: "num",            width: 5  },
-      { header: "question_text", key: "question_text",  width: 60 },
-      { header: "type",          key: "type",           width: 16 },
-      { header: "option_a",      key: "option_a",       width: 30 },
-      { header: "option_b",      key: "option_b",       width: 30 },
-      { header: "option_c",      key: "option_c",       width: 30 },
-      { header: "option_d",      key: "option_d",       width: 30 },
-      { header: "correct_answer",key: "correct_answer", width: 16 },
-      { header: "points",        key: "points",         width: 8  },
-      { header: "category",      key: "category",       width: 20 },
-      { header: "image_url",     key: "image_url",      width: 50 },
-      { header: "explanation",   key: "explanation",    width: 40 },
-    ];
-    ws.getRow(1).font = { bold: true };
-
-    questions.forEach((q, idx) => {
-      const opts = Array.isArray(q.options) ? q.options : [];
-      // ✅ FIX — handles missing labels
-      const correctAnswer = opts
-        .filter(o => o.correct)
-        .map((o, i) => o.label || String.fromCharCode(65 + i))
-        .join(", ") || q.correct_answer || "";
-      // ✅ FIX — strip base64 from text, extract S3 URL instead
-      const rawText = q.text || q.question_text || "";
-
-      // Extract S3 URL from embedded <img> if present
-      const extractedImageUrl = (() => {
-        const m = rawText.match(/src=["'](https?:\/\/[^"']+)["']/i);
-        return m ? m[1] : "";
-      })();
-
-      // Strip ALL <img> tags + HTML tags for clean text
-      const cleanText = rawText
-        .replace(/<img[^>]*>/gi, "")   // ✅ remove base64 img tags
-        .replace(/<br\s*\/?>/gi, " ")
-        .replace(/<[^>]+>/g, "")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .trim();
-
-      // Use question.image_url first, then extracted S3 URL
-      const finalImageUrl = q.image_url || extractedImageUrl || "";
-
-      ws.addRow({
-        num:            idx + 1,
-        question_text:  cleanText,       // ✅ no base64 bloat
-        type:           q.type || "radio_button",
-        option_a:       opts[0]?.text || "",
-        option_b:       opts[1]?.text || "",
-        option_c:       opts[2]?.text || "",
-        option_d:       opts[3]?.text || "",
-        correct_answer: correctAnswer,
-        points:         q.points || 1,
-        category:       q.categories?.[0]?.name || q.category || "",
-        image_url:      finalImageUrl,   // ✅ S3 URL, not base64
-        explanation:    q.explanation || "",
-      });
-    });
-    const filename = `${(quiz.quiz_name || "quiz").replace(/[^a-zA-Z0-9_]/g, "_")}_questions.xlsx`;
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    await wb.xlsx.write(res);
-    res.end();
-  } catch (err) {
-    console.error("Export error:", err);
-    if (!res.headersSent) res.status(500).json({ error: err.message });
-  }
-});
-
 router.patch("/admins/:adminId", async (req, res) => {
   try {
     await connectDB();
@@ -400,7 +314,7 @@ router.patch("/admins/:adminId", async (req, res) => {
     switch (action) {
       case "approve":
         if (admin.status !== "pending") return res.status(400).json({ error: "Admin is not pending" });
-        admin.status = "active";
+        admin.status      = "active";
         admin.approved_by = req.admin.email;
         admin.approved_at = new Date();
         break;
@@ -447,9 +361,6 @@ router.delete("/admins/:adminId", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// FILE UPLOAD
-// ═══════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════
 // FILE UPLOAD (AWS S3)
 // ═══════════════════════════════════════════════════════════
 const uploadMiddleware = multer({
@@ -466,8 +377,8 @@ const uploadMiddleware = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// ✅ FIX — add requireAdmin
-router.post("/upload", requireAdmin, (req, res) => {
+// ✅ FIX 6: Removed duplicate requireAdmin here — already applied by router.use(requireAdmin) above
+router.post("/upload", (req, res) => {
   uploadMiddleware.single("file")(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "File too large. Max 50MB." });
@@ -484,7 +395,7 @@ router.post("/upload", requireAdmin, (req, res) => {
       );
       return res.json({
         ok:       true,
-        url:      result.url,  // ← full S3 public URL
+        url:      result.url,
         key:      result.key,
         filename: req.file.originalname,
         mimetype: req.file.mimetype,
@@ -496,7 +407,6 @@ router.post("/upload", requireAdmin, (req, res) => {
     }
   });
 });
-     
 
 // ═══════════════════════════════════════════════════════════
 // QUIZ ROUTES
@@ -516,33 +426,27 @@ router.get("/quizzes", async (req, res) => {
   }
 });
 
-// ✅ FIX 1: GET /api/admin/quizzes/:quizId — fetch single quiz WITH questions
-// THIS ROUTE WAS MISSING — required by QuizDetailPage to display questions
+// GET /api/admin/quizzes/:quizId — fetch single quiz WITH questions
 router.get("/quizzes/:quizId", async (req, res) => {
   try {
     await connectDB();
-
-    // Try quiz_id field first, then fall back to MongoDB _id
     let quiz = await Quiz.findOne({ quiz_id: req.params.quizId }).lean();
     if (!quiz) quiz = await Quiz.findById(req.params.quizId).lean();
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
-    // Fetch all questions belonging to this quiz
     const questions = await Question.find({
       $or: [
         { quiz_ids: req.params.quizId },
         { quiz_ids: quiz.quiz_id },
       ],
-    })
-      .sort({ createdAt: 1 })
-      .lean();
+    }).sort({ createdAt: 1 }).lean();
 
     const totalPoints = questions.reduce((sum, q) => sum + (q.points || 1), 0);
 
     return res.json({
       ...quiz,
       questions,
-      total_points: totalPoints,
+      total_points:   totalPoints,
       question_count: questions.length,
     });
   } catch (err) {
@@ -551,33 +455,144 @@ router.get("/quizzes/:quizId", async (req, res) => {
   }
 });
 
-// PATCH /api/admin/quizzes/:quizId — update quiz settings
+// GET /api/admin/quizzes/:quizId/export — download questions as xlsx
+router.get("/quizzes/:quizId/export", async (req, res) => {
+  try {
+    await connectDB();
+    let quiz = await Quiz.findOne({ quiz_id: req.params.quizId }).lean();
+    if (!quiz) quiz = await Quiz.findById(req.params.quizId).lean();
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    const questions = await Question.find({
+      $or: [
+        { quiz_ids: req.params.quizId },
+        { quiz_ids: quiz.quiz_id },
+      ],
+    }).sort({ createdAt: 1 }).lean();
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Questions");
+    ws.columns = [
+      { header: "#",              key: "num",            width: 5  },
+      { header: "question_text",  key: "question_text",  width: 60 },
+      { header: "type",           key: "type",           width: 16 },
+      { header: "option_a",       key: "option_a",       width: 30 },
+      { header: "option_b",       key: "option_b",       width: 30 },
+      { header: "option_c",       key: "option_c",       width: 30 },
+      { header: "option_d",       key: "option_d",       width: 30 },
+      { header: "correct_answer", key: "correct_answer", width: 16 },
+      { header: "points",         key: "points",         width: 8  },
+      { header: "category",       key: "category",       width: 20 },
+      { header: "image_url",      key: "image_url",      width: 50 },
+      { header: "explanation",    key: "explanation",    width: 40 },
+    ];
+    ws.getRow(1).font = { bold: true };
+
+    questions.forEach((q, idx) => {
+      const opts = Array.isArray(q.options) ? q.options : [];
+      const correctAnswer = opts
+        .filter(o => o.correct)
+        .map((o, i) => o.label || String.fromCharCode(65 + i))
+        .join(", ") || q.correct_answer || "";
+
+      const rawText = q.text || q.question_text || "";
+      const extractedImageUrl = (() => {
+        const m = rawText.match(/src=["'](https?:\/\/[^"']+)["']/i);
+        return m ? m[1] : "";
+      })();
+      const cleanText = rawText
+        .replace(/<img[^>]*>/gi, "")
+        .replace(/<br\s*\/?>/gi, " ")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .trim();
+      const finalImageUrl = q.image_url || extractedImageUrl || "";
+
+      ws.addRow({
+        num:            idx + 1,
+        question_text:  cleanText,
+        type:           q.type || "radio_button",
+        option_a:       opts[0]?.text || "",
+        option_b:       opts[1]?.text || "",
+        option_c:       opts[2]?.text || "",
+        option_d:       opts[3]?.text || "",
+        correct_answer: correctAnswer,
+        points:         q.points || 1,
+        category:       q.categories?.[0]?.name || q.category || "",
+        image_url:      finalImageUrl,
+        explanation:    q.explanation || "",
+      });
+    });
+
+    const filename = `${(quiz.quiz_name || "quiz").replace(/[^a-zA-Z0-9_]/g, "_")}_questions.xlsx`;
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error("Export error:", err);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/quizzes/:quizId
+router.delete("/quizzes/:quizId", async (req, res) => {
+  try {
+    await connectDB();
+    const quiz = await Quiz.findOneAndDelete({ quiz_id: req.params.quizId });
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    await Question.deleteMany({ quiz_ids: req.params.quizId });
+
+    const affectedBundles = await QuizCatalog.find({ quiz_ids: req.params.quizId }).lean();
+    if (affectedBundles.length > 0) {
+      await QuizCatalog.updateMany(
+        { quiz_ids: req.params.quizId },
+        { $pull: { quiz_ids: req.params.quizId } }
+      );
+      for (const bundle of affectedBundles) {
+        const newCount = (bundle.quiz_ids || []).filter((id) => id !== req.params.quizId).length;
+        await QuizCatalog.findOneAndUpdate(
+          { bundle_id: bundle.bundle_id },
+          { $set: { quiz_count: newCount } }
+        );
+      }
+    }
+
+    return res.json({ ok: true, deleted: req.params.quizId, bundles_updated: affectedBundles.length });
+  } catch (err) {
+    console.error("Delete quiz error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// QUESTION ROUTES
+// ═══════════════════════════════════════════════════════════
+
 // PATCH /api/admin/questions/:questionId/verify
 router.patch("/questions/:questionId/verify", async (req, res) => {
   try {
     await connectDB();
     const { status, rejection_reason } = req.body;
-
     if (!["approved", "rejected", "pending"].includes(status)) {
       return res.status(400).json({ error: "status must be 'approved', 'rejected', or 'pending'" });
     }
     if (status === "rejected" && !rejection_reason?.trim()) {
       return res.status(400).json({ error: "rejection_reason is required when rejecting" });
     }
-
     const update = {
-      "tutor_verification.status": status,
-      "tutor_verification.verified_by": req.admin.email,
-      "tutor_verification.verified_at": new Date(),
+      "tutor_verification.status":           status,
+      "tutor_verification.verified_by":      req.admin.email,
+      "tutor_verification.verified_at":      new Date(),
       "tutor_verification.rejection_reason": status === "rejected" ? rejection_reason.trim() : null,
     };
-
     const question = await Question.findOneAndUpdate(
       { question_id: req.params.questionId },
       { $set: update },
       { new: true }
     ).lean();
-
     if (!question) return res.status(404).json({ error: "Question not found" });
     return res.json({ ok: true, question });
   } catch (err) {
@@ -595,20 +610,19 @@ router.get("/verification-summary", async (req, res) => {
         $group: {
           _id: {
             quiz_id: { $arrayElemAt: ["$quiz_ids", 0] },
-            status: "$tutor_verification.status",
+            status:  "$tutor_verification.status",
           },
           count: { $sum: 1 },
         },
       },
       {
         $group: {
-          _id: "$_id.quiz_id",
+          _id:      "$_id.quiz_id",
           statuses: { $push: { status: "$_id.status", count: "$count" } },
-          total: { $sum: "$count" },
+          total:    { $sum: "$count" },
         },
       },
     ]);
-
     const summary = {};
     for (const row of stats) {
       if (!row._id) continue;
@@ -618,64 +632,12 @@ router.get("/verification-summary", async (req, res) => {
       }
       summary[row._id] = entry;
     }
-
     return res.json({ ok: true, summary });
   } catch (err) {
     console.error("Verification summary error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
-
-// DELETE /api/admin/quizzes/:quizId
-// DELETE /api/admin/quizzes/:quizId
-router.delete("/quizzes/:quizId", async (req, res) => {
-  try {
-    await connectDB();
-    const quiz = await Quiz.findOneAndDelete({ quiz_id: req.params.quizId });
-    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
-
-    // ✅ FIX 1 — Delete all questions belonging to this quiz
-    await Question.deleteMany({ quiz_ids: req.params.quizId });
-
-    // ✅ FIX 2 — Remove quiz from ALL bundles that contain it
-    const affectedBundles = await QuizCatalog.find({
-      quiz_ids: req.params.quizId
-    }).lean();
-
-    if (affectedBundles.length > 0) {
-      // Remove quizId from all bundles at once
-      await QuizCatalog.updateMany(
-        { quiz_ids: req.params.quizId },
-        { $pull: { quiz_ids: req.params.quizId } }
-      );
-
-      // ✅ FIX 3 — Update quiz_count for each affected bundle
-      for (const bundle of affectedBundles) {
-        const newCount = (bundle.quiz_ids || []).filter(
-          (id) => id !== req.params.quizId
-        ).length;
-
-        await QuizCatalog.findOneAndUpdate(
-          { bundle_id: bundle.bundle_id },
-          { $set: { quiz_count: newCount } }
-        );
-      }
-    }
-
-    return res.json({
-      ok:      true,
-      deleted: req.params.quizId,
-      bundles_updated: affectedBundles.length, // ← useful for debugging
-    });
-  } catch (err) {
-    console.error("Delete quiz error:", err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════
-// QUESTION ROUTES
-// ═══════════════════════════════════════════════════════════
 
 // POST /api/admin/quizzes/:quizId/questions — add a new question
 router.post("/quizzes/:quizId/questions", async (req, res) => {
@@ -688,27 +650,25 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
     const question_id = uuidv4();
     const question = await Question.create({
       question_id,
-      quiz_ids:       [quizId],
-      text: req.body.text || req.body.question_text || "",
-      type:           req.body.type || "radio_button",
-      options:        req.body.options || [],
-      correct_answer: req.body.correct_answer || null,
-      case_sensitive: req.body.case_sensitive || false,
-      sub_topic: { type: String, default: null }, // ✅ ADD
-      points:         req.body.points || 1,
-      categories:     req.body.category ? [{ name: req.body.category }] : (req.body.categories || []),
-      image_url:      req.body.image_url || null,
-      image_size:     req.body.image_size || "medium",
-      image_width:    req.body.image_width || null,
-      image_height:   req.body.image_height || null,
-      explanation:    req.body.explanation || null,
-       sub_topic:      req.body.sub_topic || null,  // ✅ ADD
+      quiz_ids:        [quizId],
+      text:            req.body.text || req.body.question_text || "",
+      type:            req.body.type || "radio_button",
+      options:         req.body.options || [],
+      correct_answer:  req.body.correct_answer || null,
+      case_sensitive:  req.body.case_sensitive || false,
+      sub_topic:       req.body.sub_topic || null,
+      points:          req.body.points || 1,
+      categories:      req.body.category ? [{ name: req.body.category }] : (req.body.categories || []),
+      image_url:       req.body.image_url || null,
+      image_size:      req.body.image_size || "medium",
+      image_width:     req.body.image_width || null,
+      image_height:    req.body.image_height || null,
+      explanation:     req.body.explanation || null,
       shuffle_options: req.body.shuffle_options ?? null,
-      voice_url:      req.body.voice_url || null,
-      video_url:      req.body.video_url || null,
+      voice_url:       req.body.voice_url || null,
+      video_url:       req.body.video_url || null,
     });
 
-    // Update quiz question list and count
     await Quiz.findOneAndUpdate(
       { quiz_id: quizId },
       { $addToSet: { question_ids: question_id }, $inc: { question_count: 1 } }
@@ -722,82 +682,39 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
 });
 
 // PATCH /api/admin/questions/:questionId — edit a question
-// PATCH /api/admin/questions/:questionId — edit a question
-// PATCH /api/admin/questions/:questionId/verify
-router.patch("/questions/:questionId/verify", async (req, res) => {
+router.patch("/questions/:questionId", async (req, res) => {
   try {
     await connectDB();
-    const { status, rejection_reason } = req.body;
-
-    if (!["approved", "rejected", "pending"].includes(status)) {
-      return res.status(400).json({ error: "status must be 'approved', 'rejected', or 'pending'" });
+    const allowedFields = [
+      "text", "question_text", "type", "options", "correct_answer",
+      "case_sensitive", "points", "categories", "category", "sub_topic", "image_url",
+      "image_size", "image_width", "image_height", "explanation",
+      "shuffle_options", "voice_url", "video_url",
+    ];
+    const updates = {};
+    for (const f of allowedFields) {
+      if (req.body[f] !== undefined) {
+        if (f === "category") {
+          updates["categories"] = req.body.category ? [{ name: req.body.category }] : [];
+        } else if (f === "question_text") {
+          updates["text"] = req.body.question_text;
+        } else {
+          updates[f] = req.body[f];
+        }
+      }
     }
-    if (status === "rejected" && !rejection_reason?.trim()) {
-      return res.status(400).json({ error: "rejection_reason is required when rejecting" });
-    }
-
-    const update = {
-      "tutor_verification.status": status,
-      "tutor_verification.verified_by": req.admin.email,
-      "tutor_verification.verified_at": new Date(),
-      "tutor_verification.rejection_reason": status === "rejected" ? rejection_reason.trim() : null,
-    };
-
     const question = await Question.findOneAndUpdate(
       { question_id: req.params.questionId },
-      { $set: update },
+      { $set: updates },
       { new: true }
     ).lean();
-
     if (!question) return res.status(404).json({ error: "Question not found" });
-    return res.json({ ok: true, question });
+    return res.json(question);
   } catch (err) {
-    console.error("Verify question error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/admin/verification-summary
-router.get("/verification-summary", async (req, res) => {
-  try {
-    await connectDB();
-    const stats = await Question.aggregate([
-      {
-        $group: {
-          _id: {
-            quiz_id: { $arrayElemAt: ["$quiz_ids", 0] },
-            status: "$tutor_verification.status",
-          },
-          count: { $sum: 1 },
-        },
-      },
-      {
-        $group: {
-          _id: "$_id.quiz_id",
-          statuses: { $push: { status: "$_id.status", count: "$count" } },
-          total: { $sum: "$count" },
-        },
-      },
-    ]);
-
-    const summary = {};
-    for (const row of stats) {
-      if (!row._id) continue;
-      const entry = { quiz_id: row._id, total: row.total, approved: 0, rejected: 0, pending: 0 };
-      for (const s of row.statuses) {
-        entry[s.status || "pending"] = s.count;
-      }
-      summary[row._id] = entry;
-    }
-
-    return res.json({ ok: true, summary });
-  } catch (err) {
-    console.error("Verification summary error:", err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/admin/questions/:questionId
 // DELETE /api/admin/questions/:questionId
 router.delete("/questions/:questionId", async (req, res) => {
   try {
@@ -807,12 +724,10 @@ router.delete("/questions/:questionId", async (req, res) => {
     if (!question) return res.status(404).json({ error: "Question not found" });
 
     if (quiz_id) {
-      // ✅ Pull first
       await Quiz.findOneAndUpdate(
         { quiz_id },
         { $pull: { question_ids: req.params.questionId } }
       );
-      // ✅ Then recount from actual array — never goes negative
       const updatedQuiz = await Quiz.findOne({ quiz_id }).lean();
       if (updatedQuiz) {
         const actualCount = (updatedQuiz.question_ids || []).length;
@@ -845,7 +760,6 @@ router.post("/quizzes/upload", async (req, res) => {
 
     const questions = await Question.insertMany(
       questionsData.map((q) => {
-        // ✅ FIX 4: Build options with correct: true/false from correct_answer labels
         const correctLabels = (q.correct_answer || "")
           .toUpperCase()
           .split(",")
@@ -857,7 +771,7 @@ router.post("/quizzes/upload", async (req, res) => {
           return {
             ...opt,
             option_id: opt.option_id || uuidv4(),
-            correct: opt.correct === true || correctLabels.includes(label.toUpperCase()),
+            correct:   opt.correct === true || correctLabels.includes(label.toUpperCase()),
           };
         });
 
@@ -866,15 +780,15 @@ router.post("/quizzes/upload", async (req, res) => {
           quiz_ids:       [quiz_id],
           text:           q.question_text || q.text || "",
           type:           q.type || "radio_button",
-          options:        mappedOptions,                  // ✅ FIX 4: use mapped options
+          options:        mappedOptions,
           correct_answer: q.correct_answer || null,
           points:         q.points || 1,
           categories:     q.category ? [{ name: q.category }] : (q.categories || []),
-          image_url:      q.image_url  || null,
-          explanation:    q.explanation || "",
-          sub_topic:      q.sub_topic || null,  // ✅ ADD
-          voice_url:      q.voice_url  || null,
-          video_url:      q.video_url  || null,
+          image_url:      q.image_url    || null,
+          explanation:    q.explanation  || "",
+          sub_topic:      q.sub_topic    || null,
+          voice_url:      q.voice_url    || null,
+          video_url:      q.video_url    || null,
           image_width:    q.image_width  || null,
           image_height:   q.image_height || null,
         };
@@ -884,17 +798,17 @@ router.post("/quizzes/upload", async (req, res) => {
     const quiz = await Quiz.create({
       quiz_id,
       quiz_name:          quizData.quiz_name.trim(),
-      year_level:         quizData.year_level || null,
-      subject:            quizData.subject || null,
-      sub_topic: { type: String, default: null },
-      tier:               quizData.tier || "A",
+      year_level:         quizData.year_level         || null,
+      subject:            quizData.subject            || null,
+      sub_topic:          quizData.sub_topic          || null, // ✅ FIX 7: was schema syntax, not a value
+      tier:               quizData.tier               || "A",
       time_limit_minutes: quizData.time_limit_minutes || null,
-      difficulty:         quizData.difficulty || null,
-      set_number:         quizData.set_number || 1,
-      is_trial:           quizData.is_trial || false,
+      difficulty:         quizData.difficulty         || null,
+      set_number:         quizData.set_number         || 1,
+      is_trial:           quizData.is_trial           || false,
       is_active:          true,
-      voice_url:          quizData.voice_url || null,
-      video_url:          quizData.video_url || null,
+      voice_url:          quizData.voice_url          || null,
+      video_url:          quizData.video_url          || null,
       question_ids:       questions.map((q) => q.question_id),
       question_count:     questions.length,
     });
@@ -957,24 +871,24 @@ router.post("/bundles", async (req, res) => {
     if (price_cents === undefined || Number(price_cents) < 0)
       return res.status(400).json({ error: "price_cents is required and must be >= 0" });
 
-    const yearSlug  = year_level ? String(year_level).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_") : "general";
-    const tierSlug  = tier       ? String(tier).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")       : "standard";
+    const yearSlug  = year_level   ? String(year_level).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")   : "general";
+    const tierSlug  = tier         ? String(tier).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")         : "standard";
     const nameSlug  = bundle_name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 30);
     const bundle_id = `bundle_${yearSlug}_${tierSlug}_${nameSlug}_${Date.now()}`;
 
     const bundle = await QuizCatalog.create({
       bundle_id,
       bundle_name:        bundle_name.trim(),
-      description:        description || "",
-      year_level:         year_level  || null,
-      tier:               tier        || "A",
+      description:        description        || "",
+      year_level:         year_level         || null,
+      tier:               tier               || "A",
       price_cents:        Number(price_cents),
-      currency:           currency    || "aud",
+      currency:           currency           || "aud",
       max_quiz_count:     max_quiz_count     || null,
       questions_per_quiz: questions_per_quiz || null,
       distribution_mode:  distribution_mode  || "fixed",
       swap_eligible_from: swap_eligible_from || null,
-      subjects:           subjects    || [],
+      subjects:           subjects           || [],
       quiz_ids:           [],
       is_active:          true,
     });
@@ -1019,7 +933,7 @@ router.delete("/bundles/:bundleId", async (req, res) => {
   }
 });
 
-// ✅ FIX 3: POST /bundles/:bundleId/quizzes — add a quiz to a bundle
+// POST /bundles/:bundleId/quizzes — add a quiz to a bundle
 router.post("/bundles/:bundleId/quizzes", async (req, res) => {
   try {
     await connectDB();
@@ -1041,7 +955,7 @@ router.post("/bundles/:bundleId/quizzes", async (req, res) => {
   }
 });
 
-// ✅ FIX 3: DELETE /bundles/:bundleId/quizzes — remove a quiz from a bundle
+// DELETE /bundles/:bundleId/quizzes — remove a quiz from a bundle
 router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
   try {
     await connectDB();
@@ -1063,7 +977,7 @@ router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
   }
 });
 
-// PATCH /bundles/:bundleId/quizzes — set the full quiz_ids list
+// PATCH /bundles/:bundleId/quizzes — replace the full quiz_ids list
 router.patch("/bundles/:bundleId/quizzes", async (req, res) => {
   try {
     await connectDB();
