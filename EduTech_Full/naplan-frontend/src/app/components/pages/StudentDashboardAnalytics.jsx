@@ -236,6 +236,9 @@ function TrendBadge({ trend }) {
   );
 }
 
+
+
+
 /* ═══════════════════════════════════════════════════════════
    ██████████████████████████████████████████████████████
    PARENT VIEW
@@ -245,6 +248,12 @@ function TrendBadge({ trend }) {
 function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbackLoading, refreshing, onRefresh, timeFilter, setTimeFilter }) {
   const subjectStats  = useMemo(() => buildSubjectStats(tests), [tests]);
   const status        = useMemo(() => overallStatus(subjectStats), [subjectStats]);
+  const [subjectFilter, setSubjectFilter] = useState("All");
+    const subjectFilteredStats = useMemo(() => {
+    if (subjectFilter === "All") return subjectStats;
+    return subjectStats.filter((s) => s.subject === subjectFilter);
+  }, [subjectStats, subjectFilter]);
+
   const weakestSubj   = useMemo(() => {
     const active = subjectStats.filter((s) => s.count > 0);
     return active.length ? active.reduce((p, c) => ((c.avg || 0) < (p.avg || 0) ? c : p)) : null;
@@ -283,17 +292,55 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
     <div className="space-y-5">
 
       {/* ── Time filter (compact, right-aligned) ── */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-400 font-medium">Showing results for:</p>
-        <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-          {TIME_FILTERS.map((f, i) => (
-            <button key={f.label} onClick={() => setTimeFilter(i)}
-              className={"px-3 py-1.5 rounded-lg text-xs font-medium transition-all " + (timeFilter === i ? "bg-slate-800 text-white" : "text-slate-500 hover:text-slate-700")}>
-              {f.label}
-            </button>
-          ))}
+      {/* ── Filters row: Subject pills + Time filter ── */}
+      <div className="flex flex-col gap-3">
+
+        {/* Subject filter pills */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-xs text-slate-400 font-medium shrink-0">Subject:</p>
+          {["All", ...SUBJECTS].map((s) => {
+            const isActive = subjectFilter === s;
+            const Icon = SUBJECT_ICON[s] || Library;
+            const activeBg   = s === "All" ? "bg-slate-800 text-white border-slate-800" : SUBJECT_LIGHT_BG[s] + " " + SUBJECT_TEXT[s] + " " + SUBJECT_BORDER[s] + " ring-2 ring-offset-1 ring-" + (
+              s === "Reading" ? "blue" : s === "Writing" ? "purple" : s === "Numeracy" ? "amber" : "emerald"
+            ) + "-300";
+            const inactiveBg = "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700";
+            return (
+              <button
+                key={s}
+                onClick={() => {
+                  setSubjectFilter(s);
+                  setActiveSubject(null); // collapse drill panel when filter changes
+                }}
+                className={
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all shadow-sm " +
+                  (isActive ? activeBg : inactiveBg)
+                }
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {s}
+              </button>
+            );
+          })}
         </div>
+
+        {/* Time filter — unchanged */}
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-slate-400 font-medium">Time period:</p>
+          <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+            {TIME_FILTERS.map((f, i) => (
+              <button key={f.label} onClick={() => setTimeFilter(i)}
+                className={"px-3 py-1.5 rounded-lg text-xs font-medium transition-all " + (timeFilter === i ? "bg-slate-800 text-white" : "text-slate-500 hover:text-slate-700")}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
       </div>
+
+
+
 
       {/* ════════════════════════════════════════════
           SECTION 1 — "Is my child doing OK?"
@@ -337,7 +384,7 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
           <BookOpen className="w-4 h-4 text-indigo-500" />
           How are they doing in each subject?
         </h3>        <div className="grid grid-cols-2 gap-3">
-          {subjectStats.map((s) => {
+          {subjectFilteredStats.map((s) => {
             const stars  = scoreToStars(s.avg);
             const hasData = s.count > 0;
             const trendUp = s.trend !== null && s.trend > 0;
