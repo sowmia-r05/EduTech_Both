@@ -232,7 +232,7 @@ export default function Dashboard() {
 
 
   const isParentViewing = !childToken && !!parentToken;
-   const [childStatus, setChildStatus] = useState("trial");
+   const [childStatus, setChildStatus] = useState(null);
   const yearLevel = childProfile?.yearLevel || null;
 
   const viewerType = childToken && !isParentViewing
@@ -524,7 +524,7 @@ return (
 
 
     <TrialGateOverlay
-      isTrialUser={childStatus === "trial"}
+      isTrialUser={childStatus !== null && childStatus === "trial"}
       preset="nonwriting"
       viewerType={viewerType}
       yearLevel={yearLevel}
