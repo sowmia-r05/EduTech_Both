@@ -6,10 +6,10 @@
  *
 **/
 
-import { useNavigate } from "react-router-dom";
+
 
 export default function DashboardHeader({ children }) {
-  const navigate = useNavigate();
+  
 
   return (
     <nav
@@ -28,8 +28,7 @@ export default function DashboardHeader({ children }) {
     >
       {/* ── Left: Logo — identical to ParentDashboard ── */}
       <div
-        onClick={() => navigate("/")}
-        style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}
+        style={{ display: "flex", alignItems: "center", gap: "10px" }}
       >
         <div
           style={{
