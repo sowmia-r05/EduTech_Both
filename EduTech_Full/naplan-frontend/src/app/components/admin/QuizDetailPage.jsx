@@ -15,6 +15,7 @@
  * ✅ Fixed: Card view shows writing indicator block
  * ✅ Fixed: image_width/image_height use ?? null (not || null)
  * ✅ Fixed: Options hidden for writing type in editor
+ * ✅ Added: Right-click context menu — Edit / Insert Before / Insert After / Delete
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -221,6 +222,40 @@ function VerifyControls({ question, onVerified }) {
     </div>
   );
 }
+
+// ── ADDED: Context Menu ───────────────────────────────────────────────────────
+   // ── ADDED: Context Menu ───────────────────────────────────────────────────────
+function ContextMenu({ x, y, items, onClose }) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener("click", close);
+    return () => { window.removeEventListener("click", close); };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed z-50 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-1 min-w-[180px]"
+      style={{ top: y, left: x }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {items.map((item, i) =>
+        item === "divider" ? (
+          <div key={i} className="my-1 border-t border-slate-700" />
+        ) : (
+          <button
+            key={i}
+            onClick={() => { item.onClick(); onClose(); }}
+            className={`w-full text-left px-4 py-2 text-xs flex items-center gap-2.5 transition hover:bg-slate-700 ${item.danger ? "text-red-400 hover:text-red-300" : "text-slate-300 hover:text-white"}`}
+          >
+            <span>{item.icon}</span>
+            <span>{item.label}</span>
+          </button>
+        )
+      )}
+    </div>
+  );
+}
+
 
 // ─── Question Editor ──────────────────────────────────────────────────────────
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
@@ -574,6 +609,9 @@ export default function QuizDetailPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [error,          setError]          = useState("");
   const [showAddForm,    setShowAddForm]    = useState(false);
+  // ── ADDED: state for context menu + positional insert ──
+  const [insertAtIndex,  setInsertAtIndex]  = useState(null);
+  const [contextMenu,    setContextMenu]    = useState(null);
 
   const adminRole = getAdminRole();
   const canVerify = ["admin", "tutor"].includes(adminRole);
@@ -620,11 +658,23 @@ export default function QuizDetailPage() {
     if (res.ok) fetchDetail(); else alert("Delete failed");
   };
 
+  // ── ADDED: updated to support positional ordering ──
   const handleAddQuestion = async (newQ) => {
     try {
+      let order;
+      if (insertAtIndex === null) {
+        const last = questions[questions.length - 1];
+        order = last ? (last.order ?? questions.length - 1) + 1 : 0;
+      } else {
+        const prev = questions[insertAtIndex];
+        const next = questions[insertAtIndex + 1];
+        const prevOrder = prev?.order ?? insertAtIndex;
+        const nextOrder = next?.order ?? (insertAtIndex + 2);
+        order = (prevOrder + nextOrder) / 2;
+      }
       const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
         method: "POST",
-        body: JSON.stringify(newQ),
+        body: JSON.stringify({ ...newQ, order }),
         headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) {
@@ -632,6 +682,7 @@ export default function QuizDetailPage() {
         throw new Error(d.error || "Failed to add question");
       }
       setShowAddForm(false);
+      setInsertAtIndex(null);
       fetchDetail();
     } catch (err) {
       alert(err.message);
@@ -828,8 +879,8 @@ export default function QuizDetailPage() {
               )}
             </div>
 
-            {/* Add Question Form */}
-            {showAddForm && (
+            {/* Add Question Form (end of list) */}
+            {showAddForm && insertAtIndex === null && (
               <AddQuestionForm
                 onAdd={handleAddQuestion}
                 onCancel={() => setShowAddForm(false)}
@@ -869,150 +920,197 @@ export default function QuizDetailPage() {
                 ...(q.image_height ? { height: `${q.image_height}px`, objectFit: "contain" } : {}),
               } : undefined;
 
+              // ── ADDED: insert form visibility flags ──
+              const showInsertBefore = showAddForm && insertAtIndex === i - 1;
+              const showInsertAfter  = showAddForm && insertAtIndex === i;
+
               return (
-                <div key={q.question_id} className={`bg-slate-900 border ${borderColor} rounded-xl p-5 group`}>
+                <div key={q.question_id}>
 
-                  {/* Header row */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">
-                        {i + 1}
-                      </span>
-                      <TypeBadge type={q.type} />
-                      <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
-                      {q.categories?.[0]?.name && (
-                        <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>
-                      )}
-                      {(q.shuffle_options ?? quiz?.randomize_options) && (
-                        <span className="text-[10px] px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-medium">🔀 Shuffle</span>
-                      )}
-                      {q.voice_url && (
-                        <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">🔊 Audio</span>
-                      )}
-                      {q.video_url && (
-                        <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20 font-medium">🎬 Video</span>
-                      )}
-                      <VerificationBadge status={verStatus} />
-                    </div>
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                      <button
-                        onClick={() => { setEditingId(q.question_id); setShowAddForm(false); }}
-                        className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteQuestion(q.question_id)}
-                        className="text-xs text-red-400 hover:text-red-300 font-medium"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Question text */}
-                  <div className="mb-3 ml-10">
-                    <HtmlContent
-                      html={q.text}
-                      className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`}
-                    />
-                  </div>
-
-                  {/* ✅ FIX 3: Question image with imgStyle applied */}
-                  {q.image_url && !q.text?.includes(q.image_url) && (
-                    <div className="mb-3 ml-10">
-                      <img
-                        src={q.image_url}
-                        alt="Question"
-                        style={imgStyle}
-                        className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700 object-contain`}
+                  {/* ── ADDED: Insert form BEFORE this card ── */}
+                  {showInsertBefore && (
+                    <div className="mb-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 border-t border-indigo-500/40" />
+                        <span className="text-[10px] text-indigo-400 font-medium px-2">Inserting before Q{i + 1}</span>
+                        <div className="flex-1 border-t border-indigo-500/40" />
+                      </div>
+                      <AddQuestionForm
+                        onAdd={handleAddQuestion}
+                        onCancel={() => { setShowAddForm(false); setInsertAtIndex(null); }}
                       />
                     </div>
                   )}
 
-                  {/* Audio & Video players */}
-                  {(q.voice_url || q.video_url) && (
-                    <div className="mb-3 ml-10 space-y-2">
-                      {q.voice_url && (
-                        <div className="flex items-center gap-3 bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/50">
-                          <span className="text-sm">🔊</span>
-                          <audio src={q.voice_url} controls preload="metadata" className="h-8 flex-1" />
-                        </div>
-                      )}
-                      {q.video_url && (
-                        <div className="bg-slate-800/60 rounded-lg border border-slate-700/50 overflow-hidden">
-                          {q.video_url.match(/youtube\.com|youtu\.be/) ? (
-                            <iframe
-                              src={`https://www.youtube.com/embed/${q.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)?.[1]}`}
-                              className="w-full aspect-video max-h-48 rounded-lg"
-                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                              allowFullScreen title="Quiz Video"
-                            />
-                          ) : (
-                            <video src={q.video_url} controls preload="metadata" className="w-full max-h-48 rounded-lg" />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* ── ADDED: onContextMenu on the card ── */}
+                  <div
+                    className={`bg-slate-900 border ${borderColor} rounded-xl p-5 group select-none`}
+                   onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation(); // ← ADD THIS
+                    setContextMenu({ x: e.clientX, y: e.clientY, questionId: q.question_id, index: i });
+                  }}
+                  >
 
-                  {/* Options */}
-                  {q.options?.length > 0 && (
-                    <div className="space-y-1.5 ml-10">
-                      {q.options.map((opt, oi) => (
-                        <div
-                          key={opt.option_id || oi}
-                          className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${
-                            opt.correct ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-slate-800/50"
-                          }`}
+                    {/* Header row */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">
+                          {i + 1}
+                        </span>
+                        <TypeBadge type={q.type} />
+                        <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
+                        {q.categories?.[0]?.name && (
+                          <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>
+                        )}
+                        {(q.shuffle_options ?? quiz?.randomize_options) && (
+                          <span className="text-[10px] px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-medium">🔀 Shuffle</span>
+                        )}
+                        {q.voice_url && (
+                          <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">🔊 Audio</span>
+                        )}
+                        {q.video_url && (
+                          <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20 font-medium">🎬 Video</span>
+                        )}
+                        <VerificationBadge status={verStatus} />
+                      </div>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                        <button
+                          onClick={() => { setEditingId(q.question_id); setShowAddForm(false); setInsertAtIndex(null); }}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
                         >
-                          <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${
-                            opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"
-                          }`}>
-                            {opt.correct ? "✓" : String.fromCharCode(65 + oi)}
-                          </span>
-                          <span className="text-slate-300">{opt.text}</span>
-                          {opt.image_url && (
-                            <img src={opt.image_url} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-700" />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* ✅ FIX 4: Writing indicator */}
-                  {q.type === "writing" && (
-                    <div className="mt-2 ml-10 px-3 py-2 bg-pink-500/5 border border-pink-500/10 rounded-lg">
-                      <p className="text-[10px] text-pink-400 font-medium">✏️ Student will write a text response</p>
-                    </div>
-                  )}
-
-                  {/* Short answer */}
-                  {q.type === "short_answer" && q.correct_answer && (
-                    <div className="mt-2 ml-10 px-3 py-2 bg-orange-500/5 border border-orange-500/10 rounded-lg">
-                      <p className="text-[10px] text-orange-500 font-bold mb-0.5">✍️ Answer</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {q.correct_answer.split("|").map((a, ai) => (
-                          <span key={ai} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-xs">
-                            {a.trim()}
-                          </span>
-                        ))}
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteQuestion(q.question_id)}
+                          className="text-xs text-red-400 hover:text-red-300 font-medium"
+                        >
+                          Delete
+                        </button>
+                        {/* ── ADDED: hint ── */}
+                        <span className="text-[10px] text-slate-600 italic">right-click for more</span>
                       </div>
                     </div>
-                  )}
 
-                  {/* Explanation */}
-                  {q.explanation && (
-                    <div className="mt-2 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
-                      <p className="text-[10px] text-amber-500 font-bold mb-0.5">Explanation</p>
-                      <p className="text-xs text-amber-400/80">{q.explanation}</p>
+                    {/* Question text */}
+                    <div className="mb-3 ml-10">
+                      <HtmlContent
+                        html={q.text}
+                        className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`}
+                      />
                     </div>
-                  )}
 
-                  {/* Verification */}
-                  {canVerify && (
-                    <div className="mt-3 pt-3 border-t border-slate-800 ml-10">
-                      <VerifyControls question={q} onVerified={handleQuestionVerified} />
+                    {/* ✅ FIX 3: Question image with imgStyle applied */}
+                    {q.image_url && !q.text?.includes(q.image_url) && (
+                      <div className="mb-3 ml-10">
+                        <img
+                          src={q.image_url}
+                          alt="Question"
+                          style={imgStyle}
+                          className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700 object-contain`}
+                        />
+                      </div>
+                    )}
+
+                    {/* Audio & Video players */}
+                    {(q.voice_url || q.video_url) && (
+                      <div className="mb-3 ml-10 space-y-2">
+                        {q.voice_url && (
+                          <div className="flex items-center gap-3 bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/50">
+                            <span className="text-sm">🔊</span>
+                            <audio src={q.voice_url} controls preload="metadata" className="h-8 flex-1" />
+                          </div>
+                        )}
+                        {q.video_url && (
+                          <div className="bg-slate-800/60 rounded-lg border border-slate-700/50 overflow-hidden">
+                            {q.video_url.match(/youtube\.com|youtu\.be/) ? (
+                              <iframe
+                                src={`https://www.youtube.com/embed/${q.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)?.[1]}`}
+                                className="w-full aspect-video max-h-48 rounded-lg"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen title="Quiz Video"
+                              />
+                            ) : (
+                              <video src={q.video_url} controls preload="metadata" className="w-full max-h-48 rounded-lg" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Options */}
+                    {q.options?.length > 0 && (
+                      <div className="space-y-1.5 ml-10">
+                        {q.options.map((opt, oi) => (
+                          <div
+                            key={opt.option_id || oi}
+                            className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${
+                              opt.correct ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-slate-800/50"
+                            }`}
+                          >
+                            <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${
+                              opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"
+                            }`}>
+                              {opt.correct ? "✓" : String.fromCharCode(65 + oi)}
+                            </span>
+                            <span className="text-slate-300">{opt.text}</span>
+                            {opt.image_url && (
+                              <img src={opt.image_url} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-700" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* ✅ FIX 4: Writing indicator */}
+                    {q.type === "writing" && (
+                      <div className="mt-2 ml-10 px-3 py-2 bg-pink-500/5 border border-pink-500/10 rounded-lg">
+                        <p className="text-[10px] text-pink-400 font-medium">✏️ Student will write a text response</p>
+                      </div>
+                    )}
+
+                    {/* Short answer */}
+                    {q.type === "short_answer" && q.correct_answer && (
+                      <div className="mt-2 ml-10 px-3 py-2 bg-orange-500/5 border border-orange-500/10 rounded-lg">
+                        <p className="text-[10px] text-orange-500 font-bold mb-0.5">✍️ Answer</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {q.correct_answer.split("|").map((a, ai) => (
+                            <span key={ai} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-xs">
+                              {a.trim()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Explanation */}
+                    {q.explanation && (
+                      <div className="mt-2 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
+                        <p className="text-[10px] text-amber-500 font-bold mb-0.5">Explanation</p>
+                        <p className="text-xs text-amber-400/80">{q.explanation}</p>
+                      </div>
+                    )}
+
+                    {/* Verification */}
+                    {canVerify && (
+                      <div className="mt-3 pt-3 border-t border-slate-800 ml-10">
+                        <VerifyControls question={q} onVerified={handleQuestionVerified} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── ADDED: Insert form AFTER this card ── */}
+                  {showInsertAfter && (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 border-t border-indigo-500/40" />
+                        <span className="text-[10px] text-indigo-400 font-medium px-2">Inserting after Q{i + 1}</span>
+                        <div className="flex-1 border-t border-indigo-500/40" />
+                      </div>
+                      <AddQuestionForm
+                        onAdd={handleAddQuestion}
+                        onCancel={() => { setShowAddForm(false); setInsertAtIndex(null); }}
+                      />
                     </div>
                   )}
                 </div>
@@ -1021,6 +1119,23 @@ export default function QuizDetailPage() {
           </div>
         )}
       </div>
+
+      {/* ── ADDED: Right-click Context Menu ── */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={[
+            { icon: "✏️", label: "Edit Question",                          onClick: () => { setEditingId(contextMenu.questionId); setShowAddForm(false); setInsertAtIndex(null); } },
+            "divider",
+            { icon: "⬆️", label: `Insert Before Q${contextMenu.index + 1}`, onClick: () => { setInsertAtIndex(contextMenu.index - 1); setShowAddForm(true); setEditingId(null); } },
+            { icon: "⬇️", label: `Insert After Q${contextMenu.index + 1}`,  onClick: () => { setInsertAtIndex(contextMenu.index);     setShowAddForm(true); setEditingId(null); } },
+            "divider",
+            { icon: "🗑️", label: "Delete Question", danger: true,          onClick: () => handleDeleteQuestion(contextMenu.questionId) },
+          ]}
+        />
+      )}
     </div>
   );
 }
