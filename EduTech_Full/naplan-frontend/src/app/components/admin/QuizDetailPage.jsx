@@ -1,6 +1,14 @@
 /**
  * QuizDetailPage.jsx — Full page version of quiz detail
  * Route: /admin/quiz/:quizId
+ *
+ * ✅ Fixed: CollapsibleImageResize now wired into QuestionEditor
+ * ✅ Fixed: form state includes image_size, image_width, image_height
+ * ✅ Fixed: handleSave sends image_size, image_width, image_height
+ * ✅ Fixed: Image preview + remove button
+ * ✅ Fixed: showAddForm & handleAddQuestion inside component
+ * ✅ Fixed: Short answer support in QuestionEditor
+ * ✅ Fixed: Option image upload + preview in QuestionEditor
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -8,6 +16,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ADMIN_PATH } from "@/app/App";
 import DownloadXlsxButton from "./DownloadExcelButton";
 import { AddQuestionForm } from "./ManualQuizCreator";
+import CollapsibleImageResize from "./CollapsibleImageResize";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -49,21 +58,35 @@ function FileUploadButton({ onUploaded, accept = "image/*", label = "Upload" }) 
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
       });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Upload failed"); }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Upload failed");
+      }
       const data = await res.json();
-      onUploaded(data.url.startsWith("http") ? data.url : `${API}${data.url}`);
+      onUploaded(data.url?.startsWith("http") ? data.url : `${API}${data.url}`);
     } catch (err) { alert(err.message); }
     finally { setUploading(false); }
   };
 
   return (
     <>
-      <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
-        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs text-slate-300 rounded-lg border border-slate-600 transition flex items-center gap-1.5 flex-shrink-0">
-        {uploading ? <><span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" />Uploading...</> : <><span>📎</span>{label}</>}
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs text-slate-300 rounded-lg border border-slate-600 transition flex items-center gap-1.5 flex-shrink-0"
+      >
+        {uploading
+          ? <><span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" /> Uploading...</>
+          : <><span>📎</span>{label}</>}
       </button>
-      <input ref={inputRef} type="file" accept={accept} className="hidden"
-        onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }} />
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }}
+      />
     </>
   );
 }
@@ -76,14 +99,21 @@ function HtmlContent({ html, className = "" }) {
 
 function TypeBadge({ type }) {
   const styles = {
-    radio_button: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    checkbox: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
     picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    free_text: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    short_answer: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
   };
-  const labels = { radio_button: "Single Choice", checkbox: "Multiple Choice", picture_choice: "Picture Choice", free_text: "Free Text", short_answer: "Short Answer" };
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>{labels[type] || type}</span>;
+  const labels = {
+    radio_button: "Single Choice", checkbox: "Multiple Choice",
+    picture_choice: "Picture Choice", free_text: "Free Text", short_answer: "Short Answer",
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>
+      {labels[type] || type}
+    </span>
+  );
 }
 
 // ─── Verification Badge ───────────────────────────────────────────────────────
@@ -163,7 +193,8 @@ function VerifyControls({ question, onVerified }) {
             onKeyDown={(e) => { if (e.key === "Enter" && reason.trim()) handleVerify("rejected", reason); }} />
           <button disabled={!reason.trim() || loading} onClick={() => handleVerify("rejected", reason)}
             className="px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-40">Confirm</button>
-          <button onClick={() => { setShowReject(false); setReason(""); }} className="text-xs text-slate-500 hover:text-white">Cancel</button>
+          <button onClick={() => { setShowReject(false); setReason(""); }}
+            className="text-xs text-slate-500 hover:text-white">Cancel</button>
         </div>
       )}
       {current === "rejected" && question.tutor_verification?.rejection_reason && (
@@ -175,20 +206,28 @@ function VerifyControls({ question, onVerified }) {
 
 // ─── Question Editor ──────────────────────────────────────────────────────────
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
+
+  // ✅ FIX 1: Added image_size, image_width, image_height to form state
   const [form, setForm] = useState({
-    text: question.text || "",
-    type: question.type || "radio_button",
-    points: question.points || 1,
-    category: question.categories?.[0]?.name || "",
-    image_url: question.image_url || "",
-    explanation: question.explanation || "",
+    text:            question.text            || "",
+    type:            question.type            || "radio_button",
+    points:          question.points          || 1,
+    category:        question.categories?.[0]?.name || "",
+    image_url:       question.image_url       || "",
+    image_size:      question.image_size      || "medium",   // ✅ ADDED
+    image_width:     question.image_width     || null,        // ✅ ADDED
+    image_height:    question.image_height    || null,        // ✅ ADDED
+    explanation:     question.explanation     || "",
     shuffle_options: question.shuffle_options ?? (quizRandomizeOptions || false),
-    voice_url: question.voice_url || "",
-    video_url: question.video_url || "",
-    correct_answer: question.correct_answer || "",
-    case_sensitive: question.case_sensitive || false,
+    voice_url:       question.voice_url       || "",
+    video_url:       question.video_url       || "",
+    correct_answer:  question.correct_answer  || "",
+    case_sensitive:  question.case_sensitive  || false,
     options: (question.options || []).map((o) => ({
-      option_id: o.option_id, text: o.text || "", image_url: o.image_url || "", correct: o.correct || false,
+      option_id: o.option_id,
+      text:      o.text      || "",
+      image_url: o.image_url || "",
+      correct:   o.correct   || false,
     })),
   });
   const [saving, setSaving] = useState(false);
@@ -197,20 +236,31 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     setForm((f) => {
       const opts = [...f.options];
       opts[idx] = { ...opts[idx], [field]: value };
-      if (field === "correct" && value && f.type === "radio_button") opts.forEach((o, i) => { if (i !== idx) o.correct = false; });
+      if (field === "correct" && value && f.type === "radio_button")
+        opts.forEach((o, i) => { if (i !== idx) o.correct = false; });
       return { ...f, options: opts };
     });
   };
 
+  // ✅ FIX 2: handleSave now sends image_size, image_width, image_height
   const handleSave = async () => {
     setSaving(true);
     await onSave(question.question_id, {
-      text: form.text, type: form.type, points: form.points, category: form.category,
-      image_url: form.image_url, explanation: form.explanation,
+      text:            form.text,
+      type:            form.type,
+      points:          form.points,
+      category:        form.category,
+      image_url:       form.image_url,
+      image_size:      form.image_size,    // ✅ ADDED
+      image_width:     form.image_width,   // ✅ ADDED
+      image_height:    form.image_height,  // ✅ ADDED
+      explanation:     form.explanation,
       shuffle_options: form.shuffle_options,
-      voice_url: form.voice_url || null, video_url: form.video_url || null,
-      correct_answer: form.correct_answer || null, case_sensitive: form.case_sensitive,
-      options: form.options,
+      voice_url:       form.voice_url    || null,
+      video_url:       form.video_url    || null,
+      correct_answer:  form.correct_answer || null,
+      case_sensitive:  form.case_sensitive,
+      options:         form.options,
     });
     setSaving(false);
   };
@@ -222,17 +272,26 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
         <button onClick={onCancel} className="text-xs text-slate-400 hover:text-white">Cancel</button>
       </div>
 
+      {/* Question Text */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">Question Text</label>
-        <textarea rows={3} value={form.text} onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
-          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:ring-2 focus:ring-indigo-500" />
+        <textarea
+          rows={3}
+          value={form.text}
+          onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
+          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+        />
       </div>
 
+      {/* Type / Points / Category */}
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="block text-xs text-slate-400 mb-1">Type</label>
-          <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
+          <select
+            value={form.type}
+            onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+          >
             <option value="radio_button">Single Choice</option>
             <option value="checkbox">Multiple Choice</option>
             <option value="picture_choice">Picture Choice</option>
@@ -242,63 +301,187 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Points</label>
-          <input type="number" min="1" value={form.points}
+          <input
+            type="number" min="1" value={form.points}
             onChange={(e) => setForm((f) => ({ ...f, points: parseInt(e.target.value) || 1 }))}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+          />
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Category</label>
-          <input type="text" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+          <input
+            type="text" value={form.category}
+            onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+          />
         </div>
       </div>
 
+      {/* Image URL + Upload + Remove */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Image URL</label>
+        <label className="block text-xs text-slate-400 mb-1">Question Image</label>
         <div className="flex items-center gap-2">
-          <input type="text" value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
+          <input
+            type="text"
+            value={form.image_url}
+            onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
             placeholder="https://... or upload →"
-            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
-          <FileUploadButton accept="image/*" label="Upload" onUploaded={(url) => setForm((f) => ({ ...f, image_url: url }))} />
+            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+          />
+          <FileUploadButton
+            accept="image/*,.pdf"
+            label="Upload"
+            onUploaded={(url) => setForm((f) => ({ ...f, image_url: url }))}
+          />
+          {form.image_url && (
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, image_url: "", image_size: "medium", image_width: null, image_height: null }))}
+              title="Remove image"
+              className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg bg-red-500/10 hover:bg-red-500/30 text-red-400 text-xs border border-red-500/20 transition"
+            >
+              ✕
+            </button>
+          )}
         </div>
+
+        {/* Image Preview */}
+        {form.image_url && (
+          <div className="mt-3">
+            {form.image_url.toLowerCase().endsWith(".pdf") ? (
+              <a
+                href={form.image_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 hover:bg-red-500/20 transition"
+              >
+                📄 PDF — click to preview
+              </a>
+            ) : (
+              <div className="relative inline-block">
+                <img
+                  src={form.image_url}
+                  alt="Question preview"
+                  className="max-h-48 max-w-full rounded-lg border border-slate-600 object-contain bg-slate-900"
+                  onError={(e) => { e.target.style.display = "none"; }}
+                />
+                <span className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 text-white text-[9px] rounded font-medium">
+                  Preview
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ✅ FIX 3: CollapsibleImageResize wired up with form + setForm */}
+        <CollapsibleImageResize form={form} setForm={setForm} />
       </div>
 
+      {/* Explanation */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">Explanation</label>
-        <input type="text" value={form.explanation} onChange={(e) => setForm((f) => ({ ...f, explanation: e.target.value }))}
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+        <input
+          type="text" value={form.explanation}
+          onChange={(e) => setForm((f) => ({ ...f, explanation: e.target.value }))}
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+        />
       </div>
 
+      {/* Short Answer */}
       {form.type === "short_answer" && (
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">Correct Answer (separate multiple with |)</label>
-          <input type="text" value={form.correct_answer} onChange={(e) => setForm((f) => ({ ...f, correct_answer: e.target.value }))}
+        <div className="space-y-2 pt-2 border-t border-slate-700">
+          <label className="block text-xs text-slate-400 mb-1">
+            Correct Answer <span className="text-slate-600">— separate multiple with | (pipe)</span>
+          </label>
+          <input
+            type="text" value={form.correct_answer}
+            onChange={(e) => setForm((f) => ({ ...f, correct_answer: e.target.value }))}
             placeholder='e.g. "42" or "42|forty two"'
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+          />
+          {form.correct_answer?.includes("|") && (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {form.correct_answer.split("|").map((a, i) => (
+                <span key={i} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-[10px]">
+                  ✓ {a.trim()}
+                </span>
+              ))}
+            </div>
+          )}
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer mt-1">
+            <input
+              type="checkbox" checked={form.case_sensitive}
+              onChange={(e) => setForm((f) => ({ ...f, case_sensitive: e.target.checked }))}
+              className="rounded border-slate-600 bg-slate-800"
+            />
+            Case-sensitive grading
+          </label>
         </div>
       )}
 
+      {/* Options */}
       {form.type !== "free_text" && form.type !== "short_answer" && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs text-slate-400">Options (check = correct)</label>
-            <button onClick={() => setForm((f) => ({ ...f, options: [...f.options, { option_id: "", text: "", image_url: "", correct: false }] }))}
-              className="text-xs text-indigo-400 hover:text-indigo-300">+ Add</button>
+            <button
+              onClick={() => setForm((f) => ({
+                ...f, options: [...f.options, { option_id: "", text: "", image_url: "", correct: false }],
+              }))}
+              className="text-xs text-indigo-400 hover:text-indigo-300"
+            >
+              + Add
+            </button>
           </div>
           <div className="space-y-2">
             {form.options.map((opt, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <button onClick={() => updateOption(i, "correct", !opt.correct)}
-                  className={`w-5 h-5 rounded flex-shrink-0 flex items-center justify-center border text-xs transition ${opt.correct ? "bg-emerald-600 border-emerald-500 text-white" : "bg-slate-900 border-slate-600"}`}>
-                  {opt.correct && "✓"}
-                </button>
-                <span className="text-xs text-slate-500 w-4">{String.fromCharCode(65 + i)}</span>
-                <input type="text" value={opt.text} onChange={(e) => updateOption(i, "text", e.target.value)}
-                  placeholder="Option text..."
-                  className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
-                {form.options.length > 2 && (
-                  <button onClick={() => setForm((f) => ({ ...f, options: f.options.filter((_, j) => j !== i) }))}
-                    className="text-slate-500 hover:text-red-400 text-xs">✕</button>
+              <div key={i} className="space-y-1.5 bg-slate-900/40 border border-slate-800 rounded-lg p-2.5">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => updateOption(i, "correct", !opt.correct)}
+                    className={`w-5 h-5 rounded flex-shrink-0 flex items-center justify-center border text-xs transition ${
+                      opt.correct ? "bg-emerald-600 border-emerald-500 text-white" : "bg-slate-900 border-slate-600"
+                    }`}
+                  >
+                    {opt.correct ? "✓" : ""}
+                  </button>
+                  <span className="text-xs text-slate-500 w-4">{String.fromCharCode(65 + i)}</span>
+                  <input
+                    type="text" value={opt.text}
+                    onChange={(e) => updateOption(i, "text", e.target.value)}
+                    placeholder="Option text..."
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none"
+                  />
+                  {form.options.length > 2 && (
+                    <button
+                      onClick={() => setForm((f) => ({ ...f, options: f.options.filter((_, j) => j !== i) }))}
+                      className="text-slate-500 hover:text-red-400 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 ml-9">
+                  <input
+                    type="text" value={opt.image_url}
+                    onChange={(e) => updateOption(i, "image_url", e.target.value)}
+                    placeholder="Option image URL (optional)"
+                    className="flex-1 bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1 text-xs text-slate-300 outline-none"
+                  />
+                  <FileUploadButton
+                    accept="image/*"
+                    label="Upload"
+                    onUploaded={(url) => updateOption(i, "image_url", url)}
+                  />
+                </div>
+                {opt.image_url && (
+                  <div className="ml-9">
+                    <img
+                      src={opt.image_url}
+                      alt={`Option ${String.fromCharCode(65 + i)}`}
+                      className="max-w-[100px] max-h-16 rounded border border-slate-700 object-contain"
+                    />
+                  </div>
                 )}
               </div>
             ))}
@@ -308,8 +491,10 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
 
       <div className="flex justify-end gap-2 pt-2">
         <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">Cancel</button>
-        <button onClick={handleSave} disabled={saving}
-          className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg">
+        <button
+          onClick={handleSave} disabled={saving}
+          className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg"
+        >
           {saving ? "Saving..." : "Save Changes"}
         </button>
       </div>
@@ -324,7 +509,6 @@ export default function QuizDetailPage() {
   const { quizId } = useParams();
   const navigate   = useNavigate();
 
-  // ✅ ALL STATE INSIDE THE COMPONENT
   const [quiz,           setQuiz]           = useState(null);
   const [questions,      setQuestions]      = useState([]);
   const [loading,        setLoading]        = useState(true);
@@ -333,7 +517,7 @@ export default function QuizDetailPage() {
   const [settingsForm,   setSettingsForm]   = useState({});
   const [savingSettings, setSavingSettings] = useState(false);
   const [error,          setError]          = useState("");
-  const [showAddForm,    setShowAddForm]     = useState(false); // ✅ FIXED: moved inside component
+  const [showAddForm,    setShowAddForm]    = useState(false);
 
   const adminRole = getAdminRole();
   const canVerify = ["admin", "tutor"].includes(adminRole);
@@ -367,7 +551,9 @@ export default function QuizDetailPage() {
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
 
   const handleSaveQuestion = async (questionId, updates) => {
-    const res = await adminFetch(`/api/admin/questions/${questionId}`, { method: "PATCH", body: JSON.stringify(updates) });
+    const res = await adminFetch(`/api/admin/questions/${questionId}`, {
+      method: "PATCH", body: JSON.stringify(updates),
+    });
     if (res.ok) { setEditingId(null); fetchDetail(); }
     else { const d = await res.json(); alert(d.error || "Save failed"); }
   };
@@ -378,7 +564,6 @@ export default function QuizDetailPage() {
     if (res.ok) fetchDetail(); else alert("Delete failed");
   };
 
-  // ✅ FIXED: moved inside component, has access to quizId, fetchDetail
   const handleAddQuestion = async (newQ) => {
     try {
       const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
@@ -435,8 +620,10 @@ export default function QuizDetailPage() {
       <header className="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md border-b border-slate-800">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <button onClick={() => navigate(`${ADMIN_PATH}/dashboard`)}
-              className="text-slate-400 hover:text-white transition flex-shrink-0">
+            <button
+              onClick={() => navigate(`${ADMIN_PATH}/dashboard`)}
+              className="text-slate-400 hover:text-white transition flex-shrink-0"
+            >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
               </svg>
@@ -463,8 +650,10 @@ export default function QuizDetailPage() {
               </div>
             )}
             <DownloadXlsxButton quizId={quizId} quizName={quiz?.quiz_name} />
-            <button onClick={() => setShowSettings(!showSettings)}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded-lg transition">
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded-lg transition"
+            >
               ⚙️ Settings
             </button>
           </div>
@@ -481,7 +670,7 @@ export default function QuizDetailPage() {
           </div>
         )}
 
-        {/* Settings panel */}
+        {/* Settings Panel */}
         {showSettings && quiz && (
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 mb-6 space-y-4">
             <h3 className="text-sm font-semibold text-white">Quiz Settings</h3>
@@ -544,7 +733,7 @@ export default function QuizDetailPage() {
         ) : (
           <div className="space-y-4">
 
-            {/* ✅ Questions header with "+ Add Question" button */}
+            {/* Questions Header + Add Button */}
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
                 Questions ({questions.length})
@@ -559,7 +748,7 @@ export default function QuizDetailPage() {
               )}
             </div>
 
-            {/* ✅ Add Question Form */}
+            {/* Add Question Form */}
             {showAddForm && (
               <AddQuestionForm
                 onAdd={handleAddQuestion}
@@ -574,13 +763,17 @@ export default function QuizDetailPage() {
               </div>
             )}
 
-            {/* Question list */}
+            {/* Question Cards */}
             {questions.map((q, i) => {
               if (editingId === q.question_id) {
                 return (
-                  <QuestionEditor key={q.question_id} question={q}
+                  <QuestionEditor
+                    key={q.question_id}
+                    question={q}
                     quizRandomizeOptions={quiz?.randomize_options}
-                    onSave={handleSaveQuestion} onCancel={() => setEditingId(null)} />
+                    onSave={handleSaveQuestion}
+                    onCancel={() => setEditingId(null)}
+                  />
                 );
               }
 
@@ -591,19 +784,34 @@ export default function QuizDetailPage() {
 
               return (
                 <div key={q.question_id} className={`bg-slate-900 border ${borderColor} rounded-xl p-5 group`}>
+
                   {/* Header row */}
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3 flex-wrap">
-                      <span className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">{i + 1}</span>
+                      <span className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">
+                        {i + 1}
+                      </span>
                       <TypeBadge type={q.type} />
                       <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
-                      {q.categories?.[0]?.name && <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>}
+                      {q.categories?.[0]?.name && (
+                        <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>
+                      )}
                       {q.voice_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20">🔊 Audio</span>}
                       {q.video_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20">🎬 Video</span>}
                     </div>
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                      <button onClick={() => { setEditingId(q.question_id); setShowAddForm(false); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
-                      <button onClick={() => handleDeleteQuestion(q.question_id)} className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
+                      <button
+                        onClick={() => { setEditingId(q.question_id); setShowAddForm(false); }}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteQuestion(q.question_id)}
+                        className="text-xs text-red-400 hover:text-red-300 font-medium"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
 
@@ -615,7 +823,13 @@ export default function QuizDetailPage() {
                   {/* Image */}
                   {q.image_url && (
                     <div className="mb-3 ml-10">
-                      <img src={q.image_url} alt="" className="max-h-48 rounded-lg border border-slate-700 object-contain" />
+                      <img src={q.image_url} alt=""
+                        style={{
+                          ...(q.image_width  ? { width:  q.image_width  } : {}),
+                          ...(q.image_height ? { height: q.image_height } : {}),
+                        }}
+                        className="max-h-48 rounded-lg border border-slate-700 object-contain"
+                      />
                     </div>
                   )}
 
@@ -645,12 +859,19 @@ export default function QuizDetailPage() {
                     <div className="space-y-1.5 ml-10 mb-3">
                       {q.options.map((opt, oi) => (
                         <div key={opt.option_id || oi}
-                          className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${opt.correct ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-slate-800/50"}`}>
-                          <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"}`}>
+                          className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${
+                            opt.correct ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-slate-800/50"
+                          }`}
+                        >
+                          <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${
+                            opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"
+                          }`}>
                             {opt.correct ? "✓" : String.fromCharCode(65 + oi)}
                           </span>
                           <span className="text-slate-300">{opt.text}</span>
-                          {opt.image_url && <img src={opt.image_url} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-700" />}
+                          {opt.image_url && (
+                            <img src={opt.image_url} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-700" />
+                          )}
                         </div>
                       ))}
                     </div>
@@ -662,7 +883,9 @@ export default function QuizDetailPage() {
                       <p className="text-[10px] text-orange-500 font-bold mb-0.5">✍️ Answer</p>
                       <div className="flex flex-wrap gap-1.5">
                         {q.correct_answer.split("|").map((a, ai) => (
-                          <span key={ai} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-xs">{a.trim()}</span>
+                          <span key={ai} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-xs">
+                            {a.trim()}
+                          </span>
                         ))}
                       </div>
                     </div>
@@ -676,7 +899,7 @@ export default function QuizDetailPage() {
                     </div>
                   )}
 
-                  {/* Verification controls */}
+                  {/* Verification */}
                   {canVerify && (
                     <div className="mt-3 pt-3 border-t border-slate-800 ml-10">
                       <VerifyControls question={q} onVerified={handleQuestionVerified} />

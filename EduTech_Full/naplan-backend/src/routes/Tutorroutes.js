@@ -8,6 +8,9 @@
  *   - Verify/reject questions (approve/reject/pending)
  *
  * All routes require a valid tutor JWT.
+ *
+ * ✅ FIXED: GET /quizzes now ALWAYS filters by assigned_quiz_ids regardless of role.
+ *           Previously, admins accessing this route saw ALL quizzes (no filter).
  */
 
 const express    = require("express");
@@ -66,17 +69,18 @@ router.get("/quizzes", async (req, res) => {
   try {
     await connectDB();
 
-    // Admins see all quizzes; tutors see only their assigned ones
-    let quizIds = null;
-    if (req.tutor.role === "tutor") {
-      const tutor = await Admin.findById(req.tutor.adminId).lean();
-      if (!tutor) return res.status(404).json({ error: "Tutor not found" });
-      quizIds = tutor.assigned_quiz_ids || [];
-      if (quizIds.length === 0) return res.json([]);
-    }
+    // ✅ FIXED: Always look up this user's assigned_quiz_ids from DB
+    // regardless of whether they are role "tutor" or "admin".
+    // Previously admins hitting this route got ALL quizzes (no filter).
+    const account = await Admin.findById(req.tutor.adminId).lean();
+    if (!account) return res.status(404).json({ error: "Account not found" });
 
-    const query = quizIds ? { quiz_id: { $in: quizIds } } : {};
-    const quizzes = await Quiz.find(query)
+    const quizIds = account.assigned_quiz_ids || [];
+
+    // Return empty list if nothing assigned — never fall through to "all quizzes"
+    if (quizIds.length === 0) return res.json([]);
+
+    const quizzes = await Quiz.find({ quiz_id: { $in: quizIds } })
       .select("quiz_id quiz_name year_level subject tier question_count is_active")
       .sort({ createdAt: -1 })
       .lean();
@@ -84,9 +88,7 @@ router.get("/quizzes", async (req, res) => {
     // Attach verification stats per quiz
     const stats = await Question.aggregate([
       {
-        $match: quizIds
-          ? { quiz_ids: { $in: quizIds } }
-          : {},
+        $match: { quiz_ids: { $in: quizIds } },
       },
       {
         $group: {
@@ -118,7 +120,12 @@ router.get("/quizzes", async (req, res) => {
 
     const enriched = quizzes.map((q) => ({
       ...q,
-      verification: statsMap[q.quiz_id] || { total: q.question_count || 0, approved: 0, rejected: 0, pending: q.question_count || 0 },
+      verification: statsMap[q.quiz_id] || {
+        total:    q.question_count || 0,
+        approved: 0,
+        rejected: 0,
+        pending:  q.question_count || 0,
+      },
     }));
 
     return res.json(enriched);
@@ -129,19 +136,18 @@ router.get("/quizzes", async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/tutor/quizzes/:quizId — quiz detail with all questions
-// Only accessible if tutor is assigned to this quiz
+// Only accessible if the user is assigned to this quiz
 // ─────────────────────────────────────────────────────────────
 router.get("/quizzes/:quizId", async (req, res) => {
   try {
     await connectDB();
 
-    // Check tutor is assigned to this quiz
-    if (req.tutor.role === "tutor") {
-      const tutor = await Admin.findById(req.tutor.adminId).lean();
-      if (!tutor) return res.status(404).json({ error: "Tutor not found" });
-      if (!tutor.assigned_quiz_ids.includes(req.params.quizId)) {
-        return res.status(403).json({ error: "This quiz is not assigned to you" });
-      }
+    // ✅ FIXED: Always check assigned_quiz_ids regardless of role
+    const account = await Admin.findById(req.tutor.adminId).lean();
+    if (!account) return res.status(404).json({ error: "Account not found" });
+
+    if (!account.assigned_quiz_ids.includes(req.params.quizId)) {
+      return res.status(403).json({ error: "This quiz is not assigned to you" });
     }
 
     let quiz = await Quiz.findOne({ quiz_id: req.params.quizId }).lean();
@@ -168,7 +174,7 @@ router.get("/quizzes/:quizId", async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 // PATCH /api/tutor/questions/:questionId/verify — verify a question
-// Tutor must be assigned to the quiz that contains this question
+// User must be assigned to the quiz that contains this question
 // ─────────────────────────────────────────────────────────────
 router.patch("/questions/:questionId/verify", async (req, res) => {
   try {
@@ -185,16 +191,14 @@ router.patch("/questions/:questionId/verify", async (req, res) => {
     const question = await Question.findOne({ question_id: req.params.questionId }).lean();
     if (!question) return res.status(404).json({ error: "Question not found" });
 
-    // Check tutor is assigned to the quiz containing this question
-    if (req.tutor.role === "tutor") {
-      const tutor = await Admin.findById(req.tutor.adminId).lean();
-      const questionQuizIds = question.quiz_ids || [];
-      const hasAccess = questionQuizIds.some((qid) =>
-        tutor.assigned_quiz_ids.includes(qid)
-      );
-      if (!hasAccess) {
-        return res.status(403).json({ error: "You are not assigned to verify this question" });
-      }
+    // ✅ FIXED: Always check assigned_quiz_ids regardless of role
+    const account = await Admin.findById(req.tutor.adminId).lean();
+    const questionQuizIds = question.quiz_ids || [];
+    const hasAccess = questionQuizIds.some((qid) =>
+      (account.assigned_quiz_ids || []).includes(qid)
+    );
+    if (!hasAccess) {
+      return res.status(403).json({ error: "You are not assigned to verify this question" });
     }
 
     const updated = await Question.findOneAndUpdate(
