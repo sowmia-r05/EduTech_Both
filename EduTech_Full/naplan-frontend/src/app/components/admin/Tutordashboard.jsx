@@ -27,7 +27,7 @@ function tutorFetch(url, opts = {}) {
   if (!headers["Content-Type"] && typeof opts.body === "string") {
     headers["Content-Type"] = "application/json";
   }
-  return fetch(`${API}${url}`, { ...opts, headers });
+  return fetch(`${API}${url}`, { ...opts, headers, credentials: "include" });
 }
 
 // ─── Verification Badge ───────────────────────────────────────────────────────
@@ -211,10 +211,6 @@ function EditQuestionModal({ question, onSaved, onClose }) {
 }
 
 // ─── Verify Controls ─────────────────────────────────────────────────────────
-// ✅ NEW behaviour:
-//   - approved  → only show green badge + Edit button
-//   - rejected  → show badge, rejection reason, Edit button, Reset
-//   - pending   → show Approve + Reject buttons + Edit button
 function VerifyControls({ question, onVerified, onEdit }) {
   const [showReject, setShowReject] = useState(false);
   const [reason,     setReason]     = useState("");
@@ -238,7 +234,7 @@ function VerifyControls({ question, onVerified, onEdit }) {
     finally { setLoading(false); setShowReject(false); setReason(""); }
   };
 
-  // ✅ APPROVED: only badge + edit
+  // APPROVED: only badge + edit
   if (current === "approved") {
     return (
       <div className="flex items-center gap-2 flex-wrap">
@@ -256,7 +252,7 @@ function VerifyControls({ question, onVerified, onEdit }) {
     );
   }
 
-  // ✅ REJECTED: badge + reason + edit + reset
+  // REJECTED: badge + reason + edit + reset
   if (current === "rejected") {
     return (
       <div className="flex flex-col gap-1.5">
@@ -291,7 +287,7 @@ function VerifyControls({ question, onVerified, onEdit }) {
     );
   }
 
-  // ✅ PENDING: approve + reject + edit
+  // PENDING: approve + reject + edit
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
@@ -371,7 +367,7 @@ export default function TutorDashboard() {
   const [loadingQuizzes,  setLoadingQuizzes]  = useState(true);
   const [loadingQs,       setLoadingQs]       = useState(false);
   const [filter,          setFilter]          = useState("all");
-  const [editingQuestion, setEditingQuestion] = useState(null); // question being edited
+  const [editingQuestion, setEditingQuestion] = useState(null);
 
   // ✅ FIXED: Read from tutor_info
   const tutorData = (() => {
@@ -426,15 +422,13 @@ export default function TutorDashboard() {
     }));
   };
 
-  // ✅ Called when tutor saves an edit — updates question in state
   const handleQuestionEdited = (updatedQ) => {
     setEditingQuestion(null);
-    handleQuestionVerified(updatedQ); // reuse — status is now "pending" so stats update too
+    handleQuestionVerified(updatedQ);
   };
 
   const handleLogout = async () => {
     try { await tutorFetch("/api/admin/logout", { method: "POST" }); } catch {}
-    // ✅ FIXED: Clear tutor-specific keys
     localStorage.removeItem("tutor_token");
     localStorage.removeItem("tutor_info");
     navigate(`${ADMIN_PATH}/tutor`);
@@ -479,10 +473,23 @@ export default function TutorDashboard() {
 
         {/* ── Left: Quiz List ── */}
         <aside className="w-72 flex-shrink-0">
-          <h2 className="text-sm font-semibold text-slate-300 mb-4">
-            Assigned Quizzes
-            <span className="ml-2 text-[11px] text-slate-500 font-normal">({quizzes.length})</span>
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-slate-300">
+              Assigned Quizzes
+              <span className="ml-2 text-[11px] text-slate-500 font-normal">({quizzes.length})</span>
+            </h2>
+            <button
+              onClick={fetchQuizzes}
+              disabled={loadingQuizzes}
+              className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition"
+              title="Refresh quizzes"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {loadingQuizzes ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
 
           {loadingQuizzes ? (
             <div className="flex items-center justify-center py-10">
