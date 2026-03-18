@@ -8,6 +8,7 @@
  *   - Verify/reject questions (approve/reject/pending)
  *   - Edit question content (resets verification to pending)
  *
+ * ✅ FIXED: ObjectId vs String mismatch in quiz lookup
  * ✅ NEW: PATCH /questions/:questionId/edit
  *         Allows tutor to edit text, options, explanation.
  *         Automatically resets tutor_verification.status → "pending".
@@ -15,6 +16,7 @@
 
 const express    = require("express");
 const jwt        = require("jsonwebtoken");
+const mongoose   = require("mongoose"); // ✅ ADDED
 const router     = express.Router();
 const connectDB  = require("../config/db");
 const Admin      = require("../models/admin");
@@ -77,14 +79,25 @@ router.get("/quizzes", async (req, res) => {
     const account = await Admin.findById(req.tutor.adminId).lean();
     const assignedIds = account?.assigned_quiz_ids || [];
 
+    // ✅ DEBUG: Remove this log once quizzes are showing correctly
+    console.log("[tutor/quizzes] adminId:", req.tutor.adminId, "→ assignedIds:", assignedIds);
+
     if (assignedIds.length === 0) return res.json([]);
+
+    // ✅ FIXED: Cast valid ObjectId strings to actual ObjectIds so _id lookup works
+    const objectIds = assignedIds
+      .filter(id => mongoose.Types.ObjectId.isValid(id))
+      .map(id => new mongoose.Types.ObjectId(id));
 
     const quizzes = await Quiz.find({
       $or: [
         { quiz_id: { $in: assignedIds } },
-        { _id:     { $in: assignedIds } },
+        ...(objectIds.length ? [{ _id: { $in: objectIds } }] : []),
       ],
     }).lean();
+
+    // ✅ DEBUG: Remove this log once quizzes are showing correctly
+    console.log("[tutor/quizzes] quizzes found:", quizzes.length);
 
     // Build verification stats per quiz
     const quizIds = quizzes.map((q) => q.quiz_id).filter(Boolean);
