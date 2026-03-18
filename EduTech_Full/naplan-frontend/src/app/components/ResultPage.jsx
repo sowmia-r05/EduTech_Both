@@ -149,6 +149,9 @@ export default function ResultPage() {
   const childIdParam = String(location.state?.childId || searchParams.get("childId") || "").trim();
   const childNameParam= String(location.state?.childName  || "").trim();
   const yearLevelParam= String(location.state?.yearLevel  || "").trim();
+  const [activeFullDoc, setActiveFullDoc] = useState(null);
+
+
 
   const [doc, setDoc]                       = useState(null);
   const [writingsList, setWritingsList]     = useState([]);
@@ -223,6 +226,29 @@ export default function ResultPage() {
     load();
     return () => { cancelled = true; };
   }, [responseId, usernameParam, navigate]);
+
+  //Swithcing betweeen the results
+      useEffect(() => {
+      const newId      = activeDoc?.response_id;
+      const originalId = doc?.response_id;
+
+      if (!newId || newId === originalId) {
+        setActiveFullDoc(null);
+        return;
+      }
+
+      if (activeDoc?.ai?.feedback) {
+        setActiveFullDoc(null);
+        return;
+      }
+
+      fetchWritingByResponseId(newId, authOpts)
+        .then((full) => { if (full) setActiveFullDoc(full); })
+        .catch(() => {});
+    }, [activeDoc, doc]);
+
+
+
 
   /* ── AI polling ── */
   useEffect(() => {
@@ -309,9 +335,11 @@ const backToDashboardState = useMemo(() => ({
   const totalAttempts   = quizAttempts.length || "—";
   const attemptsUsed    = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
 
-  const feedback       = activeDoc?.ai?.feedback;
-  const aiMessage      = activeDoc?.ai?.message;
-  const isAiError      = activeDoc?.ai?.status === "error";
+const resolvedDoc = activeFullDoc || activeDoc;
+const feedback    = resolvedDoc?.ai?.feedback;
+const aiMessage   = resolvedDoc?.ai?.message;
+const isAiError   = resolvedDoc?.ai?.status === "error";
+
   const isProcessing   = loading || (activeDoc && isAiPending(activeDoc));
 
   /* ── Loading ── */

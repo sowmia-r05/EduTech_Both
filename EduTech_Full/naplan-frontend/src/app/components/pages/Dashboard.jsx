@@ -231,6 +231,9 @@ export default function Dashboard() {
   const [aiPending, setAiPending] = useState(false);
 
 
+
+
+
   const isParentViewing = !childToken && !!parentToken;
    const [childStatus, setChildStatus] = useState(null);
   const yearLevel = childProfile?.yearLevel || null;
@@ -390,19 +393,45 @@ export default function Dashboard() {
     });
   }, [quizAttempts, selectedDate]);
 
-  useEffect(() => { if (selectedDate) setShowNoDataModal(filteredResults.length === 0); }, [selectedDate, filteredResults]);
+    useEffect(() => { if (selectedDate) setShowNoDataModal(filteredResults.length === 0); }, [selectedDate, filteredResults]);
 
-  const selectedResult = useMemo(() => {
-    if (selectedAttemptOverride) return selectedAttemptOverride;
-    if (latestResult) return latestResult;
-    if (!filteredResults.length) return null;
-    return [...filteredResults].sort((a, b) =>
-      new Date(unwrapDate(b.createdAt || b.date_submitted)) -
-      new Date(unwrapDate(a.createdAt || a.date_submitted))
-    )[0];
-  }, [filteredResults, latestResult, selectedAttemptOverride]);
+    // ✅ FIXED: When a date is selected, use the filtered result — not always latestResult
+    const selectedResult = useMemo(() => {
+      if (selectedAttemptOverride) return selectedAttemptOverride;
+      if (selectedDate && filteredResults.length > 0) {
+        return [...filteredResults].sort((a, b) =>
+          new Date(unwrapDate(b.createdAt || b.date_submitted)) -
+          new Date(unwrapDate(a.createdAt || a.date_submitted))
+        )[0];
+      }
+      if (latestResult) return latestResult;
+      return null;
+    }, [filteredResults, latestResult, selectedAttemptOverride, selectedDate]);
 
-  const testTakenDates = useMemo(() => {
+    // ✅ NEW: Fetch full data when selected result changes (list items are lightweight)
+    const [activeFullResult, setActiveFullResult] = useState(null);
+
+    useEffect(() => {
+      const selectedId = selectedResult?.response_id || selectedResult?.attempt_id;
+      const latestId   = latestResult?.response_id   || latestResult?.attempt_id;
+
+      if (!selectedId || selectedId === latestId) {
+        setActiveFullResult(null);
+        return;
+      }
+
+      if (selectedResult?.ai_feedback && selectedResult?.topicBreakdown) {
+        setActiveFullResult(null);
+        return;
+      }
+
+      const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
+      fetchResultByResponseId(selectedId, authOpts)
+        .then((full) => { if (full) setActiveFullResult(full); })
+        .catch(() => {});
+    }, [selectedResult, latestResult, activeToken]);
+
+    const testTakenDates = useMemo(() => {
     return quizAttempts.map((r) => {
       const raw = unwrapDate(r?.createdAt || r?.date_submitted);
       if (!raw) return null;
@@ -438,6 +467,7 @@ export default function Dashboard() {
   }
 
 
+  const resolvedResult = activeFullResult || selectedResult;
   const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
   const duration = formatDuration(selectedResult?.duration);
   const attemptsUsed = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
