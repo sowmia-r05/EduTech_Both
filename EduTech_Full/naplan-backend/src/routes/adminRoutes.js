@@ -440,6 +440,52 @@ router.patch("/tutors/:tutorId", async (req, res) => {
   }
 });
 
+// ✅ NEW: PATCH /api/admin/tutors/:tutorId/edit — change name and/or password
+router.patch("/tutors/:tutorId/edit", async (req, res) => {
+  try {
+    await connectDB();
+    if (req.admin.role !== "admin") {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+
+    const tutor = await Admin.findOne({ _id: req.params.tutorId, role: "tutor" });
+    if (!tutor) return res.status(404).json({ error: "Tutor not found" });
+
+    const { name, password } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: "Name is required" });
+    }
+    tutor.name = String(name).trim();
+
+    // Only update password if one was supplied
+    if (password) {
+      if (String(password).length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      }
+      // Assign plain text — the pre-save hook on Admin model bcrypts it automatically
+      tutor.password_hash = String(password);
+    }
+
+    await tutor.save();
+
+    return res.json({
+      ok: true,
+      tutor: {
+        _id:               tutor._id,
+        name:              tutor.name,
+        email:             tutor.email,
+        role:              tutor.role,
+        status:            tutor.status,
+        assigned_quiz_ids: tutor.assigned_quiz_ids || [],
+        createdAt:         tutor.createdAt,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/admin/tutors/:tutorId — delete a tutor
 router.delete("/tutors/:tutorId", async (req, res) => {
   try {
@@ -452,6 +498,7 @@ router.delete("/tutors/:tutorId", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
 
 // ═══════════════════════════════════════════════════════════
 // FILE UPLOAD (AWS S3)
