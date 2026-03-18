@@ -1176,108 +1176,133 @@ const loadChildren = useCallback(async () => {
         return true;
       });
 
-      // ✅ Now completedCount can safely use allAttempts
-      const completedQuizIds = new Set(
-        allAttempts.map((r) => r.quiz_id).filter(Boolean)
-      );
-      const completedCount = completedQuizIds.size || allAttempts.length;
-
-      const scores = allAttempts
-        .map((r) => {
-          const overall = r?.ai?.feedback?.overall;
-          if (overall?.max_score > 0) {
-            return (overall.total_score / overall.max_score) * 100;
-          }
-          return r?.score?.percentage ?? null;
-        })
-        .filter((s) => s !== null && s >= 0);
-
-      const dates = allAttempts
-        .map((r) => r.date_submitted || r.submitted_at || r.createdAt)
-        .filter(Boolean)
-        .sort((a, b) => new Date(b) - new Date(a));
-
-      return {
-        ...child,
-        quizCount,
-        completedCount,
-        averageScore: scores.length > 0
-          ? scores.reduce((a, b) => a + b, 0) / scores.length
-          : null,
-        lastActivity: dates[0] || child.lastActivity || null,
-      };
-        } catch {
-          return child; // fallback to whatever summaries returned
-        }
-      })
+    // ✅ Build set of active catalog quiz_ids
+    const catalogQuizIds = new Set(
+      catalog.map((q) => q.quiz_id).filter(Boolean)
     );
 
-    setRawChildren(enriched);
-    setError(null);
-  } catch (err) {
-    setError(err?.message || "Failed to load children");
-  } finally {
-    setLoading(false);
-  }
-}, [parentToken]);
+    // ✅ Only keep attempts whose quiz_id exists in the current catalog
+    // This auto-hides results for quizzes admin has removed
+    const activeAttempts = allAttempts.filter((r) =>
+      r.quiz_id && catalogQuizIds.has(r.quiz_id)
+    );
+
+    // ✅ Keep only the LATEST attempt per quiz (matches child dashboard logic)
+    const latestPerQuiz = {};
+    activeAttempts.forEach((r) => {
+      const qid = r.quiz_id;
+      if (!qid) return;
+      const date = new Date(r.date_submitted || r.submitted_at || r.createdAt || 0);
+      const existing = latestPerQuiz[qid];
+      const existingDate = existing
+        ? new Date(existing.date_submitted || existing.submitted_at || existing.createdAt || 0)
+        : new Date(0);
+      if (!existing || date > existingDate) latestPerQuiz[qid] = r;
+    });
+
+    const latestAttempts = Object.values(latestPerQuiz);
+
+    // ✅ completedCount = unique quizzes in catalog that have been attempted
+    const completedCount = latestAttempts.length;
+
+    // ✅ averageScore = based on latest attempt per quiz only
+    const scores = latestAttempts
+      .map((r) => {
+        const overall = r?.ai?.feedback?.overall;
+        if (overall?.max_score > 0) {
+          return (overall.total_score / overall.max_score) * 100;
+        }
+        return r?.score?.percentage ?? null;
+      })
+      .filter((s) => s !== null && s >= 0);
+
+
+          const dates = allAttempts
+            .map((r) => r.date_submitted || r.submitted_at || r.createdAt)
+            .filter(Boolean)
+            .sort((a, b) => new Date(b) - new Date(a));
+
+          return {
+            ...child,
+            quizCount,
+            completedCount,
+            averageScore: scores.length > 0
+              ? scores.reduce((a, b) => a + b, 0) / scores.length
+              : null,
+            lastActivity: dates[0] || child.lastActivity || null,
+          };
+            } catch {
+              return child; // fallback to whatever summaries returned
+            }
+          })
+        );
+
+        setRawChildren(enriched);
+        setError(null);
+      } catch (err) {
+        setError(err?.message || "Failed to load children");
+      } finally {
+        setLoading(false);
+      }
+    }, [parentToken]);
 
 
 
-  const loadPayments = useCallback(async () => {
-    if (!parentToken) return;
-    try {
-      const data = await fetchPurchaseHistory(parentToken);
-      setRawPayments(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error("Failed to load payments:", err);
-    }
-  }, [parentToken]);
+      const loadPayments = useCallback(async () => {
+        if (!parentToken) return;
+        try {
+          const data = await fetchPurchaseHistory(parentToken);
+          setRawPayments(Array.isArray(data) ? data : []);
+        } catch (err) {
+          console.error("Failed to load payments:", err);
+        }
+      }, [parentToken]);
 
-  useEffect(() => { 
-    if (!parentToken) return;
-    loadChildren(); loadPayments();
-   }, [loadChildren, loadPayments]);
+      useEffect(() => { 
+        if (!parentToken) return;
+        loadChildren(); loadPayments();
+      }, [loadChildren, loadPayments]);
 
-  useEffect(() => {
-  const handleVisibility = () => {
-    if (document.visibilityState === "visible") {
-      loadChildren();
-    }
-  };
-  document.addEventListener("visibilitychange", handleVisibility);
-  return () => document.removeEventListener("visibilitychange", handleVisibility);
-}, [loadChildren]);
+      useEffect(() => {
+      const handleVisibility = () => {
+        if (document.visibilityState === "visible") {
+          loadChildren();
+        }
+      };
+      document.addEventListener("visibilitychange", handleVisibility);
+      return () => document.removeEventListener("visibilitychange", handleVisibility);
+    }, [loadChildren]);
 
 
-useEffect(() => {
-  const payment = searchParams.get("payment");
-  if (!payment) return;
+    useEffect(() => {
+      const payment = searchParams.get("payment");
+      if (!payment) return;
 
-  // Always strip payment params from URL immediately
-  const next = new URLSearchParams(searchParams);
-  next.delete("payment");
-  next.delete("session_id");
-  setSearchParams(next, { replace: true });
+      // Always strip payment params from URL immediately
+      const next = new URLSearchParams(searchParams);
+      next.delete("payment");
+      next.delete("session_id");
+      setSearchParams(next, { replace: true });
 
-  if (payment === "success") {
-    const sid = searchParams.get("session_id");
+      if (payment === "success") {
+        const sid = searchParams.get("session_id");
 
-    // Only show success modal if we have a real Stripe session ID to verify
-    // A missing session_id means someone crafted the URL manually — ignore it
-    if (!sid) {
-      // Still refresh data in case webhook already processed
-      loadChildren();
-      loadPayments();
-      return;
-    }
+        // Only show success modal if we have a real Stripe session ID to verify
+        // A missing session_id means someone crafted the URL manually — ignore it
+        if (!sid) {
+          // Still refresh data in case webhook already processed
+          loadChildren();
+          loadPayments();
+          return;
+        }
 
-    // Set session ID — PaymentSuccessModal will call verifyPayment(sid)
-    // which hits the backend to confirm the payment is real before showing anything
-    setSuccessSessionId(sid);
-    loadChildren();
-    loadPayments();
-  }
-}, [searchParams, setSearchParams, loadChildren, loadPayments]);
+        // Set session ID — PaymentSuccessModal will call verifyPayment(sid)
+        // which hits the backend to confirm the payment is real before showing anything
+        setSuccessSessionId(sid);
+        loadChildren();
+        loadPayments();
+      }
+    }, [searchParams, setSearchParams, loadChildren, loadPayments]);
 
 
   // ── CRUD handlers ─────────────────────────────────────────────

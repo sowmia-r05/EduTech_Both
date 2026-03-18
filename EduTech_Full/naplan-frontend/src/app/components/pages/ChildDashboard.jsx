@@ -407,19 +407,24 @@ useEffect(() => {
 }, [activeToken, childId]);
 
 
+  const catalogQuizIdSet = useMemo(
+  () => new Set(availableQuizzes.map((q) => q.quiz_id).filter(Boolean)),
+  [availableQuizzes]
+);
+
+const entitledTests = useMemo(() =>
+  tests.filter((t) =>
+    // Keep if quiz_id matches catalog OR if no quiz_id (legacy fallback)
+    !t.quiz_id || catalogQuizIdSet.has(t.quiz_id)
+  ),
+  [tests, catalogQuizIdSet]
+);
+
+
   /* ─── Entitled tests (original) ─── */
   const entitledCatalog = useMemo(() => availableQuizzes, [availableQuizzes]);
 
-  const entitledTests = useMemo(() => {
-    if (childStatus === "active") return tests;
-    if (quizzesLoading || entitledCatalog.length === 0) return [];
-    const catalogIds = new Set(entitledCatalog.map((q) => q.quiz_id).filter(Boolean));
-    const catalogNames = new Set(entitledCatalog.map((q) => (q.quiz_name || q.name || "").toLowerCase().trim()));
-    return tests.filter((t) => {
-      const n = (t.name || t.quiz_name || "").toLowerCase().trim();
-      return [...catalogNames].some((q) => n === q || n.includes(q) || q.includes(n));
-    });
-  }, [tests, entitledCatalog, quizzesLoading, childStatus]);
+
 
   /* ─── Gamification stats (original) ─── */
   const hasTests       = entitledTests.length > 0;
