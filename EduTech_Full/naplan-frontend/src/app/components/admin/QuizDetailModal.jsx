@@ -9,6 +9,7 @@
  *   ✅ Voice/Audio URL and Video URL inputs visible in Edit Question form
  *   ✅ File upload buttons for Audio (.mp3/.wav/.ogg), Video (.mp4/.webm/.mov), and Images
  *   ✅ writing type support + image_width/height fix (?? null)
+ *   ✅ Fixed floating <img> JSX syntax error
  *
  * Place in: src/app/components/admin/QuizDetailModal.jsx
  */
@@ -127,8 +128,8 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     category:        question.categories?.[0]?.name || "",
     image_url:       question.image_url || "",
     image_size:      question.image_size || "medium",
-    image_width:     question.image_width  ?? null,  // ✅ FIX: ?? not ||
-    image_height:    question.image_height ?? null,  // ✅ FIX: ?? not ||
+    image_width:     question.image_width  ?? null,
+    image_height:    question.image_height ?? null,
     explanation:     question.explanation || "",
     shuffle_options: resolvedShuffle,
     voice_url:       question.voice_url || "",
@@ -179,8 +180,11 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="block text-xs text-slate-400 mb-1">Type</label>
-          <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
+          <select
+            value={form.type}
+            onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+          >
             <option value="radio_button">Single Choice</option>
             <option value="checkbox">Multiple Choice</option>
             <option value="picture_choice">Picture Choice</option>
@@ -206,7 +210,40 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           <input type="text" value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))} placeholder="https://... or upload →"
             className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
           <FileUploadButton accept="image/*,.pdf" label="Upload" onUploaded={(url) => setForm((f) => ({ ...f, image_url: url }))} />
+          {form.image_url && (
+            <button onClick={() => setForm((f) => ({ ...f, image_url: "", image_size: "medium", image_width: null, image_height: null }))}
+              className="text-red-400 hover:text-red-300 text-xs flex-shrink-0">✕</button>
+          )}
         </div>
+
+        {/* ✅ Live image preview — reflects width/height from CollapsibleImageResize instantly */}
+        {form.image_url && !form.image_url.toLowerCase().endsWith(".pdf") && (
+          <div className="mt-2 relative inline-block max-w-full">
+            <img
+              src={form.image_url}
+              alt="Question preview"
+              style={{
+                ...(form.image_width  ? { width: `${form.image_width}px`, maxWidth: "100%" } : { maxWidth: "100%" }),
+                ...(form.image_height ? { height: `${form.image_height}px` } : { maxHeight: "12rem" }),
+                objectFit: "contain",
+              }}
+              className="rounded-lg border border-slate-600 bg-slate-900"
+              onError={(e) => { e.target.style.display = "none"; }}
+            />
+            <span className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 text-white text-[9px] rounded font-medium">Preview</span>
+            {(form.image_width || form.image_height) && (
+              <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-indigo-600/80 text-white text-[9px] rounded font-mono">
+                {form.image_width ? `${form.image_width}px` : "auto"} × {form.image_height ? `${form.image_height}px` : "auto"}
+              </span>
+            )}
+          </div>
+        )}
+        {form.image_url && form.image_url.toLowerCase().endsWith(".pdf") && (
+          <a href={form.image_url} target="_blank" rel="noopener noreferrer"
+            className="mt-2 inline-flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 hover:bg-red-500/20 transition">
+            📄 PDF — click to preview
+          </a>
+        )}
       </div>
       <CollapsibleImageResize form={form} setForm={setForm} />
       <div>
@@ -447,11 +484,14 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
               if (editingId === q.question_id) {
                 return <QuestionEditor key={q.question_id} question={q} quizRandomizeOptions={quiz.randomize_options} onSave={handleSaveQuestion} onCancel={() => setEditingId(null)} />;
               }
+
+              // ✅ Compute image size class and inline style for the card view
               const imgSizeCls = IMAGE_SIZE_MAP[q.image_size] || "max-w-md";
               const imgStyle = (q.image_width || q.image_height) ? {
-                ...(q.image_width  ? { width:  `${q.image_width}px`,  maxWidth: "100%" } : {}),
+                ...(q.image_width  ? { width: `${q.image_width}px`, maxWidth: "100%" } : {}),
                 ...(q.image_height ? { height: `${q.image_height}px`, objectFit: "contain" } : {}),
               } : undefined;
+
               const effectiveShuffle = q.shuffle_options != null ? q.shuffle_options : (quiz.randomize_options || false);
 
               return (
@@ -481,7 +521,12 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                   {/* Question image */}
                   {q.image_url && !q.text?.includes(q.image_url) && (
                     <div className="mb-3 ml-10">
-                      <img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} />
+                      <img
+                        src={q.image_url}
+                        alt="Question"
+                        style={imgStyle}
+                        className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700 object-contain`}
+                      />
                     </div>
                   )}
 
@@ -551,7 +596,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                     </div>
                   )}
 
-                  {/* Explanation — appears exactly once */}
+                  {/* Explanation */}
                   {q.explanation && (
                     <div className="mt-3 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
                       <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-0.5">Explanation</p>
