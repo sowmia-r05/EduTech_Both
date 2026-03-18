@@ -291,7 +291,7 @@ function parseCustomTemplate(workbook) {
     (row) => row.question_text && !String(row.question_text).startsWith("The question text")
   );
 
-  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox"];
+  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing"];
   const questions = [];
 
   dataRows.forEach((row, idx) => {
@@ -400,7 +400,7 @@ function parseSimpleTemplate(workbook, fileName) {
     (row) => row.question_text && !String(row.question_text).startsWith("The question text")
   );
 
-  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox"];
+  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing"];
   const questions  = [];
 
   dataRows.forEach((row, idx) => {
@@ -487,11 +487,12 @@ function parseExcel(workbook, fileName) {
 
 function Badge({ type }) {
   const styles = {
-    radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  };
+  radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",  // ✅ NEW
+};
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>
       {type}

@@ -759,8 +759,8 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
       categories:      req.body.category ? [{ name: req.body.category }] : (req.body.categories || []),
       image_url:       req.body.image_url || null,
       image_size:      req.body.image_size || "medium",
-      image_width:     req.body.image_width || null,
-      image_height:    req.body.image_height || null,
+      image_width:  req.body.image_width  != null ? Number(req.body.image_width)  || null : null,
+      image_height: req.body.image_height != null ? Number(req.body.image_height) || null : null,
       explanation:     req.body.explanation || null,
       shuffle_options: req.body.shuffle_options ?? null,
       voice_url:       req.body.voice_url || null,
@@ -790,11 +790,24 @@ router.patch("/questions/:questionId", async (req, res) => {
     const updates = {};
     for (const f of allowedFields) {
       if (req.body[f] !== undefined) {
-        if (f === "category") updates["categories"] = req.body.category ? [{ name: req.body.category }] : [];
-        else if (f === "question_text") updates["text"] = req.body.question_text;
-        else updates[f] = req.body[f];
+        if (f === "category") {
+          updates["categories"] = req.body.category ? [{ name: req.body.category }] : [];
+        } else if (f === "question_text") {
+          updates["text"] = req.body.question_text;
+        } else {
+          updates[f] = req.body[f];
+        }
       }
     }
+ 
+    // ✅ FIX: Explicitly cast image dimensions to Number to prevent string-type issues.
+    // JSON.parse from some clients may send these as strings.
+    if (updates.image_width != null)  updates.image_width  = Number(updates.image_width);
+    if (updates.image_height != null) updates.image_height = Number(updates.image_height);
+    // If somehow they became NaN after casting, reset to null
+    if (Number.isNaN(updates.image_width))  updates.image_width  = null;
+    if (Number.isNaN(updates.image_height)) updates.image_height = null;
+ 
     const question = await Question.findOneAndUpdate(
       { question_id: req.params.questionId },
       { $set: updates },
@@ -860,8 +873,9 @@ router.post("/quizzes/upload", async (req, res) => {
           categories: q.category ? [{ name: q.category }] : (q.categories || []),
           image_url: q.image_url || null, explanation: q.explanation || "",
           sub_topic: q.sub_topic || null, voice_url: q.voice_url || null,
-          video_url: q.video_url || null, image_width: q.image_width || null,
-          image_height: q.image_height || null,
+          video_url: q.video_url || null,
+          image_width:  q.image_width  != null ? Number(q.image_width)  || null : null,
+          image_height: q.image_height != null ? Number(q.image_height) || null : null,
         };
       })
     );
