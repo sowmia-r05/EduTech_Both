@@ -566,7 +566,11 @@ export default function QuestionRenderer({
           <img
             src={resolveImgSrc(question.image_url)}
             alt="Question image"
-            className="max-w-full max-h-96 object-contain mx-auto rounded-lg cursor-zoom-in"
+            className={`object-contain mx-auto rounded-lg cursor-zoom-in${
+                    !question.image_height ? " max-h-96" : ""
+                  }${
+                    !question.image_width ? " max-w-full" : ""
+                  }`}
             style={{
               ...(question.image_width ? { width: `${question.image_width}px`, maxWidth: "100%" } : {}),
               ...(question.image_height ? { height: `${question.image_height}px`, objectFit: "contain" } : {}),
