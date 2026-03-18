@@ -5,9 +5,10 @@
  *   ✅ Per-question: voice_url, video_url, image resize (width + height)
  *   ✅ No quiz-level voice/video
  *   ✅ Collapsible image resize widget (no more endless scrolling)
- *   ✅ Student writing area preview when free_text is selected
+ *   ✅ Student writing area preview when writing is selected
  *   ✅ Voice/Audio URL and Video URL inputs visible in Edit Question form
  *   ✅ File upload buttons for Audio (.mp3/.wav/.ogg), Video (.mp4/.webm/.mov), and Images
+ *   ✅ writing type support + image_width/height fix (?? null)
  *
  * Place in: src/app/components/admin/QuizDetailModal.jsx
  */
@@ -60,13 +61,21 @@ function HtmlContent({ html, className = "" }) {
 
 function TypeBadge({ type }) {
   const styles = {
-    radio_button: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    checkbox: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
     picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    free_text: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    short_answer: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
   };
-  const labels = { radio_button: "Single Choice", checkbox: "Multiple Choice", picture_choice: "Picture Choice", free_text: "Free Text", short_answer: "Short Answer" };
+  const labels = {
+    radio_button:   "Single Choice",
+    checkbox:       "Multiple Choice",
+    picture_choice: "Picture Choice",
+    free_text:      "Free Text",
+    short_answer:   "Short Answer",
+    writing:        "Writing",
+  };
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>{labels[type] || type}</span>;
 }
 
@@ -112,14 +121,23 @@ function ShortAnswerEditor({ form, setForm }) {
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const resolvedShuffle = question.shuffle_options != null ? question.shuffle_options : (quizRandomizeOptions || false);
   const [form, setForm] = useState({
-    text: question.text || question.question_text || "",
-   type: question.type || "radio_button", points: question.points || 1,
-    category: question.categories?.[0]?.name || "", image_url: question.image_url || "",
-    image_size: question.image_size || "medium", image_width: question.image_width || null, image_height: question.image_height || null,
-    explanation: question.explanation || "", shuffle_options: resolvedShuffle,
-    voice_url: question.voice_url || "", video_url: question.video_url || "",
-    correct_answer: question.correct_answer || "", case_sensitive: question.case_sensitive || false,
-    options: (question.options || []).map((o) => ({ option_id: o.option_id, text: o.text || "", image_url: o.image_url || "", correct: o.correct || false })),
+    text:            question.text || question.question_text || "",
+    type:            question.type || "radio_button",
+    points:          question.points || 1,
+    category:        question.categories?.[0]?.name || "",
+    image_url:       question.image_url || "",
+    image_size:      question.image_size || "medium",
+    image_width:     question.image_width  ?? null,  // ✅ FIX: ?? not ||
+    image_height:    question.image_height ?? null,  // ✅ FIX: ?? not ||
+    explanation:     question.explanation || "",
+    shuffle_options: resolvedShuffle,
+    voice_url:       question.voice_url || "",
+    video_url:       question.video_url || "",
+    correct_answer:  question.correct_answer || "",
+    case_sensitive:  question.case_sensitive || false,
+    options: (question.options || []).map((o) => ({
+      option_id: o.option_id, text: o.text || "", image_url: o.image_url || "", correct: o.correct || false,
+    })),
   });
   const [saving, setSaving] = useState(false);
 
@@ -130,14 +148,15 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       return { ...f, options: opts };
     });
   };
-  const addOption = () => setForm((f) => ({ ...f, options: [...f.options, { option_id: "", text: "", image_url: "", correct: false }] }));
+  const addOption    = () => setForm((f) => ({ ...f, options: [...f.options, { option_id: "", text: "", image_url: "", correct: false }] }));
   const removeOption = (idx) => { if (form.options.length <= 2) return; setForm((f) => ({ ...f, options: f.options.filter((_, i) => i !== idx) })); };
 
   const handleSave = async () => {
     setSaving(true);
     await onSave(question.question_id, {
       text: form.text, type: form.type, points: form.points, category: form.category,
-      image_url: form.image_url, image_size: form.image_size, image_width: form.image_width, image_height: form.image_height,
+      image_url: form.image_url, image_size: form.image_size,
+      image_width: form.image_width, image_height: form.image_height,
       explanation: form.explanation, shuffle_options: form.shuffle_options,
       voice_url: form.voice_url || null, video_url: form.video_url || null,
       correct_answer: form.correct_answer || null, case_sensitive: form.case_sensitive,
@@ -162,8 +181,12 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           <label className="block text-xs text-slate-400 mb-1">Type</label>
           <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
-            <option value="radio_button">Single Choice</option><option value="checkbox">Multiple Choice</option>
-            <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text</option><option value="short_answer">Short Answer</option>
+            <option value="radio_button">Single Choice</option>
+            <option value="checkbox">Multiple Choice</option>
+            <option value="picture_choice">Picture Choice</option>
+            <option value="writing">Writing (text box)</option>
+            <option value="free_text">Free Text (display only)</option>
+            <option value="short_answer">Short Answer</option>
           </select>
         </div>
         <div>
@@ -192,7 +215,6 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
       </div>
 
-      {/* ✅ Per-question settings — QUESTION SETTINGS BLOCK */}
       <div className="pt-3 border-t border-slate-700 space-y-3">
         <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Question Settings</p>
         <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
@@ -240,8 +262,8 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       <FreeTextPreview form={form} />
       <ShortAnswerEditor form={form} setForm={setForm} />
 
-      {/* Options */}
-      {form.type !== "free_text" && form.type !== "short_answer" && (
+      {/* Options — hidden for free_text, short_answer, writing */}
+      {form.type !== "free_text" && form.type !== "short_answer" && form.type !== "writing" && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs text-slate-400">Options (check = correct)</label>
@@ -282,10 +304,10 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
    MAIN: QuizDetailModal
    ═══════════════════════════════════════ */
 export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
-  const [quiz, setQuiz] = useState(null);
-  const [questions, setQuestions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState(null);
+  const [quiz,         setQuiz]         = useState(null);
+  const [questions,    setQuestions]    = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [editingId,    setEditingId]    = useState(null);
   const [editSettings, setEditSettings] = useState(false);
   const [settingsForm, setSettingsForm] = useState({});
 
@@ -297,10 +319,14 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
       const data = await res.json();
       setQuiz(data); setQuestions(data.questions || []);
       setSettingsForm({
-        quiz_name: data.quiz_name || "", time_limit_minutes: data.time_limit_minutes ?? "",
-        difficulty: data.difficulty || "", is_active: data.is_active !== false, is_trial: data.is_trial || false,
-        randomize_questions: data.randomize_questions || false, randomize_options: data.randomize_options || false,
-        max_attempts: data.max_attempts ?? null,
+        quiz_name:           data.quiz_name           || "",
+        time_limit_minutes:  data.time_limit_minutes  ?? "",
+        difficulty:          data.difficulty          || "",
+        is_active:           data.is_active           !== false,
+        is_trial:            data.is_trial            || false,
+        randomize_questions: data.randomize_questions || false,
+        randomize_options:   data.randomize_options   || false,
+        max_attempts:        data.max_attempts        ?? null,
       });
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -329,11 +355,14 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
       const res = await adminFetch(`/api/admin/quizzes/${quizId}`, {
         method: "PATCH",
         body: JSON.stringify({
-          quiz_name: settingsForm.quiz_name,
-          time_limit_minutes: settingsForm.time_limit_minutes === "" ? null : Number(settingsForm.time_limit_minutes),
-          difficulty: settingsForm.difficulty || null, is_active: settingsForm.is_active, is_trial: settingsForm.is_trial,
-          randomize_questions: settingsForm.randomize_questions, randomize_options: settingsForm.randomize_options,
-          max_attempts: settingsForm.max_attempts,
+          quiz_name:           settingsForm.quiz_name,
+          time_limit_minutes:  settingsForm.time_limit_minutes === "" ? null : Number(settingsForm.time_limit_minutes),
+          difficulty:          settingsForm.difficulty          || null,
+          is_active:           settingsForm.is_active,
+          is_trial:            settingsForm.is_trial,
+          randomize_questions: settingsForm.randomize_questions,
+          randomize_options:   settingsForm.randomize_options,
+          max_attempts:        settingsForm.max_attempts,
         }),
       });
       if (res.ok) { setEditSettings(false); fetchDetail(); onRefresh?.(); }
@@ -347,6 +376,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl mx-4 my-8 shadow-2xl">
+
         {/* Header */}
         <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 rounded-t-2xl px-6 py-4">
           <div className="flex items-center justify-between">
@@ -369,7 +399,6 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
             </div>
           </div>
 
-          {/* Settings Panel */}
           {editSettings && (
             <div className="mt-4 pt-4 border-t border-slate-700 space-y-3">
               <div className="grid grid-cols-3 gap-3">
@@ -420,13 +449,14 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
               }
               const imgSizeCls = IMAGE_SIZE_MAP[q.image_size] || "max-w-md";
               const imgStyle = (q.image_width || q.image_height) ? {
-                ...(q.image_width ? { width: `${q.image_width}px`, maxWidth: "100%" } : {}),
+                ...(q.image_width  ? { width:  `${q.image_width}px`,  maxWidth: "100%" } : {}),
                 ...(q.image_height ? { height: `${q.image_height}px`, objectFit: "contain" } : {}),
               } : undefined;
               const effectiveShuffle = q.shuffle_options != null ? q.shuffle_options : (quiz.randomize_options || false);
 
               return (
                 <div key={q.question_id} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5 group hover:border-slate-600 transition">
+                  {/* Question header */}
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">{i + 1}</span>
@@ -442,13 +472,20 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                       <button onClick={() => handleDeleteQuestion(q.question_id)} className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
                     </div>
                   </div>
+
+                  {/* Question text */}
                   <div className="mb-3 ml-10">
                     <HtmlContent html={q.text} className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
                   </div>
+
+                  {/* Question image */}
                   {q.image_url && !q.text?.includes(q.image_url) && (
-                    <div className="mb-3 ml-10"><img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} /></div>
+                    <div className="mb-3 ml-10">
+                      <img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} />
+                    </div>
                   )}
-                  {/* Audio & Video preview players */}
+
+                  {/* Audio & Video players */}
                   {(q.voice_url || q.video_url) && (
                     <div className="mb-3 ml-10 space-y-2">
                       {q.voice_url && (
@@ -465,8 +502,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                               src={`https://www.youtube.com/embed/${q.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)?.[1]}`}
                               className="w-full aspect-video max-h-48 rounded-lg"
                               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                              allowFullScreen
-                              title="Quiz Video"
+                              allowFullScreen title="Quiz Video"
                             />
                           ) : (
                             <video src={q.video_url} controls preload="metadata" className="w-full max-h-48 rounded-lg" />
@@ -475,6 +511,8 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                       )}
                     </div>
                   )}
+
+                  {/* Options */}
                   {q.options?.length > 0 && (
                     <div className="space-y-1.5 ml-10">
                       {q.options.map((opt, oi) => {
@@ -491,6 +529,15 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                       })}
                     </div>
                   )}
+
+                  {/* Writing indicator */}
+                  {q.type === "writing" && (
+                    <div className="mt-3 ml-10 px-3 py-2 bg-pink-500/5 border border-pink-500/10 rounded-lg">
+                      <p className="text-[10px] text-pink-400 font-medium">✏️ Student will write a text response</p>
+                    </div>
+                  )}
+
+                  {/* Short answer correct answer */}
                   {q.type === "short_answer" && q.correct_answer && (
                     <div className="mt-3 ml-10 px-3 py-2 bg-orange-500/5 border border-orange-500/10 rounded-lg">
                       <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wider mb-1">✍️ Correct Answer</p>
@@ -503,6 +550,8 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                       </div>
                     </div>
                   )}
+
+                  {/* Explanation — appears exactly once */}
                   {q.explanation && (
                     <div className="mt-3 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
                       <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-0.5">Explanation</p>
@@ -514,6 +563,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
             })
           )}
         </div>
+
         <div className="border-t border-slate-800 px-6 py-3 flex justify-end">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Close</button>
         </div>

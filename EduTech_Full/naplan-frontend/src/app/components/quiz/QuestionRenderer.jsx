@@ -1,10 +1,11 @@
 /**
- * QuestionRenderer.jsx  (v8 — 5MB file size limit + images only)
+ * QuestionRenderer.jsx  (v9 — writing type support)
  *
- * Changes from v7:
- *  ✅ Fixed: duplicate handleFileChange removed (was causing JS error)
- *  ✅ Added: 5MB max file size check before OCR upload
- *  ✅ Enforced: only JPEG, PNG, WebP accepted (no PDFs or docs)
+ * Changes from v8:
+ *  ✅ FreeTextQuestion renamed to WritingQuestion (has textarea)
+ *  ✅ FreeTextQuestion now returns null (display-only, no input)
+ *  ✅ question.type === "writing" → WritingQuestion
+ *  ✅ question.type === "free_text" → FreeTextQuestion (no-op)
  *
  * Place in: src/app/components/quiz/QuestionRenderer.jsx
  */
@@ -218,10 +219,11 @@ function ShortAnswerQuestion({ question, answer, onAnswer }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   FREE TEXT / WRITING
-   ✅ v8: single handleFileChange with 5MB limit + images only
+   WRITING QUESTION
+   ✅ Has textarea — student types/uploads their response.
+   Previously this was called FreeTextQuestion.
    ═══════════════════════════════════════════════════════════ */
-function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUploadingChange }) {
+function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUploadingChange }) {
   const { activeToken } = useAuth();
 
   const text = answer?.text || "";
@@ -234,7 +236,6 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
   const [previewUrl, setPreviewUrl] = useState(null);
   const fileInputRef = useRef(null);
 
-  // ✅ Upload restrictions — easy to adjust in one place
   const MAX_FILE_SIZE_MB = 5;
   const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
@@ -242,7 +243,6 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
     Number(yearLevel) === 3 &&
     String(subject || "").toLowerCase().includes("writing");
 
-  // ── OCR: extract text from handwriting image ──
   const extractHandwritingFromImage = async (file) => {
     setOcrLoading(true);
     setOcrError("");
@@ -281,18 +281,15 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
     }
   };
 
-  // ✅ Single handleFileChange — checks type AND size before uploading
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Images only — no PDFs, Word docs, or any other file
     if (!ALLOWED_TYPES.includes(file.type)) {
       setOcrError("Only photo files are allowed. Please upload a JPEG, PNG, or WebP image.");
       return;
     }
 
-    // 5MB max — prevents large scans or wrong files being uploaded
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
       setOcrError(
         `Photo is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Please upload an image under ${MAX_FILE_SIZE_MB}MB.`
@@ -374,7 +371,6 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
               : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
           }`}
         >
-          {/* ✅ accept restricts the file picker to images only at the OS level too */}
           <input
             ref={fileInputRef}
             type="file"
@@ -404,7 +400,6 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
               </div>
               <div>
                 <p className="text-sm font-medium text-slate-700">Tap to upload a photo</p>
-                {/* ✅ Updated hint — accurate limit and file types */}
                 <p className="text-xs text-slate-400 mt-1">Photo only (JPEG, PNG, WebP) • Max 5MB</p>
               </div>
             </div>
@@ -500,6 +495,14 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
   );
 }
 
+/* ═══════════════════════════════════════════════════════════
+   FREE TEXT QUESTION  (display-only — NO student input)
+   ✅ Only shows the question text/image — no answer box.
+   ═══════════════════════════════════════════════════════════ */
+function FreeTextQuestion() {
+  return null;
+}
+
 /* ═══════════════════════════════════════
    MAIN: QuestionRenderer
    ═══════════════════════════════════════ */
@@ -589,8 +592,9 @@ export default function QuestionRenderer({
       {question.type === "checkbox" && (
         <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} />
       )}
-      {question.type === "free_text" && (
-        <FreeTextQuestion
+      {/* ✅ "writing" → shows textarea for student response */}
+      {question.type === "writing" && (
+        <WritingQuestion
           question={question}
           answer={answer}
           onAnswer={onAnswer}
@@ -598,6 +602,10 @@ export default function QuestionRenderer({
           subject={subject}
           onUploadingChange={onUploadingChange}
         />
+      )}
+      {/* ✅ "free_text" → display-only, no input rendered */}
+      {question.type === "free_text" && (
+        <FreeTextQuestion />
       )}
       {question.type === "short_answer" && (
         <ShortAnswerQuestion question={question} answer={answer} onAnswer={onAnswer} />

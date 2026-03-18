@@ -59,7 +59,7 @@ const QuestionSchema = new mongoose.Schema(
     type: {
       type: String,
       required: true,
-      enum: ["radio_button", "picture_choice", "free_text", "checkbox", "short_answer"],
+     enum: ["radio_button", "picture_choice", "free_text", "checkbox", "short_answer", "writing"],
     },
     text: { type: String, required: true },
     options: { type: [OptionSchema], default: [] },
