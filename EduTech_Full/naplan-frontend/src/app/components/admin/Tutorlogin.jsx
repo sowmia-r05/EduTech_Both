@@ -43,8 +43,8 @@ export default function TutorLogin() {
         throw new Error("This login is for tutors only. Admins should use the admin login.");
       }
 
-      localStorage.setItem("admin_token", data.token);
-      localStorage.setItem("admin_info",  JSON.stringify(data.admin));
+      localStorage.setItem("tutor_token", data.token);
+      localStorage.setItem("tutor_info",  JSON.stringify(data.admin));
       navigate(`${ADMIN_PATH}/tutor/dashboard`);
     } catch (err) {
       setError(err.message);
