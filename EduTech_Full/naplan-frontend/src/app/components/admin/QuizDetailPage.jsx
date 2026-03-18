@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ADMIN_PATH } from "@/app/App";
 import DownloadXlsxButton from "./DownloadExcelButton";
+import { AddQuestionForm } from "./ManualQuizCreator";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -323,14 +324,16 @@ export default function QuizDetailPage() {
   const { quizId } = useParams();
   const navigate   = useNavigate();
 
-  const [quiz,          setQuiz]          = useState(null);
-  const [questions,     setQuestions]     = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [editingId,     setEditingId]     = useState(null);
-  const [showSettings,  setShowSettings]  = useState(false);
-  const [settingsForm,  setSettingsForm]  = useState({});
+  // ✅ ALL STATE INSIDE THE COMPONENT
+  const [quiz,           setQuiz]           = useState(null);
+  const [questions,      setQuestions]      = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [editingId,      setEditingId]      = useState(null);
+  const [showSettings,   setShowSettings]   = useState(false);
+  const [settingsForm,   setSettingsForm]   = useState({});
   const [savingSettings, setSavingSettings] = useState(false);
-  const [error,         setError]         = useState("");
+  const [error,          setError]          = useState("");
+  const [showAddForm,    setShowAddForm]     = useState(false); // ✅ FIXED: moved inside component
 
   const adminRole = getAdminRole();
   const canVerify = ["admin", "tutor"].includes(adminRole);
@@ -373,6 +376,25 @@ export default function QuizDetailPage() {
     if (!confirm("Delete this question? This cannot be undone.")) return;
     const res = await adminFetch(`/api/admin/questions/${questionId}?quiz_id=${quizId}`, { method: "DELETE" });
     if (res.ok) fetchDetail(); else alert("Delete failed");
+  };
+
+  // ✅ FIXED: moved inside component, has access to quizId, fetchDetail
+  const handleAddQuestion = async (newQ) => {
+    try {
+      const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
+        method: "POST",
+        body: JSON.stringify(newQ),
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Failed to add question");
+      }
+      setShowAddForm(false);
+      fetchDetail();
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
   const handleSaveSettings = async () => {
@@ -431,7 +453,6 @@ export default function QuizDetailPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Verification pill */}
             {questions.length > 0 && (
               <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs">
                 <span className="text-emerald-400 font-semibold">{verStats.approved}✓</span>
@@ -492,10 +513,10 @@ export default function QuizDetailPage() {
             </div>
             <div className="flex items-center gap-4 flex-wrap">
               {[
-                { label: "Active",              field: "is_active"           },
-                { label: "Trial (free)",        field: "is_trial"            },
-                { label: "Shuffle Questions",   field: "randomize_questions" },
-                { label: "Shuffle Options",     field: "randomize_options"   },
+                { label: "Active",            field: "is_active"           },
+                { label: "Trial (free)",      field: "is_trial"            },
+                { label: "Shuffle Questions", field: "randomize_questions" },
+                { label: "Shuffle Options",   field: "randomize_options"   },
               ].map(({ label, field }) => (
                 <label key={field} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                   <input type="checkbox" checked={!!settingsForm[field]}
@@ -520,10 +541,40 @@ export default function QuizDetailPage() {
           <div className="flex items-center justify-center py-24">
             <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : questions.length === 0 ? (
-          <div className="text-center py-24 text-slate-500">No questions in this quiz yet.</div>
         ) : (
           <div className="space-y-4">
+
+            {/* ✅ Questions header with "+ Add Question" button */}
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
+                Questions ({questions.length})
+              </h2>
+              {!showAddForm && (
+                <button
+                  onClick={() => { setShowAddForm(true); setEditingId(null); }}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition flex items-center gap-1.5"
+                >
+                  + Add Question
+                </button>
+              )}
+            </div>
+
+            {/* ✅ Add Question Form */}
+            {showAddForm && (
+              <AddQuestionForm
+                onAdd={handleAddQuestion}
+                onCancel={() => setShowAddForm(false)}
+              />
+            )}
+
+            {/* Empty state */}
+            {questions.length === 0 && !showAddForm && (
+              <div className="text-center py-24 text-slate-500">
+                No questions in this quiz yet.
+              </div>
+            )}
+
+            {/* Question list */}
             {questions.map((q, i) => {
               if (editingId === q.question_id) {
                 return (
@@ -551,7 +602,7 @@ export default function QuizDetailPage() {
                       {q.video_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20">🎬 Video</span>}
                     </div>
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                      <button onClick={() => setEditingId(q.question_id)} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
+                      <button onClick={() => { setEditingId(q.question_id); setShowAddForm(false); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
                       <button onClick={() => handleDeleteQuestion(q.question_id)} className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
                     </div>
                   </div>

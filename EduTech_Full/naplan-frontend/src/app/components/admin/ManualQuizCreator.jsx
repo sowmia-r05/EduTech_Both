@@ -166,7 +166,7 @@ function ImageField({ value, onChange, label = "Image" }) {
 /* ═══════════════════════════════════════
    ADD QUESTION FORM
    ═══════════════════════════════════════ */
-function AddQuestionForm({ onAdd, onCancel }) {
+export function AddQuestionForm({ onAdd, onCancel }) {
   const [q, setQ] = useState({
     question_text: "",
     type: "radio_button",
