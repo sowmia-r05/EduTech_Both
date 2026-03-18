@@ -3,12 +3,10 @@
  *
  * Tutor's workspace:
  *   - Left: list of assigned quizzes with verification progress bar
- *   - Right: selected quiz with all questions + approve/reject/edit controls
+ *   - Right: selected quiz with all questions + approve/reject controls
  *
  * ✅ FIXED: Now reads from "tutor_token" / "tutor_info" — separate from admin session.
- * ✅ NEW: Tutor can edit question text, options, and explanation.
- *         Editing resets verification status back to "pending" automatically.
- * ✅ NEW: Approved questions only show the green badge + Edit button (no Approve/Reject clutter).
+ * ✅ UPDATED: Removed Edit button. Approved questions now show Reset + Reject options.
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -71,147 +69,8 @@ function ProgressBar({ approved, total }) {
   );
 }
 
-// ─── Edit Question Modal ──────────────────────────────────────────────────────
-function EditQuestionModal({ question, onSaved, onClose }) {
-  const [text,        setText]        = useState(question.text || "");
-  const [explanation, setExplanation] = useState(question.explanation || "");
-  const [options,     setOptions]     = useState(
-    (question.options || []).map((o) => ({ ...o }))
-  );
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState("");
-
-  const updateOptionText = (idx, val) => {
-    setOptions((prev) => prev.map((o, i) => i === idx ? { ...o, text: val } : o));
-  };
-
-  const toggleCorrect = (idx) => {
-    setOptions((prev) => prev.map((o, i) => ({ ...o, correct: i === idx })));
-  };
-
-  const handleSave = async () => {
-    if (!text.trim()) { setError("Question text is required"); return; }
-    setLoading(true);
-    setError("");
-    try {
-      const res = await tutorFetch(`/api/tutor/questions/${question.question_id}/edit`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          text:        text.trim(),
-          explanation: explanation.trim(),
-          options:     options.map((o) => ({
-            option_id: o.option_id,
-            text:      o.text,
-            correct:   o.correct,
-          })),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Save failed");
-      onSaved(data.question);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl p-6 space-y-4 my-8">
-
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-white">Edit Question</h2>
-            <p className="text-[11px] text-amber-400 mt-0.5">⚠ Saving will reset verification status to Pending</p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
-        </div>
-
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-            <p className="text-red-400 text-sm">{error}</p>
-          </div>
-        )}
-
-        {/* Question text */}
-        <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1.5">Question Text</label>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={3}
-            className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-          />
-        </div>
-
-        {/* Options */}
-        {options.length > 0 && (
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
-              Options <span className="text-slate-600 font-normal">(click radio to mark correct)</span>
-            </label>
-            <div className="space-y-2">
-              {options.map((opt, idx) => (
-                <div key={opt.option_id || idx} className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleCorrect(idx)}
-                    className={`w-4 h-4 rounded-full border-2 flex-shrink-0 transition ${
-                      opt.correct
-                        ? "border-emerald-500 bg-emerald-500"
-                        : "border-slate-600 bg-transparent hover:border-slate-400"
-                    }`}
-                  />
-                  <span className="text-xs text-slate-500 w-4 flex-shrink-0">
-                    {String.fromCharCode(65 + idx)}
-                  </span>
-                  <input
-                    type="text"
-                    value={opt.text || ""}
-                    onChange={(e) => updateOptionText(idx, e.target.value)}
-                    className="flex-1 bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Explanation */}
-        <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1.5">Explanation</label>
-          <textarea
-            value={explanation}
-            onChange={(e) => setExplanation(e.target.value)}
-            rows={2}
-            placeholder="Explain the correct answer…"
-            className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 pt-1">
-          <button
-            onClick={handleSave}
-            disabled={loading}
-            className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg transition"
-          >
-            {loading ? "Saving…" : "Save Changes"}
-          </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-slate-400 hover:text-white transition"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Verify Controls ─────────────────────────────────────────────────────────
-function VerifyControls({ question, onVerified, onEdit }) {
+function VerifyControls({ question, onVerified }) {
   const [showReject, setShowReject] = useState(false);
   const [reason,     setReason]     = useState("");
   const [loading,    setLoading]    = useState(false);
@@ -234,39 +93,32 @@ function VerifyControls({ question, onVerified, onEdit }) {
     finally { setLoading(false); setShowReject(false); setReason(""); }
   };
 
-  // APPROVED: only badge + edit
-  if (current === "approved") {
-    return (
-      <div className="flex items-center gap-2 flex-wrap">
-        <VerificationBadge status="approved" />
-        <button
-          onClick={onEdit}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-slate-700/60 hover:bg-slate-700 text-slate-300 border border-slate-600/50 rounded-lg transition"
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
-          </svg>
-          Edit
-        </button>
-      </div>
-    );
-  }
+  // APPROVED: badge + Reset to Pending + Reject
+ if (current === "approved") {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <VerificationBadge status="approved" />
+      <button
+        disabled={loading}
+        onClick={() => handleVerify("pending")}
+        className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40"
+      >
+        Reset to Pending
+      </button>
+      {question.tutor_verification?.verified_by && (
+        <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
+      )}
+    </div>
+  );
+}
 
-  // REJECTED: badge + reason + edit + reset
+
+  // REJECTED: badge + rejection reason + Reset to Pending
   if (current === "rejected") {
     return (
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2 flex-wrap">
           <VerificationBadge status="rejected" />
-          <button
-            onClick={onEdit}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-slate-700/60 hover:bg-slate-700 text-slate-300 border border-slate-600/50 rounded-lg transition"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
-            </svg>
-            Edit
-          </button>
           <button
             disabled={loading}
             onClick={() => handleVerify("pending")}
@@ -287,7 +139,7 @@ function VerifyControls({ question, onVerified, onEdit }) {
     );
   }
 
-  // PENDING: approve + reject + edit
+  // PENDING: badge + Approve + Reject
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
@@ -313,16 +165,6 @@ function VerifyControls({ question, onVerified, onEdit }) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
           Reject
-        </button>
-
-        <button
-          onClick={onEdit}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-slate-700/60 hover:bg-slate-700 text-slate-300 border border-slate-600/50 rounded-lg transition"
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
-          </svg>
-          Edit
         </button>
 
         {question.tutor_verification?.verified_by && (
@@ -367,7 +209,6 @@ export default function TutorDashboard() {
   const [loadingQuizzes,  setLoadingQuizzes]  = useState(true);
   const [loadingQs,       setLoadingQs]       = useState(false);
   const [filter,          setFilter]          = useState("all");
-  const [editingQuestion, setEditingQuestion] = useState(null);
 
   // ✅ FIXED: Read from tutor_info
   const tutorData = (() => {
@@ -420,11 +261,6 @@ export default function TutorDashboard() {
       const pending  = allQs.filter((q) => (q.tutor_verification?.status || "pending") === "pending").length;
       return { ...qz, verification: { total: allQs.length, approved, rejected, pending } };
     }));
-  };
-
-  const handleQuestionEdited = (updatedQ) => {
-    setEditingQuestion(null);
-    handleQuestionVerified(updatedQ);
   };
 
   const handleLogout = async () => {
@@ -645,7 +481,6 @@ export default function TutorDashboard() {
                           <VerifyControls
                             question={q}
                             onVerified={handleQuestionVerified}
-                            onEdit={() => setEditingQuestion(q)}
                           />
                         </div>
                       </div>
@@ -657,15 +492,6 @@ export default function TutorDashboard() {
           )}
         </main>
       </div>
-
-      {/* ── Edit Modal ── */}
-      {editingQuestion && (
-        <EditQuestionModal
-          question={editingQuestion}
-          onSaved={handleQuestionEdited}
-          onClose={() => setEditingQuestion(null)}
-        />
-      )}
     </div>
   );
 }

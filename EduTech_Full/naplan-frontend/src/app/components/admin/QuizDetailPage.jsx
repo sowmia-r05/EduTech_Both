@@ -138,6 +138,7 @@ function VerificationBadge({ status }) {
 }
 
 // ─── Verify Controls ─────────────────────────────────────────────────────────
+// ─── Verify Controls ─────────────────────────────────────────────────────────
 function VerifyControls({ question, onVerified }) {
   const [showReject, setShowReject] = useState(false);
   const [reason, setReason] = useState("");
@@ -159,28 +160,58 @@ function VerifyControls({ question, onVerified }) {
     finally { setLoading(false); setShowReject(false); setReason(""); }
   };
 
+  // APPROVED: only Reset to Pending
+  if (current === "approved") {
+    return (
+      <div className="flex items-center gap-2 flex-wrap">
+        <VerificationBadge status="approved" />
+        <button disabled={loading} onClick={() => handleVerify("pending")}
+          className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40">
+          Reset to Pending
+        </button>
+        {question.tutor_verification?.verified_by && (
+          <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
+        )}
+      </div>
+    );
+  }
+
+  // REJECTED: Reset to Pending + reason
+  if (current === "rejected") {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <VerificationBadge status="rejected" />
+          <button disabled={loading} onClick={() => handleVerify("pending")}
+            className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40">
+            Reset to Pending
+          </button>
+          {question.tutor_verification?.verified_by && (
+            <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
+          )}
+        </div>
+        {question.tutor_verification?.rejection_reason && (
+          <p className="text-[10px] text-red-400/80 italic">Reason: {question.tutor_verification.rejection_reason}</p>
+        )}
+      </div>
+    );
+  }
+
+  // PENDING: Approve + Reject
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
-        <VerificationBadge status={current} />
-        {current !== "approved" && (
-          <button disabled={loading} onClick={() => { setShowReject(false); handleVerify("approved"); }}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-600/30 rounded-lg transition disabled:opacity-40">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-            Approve
-          </button>
-        )}
-        {current !== "rejected" && (
-          <button disabled={loading} onClick={() => setShowReject((v) => !v)}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-600/30 rounded-lg transition disabled:opacity-40">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            Reject
-          </button>
-        )}
-        {current !== "pending" && (
-          <button disabled={loading} onClick={() => handleVerify("pending")}
-            className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40">Reset</button>
-        )}
+        <VerificationBadge status="pending" />
+        <button disabled={loading} onClick={() => { setShowReject(false); handleVerify("approved"); }}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-600/30 rounded-lg transition disabled:opacity-40">
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+          Approve
+        </button>
+        <button disabled={loading} onClick={() => setShowReject((v) => !v)}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-600/30 rounded-lg transition disabled:opacity-40">
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          Reject
+        </button>
         {question.tutor_verification?.verified_by && (
           <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
         )}
@@ -196,9 +227,6 @@ function VerifyControls({ question, onVerified }) {
           <button onClick={() => { setShowReject(false); setReason(""); }}
             className="text-xs text-slate-500 hover:text-white">Cancel</button>
         </div>
-      )}
-      {current === "rejected" && question.tutor_verification?.rejection_reason && (
-        <p className="text-[10px] text-red-400/80 italic">Reason: {question.tutor_verification.rejection_reason}</p>
       )}
     </div>
   );
