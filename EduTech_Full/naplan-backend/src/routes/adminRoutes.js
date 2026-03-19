@@ -801,6 +801,7 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
       shuffle_options: req.body.shuffle_options ?? null,
       voice_url:       req.body.voice_url || null,
       video_url:       req.body.video_url || null,
+      order:           req.body.order ?? null,
     });
 
     await Quiz.findOneAndUpdate(

@@ -100,21 +100,16 @@ router.get("/quizzes", async (req, res) => {
     console.log("[tutor/quizzes] quizzes found:", quizzes.length);
 
     // Build verification stats per quiz
+    // Build verification stats per quiz
     const quizIds = quizzes.map((q) => q.quiz_id).filter(Boolean);
-    // ✅ CHANGE TO
-    const questions = await Question.aggregate([
-      {
-        $match: {
-          $or: [{ quiz_ids: req.params.quizId }, { quiz_ids: quiz.quiz_id }],
-        },
-      },
-      {
-        $addFields: { _safeOrder: { $ifNull: ["$order", 999999] } },
-      },
-      {
-        $sort: { _safeOrder: 1, createdAt: 1 },
-      },
-    ]);
+
+    // ✅ CORRECT — fetch questions for ALL assigned quizzes at once
+    const questions = await Question.find({
+      quiz_ids: { $in: quizIds },
+    })
+      .select("quiz_ids tutor_verification")
+      .lean();
+
     const statsMap = {};
     for (const q of questions) {
       for (const qid of (q.quiz_ids || [])) {
