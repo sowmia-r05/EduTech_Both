@@ -322,12 +322,14 @@ export default function ResultPage() {
         .catch(() => {});
     }, [activeDoc, doc]);
 
+
 const backToDashboardState = useMemo(() => ({
-  childId:   childIdParam  || childProfile?._id || doc?.child_id || null,
-  childName: childNameParam || activeDoc?.user?.first_name || null,
+  childId:   childIdParam  || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+  childName: childNameParam || childProfile?.displayName || activeDoc?.user?.first_name || null,
   yearLevel: yearLevelParam || yearLevel || null,
   username:  usernameParam  || activeDoc?.user?.user_name || null,
 }), [childIdParam, childNameParam, yearLevelParam, childProfile, activeDoc, yearLevel, usernameParam, doc]);
+
 
 
   const handleLogout = () => { logout?.(); navigate("/", { replace: true }); };
@@ -348,12 +350,19 @@ const isAiError   = resolvedDoc?.ai?.status === "error";
     if (isProcessing) {
       return (
         <>
-     <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
-      if (window.self !== window.top) {
-        window.top.location.hash = "#/parent-dashboard";
-      } else {
-        navigate("/parent-dashboard", { replace: true });
-      }
+        <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", {
+      state: {
+        ...backToDashboardState,
+        childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+          },
+          replace: true,
+        })} 
+        isParentViewing={isParentViewing} onBackToParentDashboard={() => {
+              if (window.self !== window.top) {
+                window.top.location.hash = "#/parent-dashboard";
+              } else {
+                navigate("/parent-dashboard", { replace: true });
+        }
     }} />
 
       <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
@@ -377,13 +386,14 @@ const isAiError   = resolvedDoc?.ai?.status === "error";
     if (error || isAiError) {
       return (
         <>
-      <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => {
-      if (window.self !== window.top) {
-        window.top.location.hash = "#/child-dashboard";
-      } else {
-        navigate("/child-dashboard", { state: backToDashboardState, replace: true });
-      }
-    }} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
+      <TopBar displayName={displayName} onLogout={handleLogout} onBackToChildDashboard={() => navigate("/child-dashboard", {
+        state: {
+          ...backToDashboardState,
+          childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+        },
+        replace: true,
+      })}
+      isParentViewing={isParentViewing} onBackToParentDashboard={() => {
       if (window.self !== window.top) {
         window.top.location.hash = "#/parent-dashboard";
       } else {
@@ -445,7 +455,13 @@ return (
     <TopBar
       displayName={displayName}
       onLogout={handleLogout}
-      onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })}
+            onBackToChildDashboard={() => navigate("/child-dashboard", {
+        state: {
+          ...backToDashboardState,
+          childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+        },
+        replace: true,
+      })}
       isParentViewing={isParentViewing}
       onBackToParentDashboard={() => {
         if (window.self !== window.top) {
