@@ -413,12 +413,14 @@ export default function ResultPage() {
         .catch(() => {});
     }, [activeDoc, doc]);
 
+
 const backToDashboardState = useMemo(() => ({
-  childId:   childIdParam  || childProfile?._id || doc?.child_id || null,
-  childName: childNameParam || activeDoc?.user?.first_name || null,
+  childId:   childIdParam  || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+  childName: childNameParam || childProfile?.displayName || activeDoc?.user?.first_name || null,
   yearLevel: yearLevelParam || yearLevel || null,
   username:  usernameParam  || activeDoc?.user?.user_name || null,
 }), [childIdParam, childNameParam, yearLevelParam, childProfile, activeDoc, yearLevel, usernameParam, doc]);
+
 
 
   const handleLogout = () => { logout?.(); navigate("/", { replace: true }); };
