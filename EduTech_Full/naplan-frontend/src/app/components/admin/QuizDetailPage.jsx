@@ -564,14 +564,52 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
                   className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none"
                 />
                 {form.type === "picture_choice" && (
+                <div className="flex items-center gap-1">
                   <input
-                    type="text" value={opt.image_url || ""}
+                    type="text"
+                    value={opt.image_url || ""}
                     onChange={(e) => updateOption(i, "image_url", e.target.value)}
                     placeholder="Image URL..."
                     className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none"
                   />
-                )}
-                {form.options.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file";
+                      input.accept = "image/*";
+                      input.onchange = async (e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+
+                        const formData = new FormData();
+                        formData.append("file", file);
+
+                        try {
+                          const res = await fetch("/api/admin/upload", {
+                            method: "POST",
+                            headers: {
+                              Authorization: `Bearer ${localStorage.getItem("admin_token")}`,
+                            },
+                            body: formData,
+                          });
+                          const data = await res.json();
+                          if (data.url) {
+                            updateOption(i, "image_url", data.url);
+                          }
+                        } catch (err) {
+                          console.error("Upload failed:", err);
+                        }
+                      };
+                      input.click();
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-white rounded border border-slate-600 whitespace-nowrap"
+                  >
+                    📎 Upload
+                  </button>
+                </div>
+              )}
+                            {form.options.length > 2 && (
                   <button onClick={() => removeOption(i)} className="text-slate-500 hover:text-red-400 text-xs">✕</button>
                 )}
               </div>
