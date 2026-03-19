@@ -25,6 +25,7 @@ import DownloadXlsxButton from "./DownloadExcelButton";
 import { AddQuestionForm } from "./ManualQuizCreator";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 
+
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
 function adminFetch(url, opts = {}) {
@@ -252,6 +253,154 @@ function ContextMenu({ x, y, items, onClose }) {
           </button>
         )
       )}
+    </div>
+  );
+}
+// ─── Move To Quiz Modal ───────────────────────────────────────────────────────
+function MoveToQuizModal({ question, currentQuizId, onClose, onMoved }) {
+  const [quizzes,  setQuizzes]  = useState([]);
+  const [search,   setSearch]   = useState("");
+  const [targetId, setTargetId] = useState("");
+  const [moving,   setMoving]   = useState(false);
+  const [loading,  setLoading]  = useState(true);
+
+  useEffect(() => {
+    adminFetch("/api/admin/quizzes?limit=200")
+      .then((r) => r.json())
+      .then((data) => {
+        const list = (data.quizzes || data || []).filter(
+          (q) => String(q.quiz_id || q._id) !== String(currentQuizId)
+        );
+        setQuizzes(list);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [currentQuizId]);
+
+  const filtered = quizzes.filter((q) =>
+    q.quiz_name?.toLowerCase().includes(search.toLowerCase()) ||
+    q.subject?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleMove = async () => {
+    if (!targetId) return;
+    setMoving(true);
+    try {
+      const res = await adminFetch(
+        `/api/admin/questions/${question.question_id}/move`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            from_quiz_id: currentQuizId,
+            to_quiz_id:   targetId,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Move failed");
+      }
+      onMoved();
+      onClose();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Move Question to Another Quiz</h3>
+            <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+              "{question.text?.replace(/<[^>]+>/g, "").slice(0, 60)}..."
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white text-lg leading-none">✕</button>
+        </div>
+
+        {/* Search */}
+        <div className="px-5 py-3 border-b border-slate-800">
+          <input
+            autoFocus
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search quizzes..."
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
+        {/* Quiz List */}
+        <div className="overflow-y-auto max-h-72">
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center text-slate-500 text-sm py-10">No quizzes found</p>
+          ) : (
+            filtered.map((q) => {
+              const id = String(q.quiz_id || q._id);
+              const selected = targetId === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setTargetId(id)}
+                  className={`w-full text-left px-5 py-3 flex items-center gap-3 transition border-b border-slate-800/50 last:border-0 ${
+                    selected ? "bg-indigo-600/20 border-l-2 border-l-indigo-500" : "hover:bg-slate-800"
+                  }`}
+                >
+                  <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                    selected ? "border-indigo-500 bg-indigo-500" : "border-slate-600"
+                  }`}>
+                    {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm text-white font-medium truncate">{q.quiz_name}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {q.subject} · Year {q.year_level}
+                      {q.question_count != null && ` · ${q.question_count} questions`}
+                    </p>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-slate-800 flex items-center justify-between">
+          <p className="text-xs text-slate-500">
+            {targetId
+              ? `→ Moving to: ${quizzes.find((q) => String(q.quiz_id || q._id) === targetId)?.quiz_name}`
+              : "Select a destination quiz"}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition">
+              Cancel
+            </button>
+            <button
+              onClick={handleMove}
+              disabled={!targetId || moving}
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition flex items-center gap-2"
+            >
+              {moving && <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />}
+              {moving ? "Moving..." : "Move Question"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -650,6 +799,7 @@ export default function QuizDetailPage() {
   // ── ADDED: state for context menu + positional insert ──
   const [insertAtIndex,  setInsertAtIndex]  = useState(null);
   const [contextMenu,    setContextMenu]    = useState(null);
+  const [moveQuestion,   setMoveQuestion]   = useState(null);
 
   const adminRole = getAdminRole();
   const canVerify = ["admin", "tutor"].includes(adminRole);
@@ -698,34 +848,53 @@ export default function QuizDetailPage() {
 
   // ── ADDED: updated to support positional ordering ──
   const handleAddQuestion = async (newQ) => {
-    try {
-      let order;
-      if (insertAtIndex === null) {
-        const last = questions[questions.length - 1];
-        order = last ? (last.order ?? questions.length - 1) + 1 : 0;
-      } else {
-        const prev = questions[insertAtIndex];
-        const next = questions[insertAtIndex + 1];
-        const prevOrder = prev?.order ?? insertAtIndex;
-        const nextOrder = next?.order ?? (insertAtIndex + 2);
-        order = (prevOrder + nextOrder) / 2;
-      }
-      const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
-        method: "POST",
-        body: JSON.stringify({ ...newQ, order }),
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "Failed to add question");
-      }
-      setShowAddForm(false);
-      setInsertAtIndex(null);
-      fetchDetail();
-    } catch (err) {
-      alert(err.message);
+  try {
+    // Normalize: treat null/undefined order as index * 1000
+    // This ensures midpoint math stays in the right range
+    const getEffectiveOrder = (q, idx) =>
+      q?.order != null ? q.order : idx * 1000;
+
+    let order;
+
+    if (insertAtIndex === null) {
+      // Append at end
+      const lastIdx = questions.length - 1;
+      order = questions.length > 0
+        ? getEffectiveOrder(questions[lastIdx], lastIdx) + 1000
+        : 0;
+    } else {
+      const prev = questions[insertAtIndex];
+      const next = questions[insertAtIndex + 1];
+
+      const prevOrder = prev
+        ? getEffectiveOrder(prev, insertAtIndex)
+        : getEffectiveOrder(questions[0], 0) - 1000;
+
+      const nextOrder = next
+        ? getEffectiveOrder(next, insertAtIndex + 1)
+        : getEffectiveOrder(prev, insertAtIndex) + 1000;
+
+      order = (prevOrder + nextOrder) / 2;
     }
-  };
+
+    const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
+      method: "POST",
+      body: JSON.stringify({ ...newQ, order }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || "Failed to add question");
+    }
+
+    setShowAddForm(false);
+    setInsertAtIndex(null);
+    fetchDetail();
+  } catch (err) {
+    alert(err.message);
+  }
+};
 
   const handleSaveSettings = async () => {
     setSavingSettings(true);
@@ -1165,15 +1334,31 @@ export default function QuizDetailPage() {
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           items={[
-            { icon: "✏️", label: "Edit Question",                          onClick: () => { setEditingId(contextMenu.questionId); setShowAddForm(false); setInsertAtIndex(null); } },
-            "divider",
-            { icon: "⬆️", label: `Insert Before Q${contextMenu.index + 1}`, onClick: () => { setInsertAtIndex(contextMenu.index - 1); setShowAddForm(true); setEditingId(null); } },
-            { icon: "⬇️", label: `Insert After Q${contextMenu.index + 1}`,  onClick: () => { setInsertAtIndex(contextMenu.index);     setShowAddForm(true); setEditingId(null); } },
-            "divider",
-            { icon: "🗑️", label: "Delete Question", danger: true,          onClick: () => handleDeleteQuestion(contextMenu.questionId) },
+             { icon: "✏️", label: "Edit Question", onClick: () => { setEditingId(contextMenu.questionId); setShowAddForm(false); setInsertAtIndex(null); } },
+          "divider",
+          { icon: "⬆️", label: `Insert Before Q${contextMenu.index + 1}`, onClick: () => { setInsertAtIndex(contextMenu.index - 1); setShowAddForm(true); setEditingId(null); } },
+          { icon: "⬇️", label: `Insert After Q${contextMenu.index + 1}`,  onClick: () => { setInsertAtIndex(contextMenu.index);     setShowAddForm(true); setEditingId(null); } },
+          "divider",
+          // ✅ ADD THIS LINE
+          { icon: "↗️", label: "Move to Another Quiz", onClick: () => { const q = questions.find((q) => q.question_id === contextMenu.questionId); setMoveQuestion(q); } },
+          "divider",
+          { icon: "🗑️", label: "Delete Question", danger: true, onClick: () => handleDeleteQuestion(contextMenu.questionId) },
           ]}
         />
+        
       )}
+       {moveQuestion && (
+        <MoveToQuizModal
+          question={moveQuestion}
+          currentQuizId={quizId}
+          onClose={() => setMoveQuestion(null)}
+          onMoved={() => {
+            setMoveQuestion(null);
+            fetchDetail();
+          }}
+        />
+         )}
+      
     </div>
   );
 }

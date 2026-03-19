@@ -148,6 +148,160 @@ function ShortAnswerEditor({ form, setForm }) {
     </div>
   );
 }
+function MoveToQuizModal({ question, currentQuizId, onClose, onMoved }) {
+  const [quizzes, setQuizzes]   = useState([]);
+  const [search,  setSearch]    = useState("");
+  const [targetId, setTargetId] = useState("");
+  const [moving,  setMoving]    = useState(false);
+  const [loading, setLoading]   = useState(true);
+
+  useEffect(() => {
+    adminFetch("/api/admin/quizzes?limit=200")
+      .then((r) => r.json())
+      .then((data) => {
+        // Exclude current quiz
+        const list = (data.quizzes || data || []).filter(
+          (q) => String(q.quiz_id || q._id) !== String(currentQuizId)
+        );
+        setQuizzes(list);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [currentQuizId]);
+
+  const filtered = quizzes.filter((q) =>
+    q.quiz_name?.toLowerCase().includes(search.toLowerCase()) ||
+    q.subject?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleMove = async () => {
+    if (!targetId) return;
+    setMoving(true);
+    try {
+      const res = await adminFetch(
+        `/api/admin/questions/${question.question_id}/move`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            from_quiz_id: currentQuizId,
+            to_quiz_id:   targetId,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Move failed");
+      }
+      onMoved();
+      onClose();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  return (
+    // Backdrop
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Move Question to Another Quiz</h3>
+            <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+              "{question.text?.replace(/<[^>]+>/g, "").slice(0, 60)}..."
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white text-lg leading-none">✕</button>
+        </div>
+
+        {/* Search */}
+        <div className="px-5 py-3 border-b border-slate-800">
+          <input
+            autoFocus
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search quizzes..."
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
+        {/* Quiz List */}
+        <div className="overflow-y-auto max-h-72">
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center text-slate-500 text-sm py-10">No quizzes found</p>
+          ) : (
+            filtered.map((q) => {
+              const id = String(q.quiz_id || q._id);
+              const selected = targetId === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setTargetId(id)}
+                  className={`w-full text-left px-5 py-3 flex items-center gap-3 transition border-b border-slate-800/50 last:border-0 ${
+                    selected
+                      ? "bg-indigo-600/20 border-l-2 border-l-indigo-500"
+                      : "hover:bg-slate-800"
+                  }`}
+                >
+                  <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                    selected ? "border-indigo-500 bg-indigo-500" : "border-slate-600"
+                  }`}>
+                    {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm text-white font-medium truncate">{q.quiz_name}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {q.subject} · Year {q.year_level}
+                      {q.question_count != null && ` · ${q.question_count} questions`}
+                    </p>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-slate-800 flex items-center justify-between">
+          <p className="text-xs text-slate-500">
+            {targetId
+              ? `→ Moving to: ${quizzes.find((q) => String(q.quiz_id || q._id) === targetId)?.quiz_name}`
+              : "Select a destination quiz"}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleMove}
+              disabled={!targetId || moving}
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition flex items-center gap-2"
+            >
+              {moving && <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />}
+              {moving ? "Moving..." : "Move Question"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ── Question Editor ── */
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
