@@ -76,7 +76,7 @@ const NoDataModal = ({ isOpen, onClose, onClearFilter }) => {
 /* ─────────────────────────────────────────────────────────────
    TOP BAR — KAI Solutions logo (left) + child avatar (right)
 ───────────────────────────────────────────────────────────── */
-const TopBar = ({ displayName, onLogout, onBackToChildDashboard, onBackToParentDashboard, isParentViewing, quizName }) => {
+const TopBar = ({ displayName, onLogout, onBackToChildDashboard, onBackToParentDashboard, isParentViewing, quizName, onGoToResults }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -128,7 +128,7 @@ const TopBar = ({ displayName, onLogout, onBackToChildDashboard, onBackToParentD
       }}>
         {/* Results — navigates back to child dashboard */}
         <button
-          onClick={onBackToChildDashboard}
+          onClick={onGoToResults}
           style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "6px 16px", borderRadius: 8,
@@ -441,16 +441,37 @@ const isAiError   = resolvedDoc?.ai?.status === "error";
     if (isProcessing) {
       return (
         <>
-     <TopBar displayName={displayName} 
-     onLogout={handleLogout} 
-     quizName={displayQuizName}
-     onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
-      if (window.self !== window.top) {
-        window.top.location.hash = "#/parent-dashboard";
-      } else {
-        navigate("/parent-dashboard", { replace: true });
-      }
-    }} />
+      <TopBar
+        displayName={displayName}
+        onLogout={handleLogout}
+        quizName={displayQuizName}
+        isParentViewing={isParentViewing}
+        onGoToResults={() => navigate("/child-dashboard", {
+          state: {
+            ...backToDashboardState,
+            childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+            fromQuizResult: undefined,
+            savedQuizResult: undefined,
+            restoreQuizResult: location.state?.savedQuizResult,
+          },
+          replace: true,
+        })}
+        onBackToChildDashboard={() => navigate("/child-dashboard", {
+          state: {
+            ...backToDashboardState,
+            childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+          },
+          replace: true,
+        })}
+        onBackToParentDashboard={() => {
+          if (window.self !== window.top) {
+            window.top.location.hash = "#/parent-dashboard";
+          } else {
+            navigate("/parent-dashboard", { replace: true });
+          }
+        }}
+      />
+
 
       <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-2xl shadow-lg">
@@ -473,23 +494,37 @@ const isAiError   = resolvedDoc?.ai?.status === "error";
     if (error || isAiError) {
       return (
         <>
-      <TopBar 
-      displayName={displayName} 
-      quizName={displayQuizName}
-      onLogout={handleLogout}
-      onBackToChildDashboard={() => {
-      if (window.self !== window.top) {
-        window.top.location.hash = "#/child-dashboard";
-      } else {
-        navigate("/child-dashboard", { state: backToDashboardState, replace: true });
-      }
-    }} isParentViewing={isParentViewing} onBackToParentDashboard={() => {
-      if (window.self !== window.top) {
-        window.top.location.hash = "#/parent-dashboard";
-      } else {
-        navigate("/parent-dashboard", { replace: true });
-      }
-    }} />
+      <TopBar
+        displayName={displayName}
+        onLogout={handleLogout}
+        quizName={displayQuizName}
+        isParentViewing={isParentViewing}
+        onGoToResults={() => navigate("/child-dashboard", {
+          state: {
+            ...backToDashboardState,
+            childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+            fromQuizResult: undefined,
+            savedQuizResult: undefined,
+            restoreQuizResult: location.state?.savedQuizResult,
+          },
+          replace: true,
+        })}
+        onBackToChildDashboard={() => navigate("/child-dashboard", {
+          state: {
+            ...backToDashboardState,
+            childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+          },
+          replace: true,
+        })}
+        onBackToParentDashboard={() => {
+          if (window.self !== window.top) {
+            window.top.location.hash = "#/parent-dashboard";
+          } else {
+            navigate("/parent-dashboard", { replace: true });
+          }
+        }}
+      />
+
 
       <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-lg shadow-lg">
@@ -542,20 +577,39 @@ const isAiError   = resolvedDoc?.ai?.status === "error";
   /* ── Main UI ── */
 return (
    <> 
-    <TopBar
-      displayName={displayName}
-      onLogout={handleLogout}
-      quizName={displayQuizName}
-      onBackToChildDashboard={() => navigate("/child-dashboard", { state: backToDashboardState, replace: true })}
-      isParentViewing={isParentViewing}
-      onBackToParentDashboard={() => {
-        if (window.self !== window.top) {
-          window.top.location.hash = "#/parent-dashboard";
-        } else {
-          navigate("/parent-dashboard", { replace: true });
-        }
-      }}
-    />
+      <TopBar
+        displayName={displayName}
+        onLogout={handleLogout}
+        quizName={displayQuizName}
+        isParentViewing={isParentViewing}
+        onGoToResults={() => navigate("/child-dashboard", {
+          state: {
+            ...backToDashboardState,
+            childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+            fromQuizResult: undefined,
+            savedQuizResult: undefined,
+            restoreQuizResult: location.state?.savedQuizResult,
+          },
+          replace: true,
+        })}
+        onBackToChildDashboard={() => navigate("/child-dashboard", {
+          state: {
+            ...backToDashboardState,
+            childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+          },
+          replace: true,
+        })}
+        onBackToParentDashboard={() => {
+          if (window.self !== window.top) {
+            window.top.location.hash = "#/parent-dashboard";
+          } else {
+            navigate("/parent-dashboard", { replace: true });
+          }
+        }}
+      />
+
+
+
 
     <TrialGateOverlay isTrialUser={childStatus !== null && childStatus === "trial"} preset="writing" viewerType={viewerType} yearLevel={yearLevel}>
       <div className="relative min-h-screen bg-gray-100">
