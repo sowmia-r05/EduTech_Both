@@ -5,9 +5,12 @@
  *   ✅ Per-question: voice_url, video_url, image resize (width + height)
  *   ✅ No quiz-level voice/video
  *   ✅ Collapsible image resize widget (no more endless scrolling)
- *   ✅ Student writing area preview when free_text is selected
+ *   ✅ Student writing area preview when writing is selected
  *   ✅ Voice/Audio URL and Video URL inputs visible in Edit Question form
  *   ✅ File upload buttons for Audio (.mp3/.wav/.ogg), Video (.mp4/.webm/.mov), and Images
+ *   ✅ writing type support + image_width/height fix (?? null)
+ *   ✅ Right-click context menu: Edit / Insert Before / Insert After / Delete
+ *   ✅ Live image preview in editor reflects width/height changes
  *
  * Place in: src/app/components/admin/QuizDetailModal.jsx
  */
@@ -16,6 +19,7 @@ import { useState, useEffect, useRef } from "react";
 import QuizSettingsExtras from "./QuizSettingsExtras";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import FreeTextPreview from "./FreeTextPreview";
+import { AddQuestionForm } from "./ManualQuizCreator"; // ← PATCH 1
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -60,17 +64,54 @@ function HtmlContent({ html, className = "" }) {
 
 function TypeBadge({ type }) {
   const styles = {
-    radio_button: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    checkbox: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
     picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    free_text: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    short_answer: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
   };
-  const labels = { radio_button: "Single Choice", checkbox: "Multiple Choice", picture_choice: "Picture Choice", free_text: "Free Text", short_answer: "Short Answer" };
+  const labels = {
+    radio_button:   "Single Choice",
+    checkbox:       "Multiple Choice",
+    picture_choice: "Picture Choice",
+    free_text:      "Free Text",
+    short_answer:   "Short Answer",
+    writing:        "Writing",
+  };
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>{labels[type] || type}</span>;
 }
 
 const IMAGE_SIZE_MAP = { small: "max-w-[200px]", medium: "max-w-md", large: "max-w-xl", full: "max-w-full" };
+
+/* ── PATCH 2: Context Menu ── */
+function ContextMenu({ x, y, items, onClose }) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("contextmenu", close); };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed z-[9999] bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-1 min-w-[190px]"
+      style={{ top: y, left: x }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {items.map((item, i) =>
+        item === "divider" ? (
+          <div key={i} className="my-1 border-t border-slate-700" />
+        ) : (
+          <button key={i} onClick={() => { item.onClick(); onClose(); }}
+            className={`w-full text-left px-4 py-2 text-xs flex items-center gap-2.5 transition hover:bg-slate-700 ${item.danger ? "text-red-400 hover:text-red-300" : "text-slate-300 hover:text-white"}`}>
+            <span>{item.icon}</span><span>{item.label}</span>
+          </button>
+        )
+      )}
+    </div>
+  );
+}
 
 /* ── Short Answer correct answer input ── */
 function ShortAnswerEditor({ form, setForm }) {
@@ -112,14 +153,23 @@ function ShortAnswerEditor({ form, setForm }) {
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const resolvedShuffle = question.shuffle_options != null ? question.shuffle_options : (quizRandomizeOptions || false);
   const [form, setForm] = useState({
-    text: question.text || question.question_text || "",
-   type: question.type || "radio_button", points: question.points || 1,
-    category: question.categories?.[0]?.name || "", image_url: question.image_url || "",
-    image_size: question.image_size || "medium", image_width: question.image_width || null, image_height: question.image_height || null,
-    explanation: question.explanation || "", shuffle_options: resolvedShuffle,
-    voice_url: question.voice_url || "", video_url: question.video_url || "",
-    correct_answer: question.correct_answer || "", case_sensitive: question.case_sensitive || false,
-    options: (question.options || []).map((o) => ({ option_id: o.option_id, text: o.text || "", image_url: o.image_url || "", correct: o.correct || false })),
+    text:            question.text || question.question_text || "",
+    type:            question.type || "radio_button",
+    points:          question.points || 1,
+    category:        question.categories?.[0]?.name || "",
+    image_url:       question.image_url || "",
+    image_size:      question.image_size || "medium",
+    image_width:     question.image_width  ?? null,
+    image_height:    question.image_height ?? null,
+    explanation:     question.explanation || "",
+    shuffle_options: resolvedShuffle,
+    voice_url:       question.voice_url || "",
+    video_url:       question.video_url || "",
+    correct_answer:  question.correct_answer || "",
+    case_sensitive:  question.case_sensitive || false,
+    options: (question.options || []).map((o) => ({
+      option_id: o.option_id, text: o.text || "", image_url: o.image_url || "", correct: o.correct || false,
+    })),
   });
   const [saving, setSaving] = useState(false);
 
@@ -130,14 +180,15 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       return { ...f, options: opts };
     });
   };
-  const addOption = () => setForm((f) => ({ ...f, options: [...f.options, { option_id: "", text: "", image_url: "", correct: false }] }));
+  const addOption    = () => setForm((f) => ({ ...f, options: [...f.options, { option_id: "", text: "", image_url: "", correct: false }] }));
   const removeOption = (idx) => { if (form.options.length <= 2) return; setForm((f) => ({ ...f, options: f.options.filter((_, i) => i !== idx) })); };
 
   const handleSave = async () => {
     setSaving(true);
     await onSave(question.question_id, {
       text: form.text, type: form.type, points: form.points, category: form.category,
-      image_url: form.image_url, image_size: form.image_size, image_width: form.image_width, image_height: form.image_height,
+      image_url: form.image_url, image_size: form.image_size,
+      image_width: form.image_width, image_height: form.image_height,
       explanation: form.explanation, shuffle_options: form.shuffle_options,
       voice_url: form.voice_url || null, video_url: form.video_url || null,
       correct_answer: form.correct_answer || null, case_sensitive: form.case_sensitive,
@@ -162,8 +213,12 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           <label className="block text-xs text-slate-400 mb-1">Type</label>
           <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
-            <option value="radio_button">Single Choice</option><option value="checkbox">Multiple Choice</option>
-            <option value="picture_choice">Picture Choice</option><option value="free_text">Free Text</option><option value="short_answer">Short Answer</option>
+            <option value="radio_button">Single Choice</option>
+            <option value="checkbox">Multiple Choice</option>
+            <option value="picture_choice">Picture Choice</option>
+            <option value="writing">Writing (text box)</option>
+            <option value="free_text">Free Text (display only)</option>
+            <option value="short_answer">Short Answer</option>
           </select>
         </div>
         <div>
@@ -177,14 +232,50 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
         </div>
       </div>
+
+      {/* Image field with live preview */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">Image (paste URL or upload)</label>
         <div className="flex items-center gap-2">
           <input type="text" value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))} placeholder="https://... or upload →"
             className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
           <FileUploadButton accept="image/*,.pdf" label="Upload" onUploaded={(url) => setForm((f) => ({ ...f, image_url: url }))} />
+          {form.image_url && (
+            <button onClick={() => setForm((f) => ({ ...f, image_url: "", image_size: "medium", image_width: null, image_height: null }))}
+              className="text-red-400 hover:text-red-300 text-xs flex-shrink-0">✕</button>
+          )}
         </div>
+
+        {/* Live preview — updates as width/height change */}
+        {form.image_url && !form.image_url.toLowerCase().endsWith(".pdf") && (
+          <div className="mt-2 relative inline-block max-w-full">
+            <img
+              src={form.image_url}
+              alt="Question preview"
+              style={{
+                ...(form.image_width  ? { width: `${form.image_width}px`, maxWidth: "100%" } : { maxWidth: "100%" }),
+                ...(form.image_height ? { height: `${form.image_height}px` } : { maxHeight: "12rem" }),
+                objectFit: "contain",
+              }}
+              className="rounded-lg border border-slate-600 bg-slate-900"
+              onError={(e) => { e.target.style.display = "none"; }}
+            />
+            <span className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 text-white text-[9px] rounded font-medium">Preview</span>
+            {(form.image_width || form.image_height) && (
+              <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-indigo-600/80 text-white text-[9px] rounded font-mono">
+                {form.image_width ? `${form.image_width}px` : "auto"} × {form.image_height ? `${form.image_height}px` : "auto"}
+              </span>
+            )}
+          </div>
+        )}
+        {form.image_url && form.image_url.toLowerCase().endsWith(".pdf") && (
+          <a href={form.image_url} target="_blank" rel="noopener noreferrer"
+            className="mt-2 inline-flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 hover:bg-red-500/20 transition">
+            📄 PDF — click to preview
+          </a>
+        )}
       </div>
+
       <CollapsibleImageResize form={form} setForm={setForm} />
       <div>
         <label className="block text-xs text-slate-400 mb-1">Explanation</label>
@@ -192,7 +283,6 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
       </div>
 
-      {/* ✅ Per-question settings — QUESTION SETTINGS BLOCK */}
       <div className="pt-3 border-t border-slate-700 space-y-3">
         <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Question Settings</p>
         <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
@@ -240,8 +330,8 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       <FreeTextPreview form={form} />
       <ShortAnswerEditor form={form} setForm={setForm} />
 
-      {/* Options */}
-      {form.type !== "free_text" && form.type !== "short_answer" && (
+      {/* Options — hidden for free_text, short_answer, writing */}
+      {form.type !== "free_text" && form.type !== "short_answer" && form.type !== "writing" && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs text-slate-400">Options (check = correct)</label>
@@ -282,12 +372,16 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
    MAIN: QuizDetailModal
    ═══════════════════════════════════════ */
 export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
-  const [quiz, setQuiz] = useState(null);
-  const [questions, setQuestions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState(null);
+  const [quiz,         setQuiz]         = useState(null);
+  const [questions,    setQuestions]    = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [editingId,    setEditingId]    = useState(null);
   const [editSettings, setEditSettings] = useState(false);
   const [settingsForm, setSettingsForm] = useState({});
+  // ── PATCH 3: new state for context menu + inline insert ──
+  const [contextMenu,   setContextMenu]   = useState(null);
+  const [showAddForm,   setShowAddForm]   = useState(false);
+  const [insertAtIndex, setInsertAtIndex] = useState(null);
 
   const fetchDetail = async () => {
     try {
@@ -297,10 +391,14 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
       const data = await res.json();
       setQuiz(data); setQuestions(data.questions || []);
       setSettingsForm({
-        quiz_name: data.quiz_name || "", time_limit_minutes: data.time_limit_minutes ?? "",
-        difficulty: data.difficulty || "", is_active: data.is_active !== false, is_trial: data.is_trial || false,
-        randomize_questions: data.randomize_questions || false, randomize_options: data.randomize_options || false,
-        max_attempts: data.max_attempts ?? null,
+        quiz_name:           data.quiz_name           || "",
+        time_limit_minutes:  data.time_limit_minutes  ?? "",
+        difficulty:          data.difficulty          || "",
+        is_active:           data.is_active           !== false,
+        is_trial:            data.is_trial            || false,
+        randomize_questions: data.randomize_questions || false,
+        randomize_options:   data.randomize_options   || false,
+        max_attempts:        data.max_attempts        ?? null,
       });
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -324,16 +422,42 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
     } catch (err) { alert(err.message); }
   };
 
+  // ── PATCH 4: handleAddQuestion with position-aware ordering ──
+  const handleAddQuestion = async (newQ) => {
+    try {
+      let order;
+      if (insertAtIndex === null) {
+        const last = questions[questions.length - 1];
+        order = last ? (last.order ?? questions.length - 1) + 1 : 0;
+      } else {
+        const prev = questions[insertAtIndex];
+        const next = questions[insertAtIndex + 1];
+        const prevOrder = prev?.order ?? insertAtIndex;
+        const nextOrder = next?.order ?? (insertAtIndex + 2);
+        order = (prevOrder + nextOrder) / 2;
+      }
+      const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
+        method: "POST", body: JSON.stringify({ ...newQ, order }),
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed"); }
+      setShowAddForm(false); setInsertAtIndex(null); fetchDetail();
+    } catch (err) { alert(err.message); }
+  };
+
   const handleSaveSettings = async () => {
     try {
       const res = await adminFetch(`/api/admin/quizzes/${quizId}`, {
         method: "PATCH",
         body: JSON.stringify({
-          quiz_name: settingsForm.quiz_name,
-          time_limit_minutes: settingsForm.time_limit_minutes === "" ? null : Number(settingsForm.time_limit_minutes),
-          difficulty: settingsForm.difficulty || null, is_active: settingsForm.is_active, is_trial: settingsForm.is_trial,
-          randomize_questions: settingsForm.randomize_questions, randomize_options: settingsForm.randomize_options,
-          max_attempts: settingsForm.max_attempts,
+          quiz_name:           settingsForm.quiz_name,
+          time_limit_minutes:  settingsForm.time_limit_minutes === "" ? null : Number(settingsForm.time_limit_minutes),
+          difficulty:          settingsForm.difficulty          || null,
+          is_active:           settingsForm.is_active,
+          is_trial:            settingsForm.is_trial,
+          randomize_questions: settingsForm.randomize_questions,
+          randomize_options:   settingsForm.randomize_options,
+          max_attempts:        settingsForm.max_attempts,
         }),
       });
       if (res.ok) { setEditSettings(false); fetchDetail(); onRefresh?.(); }
@@ -347,6 +471,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl mx-4 my-8 shadow-2xl">
+
         {/* Header */}
         <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 rounded-t-2xl px-6 py-4">
           <div className="flex items-center justify-between">
@@ -369,7 +494,6 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
             </div>
           </div>
 
-          {/* Settings Panel */}
           {editSettings && (
             <div className="mt-4 pt-4 border-t border-slate-700 space-y-3">
               <div className="grid grid-cols-3 gap-3">
@@ -414,99 +538,163 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
           ) : questions.length === 0 ? (
             <div className="text-center py-12 text-slate-500">No questions found</div>
           ) : (
+            // ── PATCH 5 + 6: cards with insert forms + right-click + hint ──
             questions.map((q, i) => {
               if (editingId === q.question_id) {
                 return <QuestionEditor key={q.question_id} question={q} quizRandomizeOptions={quiz.randomize_options} onSave={handleSaveQuestion} onCancel={() => setEditingId(null)} />;
               }
               const imgSizeCls = IMAGE_SIZE_MAP[q.image_size] || "max-w-md";
               const imgStyle = (q.image_width || q.image_height) ? {
-                ...(q.image_width ? { width: `${q.image_width}px`, maxWidth: "100%" } : {}),
+                ...(q.image_width  ? { width:  `${q.image_width}px`,  maxWidth: "100%" } : {}),
                 ...(q.image_height ? { height: `${q.image_height}px`, objectFit: "contain" } : {}),
               } : undefined;
               const effectiveShuffle = q.shuffle_options != null ? q.shuffle_options : (quiz.randomize_options || false);
+              const showInsertBefore = showAddForm && insertAtIndex === i - 1;
+              const showInsertAfter  = showAddForm && insertAtIndex === i;
 
               return (
-                <div key={q.question_id} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5 group hover:border-slate-600 transition">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">{i + 1}</span>
-                      <TypeBadge type={q.type} />
-                      <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
-                      {q.categories?.[0]?.name && <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>}
-                      {effectiveShuffle && <span className="text-[10px] px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-medium">🔀 Shuffle</span>}
-                      {q.voice_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">🔊 Audio</span>}
-                      {q.video_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20 font-medium">🎬 Video</span>}
-                    </div>
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                      <button onClick={() => setEditingId(q.question_id)} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
-                      <button onClick={() => handleDeleteQuestion(q.question_id)} className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
-                    </div>
-                  </div>
-                  <div className="mb-3 ml-10">
-                    <HtmlContent html={q.text} className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
-                  </div>
-                  {q.image_url && !q.text?.includes(q.image_url) && (
-                    <div className="mb-3 ml-10"><img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} /></div>
-                  )}
-                  {/* Audio & Video preview players */}
-                  {(q.voice_url || q.video_url) && (
-                    <div className="mb-3 ml-10 space-y-2">
-                      {q.voice_url && (
-                        <div className="flex items-center gap-3 bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/50">
-                          <span className="text-sm">🔊</span>
-                          <audio src={q.voice_url} controls preload="metadata" className="h-8 flex-1" />
-                          <span className="text-[10px] text-slate-500 flex-shrink-0">{q.voice_url.split('/').pop()?.slice(0, 30)}</span>
-                        </div>
-                      )}
-                      {q.video_url && (
-                        <div className="bg-slate-800/60 rounded-lg border border-slate-700/50 overflow-hidden">
-                          {q.video_url.match(/youtube\.com|youtu\.be/) ? (
-                            <iframe
-                              src={`https://www.youtube.com/embed/${q.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)?.[1]}`}
-                              className="w-full aspect-video max-h-48 rounded-lg"
-                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                              allowFullScreen
-                              title="Quiz Video"
-                            />
-                          ) : (
-                            <video src={q.video_url} controls preload="metadata" className="w-full max-h-48 rounded-lg" />
-                          )}
-                        </div>
-                      )}
+                <div key={q.question_id}>
+
+                  {/* Insert form BEFORE this card */}
+                  {showInsertBefore && (
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 border-t border-indigo-500/40" />
+                        <span className="text-[10px] text-indigo-400 font-medium px-2">Inserting before Q{i + 1}</span>
+                        <div className="flex-1 border-t border-indigo-500/40" />
+                      </div>
+                      <AddQuestionForm
+                        onAdd={handleAddQuestion}
+                        onCancel={() => { setShowAddForm(false); setInsertAtIndex(null); }}
+                      />
                     </div>
                   )}
-                  {q.options?.length > 0 && (
-                    <div className="space-y-1.5 ml-10">
-                      {q.options.map((opt, oi) => {
-                        const letter = String.fromCharCode(65 + oi);
-                        return (
-                          <div key={opt.option_id || oi} className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${opt.correct ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-slate-800/50"}`}>
-                            <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"}`}>
-                              {opt.correct ? "✓" : letter}
-                            </span>
-                            <span className="text-slate-300 text-sm">{opt.text}</span>
-                            {opt.image_url && <img src={opt.image_url} alt={`Option ${letter}`} className="w-16 h-16 rounded-lg object-cover border border-slate-700" />}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {q.type === "short_answer" && q.correct_answer && (
-                    <div className="mt-3 ml-10 px-3 py-2 bg-orange-500/5 border border-orange-500/10 rounded-lg">
-                      <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wider mb-1">✍️ Correct Answer</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {q.correct_answer.split("|").map((a, i) => (
-                          <span key={i} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-xs font-medium">
-                            {a.trim()}
-                          </span>
-                        ))}
+
+                  {/* Question card */}
+                  <div
+                    className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5 group hover:border-slate-600 transition select-none"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, questionId: q.question_id, index: i });
+                    }}
+                  >
+                    {/* Question header */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">{i + 1}</span>
+                        <TypeBadge type={q.type} />
+                        <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
+                        {q.categories?.[0]?.name && <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>}
+                        {effectiveShuffle && <span className="text-[10px] px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-medium">🔀 Shuffle</span>}
+                        {q.voice_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">🔊 Audio</span>}
+                        {q.video_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20 font-medium">🎬 Video</span>}
+                      </div>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                        <button onClick={() => setEditingId(q.question_id)} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
+                        <button onClick={() => handleDeleteQuestion(q.question_id)} className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
+                        <span className="text-[10px] text-slate-600 italic">right-click for more</span>
                       </div>
                     </div>
-                  )}
-                  {q.explanation && (
-                    <div className="mt-3 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
-                      <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-0.5">Explanation</p>
-                      <p className="text-xs text-amber-400/80">{q.explanation}</p>
+
+                    {/* Question text */}
+                    <div className="mb-3 ml-10">
+                      <HtmlContent html={q.text} className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
+                    </div>
+
+                    {/* Question image */}
+                    {q.image_url && !q.text?.includes(q.image_url) && (
+                      <div className="mb-3 ml-10">
+                        <img src={q.image_url} alt="Question" style={imgStyle} className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700`} />
+                      </div>
+                    )}
+
+                    {/* Audio & Video players */}
+                    {(q.voice_url || q.video_url) && (
+                      <div className="mb-3 ml-10 space-y-2">
+                        {q.voice_url && (
+                          <div className="flex items-center gap-3 bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/50">
+                            <span className="text-sm">🔊</span>
+                            <audio src={q.voice_url} controls preload="metadata" className="h-8 flex-1" />
+                            <span className="text-[10px] text-slate-500 flex-shrink-0">{q.voice_url.split('/').pop()?.slice(0, 30)}</span>
+                          </div>
+                        )}
+                        {q.video_url && (
+                          <div className="bg-slate-800/60 rounded-lg border border-slate-700/50 overflow-hidden">
+                            {q.video_url.match(/youtube\.com|youtu\.be/) ? (
+                              <iframe
+                                src={`https://www.youtube.com/embed/${q.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)?.[1]}`}
+                                className="w-full aspect-video max-h-48 rounded-lg"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen title="Quiz Video"
+                              />
+                            ) : (
+                              <video src={q.video_url} controls preload="metadata" className="w-full max-h-48 rounded-lg" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Options */}
+                    {q.options?.length > 0 && (
+                      <div className="space-y-1.5 ml-10">
+                        {q.options.map((opt, oi) => {
+                          const letter = String.fromCharCode(65 + oi);
+                          return (
+                            <div key={opt.option_id || oi} className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${opt.correct ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-slate-800/50"}`}>
+                              <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"}`}>
+                                {opt.correct ? "✓" : letter}
+                              </span>
+                              <span className="text-slate-300 text-sm">{opt.text}</span>
+                              {opt.image_url && <img src={opt.image_url} alt={`Option ${letter}`} className="w-16 h-16 rounded-lg object-cover border border-slate-700" />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Writing indicator */}
+                    {q.type === "writing" && (
+                      <div className="mt-3 ml-10 px-3 py-2 bg-pink-500/5 border border-pink-500/10 rounded-lg">
+                        <p className="text-[10px] text-pink-400 font-medium">✏️ Student will write a text response</p>
+                      </div>
+                    )}
+
+                    {/* Short answer correct answer */}
+                    {q.type === "short_answer" && q.correct_answer && (
+                      <div className="mt-3 ml-10 px-3 py-2 bg-orange-500/5 border border-orange-500/10 rounded-lg">
+                        <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wider mb-1">✍️ Correct Answer</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {q.correct_answer.split("|").map((a, i) => (
+                            <span key={i} className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded text-xs font-medium">
+                              {a.trim()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Explanation */}
+                    {q.explanation && (
+                      <div className="mt-3 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
+                        <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-0.5">Explanation</p>
+                        <p className="text-xs text-amber-400/80">{q.explanation}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Insert form AFTER this card */}
+                  {showInsertAfter && (
+                    <div className="mt-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 border-t border-indigo-500/40" />
+                        <span className="text-[10px] text-indigo-400 font-medium px-2">Inserting after Q{i + 1}</span>
+                        <div className="flex-1 border-t border-indigo-500/40" />
+                      </div>
+                      <AddQuestionForm
+                        onAdd={handleAddQuestion}
+                        onCancel={() => { setShowAddForm(false); setInsertAtIndex(null); }}
+                      />
                     </div>
                   )}
                 </div>
@@ -514,10 +702,28 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
             })
           )}
         </div>
+
         <div className="border-t border-slate-800 px-6 py-3 flex justify-end">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Close</button>
         </div>
       </div>
+
+      {/* ── PATCH 7: Right-click Context Menu ── */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={[
+            { icon: "✏️", label: "Edit Question",                        onClick: () => { setEditingId(contextMenu.questionId); setShowAddForm(false); setInsertAtIndex(null); } },
+            "divider",
+            { icon: "⬆️", label: `Insert Before Q${contextMenu.index + 1}`, onClick: () => { setInsertAtIndex(contextMenu.index - 1); setShowAddForm(true); setEditingId(null); } },
+            { icon: "⬇️", label: `Insert After Q${contextMenu.index + 1}`,  onClick: () => { setInsertAtIndex(contextMenu.index);     setShowAddForm(true); setEditingId(null); } },
+            "divider",
+            { icon: "🗑️", label: "Delete Question", danger: true,        onClick: () => handleDeleteQuestion(contextMenu.questionId) },
+          ]}
+        />
+      )}
     </div>
   );
 }

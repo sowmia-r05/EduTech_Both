@@ -1,8 +1,11 @@
 /**
- * QuestionRenderer.jsx  (v7 — FIX: 401 on OCR by using useAuth() for token)
+ * QuestionRenderer.jsx  (v9 — writing type support)
  *
- * Root cause of 401: FreeTextQuestion was reading token from wrong localStorage
- * keys. Fixed by importing useAuth() and using activeToken directly.
+ * Changes from v8:
+ *  ✅ FreeTextQuestion renamed to WritingQuestion (has textarea)
+ *  ✅ FreeTextQuestion now returns null (display-only, no input)
+ *  ✅ question.type === "writing" → WritingQuestion
+ *  ✅ question.type === "free_text" → FreeTextQuestion (no-op)
  *
  * Place in: src/app/components/quiz/QuestionRenderer.jsx
  */
@@ -12,18 +15,13 @@ import { useAuth } from "@/app/context/AuthContext";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
-// ADD this after the API_BASE constant at the top
 function resolveImgSrc(url) {
   if (!url) return null;
   const u = url.trim();
-  // Already absolute — S3 https://, base64 data:, or blob:
   if (u.startsWith("http") || u.startsWith("data:") || u.startsWith("blob:")) return u;
-  // Relative path — prepend backend base
   return `${API_BASE}${u}`;
 }
 
-
-// Re-enter fullscreen if it was exited (e.g. by file picker dialog)
 function reEnterFullscreen() {
   const isFs = !!(
     document.fullscreenElement ||
@@ -36,8 +34,6 @@ function reEnterFullscreen() {
     if (fn) fn.call(el).catch(() => {});
   }
 }
-
-
 
 /* ═══════════════════════════════════════
    IMAGE ZOOM MODAL
@@ -90,13 +86,13 @@ function RadioQuestion({ question, answer, onAnswer }) {
             >
               {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
             </div>
-              {opt.image_url && (
-                <img
-                  src={resolveImgSrc(opt.image_url)}
-                  alt={opt.text}
-                  className="h-16 object-contain rounded"
-                />
-              )}
+            {opt.image_url && (
+              <img
+                src={resolveImgSrc(opt.image_url)}
+                alt={opt.text}
+                className="h-16 object-contain rounded"
+              />
+            )}
             <span className={`text-sm ${isSelected ? "text-indigo-700 font-medium" : "text-slate-700"}`}>
               {opt.text}
             </span>
@@ -126,13 +122,13 @@ function PictureChoiceQuestion({ question, answer, onAnswer }) {
                 : "border-slate-200 hover:border-slate-300"
             }`}
           >
-          {opt.image_url && (
-            <img
-              src={resolveImgSrc(opt.image_url)}
-              alt={opt.text}
-              className="w-full h-32 object-cover"
-            />
-          )}
+            {opt.image_url && (
+              <img
+                src={resolveImgSrc(opt.image_url)}
+                alt={opt.text}
+                className="w-full h-32 object-cover"
+              />
+            )}
             <div
               className={`px-3 py-2 text-sm text-center ${
                 isSelected ? "bg-indigo-50 text-indigo-700 font-medium" : "bg-white text-slate-600"
@@ -223,37 +219,35 @@ function ShortAnswerQuestion({ question, answer, onAnswer }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   FREE TEXT / WRITING
-   ✅ v7 FIX: uses useAuth() to get activeToken — fixes 401
-   Shows mode picker for Year 3 Writing: Type vs Upload
+   WRITING QUESTION
+   ✅ Has textarea — student types/uploads their response.
+   Previously this was called FreeTextQuestion.
    ═══════════════════════════════════════════════════════════ */
-function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUploadingChange }) {
-  // ✅ THE FIX: get the token from AuthContext, not localStorage directly
+function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUploadingChange }) {
   const { activeToken } = useAuth();
 
   const text = answer?.text || "";
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
   const charCount = text.length;
 
-  // null = not chosen yet, "type" = textarea, "upload" = image upload
   const [mode, setMode] = useState(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState("");
   const [previewUrl, setPreviewUrl] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Year 3 Writing gets the mode picker
+  const MAX_FILE_SIZE_MB = 5;
+  const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
   const isYear3Writing =
     Number(yearLevel) === 3 &&
     String(subject || "").toLowerCase().includes("writing");
 
-  // ── OCR: extract text from handwriting image ──
   const extractHandwritingFromImage = async (file) => {
     setOcrLoading(true);
     setOcrError("");
 
     try {
-      // Read file as base64
       const base64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result.split(",")[1]);
@@ -261,20 +255,15 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
         reader.readAsDataURL(file);
       });
 
-      // Show preview while OCR runs
       setPreviewUrl(URL.createObjectURL(file));
 
-      // ✅ Use activeToken from useAuth() — this is the correct token
       const res = await fetch(`${API_BASE}/api/ocr/handwriting`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${activeToken}`,   // ✅ THIS was the bug — was missing
+          Authorization: `Bearer ${activeToken}`,
         },
-        body: JSON.stringify({
-          base64,
-          mediaType: file.type,
-        }),
+        body: JSON.stringify({ base64, mediaType: file.type }),
       });
 
       if (!res.ok) {
@@ -288,7 +277,7 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
       setOcrError(err.message);
     } finally {
       setOcrLoading(false);
-      onUploadingChange?.(false); // ✅ re-enable proctoring after upload
+      onUploadingChange?.(false);
     }
   };
 
@@ -296,31 +285,35 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const allowed = ["image/jpeg", "image/png", "image/webp"];
-    if (!allowed.includes(file.type)) {
-      setOcrError("Please upload a JPEG, PNG, or WebP image.");
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setOcrError("Only photo files are allowed. Please upload a JPEG, PNG, or WebP image.");
       return;
     }
+
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setOcrError(
+        `Photo is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Please upload an image under ${MAX_FILE_SIZE_MB}MB.`
+      );
+      return;
+    }
+
     extractHandwritingFromImage(file);
   };
 
-  // Tell ExamProctor to suppress violations while file picker is open
   const handlePickerClick = () => {
     if (!ocrLoading) {
       onUploadingChange?.(true);
-      // Re-enable after 5s in case user cancels the picker without selecting
       setTimeout(() => onUploadingChange?.(false), 5000);
       fileInputRef.current?.click();
     }
   };
 
-  // ── Year 3 Writing: show mode picker first ──
+  // ── Year 3 Writing: mode picker ──
   if (isYear3Writing && mode === null) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-slate-500 font-medium">How would you like to submit your writing?</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Type option */}
           <button
             onClick={() => { setMode("type"); reEnterFullscreen(); }}
             className="flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 transition-all group"
@@ -336,7 +329,6 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
             </div>
           </button>
 
-          {/* Upload option */}
           <button
             onClick={() => setMode("upload")}
             className="flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 transition-all group"
@@ -361,7 +353,6 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
   if (isYear3Writing && mode === "upload") {
     return (
       <div className="space-y-4">
-        {/* Back button */}
         <button
           onClick={() => { setMode(null); setPreviewUrl(null); setOcrError(""); reEnterFullscreen(); }}
           className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition"
@@ -372,7 +363,6 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
           Change method
         </button>
 
-        {/* Upload area */}
         <div
           onClick={handlePickerClick}
           className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer ${
@@ -410,13 +400,12 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
               </div>
               <div>
                 <p className="text-sm font-medium text-slate-700">Tap to upload a photo</p>
-                <p className="text-xs text-slate-400 mt-1">JPEG, PNG, or WebP • Max 20MB</p>
+                <p className="text-xs text-slate-400 mt-1">Photo only (JPEG, PNG, WebP) • Max 5MB</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* Error — with fallback to type mode */}
         {ocrError && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
             <div className="flex items-start gap-2">
@@ -428,19 +417,18 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
                 onClick={() => { setOcrError(""); fileInputRef.current?.click(); }}
                 className="flex-1 px-3 py-2 bg-white border border-red-300 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50 transition"
               >
-                🔄 Try again
+                Try again
               </button>
               <button
                 onClick={() => { setMode("type"); setOcrError(""); reEnterFullscreen(); }}
                 className="flex-1 px-3 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition"
               >
-                ✏️ Type instead
+                Type instead
               </button>
             </div>
           </div>
         )}
 
-        {/* Extracted text preview — editable */}
         {text && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -462,7 +450,7 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
     );
   }
 
-  // ── Default: plain textarea (all other questions + Year 3 Writing "type" mode) ──
+  // ── Default: plain textarea ──
   return (
     <div className="space-y-3">
       {isYear3Writing && mode === "type" && (
@@ -507,6 +495,14 @@ function FreeTextQuestion({ question, answer, onAnswer, yearLevel, subject, onUp
   );
 }
 
+/* ═══════════════════════════════════════════════════════════
+   FREE TEXT QUESTION  (display-only — NO student input)
+   ✅ Only shows the question text/image — no answer box.
+   ═══════════════════════════════════════════════════════════ */
+function FreeTextQuestion() {
+  return null;
+}
+
 /* ═══════════════════════════════════════
    MAIN: QuestionRenderer
    ═══════════════════════════════════════ */
@@ -525,7 +521,6 @@ export default function QuestionRenderer({
 
   return (
     <div className="space-y-6">
-      {/* Question number + flag */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-bold">
@@ -558,7 +553,6 @@ export default function QuestionRenderer({
         </button>
       </div>
 
-      {/* Question text */}
       <div className="text-base text-slate-800 leading-relaxed font-medium">
         {question.text && question.text.includes("<") ? (
           <div
@@ -570,26 +564,25 @@ export default function QuestionRenderer({
         ) : null}
       </div>
 
-      {/* Question image */}
       {question.image_url && (
         <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
           <img
             src={resolveImgSrc(question.image_url)}
             alt="Question image"
-            className="max-w-full max-h-96 object-contain mx-auto rounded-lg cursor-zoom-in"
+            className={`object-contain mx-auto rounded-lg cursor-zoom-in${
+                    !question.image_height ? " max-h-96" : ""
+                  }${
+                    !question.image_width ? " max-w-full" : ""
+                  }`}
             style={{
               ...(question.image_width ? { width: `${question.image_width}px`, maxWidth: "100%" } : {}),
               ...(question.image_height ? { height: `${question.image_height}px`, objectFit: "contain" } : {}),
             }}
-
             onClick={() => setZoomImg(resolveImgSrc(question.image_url))}
-
-
           />
         </div>
       )}
 
-      {/* Answer area */}
       {question.type === "radio_button" && (
         <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} />
       )}
@@ -599,8 +592,9 @@ export default function QuestionRenderer({
       {question.type === "checkbox" && (
         <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} />
       )}
-      {question.type === "free_text" && (
-        <FreeTextQuestion
+      {/* ✅ "writing" → shows textarea for student response */}
+      {question.type === "writing" && (
+        <WritingQuestion
           question={question}
           answer={answer}
           onAnswer={onAnswer}
@@ -608,6 +602,10 @@ export default function QuestionRenderer({
           subject={subject}
           onUploadingChange={onUploadingChange}
         />
+      )}
+      {/* ✅ "free_text" → display-only, no input rendered */}
+      {question.type === "free_text" && (
+        <FreeTextQuestion />
       )}
       {question.type === "short_answer" && (
         <ShortAnswerQuestion question={question} answer={answer} onAnswer={onAnswer} />
