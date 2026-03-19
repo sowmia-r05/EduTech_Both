@@ -71,7 +71,7 @@ router.get("/attempts/:attemptId/flashcards", verifyToken, requireAuth, async (r
         }
       }
 
-      return {
+     return {
         question_id:       q.question_id,
         question_text:     q.question_text || q.text || "",
         passage:           q.passage || null,
@@ -81,6 +81,16 @@ router.get("/attempts/:attemptId/flashcards", verifyToken, requireAuth, async (r
         explanation:       q.explanation || null,
         difficulty:        q.difficulty || null,
         topic:             q.topic || q.strand || null,
+        image_url:         q.image_url || null,        // ✅ ADD
+        image_width:       q.image_width || null,      // ✅ ADD
+        image_height:      q.image_height || null,     // ✅ ADD
+        type:              q.type || null,              // ✅ ADD
+        options:           (q.options || []).map((o) => ({  // ✅ ADD (for picture_choice)
+          option_id: o.option_id,
+          text:      o.text,
+          image_url: o.image_url || null,
+          correct:   o.correct,
+        })),
       };
     });
 
@@ -190,7 +200,7 @@ router.get("/children/:childId/flashcards", verifyToken, requireAuth, async (req
             .join(", ");
         }
 
-        allFlashcards.push({
+       allFlashcards.push({
           question_id:    q.question_id,
           question_text:  q.question_text || q.text || "",
           passage:        q.passage || null,
@@ -202,8 +212,17 @@ router.get("/children/:childId/flashcards", verifyToken, requireAuth, async (req
           subject:        attempt.subject,
           quiz_name:      attempt.quiz_name,
           attempt_id:     attempt.attempt_id,
+          image_url:      q.image_url || null,        // ✅ ADD
+          image_width:    q.image_width || null,      // ✅ ADD
+          image_height:   q.image_height || null,     // ✅ ADD
+          type:           q.type || null,             // ✅ ADD
+          options:        (q.options || []).map((o) => ({  // ✅ ADD
+            option_id: o.option_id,
+            text:      o.text,
+            image_url: o.image_url || null,
+            correct:   o.correct,
+          })),
         });
-
         if (allFlashcards.length >= limit) break;
       }
       if (allFlashcards.length >= limit) break;
