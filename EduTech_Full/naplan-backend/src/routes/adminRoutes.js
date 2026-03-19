@@ -697,7 +697,30 @@ router.delete("/quizzes/:quizId", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+router.patch("/questions/:questionId/move", requireAdmin, async (req, res) => {
+  try {
+    await connectDB();
+    const { questionId } = req.params;
+    const { from_quiz_id, to_quiz_id } = req.body;
 
+    if (!from_quiz_id || !to_quiz_id)
+      return res.status(400).json({ error: "from_quiz_id and to_quiz_id required" });
+
+    // Remove from source quiz, add to destination
+    await Question.updateOne(
+      { question_id: questionId },
+      { $pull: { quiz_ids: from_quiz_id } }
+    );
+    await Question.updateOne(
+      { question_id: questionId },
+      { $addToSet: { quiz_ids: to_quiz_id }, $set: { order: null } }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // ═══════════════════════════════════════════════════════════
 // QUESTION ROUTES
 // ═══════════════════════════════════════════════════════════
@@ -855,6 +878,7 @@ router.delete("/questions/:questionId", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
 
 // ═══════════════════════════════════════════════════════════
 // QUIZ UPLOAD
@@ -1062,28 +1086,5 @@ router.patch("/children/:childId/bundles", async (req, res) => {
 
 });
 // PATCH /api/admin/questions/:questionId/move
-router.patch("/questions/:questionId/move", requireAdmin, async (req, res) => {
-  try {
-    await connectDB();
-    const { questionId } = req.params;
-    const { from_quiz_id, to_quiz_id } = req.body;
 
-    if (!from_quiz_id || !to_quiz_id)
-      return res.status(400).json({ error: "from_quiz_id and to_quiz_id required" });
-
-    // Remove from source quiz, add to destination
-    await Question.updateOne(
-      { question_id: questionId },
-      { $pull: { quiz_ids: from_quiz_id } }
-    );
-    await Question.updateOne(
-      { question_id: questionId },
-      { $addToSet: { quiz_ids: to_quiz_id }, $set: { order: null } }
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 module.exports = router;
