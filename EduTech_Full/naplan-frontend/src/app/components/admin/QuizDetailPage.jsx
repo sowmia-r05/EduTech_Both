@@ -800,6 +800,7 @@ export default function QuizDetailPage() {
   const [insertAtIndex,  setInsertAtIndex]  = useState(null);
   const [contextMenu,    setContextMenu]    = useState(null);
   const [moveQuestion,   setMoveQuestion]   = useState(null);
+  const addingRef = useRef(false);   // ✅ ADD THIS
 
   const adminRole = getAdminRole();
   const canVerify = ["admin", "tutor"].includes(adminRole);
@@ -848,6 +849,8 @@ export default function QuizDetailPage() {
 
   // ── ADDED: updated to support positional ordering ──
   const handleAddQuestion = async (newQ) => {
+    if (addingRef.current) return;   // ✅ ADD THIS
+    addingRef.current = true;   
   try {
     // Normalize: treat null/undefined order as index * 1000
     // This ensures midpoint math stays in the right range
@@ -893,6 +896,8 @@ export default function QuizDetailPage() {
     fetchDetail();
   } catch (err) {
     alert(err.message);
+     } finally {
+    addingRef.current = false;   // ✅ ADD THIS
   }
 };
 
