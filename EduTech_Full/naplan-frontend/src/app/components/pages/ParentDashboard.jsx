@@ -786,9 +786,9 @@ function ModalOverlay({ onClose, children, maxWidth = "480px" }) {
 
 const INPUT_STYLE = { width: "100%", boxSizing: "border-box", border: "1px solid #D1D5DB", borderRadius: "9px", padding: "11px 12px", fontSize: "15px", color: "#111827", outline: "none", background: "#fff" };
 const LABEL_STYLE = { display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "6px" };
-const YEAR_OPTIONS = [3, 4, 5, 6, 7, 8, 9];
+const YEAR_OPTIONS = [3];
 
-function CheckboxRow({ checked, onChange, children }) {
+function CheckboxRow({ checked, onChange, children } ) {
   return (
     <label style={{ display: "flex", alignItems: "flex-start", gap: "12px", cursor: "pointer" }}>
       <input type="checkbox" checked={checked} onChange={onChange}

@@ -227,25 +227,7 @@ export default function ResultPage() {
     return () => { cancelled = true; };
   }, [responseId, usernameParam, navigate]);
 
-  //Swithcing betweeen the results
-      useEffect(() => {
-      const newId      = activeDoc?.response_id;
-      const originalId = doc?.response_id;
 
-      if (!newId || newId === originalId) {
-        setActiveFullDoc(null);
-        return;
-      }
-
-      if (activeDoc?.ai?.feedback) {
-        setActiveFullDoc(null);
-        return;
-      }
-
-      fetchWritingByResponseId(newId, authOpts)
-        .then((full) => { if (full) setActiveFullDoc(full); })
-        .catch(() => {});
-    }, [activeDoc, doc]);
 
 
 
@@ -319,6 +301,26 @@ export default function ResultPage() {
     );
     return idx >= 0 ? idx + 1 : null;
   }, [activeDoc, quizAttempts]);
+
+//Swithcing betweeen the results
+  useEffect(() => {
+      const newId      = activeDoc?.response_id;
+      const originalId = doc?.response_id;
+
+      if (!newId || newId === originalId) {
+        setActiveFullDoc(null);
+        return;
+      }
+
+      if (activeDoc?.ai?.feedback) {
+        setActiveFullDoc(null); 
+        return;
+      }
+
+      fetchWritingByResponseId(newId, authOpts)
+        .then((full) => { if (full) setActiveFullDoc(full); })
+        .catch(() => {});
+    }, [activeDoc, doc]);
 
 const backToDashboardState = useMemo(() => ({
   childId:   childIdParam  || childProfile?._id || doc?.child_id || null,
