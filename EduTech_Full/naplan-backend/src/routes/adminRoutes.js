@@ -782,49 +782,7 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
     const question_id = uuidv4();
-    const question = await Question.create({
-      question_id,
-      quiz_ids:        [quizId],
-      text:            req.body.text || req.body.question_text || "",
-      type:            req.body.type || "radio_button",
-      options:         req.body.options || [],
-      correct_answer:  req.body.correct_answer || null,
-      case_sensitive:  req.body.case_sensitive || false,
-      sub_topic:       req.body.sub_topic || null,
-      points:          req.body.points || 1,
-      categories:      req.body.category ? [{ name: req.body.category }] : (req.body.categories || []),
-      image_url:       req.body.image_url || null,
-      image_size:      req.body.image_size || "medium",
-      image_width:  req.body.image_width  != null ? Number(req.body.image_width)  || null : null,
-      image_height: req.body.image_height != null ? Number(req.body.image_height) || null : null,
-      explanation:     req.body.explanation || null,
-      shuffle_options: req.body.shuffle_options ?? null,
-      voice_url:       req.body.voice_url || null,
-      video_url:       req.body.video_url || null,
-      order:           req.body.order ?? null,
-    });
 
-    await Quiz.findOneAndUpdate(
-      { quiz_id: quizId },
-      { $addToSet: { question_ids: question_id }, $inc: { question_count: 1 } }
-    );
-
-    return res.status(201).json({ ok: true, question });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.post("/quizzes/:quizId/questions", async (req, res) => {
-  try {
-    await connectDB();
-    const { quizId } = req.params;
-    const quiz = await Quiz.findOne({ quiz_id: quizId });
-    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
-
-    const question_id = uuidv4();
-
-    // ✅ FIX: Process correct_answer labels ("A", "A,B") into correct:true on options
     const correctLabels = (req.body.correct_answer || "")
       .toUpperCase().split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -832,10 +790,10 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
     const mappedOptions = rawOptions.map((opt, idx) => {
       const label = opt.label || String.fromCharCode(65 + idx);
       return {
-        option_id:  opt.option_id || uuidv4(),
-        text:       opt.text       || "",
-        image_url:  opt.image_url  || null,
-        correct:    opt.correct === true || correctLabels.includes(label.toUpperCase()),
+        option_id: opt.option_id || uuidv4(),
+        text:      opt.text      || "",
+        image_url: opt.image_url || null,
+        correct:   opt.correct === true || correctLabels.includes(label.toUpperCase()),
       };
     });
 
@@ -844,7 +802,7 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
       quiz_ids:        [quizId],
       text:            req.body.text || req.body.question_text || "",
       type:            req.body.type || "radio_button",
-      options:         mappedOptions,                          // ✅ use mapped options
+      options:         mappedOptions,
       correct_answer:  req.body.correct_answer || null,
       case_sensitive:  req.body.case_sensitive || false,
       sub_topic:       req.body.sub_topic || null,
@@ -855,7 +813,7 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
       image_width:     req.body.image_width  != null ? Number(req.body.image_width)  || null : null,
       image_height:    req.body.image_height != null ? Number(req.body.image_height) || null : null,
       explanation:     req.body.explanation  || null,
-      shuffle_options: req.body.shuffle_options ?? false,      // ✅ default false not null
+      shuffle_options: req.body.shuffle_options ?? false,
       voice_url:       req.body.voice_url || null,
       video_url:       req.body.video_url || null,
       order:           req.body.order ?? null,
@@ -868,7 +826,51 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
 
     return res.status(201).json({ ok: true, question });
   } catch (err) {
-    console.error("Add question error:", err.message); // ✅ log the real error
+    console.error("Add question error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ ADD THIS NEW ROUTE
+router.patch("/questions/:questionId", async (req, res) => {
+  try {
+    await connectDB();
+
+    const updates = {};
+    const allowed = [
+      "text", "type", "options", "correct_answer", "case_sensitive",
+      "points", "categories", "image_url", "image_size", "image_width",
+      "image_height", "explanation", "shuffle_options", "voice_url",
+      "video_url", "order",  // ← "order" is the key field needed for insert fix
+    ];
+
+    for (const f of allowed) {
+      if (req.body[f] !== undefined) updates[f] = req.body[f];
+    }
+
+    // Handle question_text alias
+    if (req.body.question_text && !updates.text) {
+      updates.text = req.body.question_text;
+    }
+
+    // Handle category → categories
+    if (req.body.category && !updates.categories) {
+      updates.categories = [{ name: req.body.category }];
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No valid fields to update" });
+    }
+
+    const question = await Question.findOneAndUpdate(
+      { question_id: req.params.questionId },
+      { $set: updates },
+      { new: true }
+    ).lean();
+
+    if (!question) return res.status(404).json({ error: "Question not found" });
+    return res.json({ ok: true, question });
+  } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });
@@ -913,23 +915,29 @@ router.post("/quizzes/upload", async (req, res) => {
     const quiz_id = uuidv4();
 
     const questions = await Question.insertMany(
-      questionsData.map((q) => {
+      questionsData.map((q, idx) => {
         const correctLabels = (q.correct_answer || "").toUpperCase().split(",").map((s) => s.trim()).filter(Boolean);
         const mappedOptions = (q.options || []).map((opt, idx) => {
           const label = opt.label || String.fromCharCode(65 + idx);
           return { ...opt, option_id: opt.option_id || uuidv4(), correct: opt.correct === true || correctLabels.includes(label.toUpperCase()) };
         });
         return {
-          question_id: uuidv4(), quiz_ids: [quiz_id],
-          text: q.question_text || q.text || "", type: q.type || "radio_button",
-          options: mappedOptions, correct_answer: q.correct_answer || null,
-          points: q.points || 1,
-          categories: q.category ? [{ name: q.category }] : (q.categories || []),
-          image_url: q.image_url || null, explanation: q.explanation || "",
-          sub_topic: q.sub_topic || null, voice_url: q.voice_url || null,
-          video_url: q.video_url || null,
-          image_width:  q.image_width  != null ? Number(q.image_width)  || null : null,
-          image_height: q.image_height != null ? Number(q.image_height) || null : null,
+  question_id: uuidv4(),
+  quiz_ids: [quiz_id],
+  text: q.question_text || q.text || "",
+  type: q.type || "radio_button",
+  options: mappedOptions,
+  correct_answer: q.correct_answer || null,
+  points: q.points || 1,
+  categories: q.category ? [{ name: q.category }] : (q.categories || []),
+  image_url: q.image_url || null,
+  explanation: q.explanation || "",
+  sub_topic: q.sub_topic || null,
+  voice_url: q.voice_url || null,
+  video_url: q.video_url || null,
+  image_width:  q.image_width  != null ? Number(q.image_width)  || null : null,
+  image_height: q.image_height != null ? Number(q.image_height) || null : null,
+  order: idx * 1000,   // ✅ ADD THIS
         };
       })
     );
@@ -1103,5 +1111,4 @@ router.patch("/children/:childId/bundles", async (req, res) => {
 
 });
 // PATCH /api/admin/questions/:questionId/move
-
 module.exports = router;

@@ -597,23 +597,46 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
     const getEffectiveOrder = (q, idx) =>
       q?.order != null ? q.order : idx * 1000;
 
+    // ✅ FIX: Normalize null-order questions before positional insert
+    if (insertAtIndex !== null) {
+      // ✅ WITH THIS:
+        const allSameOrder = new Set(questions.map(q => q.order ?? 0)).size === 1;
+        const hasNullOrders = questions.some(q => q.order == null) || allSameOrder;
+        if (hasNullOrders) {
+        await Promise.all(
+          questions.map((q, idx) =>
+            adminFetch(`/api/admin/questions/${q.question_id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ order: idx * 1000 }),
+              headers: { "Content-Type": "application/json" },
+            })
+          )
+        );
+        questions.forEach((q, idx) => { q.order = idx * 1000; });
+      }
+    }
+
     let order;
     if (insertAtIndex === null) {
       const lastIdx = questions.length - 1;
       order = questions.length > 0
         ? getEffectiveOrder(questions[lastIdx], lastIdx) + 1000
         : 0;
+    } else if (insertAtIndex === -1) {
+      // ✅ FIX: also added explicit -1 check (was missing in modal)
+      const first = questions[0];
+      order = first ? getEffectiveOrder(first, 0) - 1000 : -1000;
     } else {
       const prev = questions[insertAtIndex];
       const next = questions[insertAtIndex + 1];
-      const prevOrder = prev
-        ? getEffectiveOrder(prev, insertAtIndex)
-        : getEffectiveOrder(questions[0], 0) - 1000;
+      const prevOrder = getEffectiveOrder(prev, insertAtIndex);
       const nextOrder = next
         ? getEffectiveOrder(next, insertAtIndex + 1)
-        : getEffectiveOrder(prev, insertAtIndex) + 1000;
+        : prevOrder + 1000;
       order = (prevOrder + nextOrder) / 2;
     }
+
+    order = Math.round(order);
 
     const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
       method: "POST",

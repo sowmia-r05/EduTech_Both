@@ -65,7 +65,8 @@ const QuestionSchema = new mongoose.Schema(
     options: { type: [OptionSchema], default: [] },
     points: { type: Number, default: 1 },
     categories: { type: [CategorySchema], default: [] },
-    order: { type: Number, default: 0 },
+    order: { type: Number, default: null },
+
     year_level: { type: Number, index: true },
     subject: { type: String, index: true },
     image_url: { type: String, default: null },
