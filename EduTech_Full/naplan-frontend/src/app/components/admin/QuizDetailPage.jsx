@@ -721,41 +721,49 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
                     placeholder="Image URL..."
                     className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none"
                   />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const input = document.createElement("input");
-                      input.type = "file";
-                      input.accept = "image/*";
-                      input.onchange = async (e) => {
-                        const file = e.target.files[0];
-                        if (!file) return;
+                <button
+              type="button"
+              onClick={async () => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/*";
+                input.onchange = async (e) => {
+                  const file = e.target.files[0];
+                  if (!file) return;
 
-                        const formData = new FormData();
-                        formData.append("file", file);
+                  const formData = new FormData();
+                  formData.append("file", file);
 
-                        try {
-                          const res = await fetch("/api/admin/upload", {
-                            method: "POST",
-                            headers: {
-                              Authorization: `Bearer ${localStorage.getItem("admin_token")}`,
-                            },
-                            body: formData,
-                          });
-                          const data = await res.json();
-                          if (data.url) {
-                            updateOption(i, "image_url", data.url);
-                          }
-                        } catch (err) {
-                          console.error("Upload failed:", err);
-                        }
-                      };
-                      input.click();
-                    }}
-                    className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-white rounded border border-slate-600 whitespace-nowrap"
-                  >
-                    📎 Upload
-                  </button>
+                  try {
+                    const res = await fetch(`${API}/api/admin/upload`, {  // ✅ use ${API}
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${localStorage.getItem("admin_token")}`,
+                      },
+                      body: formData,
+                    });
+                    if (!res.ok) {
+                      const d = await res.json().catch(() => ({}));
+                      throw new Error(d.error || "Upload failed");
+                    }
+                    const data = await res.json();
+                    if (data.url) {
+                      // ✅ normalize relative vs absolute URL
+                      const fullUrl = data.url.startsWith("http")
+                        ? data.url
+                        : `${API}${data.url}`;
+                      updateOption(i, "image_url", fullUrl);
+                    }
+                  } catch (err) {
+                    alert(err.message);  // ✅ show error instead of silent fail
+                  }
+                };
+                input.click();
+              }}
+              className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-white rounded border border-slate-600 whitespace-nowrap"
+            >
+              📎 Upload
+            </button>
                 </div>
               )}
                             {form.options.length > 2 && (
