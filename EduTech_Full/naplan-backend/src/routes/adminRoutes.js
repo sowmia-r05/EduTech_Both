@@ -815,44 +815,60 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
   }
 });
 
-router.patch("/questions/:questionId", async (req, res) => {
+router.post("/quizzes/:quizId/questions", async (req, res) => {
   try {
     await connectDB();
-    const allowedFields = [
-      "text", "question_text", "type", "options", "correct_answer",
-      "case_sensitive", "points", "categories", "category", "sub_topic", "image_url",
-      "image_size", "image_width", "image_height", "explanation",
-      "shuffle_options", "voice_url", "video_url",
-    ];
-    const updates = {};
-    for (const f of allowedFields) {
-      if (req.body[f] !== undefined) {
-        if (f === "category") {
-          updates["categories"] = req.body.category ? [{ name: req.body.category }] : [];
-        } else if (f === "question_text") {
-          updates["text"] = req.body.question_text;
-        } else {
-          updates[f] = req.body[f];
-        }
-      }
-    }
- 
-    // ✅ FIX: Explicitly cast image dimensions to Number to prevent string-type issues.
-    // JSON.parse from some clients may send these as strings.
-    if (updates.image_width != null)  updates.image_width  = Number(updates.image_width);
-    if (updates.image_height != null) updates.image_height = Number(updates.image_height);
-    // If somehow they became NaN after casting, reset to null
-    if (Number.isNaN(updates.image_width))  updates.image_width  = null;
-    if (Number.isNaN(updates.image_height)) updates.image_height = null;
- 
-    const question = await Question.findOneAndUpdate(
-      { question_id: req.params.questionId },
-      { $set: updates },
-      { new: true }
-    ).lean();
-    if (!question) return res.status(404).json({ error: "Question not found" });
-    return res.json(question);
+    const { quizId } = req.params;
+    const quiz = await Quiz.findOne({ quiz_id: quizId });
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    const question_id = uuidv4();
+
+    // ✅ FIX: Process correct_answer labels ("A", "A,B") into correct:true on options
+    const correctLabels = (req.body.correct_answer || "")
+      .toUpperCase().split(",").map((s) => s.trim()).filter(Boolean);
+
+    const rawOptions = req.body.options || [];
+    const mappedOptions = rawOptions.map((opt, idx) => {
+      const label = opt.label || String.fromCharCode(65 + idx);
+      return {
+        option_id:  opt.option_id || uuidv4(),
+        text:       opt.text       || "",
+        image_url:  opt.image_url  || null,
+        correct:    opt.correct === true || correctLabels.includes(label.toUpperCase()),
+      };
+    });
+
+    const question = await Question.create({
+      question_id,
+      quiz_ids:        [quizId],
+      text:            req.body.text || req.body.question_text || "",
+      type:            req.body.type || "radio_button",
+      options:         mappedOptions,                          // ✅ use mapped options
+      correct_answer:  req.body.correct_answer || null,
+      case_sensitive:  req.body.case_sensitive || false,
+      sub_topic:       req.body.sub_topic || null,
+      points:          req.body.points || 1,
+      categories:      req.body.category ? [{ name: req.body.category }] : (req.body.categories || []),
+      image_url:       req.body.image_url  || null,
+      image_size:      req.body.image_size || "medium",
+      image_width:     req.body.image_width  != null ? Number(req.body.image_width)  || null : null,
+      image_height:    req.body.image_height != null ? Number(req.body.image_height) || null : null,
+      explanation:     req.body.explanation  || null,
+      shuffle_options: req.body.shuffle_options ?? false,      // ✅ default false not null
+      voice_url:       req.body.voice_url || null,
+      video_url:       req.body.video_url || null,
+      order:           req.body.order ?? null,
+    });
+
+    await Quiz.findOneAndUpdate(
+      { quiz_id: quizId },
+      { $addToSet: { question_ids: question_id }, $inc: { question_count: 1 } }
+    );
+
+    return res.status(201).json({ ok: true, question });
   } catch (err) {
+    console.error("Add question error:", err.message); // ✅ log the real error
     return res.status(500).json({ error: err.message });
   }
 });

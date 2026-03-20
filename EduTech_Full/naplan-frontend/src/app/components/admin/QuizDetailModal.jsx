@@ -546,6 +546,9 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
   const [contextMenu,   setContextMenu]   = useState(null);
   const [showAddForm,   setShowAddForm]   = useState(false);
   const [insertAtIndex, setInsertAtIndex] = useState(null);
+  const addingRef = useRef(false); 
+  const [moveQuestion, setMoveQuestion] = useState(null);
+
 
   const fetchDetail = async () => {
     try {
@@ -588,26 +591,40 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
 
   // ── PATCH 4: handleAddQuestion with position-aware ordering ──
   const handleAddQuestion = async (newQ) => {
-    try {
-      let order;
-      if (insertAtIndex === null) {
-        const last = questions[questions.length - 1];
-        order = last ? (last.order ?? questions.length - 1) + 1 : 0;
-      } else {
-        const prev = questions[insertAtIndex];
-        const next = questions[insertAtIndex + 1];
-        const prevOrder = prev?.order ?? insertAtIndex;
-        const nextOrder = next?.order ?? (insertAtIndex + 2);
-        order = (prevOrder + nextOrder) / 2;
-      }
-      const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
-        method: "POST", body: JSON.stringify({ ...newQ, order }),
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed"); }
-      setShowAddForm(false); setInsertAtIndex(null); fetchDetail();
-    } catch (err) { alert(err.message); }
-  };
+  if (addingRef.current) return;
+  addingRef.current = true;
+  try {
+    const getEffectiveOrder = (q, idx) =>
+      q?.order != null ? q.order : idx * 1000;
+
+    let order;
+    if (insertAtIndex === null) {
+      const lastIdx = questions.length - 1;
+      order = questions.length > 0
+        ? getEffectiveOrder(questions[lastIdx], lastIdx) + 1000
+        : 0;
+    } else {
+      const prev = questions[insertAtIndex];
+      const next = questions[insertAtIndex + 1];
+      const prevOrder = prev
+        ? getEffectiveOrder(prev, insertAtIndex)
+        : getEffectiveOrder(questions[0], 0) - 1000;
+      const nextOrder = next
+        ? getEffectiveOrder(next, insertAtIndex + 1)
+        : getEffectiveOrder(prev, insertAtIndex) + 1000;
+      order = (prevOrder + nextOrder) / 2;
+    }
+
+    const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
+      method: "POST",
+      body: JSON.stringify({ ...newQ, order }),
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed"); }
+    setShowAddForm(false); setInsertAtIndex(null); fetchDetail();
+  } catch (err) { alert(err.message); }
+  finally { addingRef.current = false; }
+};
 
   const handleSaveSettings = async () => {
     try {
@@ -713,7 +730,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                 ...(q.image_height ? { height: `${q.image_height}px`, objectFit: "contain" } : {}),
               } : undefined;
               const effectiveShuffle = q.shuffle_options != null ? q.shuffle_options : (quiz.randomize_options || false);
-              const showInsertBefore = showAddForm && insertAtIndex === i - 1;
+              const showInsertBefore = showAddForm && i === 0 && insertAtIndex === -1;
               const showInsertAfter  = showAddForm && insertAtIndex === i;
 
               return (
@@ -879,13 +896,24 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           items={[
-            { icon: "✏️", label: "Edit Question",                        onClick: () => { setEditingId(contextMenu.questionId); setShowAddForm(false); setInsertAtIndex(null); } },
-            "divider",
-            { icon: "⬆️", label: `Insert Before Q${contextMenu.index + 1}`, onClick: () => { setInsertAtIndex(contextMenu.index - 1); setShowAddForm(true); setEditingId(null); } },
-            { icon: "⬇️", label: `Insert After Q${contextMenu.index + 1}`,  onClick: () => { setInsertAtIndex(contextMenu.index);     setShowAddForm(true); setEditingId(null); } },
-            "divider",
-            { icon: "🗑️", label: "Delete Question", danger: true,        onClick: () => handleDeleteQuestion(contextMenu.questionId) },
-          ]}
+                    { icon: "✏️", label: "Edit Question", onClick: () => { setEditingId(contextMenu.questionId); setShowAddForm(false); setInsertAtIndex(null); } },
+                    "divider",
+                    { icon: "⬆️", label: `Insert Before Q${contextMenu.index + 1}`, onClick: () => { setInsertAtIndex(contextMenu.index - 1); setShowAddForm(true); setEditingId(null); } },
+                    { icon: "⬇️", label: `Insert After Q${contextMenu.index + 1}`,  onClick: () => { setInsertAtIndex(contextMenu.index);     setShowAddForm(true); setEditingId(null); } },
+                    "divider",
+                    { icon: "↗️", label: "Move to Another Quiz", onClick: () => { const q = questions.find((q) => q.question_id === contextMenu.questionId); setMoveQuestion(q); } },
+                    "divider",
+                    { icon: "🗑️", label: "Delete Question", danger: true, onClick: () => handleDeleteQuestion(contextMenu.questionId) },
+                  ]}      
+        />
+      )}
+       {/* ── Move Modal — OUTSIDE contextMenu block ── */}
+      {moveQuestion && (
+        <MoveToQuizModal
+          question={moveQuestion}
+          currentQuizId={quizId}
+          onClose={() => setMoveQuestion(null)}
+          onMoved={() => { setMoveQuestion(null); fetchDetail(); }}
         />
       )}
     </div>
