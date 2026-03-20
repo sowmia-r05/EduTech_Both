@@ -501,9 +501,19 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
                 <span className="text-xs text-slate-500 w-4">{String.fromCharCode(65 + i)}</span>
                 <input type="text" value={opt.text} onChange={(e) => updateOption(i, "text", e.target.value)} placeholder="Option text..."
                   className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
-                {form.type === "picture_choice" && (
-                  <input type="text" value={opt.image_url || ""} onChange={(e) => updateOption(i, "image_url", e.target.value)} placeholder="Image URL..."
-                    className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
+                  {form.type === "picture_choice" && (
+                  <div className="flex items-center gap-1">
+                    <input type="text" value={opt.image_url || ""} onChange={(e) => updateOption(i, "image_url", e.target.value)} placeholder="Image URL..."
+                      className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
+                    <FileUploadButton
+                      accept="image/*"
+                      label="📷"
+                      onUploaded={(url) => updateOption(i, "image_url", url)}
+                    />
+                    {opt.image_url && (
+                      <img src={opt.image_url} alt="" className="w-8 h-8 rounded object-cover border border-slate-600" />
+                    )}
+                  </div>
                 )}
                 {form.options.length > 2 && <button onClick={() => removeOption(i)} className="text-slate-500 hover:text-red-400 text-xs">✕</button>}
               </div>
