@@ -725,29 +725,44 @@ export default function QuizDetailPage() {
   };
 
   // ✅ FIXED: clean insert logic with -1 support for before-first-question
-  const handleAddQuestion = async (newQ) => {
+    const handleAddQuestion = async (newQ) => {
     if (addingRef.current) return;
     addingRef.current = true;
     try {
       const getEffectiveOrder = (q, idx) =>
         q?.order != null ? q.order : idx * 1000;
 
+      // ✅ FIX: Normalize null-order questions before positional insert
+      if (insertAtIndex !== null) {
+        // ✅ WITH THIS:
+        const allSameOrder = new Set(questions.map(q => q.order ?? 0)).size === 1;
+        const hasNullOrders = questions.some(q => q.order == null) || allSameOrder;
+        if (hasNullOrders) {
+          await Promise.all(
+            questions.map((q, idx) =>
+              adminFetch(`/api/admin/questions/${q.question_id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ order: idx * 1000 }),
+                headers: { "Content-Type": "application/json" },
+              })
+            )
+          );
+          // Update local state so order calc below uses correct values
+          questions.forEach((q, idx) => { q.order = idx * 1000; });
+        }
+      }
+
       let order;
 
       if (insertAtIndex === null) {
-        // Append at end
         const lastIdx = questions.length - 1;
         order = questions.length > 0
           ? getEffectiveOrder(questions[lastIdx], lastIdx) + 1000
           : 0;
-
       } else if (insertAtIndex === -1) {
-        // Insert before the very first question
         const first = questions[0];
         order = first ? getEffectiveOrder(first, 0) - 1000 : -1000;
-
       } else {
-        // Insert after questions[insertAtIndex]
         const prev = questions[insertAtIndex];
         const next = questions[insertAtIndex + 1];
         const prevOrder = getEffectiveOrder(prev, insertAtIndex);
@@ -757,7 +772,6 @@ export default function QuizDetailPage() {
         order = (prevOrder + nextOrder) / 2;
       }
 
-      // Round to avoid float precision issues in DB
       order = Math.round(order);
 
       const res = await adminFetch(`/api/admin/quizzes/${quizId}/questions`, {
@@ -780,7 +794,6 @@ export default function QuizDetailPage() {
       addingRef.current = false;
     }
   };
-
   const handleSaveSettings = async () => {
     setSavingSettings(true);
     try {
