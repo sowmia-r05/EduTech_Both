@@ -26,8 +26,7 @@ import { ADMIN_PATH } from "@/app/App";
 import DownloadXlsxButton from "./DownloadExcelButton";
 import { AddQuestionForm } from "./ManualQuizCreator";
 import CollapsibleImageResize from "./CollapsibleImageResize";
-import CollapsibleTextStyle, { buildTextStyle } from "./CollapsibleTextStyle"; // ← ADD THIS
-
+import CollapsibleTextStyle, { buildTextStyle } from "./Collapsibletextstyle";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -372,6 +371,15 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     image_size:      question.image_size      || "medium",
     image_width:     question.image_width     ?? null,
     image_height:    question.image_height    ?? null,
+    text_font_size:      question.text_font_size      ?? null,
+    text_font_family:    question.text_font_family     || null,
+    text_font_weight:    question.text_font_weight     || null,
+    text_align:          question.text_align           || null,
+    text_line_height:    question.text_line_height     ?? null,
+    text_letter_spacing: question.text_letter_spacing  ?? null,
+    text_color:          question.text_color           || null,
+    max_length:          question.max_length           ?? null,
+    text_style_scope:    question.text_style_scope     || "question",
     explanation:     question.explanation     || "",
     shuffle_options: question.shuffle_options ?? (quizRandomizeOptions || false),
     voice_url:       question.voice_url       || "",
@@ -502,6 +510,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
             )}
           </div>
         )}
+        <CollapsibleImageResize form={form} setForm={setForm} />
         <CollapsibleImageResize form={form} setForm={setForm} />
       </div>
 
