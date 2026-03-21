@@ -1,13 +1,10 @@
 /**
- * QuestionRenderer.jsx  (v9 — writing type support)
+ * QuestionRenderer.jsx  (v10 — text display settings toolbar)
  *
- * Changes from v8:
- *  ✅ FreeTextQuestion renamed to WritingQuestion (has textarea)
- *  ✅ FreeTextQuestion now returns null (display-only, no input)
- *  ✅ question.type === "writing" → WritingQuestion
- *  ✅ question.type === "free_text" → FreeTextQuestion (no-op)
- *
- * Place in: src/app/components/quiz/QuestionRenderer.jsx
+ * Changes from v9:
+ *  ✅ NEW: TextSettingsBar — font size (A− / A+), bold toggle, font family selector
+ *  ✅ textSettings state applied to question text + all answer option labels
+ *  ✅ Full OCR / Year 3 handwriting upload preserved from v9
  */
 
 import { useState, useRef } from "react";
@@ -15,6 +12,19 @@ import { useAuth } from "@/app/context/AuthContext";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+/* ─── Text settings constants ─────────────────────────────── */
+const FONT_OPTIONS = [
+  { label: "Default",  value: "system-ui, sans-serif" },
+  { label: "Serif",    value: "'Georgia', 'Times New Roman', serif" },
+  { label: "Verdana",  value: "'Verdana', 'Geneva', sans-serif" },
+  { label: "Dyslexic", value: "'Comic Sans MS', 'Trebuchet MS', sans-serif" },
+  { label: "Mono",     value: "'Courier New', 'Courier', monospace" },
+];
+const MIN_FONT = 12;
+const MAX_FONT = 26;
+const DEFAULT_SETTINGS = { fontSize: 16, fontFamily: FONT_OPTIONS[0].value, bold: false };
+
+/* ─── Helpers ─────────────────────────────────────────────── */
 function resolveImgSrc(url) {
   if (!url) return null;
   const u = url.trim();
@@ -33,6 +43,89 @@ function reEnterFullscreen() {
     const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
     if (fn) fn.call(el).catch(() => {});
   }
+}
+
+/* ═══════════════════════════════════════
+   TEXT SETTINGS TOOLBAR
+   ═══════════════════════════════════════ */
+function TextSettingsBar({ settings, onChange }) {
+  const { fontSize, fontFamily, bold } = settings;
+  const isDefault =
+    fontSize === DEFAULT_SETTINGS.fontSize &&
+    fontFamily === DEFAULT_SETTINGS.fontFamily &&
+    bold === DEFAULT_SETTINGS.bold;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs select-none">
+      <span className="text-slate-400 font-medium tracking-wide uppercase text-[10px] mr-1">
+        Display
+      </span>
+
+      {/* Font size */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onChange({ ...settings, fontSize: Math.max(MIN_FONT, fontSize - 1) })}
+          disabled={fontSize <= MIN_FONT}
+          title="Decrease text size"
+          className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center font-bold text-slate-600 transition"
+        >
+          A−
+        </button>
+        <span className="w-8 text-center text-slate-500 font-mono text-[11px]">{fontSize}px</span>
+        <button
+          onClick={() => onChange({ ...settings, fontSize: Math.min(MAX_FONT, fontSize + 1) })}
+          disabled={fontSize >= MAX_FONT}
+          title="Increase text size"
+          className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center font-bold text-slate-600 transition"
+        >
+          A+
+        </button>
+      </div>
+
+      <div className="w-px h-5 bg-slate-200" />
+
+      {/* Bold */}
+      <button
+        onClick={() => onChange({ ...settings, bold: !bold })}
+        title="Toggle bold"
+        className={`w-7 h-7 rounded-lg border flex items-center justify-center font-bold text-sm transition ${
+          bold
+            ? "bg-indigo-600 border-indigo-600 text-white"
+            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        B
+      </button>
+
+      <div className="w-px h-5 bg-slate-200" />
+
+      {/* Font family */}
+      <select
+        value={fontFamily}
+        onChange={(e) => onChange({ ...settings, fontFamily: e.target.value })}
+        title="Change font"
+        className="h-7 rounded-lg border border-slate-200 bg-white text-slate-600 text-[11px] px-2 outline-none hover:border-indigo-400 focus:border-indigo-400 transition cursor-pointer"
+      >
+        {FONT_OPTIONS.map((f) => (
+          <option key={f.value} value={f.value}>{f.label}</option>
+        ))}
+      </select>
+
+      {/* Reset */}
+      {!isDefault && (
+        <>
+          <div className="w-px h-5 bg-slate-200" />
+          <button
+            onClick={() => onChange({ ...DEFAULT_SETTINGS })}
+            title="Reset to defaults"
+            className="text-[10px] text-slate-400 hover:text-slate-600 transition underline"
+          >
+            Reset
+          </button>
+        </>
+      )}
+    </div>
+  );
 }
 
 /* ═══════════════════════════════════════
@@ -63,7 +156,7 @@ function ImageModal({ src, alt, onClose }) {
 /* ═══════════════════════════════════════
    RADIO BUTTON QUESTION
    ═══════════════════════════════════════ */
-function RadioQuestion({ question, answer, onAnswer }) {
+function RadioQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
   return (
     <div className="space-y-3">
@@ -93,7 +186,10 @@ function RadioQuestion({ question, answer, onAnswer }) {
                 className="h-16 object-contain rounded"
               />
             )}
-            <span className={`text-sm ${isSelected ? "text-indigo-700 font-medium" : "text-slate-700"}`}>
+            <span
+              className={isSelected ? "text-indigo-700" : "text-slate-700"}
+              style={textStyle}
+            >
               {opt.text}
             </span>
           </button>
@@ -106,7 +202,7 @@ function RadioQuestion({ question, answer, onAnswer }) {
 /* ═══════════════════════════════════════
    PICTURE CHOICE QUESTION
    ═══════════════════════════════════════ */
-function PictureChoiceQuestion({ question, answer, onAnswer }) {
+function PictureChoiceQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -130,9 +226,10 @@ function PictureChoiceQuestion({ question, answer, onAnswer }) {
               />
             )}
             <div
-              className={`px-3 py-2 text-sm text-center ${
-                isSelected ? "bg-indigo-50 text-indigo-700 font-medium" : "bg-white text-slate-600"
+              className={`px-3 py-2 text-center ${
+                isSelected ? "bg-indigo-50 text-indigo-700" : "bg-white text-slate-600"
               }`}
+              style={textStyle}
             >
               {opt.text}
             </div>
@@ -153,7 +250,7 @@ function PictureChoiceQuestion({ question, answer, onAnswer }) {
 /* ═══════════════════════════════════════
    CHECKBOX QUESTION
    ═══════════════════════════════════════ */
-function CheckboxQuestion({ question, answer, onAnswer }) {
+function CheckboxQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected || [];
   const toggle = (optionId) => {
     const next = selected.includes(optionId)
@@ -187,9 +284,12 @@ function CheckboxQuestion({ question, answer, onAnswer }) {
               )}
             </div>
             {opt.image_url && (
-              <img src={opt.image_url} alt={opt.text} className="h-16 object-contain rounded" />
+              <img src={resolveImgSrc(opt.image_url)} alt={opt.text} className="h-16 object-contain rounded" />
             )}
-            <span className={`text-sm ${isSelected ? "text-indigo-700 font-medium" : "text-slate-700"}`}>
+            <span
+              className={isSelected ? "text-indigo-700" : "text-slate-700"}
+              style={textStyle}
+            >
               {opt.text}
             </span>
           </button>
@@ -202,7 +302,7 @@ function CheckboxQuestion({ question, answer, onAnswer }) {
 /* ═══════════════════════════════════════
    SHORT ANSWER QUESTION
    ═══════════════════════════════════════ */
-function ShortAnswerQuestion({ question, answer, onAnswer }) {
+function ShortAnswerQuestion({ question, answer, onAnswer, textStyle }) {
   const text = answer?.text || "";
   return (
     <div className="space-y-2">
@@ -212,6 +312,7 @@ function ShortAnswerQuestion({ question, answer, onAnswer }) {
         onChange={(e) => onAnswer({ text: e.target.value })}
         placeholder="Type your answer here..."
         className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-base text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
+        style={textStyle}
       />
       <p className="text-xs text-slate-400">Your answer is saved automatically.</p>
     </div>
@@ -220,10 +321,10 @@ function ShortAnswerQuestion({ question, answer, onAnswer }) {
 
 /* ═══════════════════════════════════════════════════════════
    WRITING QUESTION
-   ✅ Has textarea — student types/uploads their response.
-   Previously this was called FreeTextQuestion.
+   ✅ Full OCR / Year 3 handwriting upload preserved from v9
+   ✅ textStyle applied to all textareas
    ═══════════════════════════════════════════════════════════ */
-function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUploadingChange }) {
+function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUploadingChange, textStyle }) {
   const { activeToken } = useAuth();
 
   const text = answer?.text || "";
@@ -246,7 +347,6 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
   const extractHandwritingFromImage = async (file) => {
     setOcrLoading(true);
     setOcrError("");
-
     try {
       const base64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -254,9 +354,7 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
         reader.onerror = () => reject(new Error("Failed to read file"));
         reader.readAsDataURL(file);
       });
-
       setPreviewUrl(URL.createObjectURL(file));
-
       const res = await fetch(`${API_BASE}/api/ocr/handwriting`, {
         method: "POST",
         headers: {
@@ -265,12 +363,10 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
         },
         body: JSON.stringify({ base64, mediaType: file.type }),
       });
-
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || `OCR failed (${res.status})`);
       }
-
       const data = await res.json();
       onAnswer({ text: data.text });
     } catch (err) {
@@ -284,19 +380,14 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (!ALLOWED_TYPES.includes(file.type)) {
       setOcrError("Only photo files are allowed. Please upload a JPEG, PNG, or WebP image.");
       return;
     }
-
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      setOcrError(
-        `Photo is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Please upload an image under ${MAX_FILE_SIZE_MB}MB.`
-      );
+      setOcrError(`Photo is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Please upload an image under ${MAX_FILE_SIZE_MB}MB.`);
       return;
     }
-
     extractHandwritingFromImage(file);
   };
 
@@ -328,7 +419,6 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
               <p className="text-xs text-slate-400 mt-1">Use the keyboard to write</p>
             </div>
           </button>
-
           <button
             onClick={() => setMode("upload")}
             className="flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 transition-all group"
@@ -362,23 +452,13 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
           </svg>
           Change method
         </button>
-
         <div
           onClick={handlePickerClick}
           className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer ${
-            ocrLoading
-              ? "border-indigo-300 bg-indigo-50 cursor-wait"
-              : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
+            ocrLoading ? "border-indigo-300 bg-indigo-50 cursor-wait" : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
           }`}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-
+          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFileChange} />
           {ocrLoading ? (
             <div className="flex flex-col items-center gap-3">
               <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -405,7 +485,6 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
             </div>
           )}
         </div>
-
         {ocrError && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
             <div className="flex items-start gap-2">
@@ -413,22 +492,11 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
               <p className="text-sm text-red-600">{ocrError}</p>
             </div>
             <div className="flex gap-2">
-              <button
-                onClick={() => { setOcrError(""); fileInputRef.current?.click(); }}
-                className="flex-1 px-3 py-2 bg-white border border-red-300 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50 transition"
-              >
-                Try again
-              </button>
-              <button
-                onClick={() => { setMode("type"); setOcrError(""); reEnterFullscreen(); }}
-                className="flex-1 px-3 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition"
-              >
-                Type instead
-              </button>
+              <button onClick={() => { setOcrError(""); fileInputRef.current?.click(); }} className="flex-1 px-3 py-2 bg-white border border-red-300 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50 transition">Try again</button>
+              <button onClick={() => { setMode("type"); setOcrError(""); reEnterFullscreen(); }} className="flex-1 px-3 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition">Type instead</button>
             </div>
           </div>
         )}
-
         {text && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -441,7 +509,7 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
                 onChange={(e) => onAnswer({ text: e.target.value })}
                 rows={8}
                 className="w-full px-5 py-4 text-base text-slate-800 leading-relaxed resize-y outline-none placeholder:text-slate-400"
-                style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}
+                style={textStyle}
               />
             </div>
           </div>
@@ -450,7 +518,7 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
     );
   }
 
-  // ── Default: plain textarea ──
+  // ── Default: plain textarea (also used for Year 3 "type" mode) ──
   return (
     <div className="space-y-3">
       {isYear3Writing && mode === "type" && (
@@ -471,7 +539,7 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
           placeholder="Write your answer here..."
           rows={12}
           className="w-full px-5 py-4 text-base text-slate-800 leading-relaxed resize-y outline-none min-h-[200px] placeholder:text-slate-400"
-          style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}
+          style={textStyle}
         />
         <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-t border-slate-100">
           <div className="flex items-center gap-4 text-xs text-slate-400">
@@ -479,25 +547,19 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
             <span>{charCount} {charCount === 1 ? "character" : "characters"}</span>
           </div>
           {text.trim() && (
-            <button
-              onClick={() => onAnswer({ text: "" })}
-              className="text-xs text-slate-400 hover:text-red-500 transition"
-            >
+            <button onClick={() => onAnswer({ text: "" })} className="text-xs text-slate-400 hover:text-red-500 transition">
               Clear
             </button>
           )}
         </div>
       </div>
-      <p className="text-xs text-slate-400">
-        Write your response in the box above. Your answer is saved automatically.
-      </p>
+      <p className="text-xs text-slate-400">Write your response in the box above. Your answer is saved automatically.</p>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
    FREE TEXT QUESTION  (display-only — NO student input)
-   ✅ Only shows the question text/image — no answer box.
    ═══════════════════════════════════════════════════════════ */
 function FreeTextQuestion() {
   return null;
@@ -519,8 +581,19 @@ export default function QuestionRenderer({
 }) {
   const [zoomImg, setZoomImg] = useState(null);
 
+  // ── Text display settings state ────────────────────────────
+  const [textSettings, setTextSettings] = useState({ ...DEFAULT_SETTINGS });
+
+  const textStyle = {
+    fontSize: `${textSettings.fontSize}px`,
+    fontFamily: textSettings.fontFamily,
+    fontWeight: textSettings.bold ? "700" : "400",
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+
+      {/* ── Question number + flag row ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-bold">
@@ -553,7 +626,11 @@ export default function QuestionRenderer({
         </button>
       </div>
 
-      <div className="text-base text-slate-800 leading-relaxed font-medium">
+      {/* ── Text Settings Toolbar ── */}
+      <TextSettingsBar settings={textSettings} onChange={setTextSettings} />
+
+      {/* ── Question text ── */}
+      <div className="leading-relaxed" style={textStyle}>
         {question.text && question.text.includes("<") ? (
           <div
             dangerouslySetInnerHTML={{ __html: question.text }}
@@ -564,16 +641,15 @@ export default function QuestionRenderer({
         ) : null}
       </div>
 
+      {/* ── Question image ── */}
       {question.image_url && (
         <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
           <img
             src={resolveImgSrc(question.image_url)}
             alt="Question image"
             className={`object-contain mx-auto rounded-lg cursor-zoom-in${
-                    !question.image_height ? " max-h-96" : ""
-                  }${
-                    !question.image_width ? " max-w-full" : ""
-                  }`}
+              !question.image_height ? " max-h-96" : ""
+            }${!question.image_width ? " max-w-full" : ""}`}
             style={{
               ...(question.image_width ? { width: `${question.image_width}px`, maxWidth: "100%" } : {}),
               ...(question.image_height ? { height: `${question.image_height}px`, objectFit: "contain" } : {}),
@@ -583,16 +659,16 @@ export default function QuestionRenderer({
         </div>
       )}
 
+      {/* ── Answer inputs — textStyle passed to every type ── */}
       {question.type === "radio_button" && (
-        <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} />
+        <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
       )}
       {question.type === "picture_choice" && (
-        <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} />
+        <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
       )}
       {question.type === "checkbox" && (
-        <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} />
+        <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
       )}
-      {/* ✅ "writing" → shows textarea for student response */}
       {question.type === "writing" && (
         <WritingQuestion
           question={question}
@@ -601,16 +677,15 @@ export default function QuestionRenderer({
           yearLevel={yearLevel}
           subject={subject}
           onUploadingChange={onUploadingChange}
+          textStyle={textStyle}
         />
       )}
-      {/* ✅ "free_text" → display-only, no input rendered */}
-      {question.type === "free_text" && (
-        <FreeTextQuestion />
-      )}
+      {question.type === "free_text" && <FreeTextQuestion />}
       {question.type === "short_answer" && (
-        <ShortAnswerQuestion question={question} answer={answer} onAnswer={onAnswer} />
+        <ShortAnswerQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
       )}
 
+      {/* ── Image zoom modal ── */}
       {zoomImg && (
         <ImageModal src={zoomImg} alt="Question image" onClose={() => setZoomImg(null)} />
       )}

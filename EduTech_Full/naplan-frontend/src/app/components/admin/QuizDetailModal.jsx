@@ -23,6 +23,19 @@ import { AddQuestionForm } from "./ManualQuizCreator"; // ← PATCH 1
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
+
+/* ─── Text settings ─────────────────────────────────────── */
+const FONT_OPTIONS = [
+  { label: "Default",  value: "system-ui, sans-serif" },
+  { label: "Serif",    value: "'Georgia', 'Times New Roman', serif" },
+  { label: "Verdana",  value: "'Verdana', 'Geneva', sans-serif" },
+  { label: "Dyslexic", value: "'Comic Sans MS', 'Trebuchet MS', sans-serif" },
+  { label: "Mono",     value: "'Courier New', 'Courier', monospace" },
+];
+const MIN_FONT = 12;
+const MAX_FONT = 26;
+const DEFAULT_TEXT = { fontSize: 16, fontFamily: FONT_OPTIONS[0].value, bold: false };
+
 function adminFetch(url, opts = {}) {
   const token = localStorage.getItem("admin_token");
   return fetch(`${API}${url}`, { ...opts, headers: { "Content-Type": "application/json", ...opts.headers, Authorization: `Bearer ${token}` } });
@@ -531,7 +544,33 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     </div>
   );
 }
-
+function TextSettingsBar({ settings, onChange }) {
+  const { fontSize, fontFamily, bold } = settings;
+  const isDefault = fontSize === DEFAULT_TEXT.fontSize && fontFamily === DEFAULT_TEXT.fontFamily && !bold;
+  return (
+    <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs select-none">
+      <span className="text-slate-500 font-medium uppercase text-[10px] tracking-wide mr-1">Preview</span>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onChange({ ...settings, fontSize: Math.max(MIN_FONT, fontSize - 1) })} disabled={fontSize <= MIN_FONT}
+          className="w-7 h-7 rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-700 disabled:opacity-40 flex items-center justify-center font-bold text-slate-300 transition">A−</button>
+        <span className="w-8 text-center text-slate-400 font-mono text-[11px]">{fontSize}px</span>
+        <button onClick={() => onChange({ ...settings, fontSize: Math.min(MAX_FONT, fontSize + 1) })} disabled={fontSize >= MAX_FONT}
+          className="w-7 h-7 rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-700 disabled:opacity-40 flex items-center justify-center font-bold text-slate-300 transition">A+</button>
+      </div>
+      <div className="w-px h-5 bg-slate-600" />
+      <button onClick={() => onChange({ ...settings, bold: !bold })}
+        className={`w-7 h-7 rounded-lg border flex items-center justify-center font-bold text-sm transition ${bold ? "bg-indigo-600 border-indigo-600 text-white" : "bg-slate-900 border-slate-600 text-slate-300 hover:bg-slate-700"}`}>B</button>
+      <div className="w-px h-5 bg-slate-600" />
+      <select value={fontFamily} onChange={(e) => onChange({ ...settings, fontFamily: e.target.value })}
+        className="h-7 rounded-lg border border-slate-600 bg-slate-900 text-slate-300 text-[11px] px-2 outline-none hover:border-indigo-400 transition cursor-pointer">
+        {FONT_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+      </select>
+      {!isDefault && (
+        <button onClick={() => onChange({ ...DEFAULT_TEXT })} className="text-[10px] text-slate-500 hover:text-slate-300 underline transition">Reset</button>
+      )}
+    </div>
+  );
+}
 /* ═══════════════════════════════════════
    MAIN: QuizDetailModal
    ═══════════════════════════════════════ */
@@ -548,7 +587,9 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
   const [insertAtIndex, setInsertAtIndex] = useState(null);
   const addingRef = useRef(false); 
   const [moveQuestion, setMoveQuestion] = useState(null);
-
+  // ── Text preview settings ──
+  const [textSettings, setTextSettings] = useState({ ...DEFAULT_TEXT });
+  const textStyle = { fontSize: `${textSettings.fontSize}px`, fontFamily: textSettings.fontFamily, fontWeight: textSettings.bold ? "700" : "400" };
 
   const fetchDetail = async () => {
     try {
@@ -736,7 +777,12 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
         </div>
 
         {/* Body */}
+        {/* Body */}
         <div className="px-6 py-4 max-h-[70vh] overflow-y-auto space-y-4">
+
+          {/* ── Text Preview Settings Toolbar ── */}
+          <TextSettingsBar settings={textSettings} onChange={setTextSettings} />
+
           {loading ? (
             <div className="flex items-center justify-center py-20"><div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>
           ) : questions.length === 0 ? (
@@ -801,8 +847,8 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                     </div>
 
                     {/* Question text */}
-                    <div className="mb-3 ml-10">
-                      <HtmlContent html={q.text} className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
+                    <div style={textStyle}>
+                      <HtmlContent html={q.text} className={`leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
                     </div>
 
                     {/* Question image */}
@@ -849,7 +895,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                               <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"}`}>
                                 {opt.correct ? "✓" : letter}
                               </span>
-                              <span className="text-slate-300 text-sm">{opt.text}</span>
+                              <span className="text-slate-300" style={textStyle}>{opt.text}</span>
                               {opt.image_url && <img src={opt.image_url} alt={`Option ${letter}`} className="w-16 h-16 rounded-lg object-cover border border-slate-700" />}
                             </div>
                           );
