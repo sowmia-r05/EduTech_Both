@@ -8,19 +8,48 @@
 //
 // Usage:
 //   import { fetchChildrenSummaries, createChild, fetchAvailableQuizzes, ... } from "@/app/utils/api-children";
+export async function fetchCumulativeFeedback(token, childId) {
+  const data = await authGet(`/api/children/${childId}/cumulative-feedback`, token);
+  return {
+    feedback: data?.feedback || {},
+    generating: data?.generating ?? false,
+  };
+}
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL !== undefined
-    ? import.meta.env.VITE_API_BASE_URL
-    : import.meta.env.DEV
-      ? ""
-      : "http://localhost:3000";
+// One-time migration: remove tokens from localStorage if present
+// (legacy from before the cookie-only auth switch)
+;(function cleanupLegacyTokens() {
+  try {
+    localStorage.removeItem("parent_token");
+    localStorage.removeItem("child_token");
+  } catch {}
+})();
+
+
+/**
+ * Trigger a manual refresh of cumulative AI feedback for a child.
+ * Returns 202 Accepted immediately — feedback generates asynchronously.
+ * Poll fetchCumulativeFeedback() to get updated results.
+ */
+export async function refreshCumulativeFeedback(token, childId) {
+  return authPost(
+    `/api/children/${childId}/cumulative-feedback/refresh`,
+    {},
+    token
+  );
+}
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+
+
+
+
 
 // ─── Helpers ───
 
 async function authGet(path, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "GET",
+    credentials: "include",
     headers: {
       Accept: "application/json",
       "Cache-Control": "no-cache",
@@ -28,58 +57,64 @@ async function authGet(path, token) {
     },
     cache: "no-store",
   });
-
   if (res.status === 204) return null;
-
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
   return body;
 }
 
+
+
+
+// ✅ FIXED — Content-Type tells Express to parse the JSON body
 async function authPost(path, data, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      "Cache-Control": "no-cache",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(data),
   });
-
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
-  return body;
+  return body; 
 }
+
+
+
 
 async function authPut(path, data, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PUT",
+    credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json", // ← ADD THIS HERE TOO
       Accept: "application/json",
+      "Cache-Control": "no-cache",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(data),
   });
-
-  const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
-  return body;
 }
+
 
 async function authDelete(path, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "DELETE",
+    credentials: "include",
     headers: {
       Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
-
-  const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
-  return body;
+    const body = await res.json().catch(() => null);
+    if (!res.ok)
+      throw new Error(body?.error || `Request failed: ${res.status}`);
+    return body;
 }
 
 // ─── Children CRUD ───
@@ -170,14 +205,7 @@ export async function fetchChildWriting(token, childId) {
   return Array.isArray(data) ? data : [];
 }
 
-/**
- * Fetch quizzes assigned to a child (legacy FlexiQuiz catalog).
- * @deprecated Use fetchAvailableQuizzes() instead for native quizzes.
- */
-export async function fetchChildQuizzes(token, childId) {
-  const data = await authGet(`/api/children/${childId}/quizzes`, token);
-  return data || { quizzes: [], bundles: [], child_status: "trial" };
-}
+
 
 
 // ═══════════════════════════════════════════════════════

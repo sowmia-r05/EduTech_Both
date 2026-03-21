@@ -77,9 +77,6 @@ export default function DonutScoreChart({
   return (
     <div className="w-full h-full flex flex-col items-center justify-center">
       {/* Header — emerald instead of indigo */}
-      <h2 className="text-lg font-semibold text-emerald-600">
-        Performance Overview
-      </h2>
 
       {/* Donut */}
       <div className="relative w-[75%] aspect-square">

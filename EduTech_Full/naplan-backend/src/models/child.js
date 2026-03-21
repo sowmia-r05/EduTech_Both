@@ -39,10 +39,23 @@ const ChildSchema = new mongoose.Schema(
       required: true,
     },
 
-    // FlexiQuiz link (set after purchase + auto-provisioning)
-    flexiquiz_user_id: { type: String, default: null, index: true },
-    flexiquiz_password_enc: { type: String, default: null },
-    flexiquiz_provisioned_at: { type: Date, default: null },
+    // Parental consent
+    parental_consent: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
+    parental_consent_at: {
+      type: Date,
+      default: null,
+    },
+
+    // Email notifications
+    email_notifications: {
+      type: Boolean,
+      default: false,
+    },
+
 
     // Status
     status: {
@@ -54,8 +67,6 @@ const ChildSchema = new mongoose.Schema(
     // Entitlements
     // embed IDs → used by frontend for iframe display + filtering
     entitled_quiz_ids: [{ type: String }],
-    // API quiz IDs → used by backend for FlexiQuiz API assign/unassign
-    entitled_api_quiz_ids: [{ type: String }],
     // Bundle IDs → tracks which bundles were purchased
     entitled_bundle_ids: [{ type: String }],
   },

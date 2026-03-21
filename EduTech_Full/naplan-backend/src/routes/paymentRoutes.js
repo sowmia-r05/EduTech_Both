@@ -194,7 +194,7 @@ router.post("/webhook", async (req, res) => {
   let event;
   try {
     event = stripe.webhooks.constructEvent(
-      req.rawBody || req.body,
+      req.body,
       sig,
       webhookSecret
     );

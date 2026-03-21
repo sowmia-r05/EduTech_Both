@@ -21,6 +21,7 @@ import { useAuth } from "@/app/context/AuthContext";
 import { normalizeEmail } from "@/app/utils/api";
 import useOtpCountdown from "@/app/hooks/useOtpCountdown";
 import OtpExpiredModal from "@/app/components/auth/OtpExpiredModal";
+import GoogleSignInButton from "@/app/components/auth/GoogleSignInButton";
 
 /* ── Helpers ────────────────────────────────────── */
 
@@ -111,6 +112,17 @@ export default function ParentLoginPage() {
       enabled: step === "otp" && !showExpiredModal,
     });
 
+    /* ── Google Sign-In handler ── */
+  const handleGoogleSuccess = useCallback((data) => {
+    loginParent(data.parent_token, data.parent);
+    const destination = resolvePostLoginRedirect(redirectIntent);
+    navigate(destination, { replace: true });
+  }, [loginParent, navigate, redirectIntent]);
+
+  const handleGoogleError = useCallback((message) => {
+    setError(message || "Google Sign-In failed. Please try again.");
+  }, []);
+
   /* ── Step 1: Request OTP ──────────────────────── */
   const handleRequestOtp = async (e) => {
     e.preventDefault();
@@ -154,17 +166,24 @@ export default function ParentLoginPage() {
     if (!/^\d{6}$/.test(cleanOtp)) { setError("Please enter a valid 6-digit code."); return; }
 
     try {
-      setLoading(true);
-      const res = await verifyLoginOtp(email, cleanOtp);
-      const token = res?.parent_token || res?.token;
-      const parent = res?.parent || res?.user || null;
-      if (!token) throw new Error("Login token missing from server response.");
+    const res = await verifyLoginOtp(email, cleanOtp);
 
-      loginParent(token, parent);
+    // ✅ Support both approaches:
+    //    - Old: token in response body (parent_token)
+    //    - New (S-02): token set as httpOnly cookie by server, not in body
+    const token = res?.parent_token || res?.token || null;
+    const parent = res?.parent || res?.user || null;
 
-      // ✅ CHANGED: Honor the redirect intent instead of always going to /parent-dashboard
-      const destination = resolvePostLoginRedirect(redirectIntent);
-      navigate(destination, { replace: true });
+    // ✅ Only require token if we're NOT using cookies
+    //    If res.ok and we have a parent object, the cookie was set successfully
+    if (!token && !parent) {
+      throw new Error("Verification failed. No session data received.");
+    }
+
+    loginParent(token, parent);
+    const destination = resolvePostLoginRedirect(redirectIntent);
+    navigate(destination, { replace: true });
+
     } catch (err) {
       setError(err?.message || "Verification failed. Please try again.");
     } finally {
@@ -272,6 +291,22 @@ export default function ParentLoginPage() {
           </CardHeader>
 
           <CardContent>
+            {/* ── Google Sign-In ── */}
+              <GoogleSignInButton
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                disabled={loading}
+              />
+
+              {/* ── Divider ── */}
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="bg-white px-4 text-slate-400">or continue with email</span>
+                </div>
+              </div>
             {/* ── Error / Info Alerts ─── */}
             {error && (
               <Alert variant="destructive" className="mb-4">

@@ -1,22 +1,20 @@
 /**
  * AdminLogin.jsx
- *
- * Admin login with email + password.
- *
- * Replace: src/app/components/admin/AdminLogin.jsx
+ * Updated: uses ADMIN_PATH constant — no hardcoded /admin paths
  */
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ADMIN_PATH } from "@/app/App";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
 export default function AdminLogin() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [email,        setEmail]        = useState("");
+  const [password,     setPassword]     = useState("");
+  const [error,        setError]        = useState("");
+  const [loading,      setLoading]      = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -24,24 +22,25 @@ export default function AdminLogin() {
     setError("");
 
     const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail) { setError("Enter your email"); return; }
-    if (!password) { setError("Enter your password"); return; }
+    if (!trimmedEmail) { setError("Enter your email");    return; }
+    if (!password)      { setError("Enter your password"); return; }
 
     try {
       setLoading(true);
-      const res = await fetch(`${API}/api/admin/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmedEmail, password }),
+      const res  = await fetch(`${API}/api/admin/login`, {
+        method:      "POST",
+        headers:     { "Content-Type": "application/json" },
+        credentials: "include",   // sends/receives httpOnly cookie
+        body:        JSON.stringify({ email: trimmedEmail, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
 
+      // Store token + profile in localStorage for quick access
       localStorage.setItem("admin_token", data.token);
-      if (data.admin) {
-        localStorage.setItem("admin_info", JSON.stringify(data.admin));
-      }
-      navigate("/admin/dashboard");
+      if (data.admin) localStorage.setItem("admin_info", JSON.stringify(data.admin));
+
+      navigate(`${ADMIN_PATH}/dashboard`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -52,11 +51,13 @@ export default function AdminLogin() {
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
+
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-600 mb-4">
             <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
             </svg>
           </div>
           <h1 className="text-xl font-semibold text-white">Admin Access</h1>
@@ -72,9 +73,7 @@ export default function AdminLogin() {
 
           {/* Email */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
             <input
               type="email"
               value={email}
@@ -88,9 +87,7 @@ export default function AdminLogin() {
 
           {/* Password */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-slate-300 mb-1.5">Password</label>
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
@@ -132,20 +129,13 @@ export default function AdminLogin() {
                 </svg>
                 Signing in...
               </span>
-            ) : (
-              "Sign In"
-            )}
+            ) : "Sign In"}
           </button>
-
-        <p className="text-xs text-slate-500 text-center">
-        This panel is for internal use only.
-      </p>
-      <div className="text-center pt-2">
-        <button onClick={() => navigate("/login")} className="text-xs text-indigo-400 hover:text-indigo-300 transition">
-          ← Back to Student Sign In
-        </button>
-      </div>
         </form>
+
+        <p className="text-xs text-slate-500 text-center mt-4">
+          This panel is for internal use only.
+        </p>
       </div>
     </div>
   );

@@ -1,24 +1,4 @@
-// src/app/components/dashboardComponents/QuickChildLoginModal.jsx
-//
-// ✅ NEW FILE — Quick Child Login from Parent Dashboard
-//
-// Allows a parent to hand the device to their child without logging out.
-// The child picks their profile, enters their PIN, and gets a child JWT
-// layered on top of the existing parent session.
-//
-// When the child logs out (via logoutChild()), the parent session is
-// automatically restored — no re-authentication needed.
-//
-// Place in: naplan-frontend/src/app/components/dashboardComponents/QuickChildLoginModal.jsx
-//
-// Usage in ParentDashboard.jsx:
-//   import QuickChildLoginModal from "@/app/components/dashboardComponents/QuickChildLoginModal";
-//
-//   <QuickChildLoginModal
-//     isOpen={isChildLoginModalOpen}
-//     onClose={() => setIsChildLoginModalOpen(false)}
-//     childrenList={children}
-//   />
+
 
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -100,7 +80,15 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
       // Layer child token on top of existing parent session
       loginChild(data.token, data.child);
       onClose();
-      navigate("/child-dashboard", { replace: true });
+      navigate("/child-dashboard", { 
+        replace: true,
+      state: {
+        childId: data.child?.childId || null,
+        childName: data.child?.displayName || null,
+        yearLevel: data.child?.yearLevel || null,
+        username: data.child?.username || null,
+      },
+     });
     } catch (err) {
       setError(err.message || "Login failed. Check username and PIN.");
       setPin("");
@@ -242,7 +230,7 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
                   maxLength={6}
                   value={pin}
                   onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                  placeholder="••••"
+                  placeholder="••••••"
                   className="w-full px-4 py-3 border border-slate-300 rounded-xl
                              text-center text-2xl tracking-[0.5em]
                              focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500
@@ -270,7 +258,7 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || pin.length < 4}
+                  disabled={loading || pin.length < 6}
                   className="flex-1 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600
                              text-white rounded-xl text-sm font-semibold
                              hover:from-violet-700 hover:to-indigo-700
@@ -286,7 +274,7 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
                       Logging in…
                     </span>
                   ) : (
-                    "Let's Go! 🚀"
+                    "Let's Go!"
                   )}
                 </button>
               </div>
@@ -379,7 +367,7 @@ export default function QuickChildLoginModal({ isOpen, onClose, childrenList = [
                       Logging in…
                     </span>
                   ) : (
-                    "Let's Go! 🚀"
+                    "Let's Go!"
                   )}
                 </button>
               </div>

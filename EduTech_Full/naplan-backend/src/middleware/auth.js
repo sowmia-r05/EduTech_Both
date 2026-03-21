@@ -14,8 +14,12 @@ const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
  * We normalize both shapes to a consistent req.user
  */
 function verifyToken(req, res, next) {
-  const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+const header = req.headers.authorization || "";
+const fromHeader = header.startsWith("Bearer ") ? header.slice(7) : null;
+const fromCookie =
+  req.cookies?.parent_token || req.cookies?.child_token || null;
+const token = fromHeader || fromCookie;
+
 
   if (!token) {
     return res.status(401).json({ error: "Authentication required" });

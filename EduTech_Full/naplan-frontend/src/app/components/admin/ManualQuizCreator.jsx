@@ -166,7 +166,7 @@ function ImageField({ value, onChange, label = "Image" }) {
 /* ═══════════════════════════════════════
    ADD QUESTION FORM
    ═══════════════════════════════════════ */
-function AddQuestionForm({ onAdd, onCancel }) {
+export function AddQuestionForm({ onAdd, onCancel }) {
   const [q, setQ] = useState({
     question_text: "",
     type: "radio_button",
@@ -237,15 +237,15 @@ function AddQuestionForm({ onAdd, onCancel }) {
 
     if (q.type === "short_answer") {
       if (!q.correct_answer.trim()) return alert("Correct answer is required for Short Answer questions");
-    } else if (q.type !== "free_text") {
+    } else if (q.type !== "free_text" && q.type !== "writing") {
       const validCount = q.options.filter(hasValidOption).length;
       if (validCount < 2) return alert("At least 2 options required");
       if (!q.options.some((o) => o.correct)) return alert("Mark at least one correct answer");
     }
 
     const cleanedOptions =
-      q.type === "free_text" || q.type === "short_answer"
-        ? []
+    q.type === "free_text" || q.type === "short_answer" || q.type === "writing"
+      ? []
         : q.options
             .filter(hasValidOption)
             .map((o) => ({
@@ -266,7 +266,7 @@ function AddQuestionForm({ onAdd, onCancel }) {
       correct_answer:
         q.type === "short_answer"
           ? q.correct_answer.trim()
-          : q.type === "free_text"
+          : q.type === "free_text" || q.type === "writing"
           ? ""
           : q.options
               .filter((o) => o.correct)
@@ -313,9 +313,7 @@ function AddQuestionForm({ onAdd, onCancel }) {
 
       {/* Type / Points / Category */}
       <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">Type *</label>
-          <select
+        <select
             value={q.type}
             onChange={(e) => setQ((p) => ({ ...p, type: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
@@ -323,10 +321,10 @@ function AddQuestionForm({ onAdd, onCancel }) {
             <option value="radio_button">Single Choice (MCQ)</option>
             <option value="checkbox">Multiple Choice</option>
             <option value="picture_choice">Picture Choice</option>
-            <option value="free_text">Free Text / Writing</option>
+            <option value="writing">Writing (text box)</option>
+            <option value="free_text">Free Text (display only)</option>
             <option value="short_answer">Short Answer</option>
           </select>
-        </div>
 
         <div>
           <label className="block text-xs text-slate-400 mb-1">Points</label>
@@ -491,7 +489,7 @@ function AddQuestionForm({ onAdd, onCancel }) {
       )}
 
       {/* Options (hidden for free_text and short_answer) */}
-      {q.type !== "free_text" && q.type !== "short_answer" && (
+      {q.type !== "free_text" && q.type !== "short_answer" && q.type !== "writing" && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-medium text-slate-400">Options * (click ✓ for correct)</label>
@@ -818,6 +816,8 @@ export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
                               ? "bg-emerald-500/10 text-emerald-400"
                               : qq.type === "short_answer"
                               ? "bg-orange-500/10 text-orange-400"
+                              : qq.type === "writing"
+                              ? "bg-pink-500/10 text-pink-400"
                               : "bg-purple-500/10 text-purple-400"
                           }`}
                         >

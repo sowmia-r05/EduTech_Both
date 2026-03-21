@@ -1,15 +1,33 @@
 // src/routes/otpAuth.js
 // OTP-by-username -> lookup email from MongoDB -> send OTP -> verify -> return login_token
 // ✅ Uses Brevo API (HTTPS) instead of SMTP to avoid Render ETIMEDOUT on SMTP ports.
+// ✅ UPDATED: Removed dependency on deleted ../models/user
+//    Now looks up Parent by email directly (username OTP flow is legacy).
 
 const express = require("express");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 
 const { sendBrevoEmail } = require("../services/brevoEmail");
-const User = require("../models/user");
+const Parent = require("../models/parent"); 
+
 
 const router = express.Router();
+
+(function validateOtpConfig() {
+  const secret = process.env.OTP_SECRET;
+  if (!secret) {
+    throw new Error(
+      "FATAL: OTP_SECRET environment variable is not set. " +
+        "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error("FATAL: OTP_SECRET must be at least 32 characters long.");
+  }
+  console.log("✅ OTP_SECRET validated");
+})();
+
 
 function requiredEnv(name) {
   const v = process.env[name];
@@ -32,23 +50,31 @@ async function lookupEmailByUsername(username) {
 
   const rx = new RegExp(`^${escapeRegExp(u)}$`, "i");
 
+  // ✅ Look up Parent by email (username field treated as email for legacy support)
   const doc =
-    (await User.findOne({ username: rx }).select("email email_address").lean()) ||
-    (await User.findOne({ user_name: rx }).select("email email_address").lean()) ||
-    (await User.findOne({ userId: rx }).select("email email_address").lean()) ||
-    (await User.findOne({ studentId: rx }).select("email email_address").lean());
+    (await Parent.findOne({ email: rx }).select("email").lean()) ||
+    (await Parent.findOne({ username: rx }).select("email").lean());
 
-  const email = String(doc?.email || doc?.email_address || "").trim().toLowerCase();
+  const email = String(doc?.email || "").trim().toLowerCase();
   return email || null;
 }
 
 // In-memory OTP store (Render restarts clear this; Mongo storage is better later)
 const otpStore = new Map();
 
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of otpStore.entries()) {
+    if (!record || now > record.expiresAt) {
+      otpStore.delete(key);
+    }
+  }
+}, 60 *1000).unref?.();
+
 function hashOtp(username, otp) {
-  const secret = requiredEnv("OTP_SECRET");
+  
   return crypto
-    .createHmac("sha256", secret)
+    .createHmac("sha256", process.env.OTP_SECRET)
     .update(`${username}:${otp}`)
     .digest("hex");
 }
@@ -85,7 +111,11 @@ router.post("/otp/request", async (req, res) => {
     const hash = hashOtp(username, otp);
     const expiresAt = now + otpExpiresSeconds() * 1000;
 
-    otpStore.set(username, { email, hash, expiresAt, attempts: 0, lastSentAt: now });
+    otpStore.set(username, { 
+      otpHash: hashOtp(username, otp),
+      expiresAt: Date.now() + (otpExpiresSeconds() * 1000),
+      attempts: 0,
+    });
 
     await sendBrevoEmail({
       toEmail: email,
@@ -96,7 +126,7 @@ router.post("/otp/request", async (req, res) => {
           <p>Your one-time password is:</p>
           <div style="font-size: 24px; font-weight: bold; letter-spacing: 2px;">${otp}</div>
           <p>This code expires in ${process.env.OTP_EXPIRES_MIN || 10} minutes.</p>
-          <p>If you didn’t request this code, you can ignore this email.</p>
+          <p>If you didn't request this code, you can ignore this email.</p>
         </div>
       `,
     });
@@ -122,9 +152,12 @@ router.post("/otp/verify", async (req, res) => {
     }
 
     const record = otpStore.get(username);
-    if (!record) return res.status(401).json({ error: "OTP not requested" });
+    if (!record || Date.now() > record.expiresAt) {
+      otpStore.delete(username);
+      return res.status(401).json({ error: "OTP expired. Please request a new one" });
+    } 
 
-    if (Date.now() > record.expiresAt) {
+    if (!record || Date.now() > record.expiresAt) {
       otpStore.delete(username);
       return res.status(401).json({ error: "OTP expired" });
     }

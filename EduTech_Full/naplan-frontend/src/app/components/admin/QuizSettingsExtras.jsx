@@ -7,10 +7,10 @@
  */
 
 export default function QuizSettingsExtras({ form, onChange, compact = false }) {
-  const allowRetakes = form.max_attempts === null || form.max_attempts === undefined || form.max_attempts > 1;
+  const allowRetakes = form.attempts_enabled === true;
 
   const handleRetakeToggle = (checked) => {
-    onChange((f) => ({ ...f, max_attempts: checked ? null : 1 }));
+    onChange((f) => ({ ...f, attempts_enabled: checked, max_attempts: checked ? null : 1 }));
   };
 
   const handleMaxAttemptsChange = (value) => {
