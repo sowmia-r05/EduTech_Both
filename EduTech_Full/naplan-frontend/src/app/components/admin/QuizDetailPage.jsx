@@ -26,6 +26,8 @@ import { ADMIN_PATH } from "@/app/App";
 import DownloadXlsxButton from "./DownloadExcelButton";
 import { AddQuestionForm } from "./ManualQuizCreator";
 import CollapsibleImageResize from "./CollapsibleImageResize";
+import CollapsibleTextStyle, { buildTextStyle } from "./CollapsibleTextStyle"; // ← ADD THIS
+
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
