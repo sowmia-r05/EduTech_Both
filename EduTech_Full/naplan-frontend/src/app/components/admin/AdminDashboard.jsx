@@ -272,7 +272,7 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
           <option value="Maths">Maths</option>
           <option value="Reading">Reading</option>
           <option value="Writing">Writing</option>
-          <option value="Conventions">Conventions</option>
+          <option value="Language conventions">Language conventions</option>
         </select>
       </div>
 
@@ -421,6 +421,7 @@ export default function AdminDashboard() {
   const [error,                setError]                = useState("");
   const [search,               setSearch]               = useState("");
   const [filterYear,           setFilterYear]           = useState("all");
+  const [filterSubject,        setFilterSubject]        = useState("all");
   const [deletingId,           setDeletingId]           = useState(null);
   const [settingsQuiz,         setSettingsQuiz]         = useState(null);
   const [bundleMapQuiz,        setBundleMapQuiz]        = useState(null);
@@ -554,13 +555,14 @@ export default function AdminDashboard() {
   };
 
   const filtered = useMemo(() => quizzes.filter((q) => {
-    if (filterYear !== "all" && q.year_level !== Number(filterYear)) return false;
-    if (search) {
-      const s = search.toLowerCase();
-      return (q.quiz_name || "").toLowerCase().includes(s);
-    }
-    return true;
-  }), [quizzes, filterYear, search]);
+  if (filterYear !== "all" && q.year_level !== Number(filterYear)) return false;
+  if (filterSubject !== "all" && q.subject !== filterSubject) return false;
+  if (search) {
+    const s = search.toLowerCase();
+    return (q.quiz_name || "").toLowerCase().includes(s);
+  }
+  return true;
+}), [quizzes, filterYear, filterSubject, search])
 
   const totalQuizzes   = quizzes.length;
   const activeQuizzes  = quizzes.filter((q) => q.is_active === true).length;
@@ -644,12 +646,20 @@ export default function AdminDashboard() {
               <input type="text" placeholder="Search quizzes..." value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64" />
-              <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)}
+                <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)}
                 className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="all">All Years</option>
                 {[3, 5, 7, 9].map((y) => <option key={y} value={y}>Year {y}</option>)}
               </select>
+              <select value={filterSubject} onChange={(e) => setFilterSubject(e.target.value)}
+                className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="all">All Subjects</option>
+                {["Maths", "Reading", "Writing", "Language conventions"].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
               <span className="text-xs text-slate-500 ml-auto">
+
                 {filtered.length} quiz{filtered.length !== 1 ? "zes" : ""}
               </span>
             </div>

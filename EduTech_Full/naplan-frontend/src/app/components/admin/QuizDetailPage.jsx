@@ -414,21 +414,14 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const handleSave = async () => {
     setSaving(true);
     await onSave(question.question_id, {
-      text:            form.text,
-      type:            form.type,
-      points:          form.points,
-      category:        form.category,
-      image_url:       form.image_url,
-      image_size:      form.image_size,
-      image_width:     form.image_width,
-      image_height:    form.image_height,
-      explanation:     form.explanation,
-      shuffle_options: form.shuffle_options,
-      voice_url:       form.voice_url    || null,
-      video_url:       form.video_url    || null,
-      correct_answer:  form.correct_answer || null,
-      case_sensitive:  form.case_sensitive,
-      options:         form.options,
+      text:                form.text,
+      type:                form.type,
+      points:              form.points,
+      category:            form.category,
+      image_url:           form.image_url,
+      image_size:          form.image_size,
+      image_width:         form.image_width,
+      image_height:        form.image_height,
       text_font_size:      form.text_font_size,
       text_font_family:    form.text_font_family,
       text_font_weight:    form.text_font_weight,
@@ -438,6 +431,13 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       text_color:          form.text_color,
       max_length:          form.max_length,
       text_style_scope:    form.text_style_scope,
+      explanation:         form.explanation,
+      shuffle_options:     form.shuffle_options,
+      voice_url:           form.voice_url    || null,
+      video_url:           form.video_url    || null,
+      correct_answer:      form.correct_answer || null,
+      case_sensitive:      form.case_sensitive,
+      options:             form.options,
     });
     setSaving(false);
   };

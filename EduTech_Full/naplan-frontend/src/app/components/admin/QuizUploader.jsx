@@ -137,7 +137,7 @@ function parseFlexiQuiz(workbook, fileName) {
   if (lowerName.includes("numeracy") || lowerName.includes("math")) subject = "Maths";
   else if (lowerName.includes("reading")) subject = "Reading";
   else if (lowerName.includes("writing")) subject = "Writing";
-  else if (lowerName.includes("language") || lowerName.includes("convention") || lowerName.includes("grammar")) subject = "Conventions";
+  else if (lowerName.includes("language") || lowerName.includes("convention") || lowerName.includes("grammar")) subject = "Language conventions";
 
   const quizMeta = {
     quiz_name: baseName.replace(/\b\w/g, (c) => c.toUpperCase()),
@@ -276,8 +276,8 @@ function parseCustomTemplate(workbook) {
 
   if (!quizMeta.quiz_name) errors.push("Quiz name is required (Quiz Info sheet)");
   if (![3, 5, 7, 9].includes(quizMeta.year_level)) errors.push("Year level must be 3, 5, 7, or 9");
-  if (!["Maths", "Reading", "Writing", "Conventions"].includes(quizMeta.subject)) {
-    errors.push("Subject must be Maths, Reading, Writing, or Conventions");
+  if (!["Maths", "Reading", "Writing", "Language conventions"].includes(quizMeta.subject)) {
+    errors.push("Subject must be Maths, Reading, Writing, or Language conventions");
   }
 
   const qSheet = workbook.Sheets["Questions"];
@@ -541,8 +541,8 @@ export default function QuizUploader({ onUploadSuccess }) {
 
     if (!finalMeta.quiz_name)  { setUploadError("Quiz name is required"); setStep("preview"); return; }
     if (![3, 5, 7, 9].includes(finalMeta.year_level)) { setUploadError("Year level must be 3, 5, 7, or 9"); setStep("preview"); return; }
-    if (!["Maths", "Reading", "Writing", "Conventions"].includes(finalMeta.subject)) {
-      setUploadError("Subject must be Maths, Reading, Writing, or Conventions");
+    if (!["Maths", "Reading", "Writing", "Language conventions"].includes(finalMeta.subject)) {
+      setUploadError("Subject must be Maths, Reading, Writing, or Language conventions");
       setStep("preview");
       return;
     }
@@ -790,7 +790,7 @@ export default function QuizUploader({ onUploadSuccess }) {
                     <option value="Maths">Maths</option>
                     <option value="Reading">Reading</option>
                     <option value="Writing">Writing</option>
-                    <option value="Conventions">Conventions</option>
+                    <option value="Language conventions">Language conventions</option>
                   </select>
                 </div>
                 <div>
