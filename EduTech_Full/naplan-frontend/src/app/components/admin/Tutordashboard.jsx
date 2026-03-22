@@ -1,12 +1,10 @@
 /**
  * TutorDashboard.jsx
  *
- * Tutor's workspace:
- *   - Left: list of assigned quizzes with verification progress bar
- *   - Right: selected quiz with all questions + approve/reject controls
- *
- * ✅ FIXED: Now reads from "tutor_token" / "tutor_info" — separate from admin session.
- * ✅ UPDATED: Removed Edit button. Approved questions now show Reset + Reject options.
+ * ✅ FIXED: tutor_token / tutor_info separate from admin session
+ * ✅ Image zoom modal
+ * ✅ Explanation labeled clearly
+ * ✅ Category badge displayed prominently
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -15,7 +13,6 @@ import { ADMIN_PATH } from "@/app/App";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
-// ✅ FIXED: Read from tutor_token
 function tutorFetch(url, opts = {}) {
   const token = localStorage.getItem("tutor_token");
   const headers = {
@@ -26,6 +23,33 @@ function tutorFetch(url, opts = {}) {
     headers["Content-Type"] = "application/json";
   }
   return fetch(`${API}${url}`, { ...opts, headers, credentials: "include" });
+}
+
+// ─── Image Zoom Modal ─────────────────────────────────────────────────────────
+function ImageZoomModal({ src, onClose }) {
+  if (!src) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center">
+        <img
+          src={src}
+          alt="Zoomed"
+          className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        />
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 w-9 h-9 bg-black/60 hover:bg-black/90 text-white rounded-full flex items-center justify-center text-lg transition"
+        >
+          ✕
+        </button>
+        <p className="absolute bottom-3 text-xs text-slate-400">Click outside to close</p>
+      </div>
+    </div>
+  );
 }
 
 // ─── Verification Badge ───────────────────────────────────────────────────────
@@ -93,27 +117,24 @@ function VerifyControls({ question, onVerified }) {
     finally { setLoading(false); setShowReject(false); setReason(""); }
   };
 
-  // APPROVED: badge + Reset to Pending + Reject
- if (current === "approved") {
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <VerificationBadge status="approved" />
-      <button
-        disabled={loading}
-        onClick={() => handleVerify("pending")}
-        className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40"
-      >
-        Reset to Pending
-      </button>
-      {question.tutor_verification?.verified_by && (
-        <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
-      )}
-    </div>
-  );
-}
+  if (current === "approved") {
+    return (
+      <div className="flex items-center gap-2 flex-wrap">
+        <VerificationBadge status="approved" />
+        <button
+          disabled={loading}
+          onClick={() => handleVerify("pending")}
+          className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40"
+        >
+          Reset to Pending
+        </button>
+        {question.tutor_verification?.verified_by && (
+          <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
+        )}
+      </div>
+    );
+  }
 
-
-  // REJECTED: badge + rejection reason + Reset to Pending
   if (current === "rejected") {
     return (
       <div className="flex flex-col gap-1.5">
@@ -139,12 +160,10 @@ function VerifyControls({ question, onVerified }) {
     );
   }
 
-  // PENDING: badge + Approve + Reject
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
         <VerificationBadge status="pending" />
-
         <button
           disabled={loading}
           onClick={() => { setShowReject(false); handleVerify("approved"); }}
@@ -155,7 +174,6 @@ function VerifyControls({ question, onVerified }) {
           </svg>
           Approve
         </button>
-
         <button
           disabled={loading}
           onClick={() => setShowReject((v) => !v)}
@@ -166,12 +184,10 @@ function VerifyControls({ question, onVerified }) {
           </svg>
           Reject
         </button>
-
         {question.tutor_verification?.verified_by && (
           <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
         )}
       </div>
-
       {showReject && (
         <div className="flex items-center gap-2 mt-1">
           <input
@@ -202,15 +218,15 @@ function VerifyControls({ question, onVerified }) {
 // ─── Main TutorDashboard ──────────────────────────────────────────────────────
 export default function TutorDashboard() {
   const navigate = useNavigate();
-  const [tutorInfo,       setTutorInfo]       = useState(null);
-  const [quizzes,         setQuizzes]         = useState([]);
-  const [selectedQuiz,    setSelectedQuiz]    = useState(null);
-  const [questions,       setQuestions]       = useState([]);
-  const [loadingQuizzes,  setLoadingQuizzes]  = useState(true);
-  const [loadingQs,       setLoadingQs]       = useState(false);
-  const [filter,          setFilter]          = useState("all");
+  const [tutorInfo,      setTutorInfo]      = useState(null);
+  const [quizzes,        setQuizzes]        = useState([]);
+  const [selectedQuiz,   setSelectedQuiz]   = useState(null);
+  const [questions,      setQuestions]      = useState([]);
+  const [loadingQuizzes, setLoadingQuizzes] = useState(true);
+  const [loadingQs,      setLoadingQs]      = useState(false);
+  const [filter,         setFilter]         = useState("all");
+  const [zoomedImage,    setZoomedImage]    = useState(null);
 
-  // ✅ FIXED: Read from tutor_info
   const tutorData = (() => {
     try { return JSON.parse(localStorage.getItem("tutor_info") || "{}"); } catch { return {}; }
   })();
@@ -282,7 +298,7 @@ export default function TutorDashboard() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col">
+    <div className="min-h-screen w-full bg-slate-950 text-white flex flex-col overflow-hidden">
 
       {/* ── Header ── */}
       <header className="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md border-b border-slate-800">
@@ -305,10 +321,10 @@ export default function TutorDashboard() {
         </div>
       </header>
 
-      <div className="flex flex-1 max-w-7xl mx-auto w-full px-6 py-6 gap-6">
+      <div className="flex flex-1 max-w-7xl mx-auto w-full px-6 py-6 gap-6 overflow-hidden">
 
         {/* ── Left: Quiz List ── */}
-        <aside className="w-72 flex-shrink-0">
+        <aside className="w-72 flex-shrink-0 overflow-y-auto">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-slate-300">
               Assigned Quizzes
@@ -318,7 +334,6 @@ export default function TutorDashboard() {
               onClick={fetchQuizzes}
               disabled={loadingQuizzes}
               className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition"
-              title="Refresh quizzes"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -363,7 +378,7 @@ export default function TutorDashboard() {
         </aside>
 
         {/* ── Right: Question List ── */}
-        <main className="flex-1 min-w-0">
+        <main className="flex-1 min-w-0 bg-slate-950 overflow-y-auto h-full">
           {!selectedQuiz && !loadingQs && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
@@ -400,8 +415,6 @@ export default function TutorDashboard() {
                     <span className="text-slate-500">/ {questions.length}</span>
                   </div>
                 </div>
-
-                {/* Filter tabs */}
                 <div className="flex gap-1 mt-3">
                   {[
                     { key: "all",      label: `All (${questions.length})` },
@@ -422,7 +435,7 @@ export default function TutorDashboard() {
               </div>
 
               {/* Questions */}
-              <div className="space-y-3">
+              <div className="space-y-3 pb-6">
                 {filteredQuestions.length === 0 ? (
                   <div className="text-center py-10 text-slate-500 text-sm">No questions match this filter</div>
                 ) : (
@@ -431,57 +444,136 @@ export default function TutorDashboard() {
                     return (
                       <div
                         key={q.question_id}
-                        className={`bg-slate-900 border rounded-xl p-4 transition ${
+                        className={`bg-slate-900 border rounded-xl p-5 transition ${
                           status === "approved" ? "border-emerald-800/40" :
                           status === "rejected" ? "border-red-800/40" :
                           "border-slate-800"
                         }`}
                       >
-                        {/* Question header */}
-                        <div className="flex items-start gap-3 mb-3">
-                          <span className="text-xs font-bold text-slate-600 bg-slate-800 rounded-md px-2 py-1 flex-shrink-0">
+                        {/* ── Category + Sub-category badges ── */}
+                            {(q.category || q.sub_category || q.subcategory || q.sub_topic) && (
+                              <div className="flex items-center gap-2 flex-wrap mb-3">
+                                {/* Category — indigo */}
+                                {q.category && (
+                                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 border border-indigo-500/30 rounded-lg">
+                                    <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                                    </svg>
+                                    <span className="text-sm font-semibold text-indigo-300">{q.category}</span>
+                                  </div>
+                                )}
+                                {/* Sub-category — violet */}
+                                {(q.sub_category || q.subcategory) && (
+                                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/15 border border-violet-500/30 rounded-lg">
+                                    <svg className="w-4 h-4 text-violet-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                    </svg>
+                                    <span className="text-sm font-semibold text-violet-300">{q.sub_category || q.subcategory}</span>
+                                  </div>
+                                )}
+                                {/* Sub-topic — cyan ← THIS IS THE NEW ONE */}
+                                {q.sub_topic && (
+                                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/15 border border-cyan-500/30 rounded-lg">
+                                    <svg className="w-4 h-4 text-cyan-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                    </svg>
+                                    <span className="text-sm font-semibold text-cyan-300">{q.sub_topic}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                        {/* ── Question number + text ── */}
+                        <div className="flex items-start gap-3 mb-4">
+                          <span className="text-xs font-bold text-slate-600 bg-slate-800 rounded-md px-2 py-1 flex-shrink-0 mt-0.5">
                             {idx + 1}
                           </span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-white leading-relaxed">{q.text}</p>
+                          <div className="flex-1 min-w-0 space-y-3">
+                            {/* Question text — renders HTML properly */}
+                            <div
+                              className="text-sm text-white leading-relaxed"
+                              dangerouslySetInnerHTML={{ __html: q.text }}
+                            />
+
+                            {/* Question image with zoom */}
                             {q.image_url && (
-                              <img src={q.image_url} alt="" className="mt-2 max-h-40 rounded-lg object-contain" />
+                              <div
+                                className="relative inline-block group cursor-zoom-in"
+                                onClick={() => setZoomedImage(q.image_url)}
+                              >
+                                <img
+                                  src={q.image_url}
+                                  alt=""
+                                  className="max-h-48 rounded-xl object-contain border border-slate-700 transition group-hover:border-indigo-500/60"
+                                />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 rounded-xl transition flex items-center justify-center">
+                                  <span className="opacity-0 group-hover:opacity-100 transition bg-black/70 text-white text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                                    </svg>
+                                    Click to zoom
+                                  </span>
+                                </div>
+                              </div>
                             )}
                           </div>
                         </div>
 
-                        {/* Options */}
+                        {/* ── Options ── */}
                         {q.options && q.options.length > 0 && (
-                          <div className="grid grid-cols-2 gap-1.5 mb-3 pl-9">
-                            {q.options.map((opt, oi) => (
-                              <div
-                                key={opt.option_id || oi}
-                                className={`text-xs px-3 py-1.5 rounded-lg border ${
-                                  opt.correct
-                                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-                                    : "bg-slate-800 border-slate-700 text-slate-400"
-                                }`}
-                              >
-                                <span className="font-semibold mr-1">{String.fromCharCode(65 + oi)}.</span>
-                                {opt.text}
-                              </div>
-                            ))}
+                          <div className="grid grid-cols-2 gap-2 mb-4 pl-9">
+                            {q.options.map((opt, oi) => {
+                              const isCorrect = opt.correct === true || opt.correct === "true";
+                              return (
+                                <div
+                                  key={opt.option_id || oi}
+                                  className={`text-xs px-3 py-2 rounded-lg border flex items-center gap-2 ${
+                                    isCorrect
+                                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                                      : "bg-slate-800 border-slate-700 text-slate-400"
+                                  }`}
+                                >
+                                  <span className="font-bold flex-shrink-0">{String.fromCharCode(65 + oi)}.</span>
+                                  <span className="flex-1">{opt.text}</span>
+                                  {isCorrect && (
+                                    <span className="text-emerald-400 flex-shrink-0 font-bold">✓</span>
+                                  )}
+                                  {/* Option image with zoom */}
+                                  {opt.image_url && (
+                                    <img
+                                      src={opt.image_url}
+                                      alt=""
+                                      className="h-10 rounded object-contain cursor-zoom-in border border-slate-600 hover:border-indigo-400 flex-shrink-0"
+                                      onClick={() => setZoomedImage(opt.image_url)}
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
 
-                        {/* Explanation */}
+                        {/* ── Explanation ── */}
                         {q.explanation && (
-                          <div className="mb-3 pl-9">
-                            <p className="text-[11px] text-slate-500 italic">{q.explanation}</p>
+                          <div className="mb-4 pl-9">
+                            <div className="bg-amber-500/8 border border-amber-500/25 rounded-xl p-4">
+                              {/* Explanation header */}
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                                  <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                  </svg>
+                                </div>
+                                <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">Explanation</span>
+                              </div>
+                              {/* Explanation text */}
+                              <p className="text-sm text-amber-100/80 leading-relaxed">{q.explanation}</p>
+                            </div>
                           </div>
                         )}
 
-                        {/* Verify controls */}
+                        {/* ── Verify controls ── */}
                         <div className="pl-9">
-                          <VerifyControls
-                            question={q}
-                            onVerified={handleQuestionVerified}
-                          />
+                          <VerifyControls question={q} onVerified={handleQuestionVerified} />
                         </div>
                       </div>
                     );
@@ -492,6 +584,10 @@ export default function TutorDashboard() {
           )}
         </main>
       </div>
+
+      {/* ── Image Zoom Modal ── */}
+      <ImageZoomModal src={zoomedImage} onClose={() => setZoomedImage(null)} />
+
     </div>
   );
 }
