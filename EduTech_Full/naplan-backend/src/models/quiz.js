@@ -47,6 +47,9 @@ const QuizSchema = new mongoose.Schema(
     // Media resources
     voice_url: { type: String, default: null },
     video_url: { type: String, default: null },
+    admin_verified:    { type: Boolean, default: false },
+    admin_verified_by: { type: String,  default: null },
+    admin_verified_at: { type: Date,    default: null },
   },
   { timestamps: true, versionKey: false }
 );

@@ -429,6 +429,15 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       correct_answer:  form.correct_answer || null,
       case_sensitive:  form.case_sensitive,
       options:         form.options,
+      text_font_size:      form.text_font_size,
+      text_font_family:    form.text_font_family,
+      text_font_weight:    form.text_font_weight,
+      text_align:          form.text_align,
+      text_line_height:    form.text_line_height,
+      text_letter_spacing: form.text_letter_spacing,
+      text_color:          form.text_color,
+      max_length:          form.max_length,
+      text_style_scope:    form.text_style_scope,
     });
     setSaving(false);
   };
@@ -511,7 +520,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           </div>
         )}
         <CollapsibleImageResize form={form} setForm={setForm} />
-        <CollapsibleImageResize form={form} setForm={setForm} />
+        <CollapsibleTextStyle form={form} setForm={setForm} />  {/* ✅ ADD THIS */}
       </div>
 
       <div>

@@ -83,7 +83,15 @@ const QuestionSchema = new mongoose.Schema(
     image_size: { type: String, default: "medium", enum: ["small", "medium", "large", "full"] },
     image_width: { type: Number, default: null },
     image_height: { type: Number, default: null },
-
+    text_font_size:      { type: Number, default: null },
+    text_font_family:    { type: String, default: null },
+    text_font_weight:    { type: String, default: null },
+    text_align:          { type: String, default: null },
+    text_line_height:    { type: Number, default: null },
+    text_letter_spacing: { type: Number, default: null },
+    text_color:          { type: String, default: null },
+    max_length:          { type: Number, default: null },
+    text_style_scope:    { type: String, default: "question" },
     // Short answer grading
     correct_answer: { type: String, default: null },
     case_sensitive: { type: Boolean, default: false },

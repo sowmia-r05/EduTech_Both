@@ -841,7 +841,9 @@ router.patch("/questions/:questionId", async (req, res) => {
       "text", "type", "options", "correct_answer", "case_sensitive",
       "points", "categories", "image_url", "image_size", "image_width",
       "image_height", "explanation", "shuffle_options", "voice_url",
-      "video_url", "order",  // ← "order" is the key field needed for insert fix
+      "video_url", "order", "text_font_size", "text_font_family", "text_font_weight",
+     "text_align", "text_line_height", "text_letter_spacing",
+     "text_color", "max_length", "text_style_scope" // ← "order" is the key field needed for insert fix
     ];
 
     for (const f of allowed) {
