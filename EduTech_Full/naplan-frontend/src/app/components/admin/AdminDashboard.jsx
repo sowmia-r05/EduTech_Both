@@ -264,11 +264,21 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
                 className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
           ))}
+          <div>
+        <label className="block text-xs font-medium text-slate-400 mb-1">Subject</label>
+        <select value={form.subject} onChange={tf("subject")}
+          className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="">— None —</option>
+          <option value="Maths">Maths</option>
+          <option value="Reading">Reading</option>
+          <option value="Writing">Writing</option>
+          <option value="Conventions">Conventions</option>
+        </select>
+      </div>
 
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: "Year Level", field: "year_level", opts: [3, 5, 7, 9] },
-              { label: "Tier",       field: "tier",       opts: ["A", "B", "C", "Trial"] },
               { label: "Difficulty", field: "difficulty", opts: ["", "Easy", "Standard", "Hard"] },
             ].map(({ label, field, opts }) => (
               <div key={field}>
@@ -498,6 +508,27 @@ export default function AdminDashboard() {
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const handleAdminVerify = async (quiz) => {
+    const quizId = quiz.quiz_id || quiz._id;
+    const newVal = !quiz.admin_verified;
+    try {
+      const res = await adminFetch(`/api/admin/quizzes/${quizId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          admin_verified:    newVal,
+          admin_verified_by: newVal ? adminInfo.email : null,
+          admin_verified_at: newVal ? new Date().toISOString() : null,
+        }),
+      });
+      if (!res.ok) throw new Error("Update failed");
+      setQuizzes((prev) => prev.map((q) =>
+        (q.quiz_id || q._id) === quizId
+          ? { ...q, admin_verified: newVal, admin_verified_by: adminInfo.email }
+          : q
+      ));
+    } catch (err) { alert(err.message); }
   };
 
   const handleToggleActive = async (quiz) => {
