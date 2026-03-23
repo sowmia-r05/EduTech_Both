@@ -174,7 +174,7 @@ router.patch("/questions/:questionId/verify", async (req, res) => {
   try {
     await connectDB();
 
-    const { status, rejection_reason } = req.body;
+    const { status, rejection_reason, sub_topic } = req.body;
     if (!["approved", "rejected", "pending"].includes(status)) {
       return res.status(400).json({ error: "status must be 'approved', 'rejected', or 'pending'" });
     }
@@ -238,24 +238,24 @@ router.patch("/questions/:questionId/edit", async (req, res) => {
       return res.status(403).json({ error: "You are not assigned to edit this question" });
     }
 
-    const { text, explanation, options } = req.body;
-
-    if (!text || !String(text).trim()) {
+    // ✅ Destructure sub_topic too
+const { text, explanation, options, sub_topic } = req.body;
+ if (!text || !String(text).trim()) {
       return res.status(400).json({ error: "Question text is required" });
     }
 
-    // Build the update object
-    const update = {
-      $set: {
-        text:        String(text).trim(),
-        explanation: String(explanation || "").trim(),
-        // Reset verification to pending whenever content changes
-        "tutor_verification.status":           "pending",
-        "tutor_verification.verified_by":      null,
-        "tutor_verification.verified_at":      null,
-        "tutor_verification.rejection_reason": null,
-      },
-    };
+const update = {
+  $set: {
+    text:        String(text).trim(),
+    explanation: String(explanation || "").trim(),
+    sub_topic:   sub_topic !== undefined ? (String(sub_topic || "").trim() || null) : question.sub_topic,
+    "tutor_verification.status":           "pending",
+    "tutor_verification.verified_by":      null,
+    "tutor_verification.verified_at":      null,
+    "tutor_verification.rejection_reason": null,
+  },
+};
+   
 
     // Only update options if provided and valid
     if (Array.isArray(options) && options.length > 0) {
