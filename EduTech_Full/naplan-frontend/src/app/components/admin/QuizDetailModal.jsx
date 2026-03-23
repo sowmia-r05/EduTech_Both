@@ -316,6 +316,116 @@ function MoveToQuizModal({ question, currentQuizId, onClose, onMoved }) {
   );
 }
 
+/* ── Admin Verify Controls ── */
+function AdminVerifyControls({ question, onVerified }) {
+  const [mode,    setMode]    = useState(null);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const adminStatus = question.admin_verification?.status || "pending";
+
+  const handleSubmit = async (status) => {
+    if (status === "rejected" && !message.trim()) return;
+    setLoading(true);
+    try {
+      const res = await adminFetch(
+        `/api/admin/questions/${question.question_id}/admin-verify`,
+        { method: "PATCH", body: JSON.stringify({ status, message: message.trim() || null }) }
+      );
+      if (!res.ok) { const d = await res.json(); alert(d.error || "Failed"); return; }
+      onVerified((await res.json()).question);
+    } catch (err) { alert(err.message); }
+    finally { setLoading(false); setMode(null); setMessage(""); }
+  };
+
+  return (
+    <div className="mt-3 ml-10 space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="flex-1 border-t border-slate-700/60" />
+        <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">Admin Review</span>
+        <div className="flex-1 border-t border-slate-700/60" />
+      </div>
+
+      {adminStatus !== "pending" && (
+        <div className={`px-3 py-2 rounded-lg border ${
+          adminStatus === "approved" ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
+        }`}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className={`text-[10px] font-bold uppercase tracking-wider ${
+                adminStatus === "approved" ? "text-emerald-400" : "text-red-400"
+              }`}>
+                {adminStatus === "approved" ? "✓ Admin Approved" : "✗ Admin Rejected"}
+                {question.admin_verification?.verified_by && (
+                  <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">
+                    by {question.admin_verification.verified_by}
+                  </span>
+                )}
+              </p>
+              {question.admin_verification?.message && (
+                <p className={`text-xs mt-0.5 ${
+                  adminStatus === "approved" ? "text-emerald-400/70" : "text-red-400/70"
+                }`}>
+                  {question.admin_verification.message}
+                </p>
+              )}
+            </div>
+            <button disabled={loading} onClick={() => handleSubmit("pending")}
+              className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40 flex-shrink-0">
+              Reset
+            </button>
+          </div>
+        </div>
+      )}
+
+      {adminStatus === "pending" && !mode && (
+        <div className="flex items-center gap-2">
+          <button disabled={loading} onClick={() => { setMode("approve"); setMessage(""); }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-600/30 rounded-lg transition disabled:opacity-40">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+            Admin Approve
+          </button>
+          <button disabled={loading} onClick={() => { setMode("reject"); setMessage(""); }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-600/30 rounded-lg transition disabled:opacity-40">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            Admin Reject
+          </button>
+        </div>
+      )}
+
+      {mode === "approve" && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-emerald-400 font-semibold">Approval note (optional)</p>
+          <div className="flex items-center gap-2">
+            <input autoFocus type="text" value={message} onChange={(e) => setMessage(e.target.value)}
+              placeholder="Add an optional note…"
+              className="flex-1 bg-slate-800 border border-emerald-600/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-emerald-500"
+              onKeyDown={(e) => { if (e.key === "Enter") handleSubmit("approved"); }} />
+            <button disabled={loading} onClick={() => handleSubmit("approved")}
+              className="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-40">Confirm</button>
+            <button onClick={() => { setMode(null); setMessage(""); }} className="text-xs text-slate-500 hover:text-white">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {mode === "reject" && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-red-400 font-semibold">Rejection reason (required)</p>
+          <div className="flex items-center gap-2">
+            <input autoFocus type="text" value={message} onChange={(e) => setMessage(e.target.value)}
+              placeholder="Reason for rejection…"
+              className="flex-1 bg-slate-800 border border-red-600/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-red-500"
+              onKeyDown={(e) => { if (e.key === "Enter" && message.trim()) handleSubmit("rejected"); }} />
+            <button disabled={!message.trim() || loading} onClick={() => handleSubmit("rejected")}
+              className="px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-40">Confirm</button>
+            <button onClick={() => { setMode(null); setMessage(""); }} className="text-xs text-slate-500 hover:text-white">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Question Editor ── */
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const resolvedShuffle = question.shuffle_options != null ? question.shuffle_options : (quizRandomizeOptions || false);
@@ -934,22 +1044,17 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                     )}
 
                     {/* ✅ Tutor verification — standalone, always visible */}
-                    {q.tutor_verification?.status && (
+                   {/* ── Tutor review (read-only) ── */}
+                    {q.tutor_verification?.status && q.tutor_verification.status !== "pending" && (
                       <div className={`mt-3 ml-10 px-3 py-2 rounded-lg border ${
                         q.tutor_verification.status === "approved"
                           ? "bg-emerald-500/5 border-emerald-500/20"
-                          : q.tutor_verification.status === "rejected"
-                          ? "bg-red-500/5 border-red-500/20"
-                          : "bg-amber-500/5 border-amber-500/20"
+                          : "bg-red-500/5 border-red-500/20"
                       }`}>
                         <p className={`text-[10px] font-bold uppercase tracking-wider ${
-                          q.tutor_verification.status === "approved" ? "text-emerald-400"
-                          : q.tutor_verification.status === "rejected" ? "text-red-400"
-                          : "text-amber-400"
+                          q.tutor_verification.status === "approved" ? "text-emerald-400" : "text-red-400"
                         }`}>
-                          {q.tutor_verification.status === "approved" && "✓ Tutor Approved"}
-                          {q.tutor_verification.status === "rejected" && "✗ Tutor Rejected"}
-                          {q.tutor_verification.status === "pending"  && "⋯ Pending Verification"}
+                          {q.tutor_verification.status === "approved" ? "✓ Tutor Approved" : "✗ Tutor Rejected"}
                           {q.tutor_verification.verified_by && (
                             <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">
                               by {q.tutor_verification.verified_by}
@@ -957,12 +1062,22 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                           )}
                         </p>
                         {q.tutor_verification.status === "rejected" && q.tutor_verification.rejection_reason && (
-                          <p className="text-xs text-red-400/80 mt-0.5">
-                            Reason: {q.tutor_verification.rejection_reason}
+                          <p className="text-xs text-red-400/70 mt-0.5">
+                            {q.tutor_verification.rejection_reason}
                           </p>
                         )}
                       </div>
                     )}
+
+                    {/* ── Admin review controls ── */}
+                    <AdminVerifyControls
+                      question={q}
+                      onVerified={(updatedQ) =>
+                        setQuestions((prev) =>
+                          prev.map((x) => x.question_id === updatedQ.question_id ? updatedQ : x)
+                        )
+                      }
+                    />
                       </div>
                       
                     
