@@ -1,58 +1,39 @@
 /**
- * TutorDashboard.jsx
+ * Tutordashboard.jsx  ✅ UPDATED
  *
- * ✅ FIXED: tutor_token / tutor_info separate from admin session
- * ✅ Image zoom modal
- * ✅ Explanation labeled clearly
- * ✅ Category badge displayed prominently
+ * Changes:
+ *   ✅ EditQuestionModal — 4 editable sections:
+ *       1. Question Text  (textarea)
+ *       2. Answer Options (edit text per option + click to toggle correct)
+ *       3. Sub-topic      (dropdown built from unique sub_topics already set
+ *                          by admin across questions in the current quiz;
+ *                          falls back to free-text if none exist yet)
+ *       4. Explanation    (shows existing explanation with Remove button;
+ *                          if absent / removed → "+ Add explanation" button)
+ *   ✅ ✏️ Edit button on every question card
+ *   ✅ handleQuestionEdited updates questions + sidebar quiz stats
+ *   ✅ PATCH /api/tutor/questions/:id/edit  →  { text, options, sub_topic, explanation }
  */
 
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ADMIN_PATH } from "@/app/App";
 
-const API = import.meta.env.VITE_API_BASE_URL || "";
+const ADMIN_PATH = "/admin-portal";
 
-function tutorFetch(url, opts = {}) {
+// ─── tutorFetch ───────────────────────────────────────────────────────────────
+async function tutorFetch(url, options = {}) {
   const token = localStorage.getItem("tutor_token");
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    ...(opts.headers || {}),
-  };
-  if (!headers["Content-Type"] && typeof opts.body === "string") {
-    headers["Content-Type"] = "application/json";
-  }
-  return fetch(`${API}${url}`, { ...opts, headers, credentials: "include" });
+  return fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
 }
 
-// ─── Image Zoom Modal ─────────────────────────────────────────────────────────
-function ImageZoomModal({ src, onClose }) {
-  if (!src) return null;
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center">
-        <img
-          src={src}
-          alt="Zoomed"
-          className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-        />
-        <button
-          onClick={onClose}
-          className="absolute top-3 right-3 w-9 h-9 bg-black/60 hover:bg-black/90 text-white rounded-full flex items-center justify-center text-lg transition"
-        >
-          ✕
-        </button>
-        <p className="absolute bottom-3 text-xs text-slate-400">Click outside to close</p>
-      </div>
-    </div>
-  );
-}
-
-// ─── Verification Badge ───────────────────────────────────────────────────────
+// ─── VerificationBadge ────────────────────────────────────────────────────────
 function VerificationBadge({ status }) {
   if (status === "approved") return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -68,37 +49,32 @@ function VerificationBadge({ status }) {
   );
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-      <span className="w-2 h-2 rounded-full bg-amber-400" />
-      Pending
+      <span className="w-2 h-2 rounded-full bg-amber-400" />Pending
     </span>
   );
 }
 
-// ─── Progress Bar ─────────────────────────────────────────────────────────────
-function ProgressBar({ approved, total }) {
+// ─── VerificationProgress ─────────────────────────────────────────────────────
+function VerificationProgress({ verification }) {
+  const { approved = 0, total = 0 } = verification || {};
   const pct = total > 0 ? Math.round((approved / total) * 100) : 0;
   return (
     <div className="mt-2">
       <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-        <span>{approved} / {total} verified</span>
-        <span>{pct}%</span>
+        <span>{approved} / {total} verified</span><span>{pct}%</span>
       </div>
       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-indigo-500"}`}
-          style={{ width: `${pct}%` }}
-        />
+        <div className={`h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-indigo-500"}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
 }
 
-// ─── Verify Controls ─────────────────────────────────────────────────────────
+// ─── VerifyControls ───────────────────────────────────────────────────────────
 function VerifyControls({ question, onVerified }) {
   const [showReject, setShowReject] = useState(false);
   const [reason,     setReason]     = useState("");
   const [loading,    setLoading]    = useState(false);
-
   const current = question.tutor_verification?.status || "pending";
 
   const handleVerify = async (status, rejection_reason = null) => {
@@ -107,81 +83,53 @@ function VerifyControls({ question, onVerified }) {
       const body = { status };
       if (rejection_reason) body.rejection_reason = rejection_reason;
       const res = await tutorFetch(`/api/tutor/questions/${question.question_id}/verify`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
+        method: "PATCH", body: JSON.stringify(body),
       });
       if (!res.ok) { const d = await res.json(); alert(d.error || "Failed"); return; }
-      const data = await res.json();
-      onVerified(data.question);
+      onVerified((await res.json()).question);
     } catch (err) { alert(err.message); }
     finally { setLoading(false); setShowReject(false); setReason(""); }
   };
 
-  if (current === "approved") {
-    return (
+  if (current === "approved") return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <VerificationBadge status="approved" />
+      <button disabled={loading} onClick={() => handleVerify("pending")}
+        className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40">Reset to Pending</button>
+      {question.tutor_verification?.verified_by && (
+        <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
+      )}
+    </div>
+  );
+
+  if (current === "rejected") return (
+    <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
-        <VerificationBadge status="approved" />
-        <button
-          disabled={loading}
-          onClick={() => handleVerify("pending")}
-          className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40"
-        >
-          Reset to Pending
-        </button>
+        <VerificationBadge status="rejected" />
+        <button disabled={loading} onClick={() => handleVerify("pending")}
+          className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40">Reset to Pending</button>
         {question.tutor_verification?.verified_by && (
           <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
         )}
       </div>
-    );
-  }
-
-  if (current === "rejected") {
-    return (
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-2 flex-wrap">
-          <VerificationBadge status="rejected" />
-          <button
-            disabled={loading}
-            onClick={() => handleVerify("pending")}
-            className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40"
-          >
-            Reset to Pending
-          </button>
-          {question.tutor_verification?.verified_by && (
-            <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
-          )}
-        </div>
-        {question.tutor_verification?.rejection_reason && (
-          <p className="text-[10px] text-red-400/80 italic">
-            Reason: {question.tutor_verification.rejection_reason}
-          </p>
-        )}
-      </div>
-    );
-  }
+      {question.tutor_verification?.rejection_reason && (
+        <p className="text-[10px] text-red-400/80 italic">Reason: {question.tutor_verification.rejection_reason}</p>
+      )}
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
         <VerificationBadge status="pending" />
-        <button
-          disabled={loading}
-          onClick={() => { setShowReject(false); handleVerify("approved"); }}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-600/30 rounded-lg transition disabled:opacity-40"
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
+        <button disabled={loading} onClick={() => { setShowReject(false); handleVerify("approved"); }}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-600/30 rounded-lg transition disabled:opacity-40">
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
           Approve
         </button>
-        <button
-          disabled={loading}
-          onClick={() => setShowReject((v) => !v)}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-600/30 rounded-lg transition disabled:opacity-40"
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+        <button disabled={loading} onClick={() => setShowReject((v) => !v)}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-600/30 rounded-lg transition disabled:opacity-40">
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           Reject
         </button>
         {question.tutor_verification?.verified_by && (
@@ -190,27 +138,341 @@ function VerifyControls({ question, onVerified }) {
       </div>
       {showReject && (
         <div className="flex items-center gap-2 mt-1">
-          <input
-            type="text" value={reason} onChange={(e) => setReason(e.target.value)}
+          <input type="text" value={reason} onChange={(e) => setReason(e.target.value)}
             placeholder="Reason for rejection (required)"
             className="flex-1 bg-slate-800 border border-red-600/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-red-500"
-            onKeyDown={(e) => { if (e.key === "Enter" && reason.trim()) handleVerify("rejected", reason); }}
-          />
-          <button
-            disabled={!reason.trim() || loading}
-            onClick={() => handleVerify("rejected", reason)}
-            className="px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-40"
-          >
-            Confirm
-          </button>
-          <button
-            onClick={() => { setShowReject(false); setReason(""); }}
-            className="text-xs text-slate-500 hover:text-white"
-          >
-            Cancel
-          </button>
+            onKeyDown={(e) => { if (e.key === "Enter" && reason.trim()) handleVerify("rejected", reason); }} />
+          <button disabled={!reason.trim() || loading} onClick={() => handleVerify("rejected", reason)}
+            className="px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-40">Confirm</button>
+          <button onClick={() => { setShowReject(false); setReason(""); }}
+            className="text-xs text-slate-500 hover:text-white">Cancel</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ✅ EditQuestionModal
+// ─────────────────────────────────────────────────────────────────────────────
+function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
+  const [text,           setText]          = useState(question.text || "");
+  const [subTopic,       setSubTopic]      = useState(question.sub_topic || "");
+  const [options,        setOptions]       = useState((question.options || []).map((o) => ({ ...o })));
+  // ✅ Explanation state: null means "removed / not present"; string means present
+  const [explanation,    setExplanation]   = useState(
+    question.explanation ? question.explanation : null
+  );
+  const [loading,        setLoading]       = useState(false);
+  const [error,          setError]         = useState("");
+
+  const isMultiCorrect = question.type === "checkbox";
+  const hasOptions     = options.length > 0;
+
+  const toggleCorrect = (idx) =>
+    setOptions((prev) =>
+      prev.map((o, i) =>
+        isMultiCorrect
+          ? i === idx ? { ...o, correct: !o.correct } : o
+          : { ...o, correct: i === idx }
+      )
+    );
+
+  const updateOptionText = (idx, val) =>
+    setOptions((prev) => prev.map((o, i) => i === idx ? { ...o, text: val } : o));
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!text.trim()) { setError("Question text cannot be empty."); return; }
+    if (hasOptions && !options.some((o) => o.correct)) {
+      setError("Please mark at least one option as correct."); return;
+    }
+    setLoading(true);
+    try {
+      const res = await tutorFetch(`/api/tutor/questions/${question.question_id}/edit`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          text:        text.trim(),
+          // ✅ Send empty string when explanation was removed so backend clears it
+          explanation: explanation !== null ? explanation.trim() : "",
+          sub_topic:   subTopic.trim() || null,
+          options:     options.map((o) => ({
+            option_id: o.option_id,
+            text:      (o.text || "").trim(),
+            image_url: o.image_url ?? null,
+            correct:   Boolean(o.correct),
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      onSaved(data.question);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Section number badge helper
+  const sectionNum = (n) => (
+    <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+      n === 1 ? "bg-indigo-600/30 border border-indigo-500/40 text-indigo-400"
+      : n === 2 ? "bg-emerald-600/30 border border-emerald-500/40 text-emerald-400"
+      : n === 3 ? "bg-cyan-600/30 border border-cyan-500/40 text-cyan-400"
+      : "bg-amber-600/30 border border-amber-500/40 text-amber-400"
+    }`}>{n}</span>
+  );
+
+  // The section number for sub-topic and explanation shifts if there are no options
+  const subTopicNum   = hasOptions ? 3 : 2;
+  const explanationNum = hasOptions ? 4 : 3;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/75 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl my-8 shadow-2xl">
+
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-4 border-b border-slate-800">
+          <div>
+            <h2 className="text-base font-semibold text-white">Edit Question</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Saving resets verification to <span className="text-amber-400 font-medium">Pending</span>
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none mt-0.5">✕</button>
+        </div>
+
+        <form onSubmit={handleSave}>
+          <div className="px-6 py-5 space-y-7">
+
+            {error && (
+              <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">{error}</p>
+            )}
+
+            {/* ── 1. Question Text ── */}
+            <section className="space-y-2">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                {sectionNum(1)} Question Text
+                <span className="text-red-400 font-normal normal-case tracking-normal">*</span>
+              </label>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={4}
+                placeholder="Enter the question text…"
+                className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl px-4 py-3 resize-y placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition leading-relaxed"
+              />
+            </section>
+
+            {/* ── 2. Answer Options ── */}
+            {hasOptions && (
+              <section className="space-y-2">
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                  {sectionNum(2)} Answer Options
+                  <span className="text-[10px] text-slate-500 font-normal normal-case tracking-normal ml-1">
+                    — {isMultiCorrect ? "check all correct" : "click circle to set correct answer"}
+                  </span>
+                </label>
+
+                <div className="space-y-2">
+                  {options.map((opt, idx) => {
+                    const label = String.fromCharCode(65 + idx);
+                    return (
+                      <div key={opt.option_id || idx}
+                        className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${
+                          opt.correct
+                            ? "bg-emerald-500/10 border-emerald-500/30"
+                            : "bg-slate-800/60 border-slate-700/50 hover:border-slate-600"
+                        }`}
+                      >
+                        {/* Correct toggle button */}
+                        <button type="button" onClick={() => toggleCorrect(idx)}
+                          title={opt.correct ? "Mark as incorrect" : "Mark as correct"}
+                          className={`flex-shrink-0 mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                            opt.correct
+                              ? "bg-emerald-500 border-emerald-500 text-white shadow-emerald-500/30 shadow-md"
+                              : "bg-transparent border-slate-600 hover:border-emerald-500 hover:bg-emerald-500/10"
+                          }`}
+                        >
+                          {opt.correct && (
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </button>
+
+                        {/* Label chip */}
+                        <span className={`flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold mt-0.5 ${
+                          opt.correct ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-700 text-slate-400"
+                        }`}>{label}</span>
+
+                        {/* Image preview (read-only) */}
+                        {opt.image_url && (
+                          <img src={opt.image_url} alt={`Option ${label}`}
+                            className="h-12 rounded-lg object-contain border border-slate-600 flex-shrink-0" />
+                        )}
+
+                        {/* Editable text */}
+                        <input
+                          type="text"
+                          value={opt.text || ""}
+                          onChange={(e) => updateOptionText(idx, e.target.value)}
+                          placeholder={`Option ${label}…`}
+                          className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none"
+                        />
+
+                        {opt.correct && (
+                          <span className="flex-shrink-0 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md mt-0.5 whitespace-nowrap">
+                            ✓ Correct
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* ── 3. Sub-topic ── */}
+            <section className="space-y-2">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                {sectionNum(subTopicNum)} Sub-topic
+                <span className="text-[10px] text-slate-500 font-normal normal-case tracking-normal ml-1">
+                  — from admin settings
+                </span>
+              </label>
+
+              <div className="relative">
+                {/* Cyan bookmark icon */}
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-cyan-400">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                  </svg>
+                </span>
+
+                {subTopicOptions.length > 0 ? (
+                  <>
+                    <select
+                      value={subTopic}
+                      onChange={(e) => setSubTopic(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl pl-10 pr-10 py-2.5 appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition"
+                    >
+                      <option value="">— None —</option>
+                      {subTopicOptions.map((st) => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </select>
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </span>
+                  </>
+                ) : (
+                  <input
+                    type="text"
+                    value={subTopic}
+                    onChange={(e) => setSubTopic(e.target.value)}
+                    placeholder="No sub-topics found — type one manually…"
+                    maxLength={80}
+                    className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl pl-10 pr-4 py-2.5 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition"
+                  />
+                )}
+              </div>
+
+              {/* Live badge preview */}
+              {subTopic && (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-[10px] text-slate-500">Preview:</span>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-cyan-500/15 border border-cyan-500/30 rounded-lg text-cyan-300 text-[11px] font-semibold">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                    </svg>
+                    {subTopic}
+                  </span>
+                </div>
+              )}
+            </section>
+
+            {/* ── 4. Explanation ── ✅ NEW SECTION */}
+            <section className="space-y-2">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                {sectionNum(explanationNum)} Explanation
+                <span className="text-[10px] text-slate-500 font-normal normal-case tracking-normal ml-1">
+                  — optional
+                </span>
+              </label>
+
+              {explanation !== null ? (
+                /* ── Explanation is present: show editable textarea + Remove button ── */
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-amber-500/15">
+                    <div className="flex items-center gap-2">
+                      {/* Amber dot indicator */}
+                      <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+                      <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wide">
+                        Explanation present
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setExplanation(null)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Remove
+                    </button>
+                  </div>
+                  <textarea
+                    value={explanation}
+                    onChange={(e) => setExplanation(e.target.value)}
+                    rows={3}
+                    placeholder="Enter the explanation…"
+                    className="w-full bg-transparent text-sm text-amber-300/90 placeholder:text-slate-500 px-4 py-3 resize-y focus:outline-none leading-relaxed"
+                  />
+                </div>
+              ) : (
+                /* ── Explanation is absent / removed: show Add button ── */
+                <button
+                  type="button"
+                  onClick={() => setExplanation("")}
+                  className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-dashed border-slate-600 hover:border-amber-500/40 text-slate-500 hover:text-amber-400 text-sm transition group"
+                >
+                  <svg className="w-4 h-4 group-hover:text-amber-400 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add explanation
+                </button>
+              )}
+            </section>
+
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 pb-6 pt-4 border-t border-slate-800 flex gap-3">
+            <button type="button" onClick={onClose}
+              className="flex-1 py-2.5 text-sm text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded-xl transition">
+              Cancel
+            </button>
+            <button type="submit" disabled={loading || !text.trim()}
+              className="flex-1 py-2.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl transition">
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Saving…
+                </span>
+              ) : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -226,10 +488,13 @@ export default function TutorDashboard() {
   const [loadingQs,      setLoadingQs]      = useState(false);
   const [filter,         setFilter]         = useState("all");
   const [zoomedImage,    setZoomedImage]    = useState(null);
+  const [editQuestion,   setEditQuestion]   = useState(null);
 
   const tutorData = (() => {
     try { return JSON.parse(localStorage.getItem("tutor_info") || "{}"); } catch { return {}; }
   })();
+
+  const [subTopicOptions, setSubTopicOptions] = useState([]);
 
   const fetchQuizzes = useCallback(async () => {
     try {
@@ -255,6 +520,11 @@ export default function TutorDashboard() {
       const data = await res.json();
       setSelectedQuiz(data);
       setQuestions(data.questions || []);
+      setFilter("all");
+         const fromQuiz = data.sub_topic ? [data.sub_topic] : [];
+          const fromQs   = (data.questions || []).map(q => q.sub_topic).filter(Boolean);
+          const unique   = [...new Set([...fromQuiz, ...fromQs])].sort();
+          setSubTopicOptions(unique);
     } catch (err) { alert(err.message); }
     finally { setLoadingQs(false); }
   };
@@ -267,16 +537,27 @@ export default function TutorDashboard() {
       .catch(() => {});
   }, [fetchQuizzes]);
 
-  const handleQuestionVerified = (updatedQ) => {
-    setQuestions((prev) => prev.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q));
+  const syncQuizStats = (allQs) => {
     setQuizzes((prev) => prev.map((qz) => {
       if (qz.quiz_id !== selectedQuiz?.quiz_id) return qz;
-      const allQs = questions.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q);
       const approved = allQs.filter((q) => (q.tutor_verification?.status || "pending") === "approved").length;
       const rejected = allQs.filter((q) => (q.tutor_verification?.status || "pending") === "rejected").length;
       const pending  = allQs.filter((q) => (q.tutor_verification?.status || "pending") === "pending").length;
       return { ...qz, verification: { total: allQs.length, approved, rejected, pending } };
     }));
+  };
+
+  const handleQuestionVerified = (updatedQ) => {
+    const allQs = questions.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q);
+    setQuestions(allQs);
+    syncQuizStats(allQs);
+  };
+
+  const handleQuestionEdited = (updatedQ) => {
+    const allQs = questions.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q);
+    setQuestions(allQs);
+    syncQuizStats(allQs);
+    setEditQuestion(null);
   };
 
   const handleLogout = async () => {
@@ -288,8 +569,7 @@ export default function TutorDashboard() {
 
   const filteredQuestions = questions.filter((q) => {
     const s = q.tutor_verification?.status || "pending";
-    if (filter === "all") return true;
-    return s === filter;
+    return filter === "all" ? true : s === filter;
   });
 
   const verStats = questions.reduce(
@@ -300,7 +580,7 @@ export default function TutorDashboard() {
   return (
     <div className="min-h-screen w-full bg-slate-950 text-white flex flex-col overflow-hidden">
 
-      {/* ── Header ── */}
+      {/* Header */}
       <header className="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md border-b border-slate-800">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -316,97 +596,71 @@ export default function TutorDashboard() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-slate-500">{tutorData.name || tutorData.email || ""}</span>
-            <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-white transition">Logout</button>
+            <button onClick={handleLogout}
+              className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded-lg transition">
+              Logout
+            </button>
           </div>
         </div>
       </header>
 
-      <div className="flex flex-1 max-w-7xl mx-auto w-full px-6 py-6 gap-6 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden max-w-7xl mx-auto w-full">
 
-        {/* ── Left: Quiz List ── */}
-        <aside className="w-72 flex-shrink-0 overflow-y-auto">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-slate-300">
-              Assigned Quizzes
-              <span className="ml-2 text-[11px] text-slate-500 font-normal">({quizzes.length})</span>
-            </h2>
-            <button
-              onClick={fetchQuizzes}
-              disabled={loadingQuizzes}
-              className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {loadingQuizzes ? "Refreshing…" : "Refresh"}
-            </button>
-          </div>
-
+        {/* Sidebar */}
+        <aside className="w-72 flex-shrink-0 border-r border-slate-800 overflow-y-auto py-4 px-3">
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest px-2 mb-3">Assigned Quizzes</p>
           {loadingQuizzes ? (
             <div className="flex items-center justify-center py-10">
-              <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : quizzes.length === 0 ? (
-            <div className="text-center py-10">
-              <p className="text-slate-500 text-sm">No quizzes assigned yet</p>
-            </div>
+            <p className="text-sm text-slate-500 text-center py-10">No quizzes assigned yet.</p>
           ) : (
-            <div className="space-y-2">
-              {quizzes.map((qz) => {
-                const v = qz.verification || {};
-                const isSelected = selectedQuiz?.quiz_id === qz.quiz_id;
-                return (
-                  <button
-                    key={qz.quiz_id}
-                    onClick={() => fetchQuizDetail(qz.quiz_id)}
-                    className={`w-full text-left p-3 rounded-xl border transition ${
-                      isSelected
-                        ? "bg-indigo-600/20 border-indigo-500/40 text-white"
-                        : "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700"
-                    }`}
-                  >
-                    <p className="text-xs font-medium leading-snug">{qz.quiz_name}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">
-                      Year {qz.year_level} · {qz.subject}
-                    </p>
-                    <ProgressBar approved={v.approved || 0} total={v.total || 0} />
-                  </button>
-                );
-              })}
-            </div>
+            quizzes.map((qz) => {
+              const isSelected = selectedQuiz?.quiz_id === qz.quiz_id;
+              return (
+                <button key={qz.quiz_id} onClick={() => fetchQuizDetail(qz.quiz_id)}
+                  className={`w-full text-left rounded-xl px-3 py-3 mb-1.5 transition border ${
+                    isSelected ? "bg-indigo-600/20 border-indigo-500/40 text-white" : "bg-transparent border-transparent hover:bg-slate-800/60 text-slate-300"
+                  }`}>
+                  <p className="text-sm font-medium leading-tight line-clamp-2">{qz.quiz_name}</p>
+                  {qz.year_level && (
+                    <p className="text-[10px] text-slate-500 mt-0.5">Year {qz.year_level}{qz.subject ? ` · ${qz.subject}` : ""}</p>
+                  )}
+                  <VerificationProgress verification={qz.verification} />
+                </button>
+              );
+            })
           )}
         </aside>
 
-        {/* ── Right: Question List ── */}
-        <main className="flex-1 min-w-0 bg-slate-950 overflow-y-auto h-full">
-          {!selectedQuiz && !loadingQs && (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="text-4xl mb-3">👈</div>
-                <p className="text-slate-400 font-medium">Select a quiz to start verifying</p>
-                <p className="text-slate-600 text-sm mt-1">Choose from your assigned quizzes on the left</p>
-              </div>
+        {/* Main */}
+        <main className="flex-1 overflow-y-auto px-6 py-6">
+          {!selectedQuiz ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-500">
+              <svg className="w-12 h-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              <p className="text-sm">Select a quiz to review questions</p>
             </div>
-          )}
-
-          {loadingQs && (
-            <div className="flex items-center justify-center h-64">
-              <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          ) : loadingQs ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
             </div>
-          )}
-
-          {selectedQuiz && !loadingQs && (
+          ) : (
             <>
               {/* Quiz header */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl px-6 py-4 mb-4">
-                <div className="flex items-start justify-between flex-wrap gap-3">
+              <div className="mb-5">
+                <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-lg font-semibold text-white">{selectedQuiz.quiz_name}</h2>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Year {selectedQuiz.year_level} · {selectedQuiz.subject} · {questions.length} questions
+                      {questions.length} question{questions.length !== 1 ? "s" : ""}
+                      {selectedQuiz.year_level ? ` · Year ${selectedQuiz.year_level}` : ""}
+                      {selectedQuiz.subject ? ` · ${selectedQuiz.subject}` : ""}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-xs">
+                  <div className="flex items-center gap-2 text-xs">
                     <span className="text-emerald-400 font-semibold">{verStats.approved}✓</span>
                     <span className="text-slate-600">|</span>
                     <span className="text-red-400 font-semibold">{verStats.rejected}✗</span>
@@ -423,18 +677,14 @@ export default function TutorDashboard() {
                     { key: "rejected", label: `Rejected (${verStats.rejected})` },
                   ].map((f) => (
                     <button key={f.key} onClick={() => setFilter(f.key)}
-                      className={`px-3 py-1 text-xs rounded-lg transition ${
-                        filter === f.key
-                          ? "bg-indigo-600 text-white"
-                          : "text-slate-400 hover:text-white hover:bg-slate-800"
-                      }`}>
+                      className={`px-3 py-1 text-xs rounded-lg transition ${filter === f.key ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"}`}>
                       {f.label}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Questions */}
+              {/* Question cards */}
               <div className="space-y-3 pb-6">
                 {filteredQuestions.length === 0 ? (
                   <div className="text-center py-10 text-slate-500 text-sm">No questions match this filter</div>
@@ -442,137 +692,94 @@ export default function TutorDashboard() {
                   filteredQuestions.map((q, idx) => {
                     const status = q.tutor_verification?.status || "pending";
                     return (
-                      <div
-                        key={q.question_id}
+                      <div key={q.question_id}
                         className={`bg-slate-900 border rounded-xl p-5 transition ${
                           status === "approved" ? "border-emerald-800/40" :
                           status === "rejected" ? "border-red-800/40" :
                           "border-slate-800"
                         }`}
                       >
-                        {/* ── Category + Sub-category badges ── */}
-                            {(q.category || q.sub_category || q.subcategory || q.sub_topic) && (
-                              <div className="flex items-center gap-2 flex-wrap mb-3">
-                                {/* Category — indigo */}
-                                {q.category && (
-                                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 border border-indigo-500/30 rounded-lg">
-                                    <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                                    </svg>
-                                    <span className="text-sm font-semibold text-indigo-300">{q.category}</span>
-                                  </div>
-                                )}
-                                {/* Sub-category — violet */}
-                                {(q.sub_category || q.subcategory) && (
-                                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/15 border border-violet-500/30 rounded-lg">
-                                    <svg className="w-4 h-4 text-violet-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                    </svg>
-                                    <span className="text-sm font-semibold text-violet-300">{q.sub_category || q.subcategory}</span>
-                                  </div>
-                                )}
-                                {/* Sub-topic — cyan ← THIS IS THE NEW ONE */}
-                                {q.sub_topic && (
-                                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/15 border border-cyan-500/30 rounded-lg">
-                                    <svg className="w-4 h-4 text-cyan-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                                    </svg>
-                                    <span className="text-sm font-semibold text-cyan-300">{q.sub_topic}</span>
-                                  </div>
-                                )}
+                        {/* Card header */}
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div className="flex items-center gap-2 flex-wrap min-w-0">
+                            <span className="text-[11px] font-bold text-slate-500 flex-shrink-0">Q{idx + 1}</span>
+                            {q.subject && (
+                              <span className="text-[10px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md">{q.subject}</span>
+                            )}
+                            {(q.sub_category || q.subcategory) && (
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-500/15 border border-violet-500/30 rounded-lg">
+                                <svg className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                </svg>
+                                <span className="text-xs font-semibold text-violet-300">{q.sub_category || q.subcategory}</span>
                               </div>
                             )}
-                        {/* ── Question number + text ── */}
-                        <div className="flex items-start gap-3 mb-4">
-                          <span className="text-xs font-bold text-slate-600 bg-slate-800 rounded-md px-2 py-1 flex-shrink-0 mt-0.5">
-                            {idx + 1}
-                          </span>
-                          <div className="flex-1 min-w-0 space-y-3">
-                            {/* Question text — renders HTML properly */}
-                            <div
-                              className="text-sm text-white leading-relaxed"
-                              dangerouslySetInnerHTML={{ __html: q.text }}
-                            />
-
-                            {/* Question image with zoom */}
-                            {q.image_url && (
-                              <div
-                                className="relative inline-block group cursor-zoom-in"
-                                onClick={() => setZoomedImage(q.image_url)}
-                              >
-                                <img
-                                  src={q.image_url}
-                                  alt=""
-                                  className="max-h-48 rounded-xl object-contain border border-slate-700 transition group-hover:border-indigo-500/60"
-                                />
-                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 rounded-xl transition flex items-center justify-center">
-                                  <span className="opacity-0 group-hover:opacity-100 transition bg-black/70 text-white text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5">
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-                                    </svg>
-                                    Click to zoom
-                                  </span>
-                                </div>
+                            {q.sub_topic && (
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-cyan-500/15 border border-cyan-500/30 rounded-lg">
+                                <svg className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                </svg>
+                                <span className="text-xs font-semibold text-cyan-300">{q.sub_topic}</span>
                               </div>
                             )}
                           </div>
+
+                          {/* Edit button */}
+                          <button onClick={() => setEditQuestion(q)}
+                            title="Edit question text, options, sub-topic, explanation"
+                            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 rounded-lg transition">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 3.487a2.25 2.25 0 013.182 3.182L6.75 19.963l-4.5 1.125 1.125-4.5L16.862 3.487z" />
+                            </svg>
+                            Edit
+                          </button>
                         </div>
 
-                        {/* ── Options ── */}
+                        {/* Question text */}
+                        <p className="text-sm text-white leading-relaxed mb-3">{q.text}</p>
+
+                        {/* Question image */}
+                        {q.image_url && (
+                          <div className="mb-3">
+                            <img src={q.image_url} alt="Question" onClick={() => setZoomedImage(q.image_url)}
+                              className="max-h-48 rounded-lg border border-slate-700 cursor-zoom-in object-contain" />
+                          </div>
+                        )}
+
+                        {/* Options */}
                         {q.options && q.options.length > 0 && (
-                          <div className="grid grid-cols-2 gap-2 mb-4 pl-9">
-                            {q.options.map((opt, oi) => {
-                              const isCorrect = opt.correct === true || opt.correct === "true";
-                              return (
-                                <div
-                                  key={opt.option_id || oi}
-                                  className={`text-xs px-3 py-2 rounded-lg border flex items-center gap-2 ${
-                                    isCorrect
-                                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-                                      : "bg-slate-800 border-slate-700 text-slate-400"
-                                  }`}
-                                >
-                                  <span className="font-bold flex-shrink-0">{String.fromCharCode(65 + oi)}.</span>
-                                  <span className="flex-1">{opt.text}</span>
-                                  {isCorrect && (
-                                    <span className="text-emerald-400 flex-shrink-0 font-bold">✓</span>
-                                  )}
-                                  {/* Option image with zoom */}
-                                  {opt.image_url && (
-                                    <img
-                                      src={opt.image_url}
-                                      alt=""
-                                      className="h-10 rounded object-contain cursor-zoom-in border border-slate-600 hover:border-indigo-400 flex-shrink-0"
-                                      onClick={() => setZoomedImage(opt.image_url)}
-                                    />
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* ── Explanation ── */}
-                        {q.explanation && (
-                          <div className="mb-4 pl-9">
-                            <div className="bg-amber-500/8 border border-amber-500/25 rounded-xl p-4">
-                              {/* Explanation header */}
-                              <div className="flex items-center gap-2 mb-2">
-                                <div className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                                  <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                          <div className="space-y-1.5 mb-3">
+                            {q.options.map((opt, oi) => (
+                              <div key={opt.option_id || oi}
+                                className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm border ${
+                                  opt.correct ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300" : "bg-slate-800/50 border-slate-700/50 text-slate-400"
+                                }`}>
+                                <span className="text-[10px] font-bold mt-0.5 flex-shrink-0">{String.fromCharCode(65 + oi)}</span>
+                                {opt.image_url && (
+                                  <img src={opt.image_url} alt="" className="h-10 rounded cursor-zoom-in object-contain"
+                                    onClick={() => setZoomedImage(opt.image_url)} />
+                                )}
+                                {opt.text && <span className="leading-relaxed">{opt.text}</span>}
+                                {opt.correct && (
+                                  <svg className="w-3.5 h-3.5 text-emerald-400 ml-auto flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                   </svg>
-                                </div>
-                                <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">Explanation</span>
+                                )}
                               </div>
-                              {/* Explanation text */}
-                              <p className="text-sm text-amber-100/80 leading-relaxed">{q.explanation}</p>
-                            </div>
+                            ))}
                           </div>
                         )}
 
-                        {/* ── Verify controls ── */}
-                        <div className="pl-9">
+                        {/* Explanation */}
+                        {q.explanation && (
+                          <div className="mb-3 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
+                            <p className="text-[10px] text-amber-500 font-bold mb-0.5">Explanation</p>
+                            <p className="text-xs text-amber-400/80">{q.explanation}</p>
+                          </div>
+                        )}
+
+                        {/* Verify controls */}
+                        <div className="pt-3 border-t border-slate-800">
                           <VerifyControls question={q} onVerified={handleQuestionVerified} />
                         </div>
                       </div>
@@ -585,9 +792,23 @@ export default function TutorDashboard() {
         </main>
       </div>
 
-      {/* ── Image Zoom Modal ── */}
-      <ImageZoomModal src={zoomedImage} onClose={() => setZoomedImage(null)} />
+      {/* Image zoom overlay */}
+      {zoomedImage && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-6 cursor-zoom-out"
+          onClick={() => setZoomedImage(null)}>
+          <img src={zoomedImage} alt="Zoomed" className="max-w-full max-h-full rounded-xl object-contain" />
+        </div>
+      )}
 
+      {/* Edit modal */}
+      {editQuestion && (
+        <EditQuestionModal
+          question={editQuestion}
+          subTopicOptions={subTopicOptions}
+          onSaved={handleQuestionEdited}
+          onClose={() => setEditQuestion(null)}
+        />
+      )}
     </div>
   );
 }
