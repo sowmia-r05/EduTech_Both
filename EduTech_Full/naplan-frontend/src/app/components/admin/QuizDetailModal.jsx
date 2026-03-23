@@ -1044,30 +1044,35 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                     )}
 
                     {/* ✅ Tutor verification — standalone, always visible */}
-                   {/* ── Tutor review (read-only) ── */}
-                    {q.tutor_verification?.status && q.tutor_verification.status !== "pending" && (
-                      <div className={`mt-3 ml-10 px-3 py-2 rounded-lg border ${
-                        q.tutor_verification.status === "approved"
-                          ? "bg-emerald-500/5 border-emerald-500/20"
-                          : "bg-red-500/5 border-red-500/20"
+                     {q.tutor_verification?.status && q.tutor_verification.status !== "pending" && (
+                  <div className="mt-3 ml-10 space-y-2">
+                    {/* Tutor section header */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 border-t border-slate-700/60" />
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">
+                        Tutor Review
+                      </span>
+                      <div className="flex-1 border-t border-slate-700/60" />
+                    </div>
+                    <div className={`px-3 py-2 rounded-lg border ${
+                      q.tutor_verification.status === "approved"
+                        ? "bg-emerald-500/5 border-emerald-500/20"
+                        : "bg-red-500/5 border-red-500/20"
+                    }`}>
+                      <p className={`text-[10px] font-bold uppercase tracking-wider ${
+                        q.tutor_verification.status === "approved" ? "text-emerald-400" : "text-red-400"
                       }`}>
-                        <p className={`text-[10px] font-bold uppercase tracking-wider ${
-                          q.tutor_verification.status === "approved" ? "text-emerald-400" : "text-red-400"
-                        }`}>
-                          {q.tutor_verification.status === "approved" ? "✓ Tutor Approved" : "✗ Tutor Rejected"}
-                          {q.tutor_verification.verified_by && (
-                            <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">
-                              by {q.tutor_verification.verified_by}
-                            </span>
-                          )}
+                        {q.tutor_verification.status === "approved" ? "✓ Tutor Approved" : "✗ Tutor Rejected"}
+                      </p>
+                      {q.tutor_verification.status === "rejected" && q.tutor_verification.rejection_reason && (
+                        <p className="text-xs text-red-400/70 mt-0.5">
+                          {q.tutor_verification.rejection_reason}
                         </p>
-                        {q.tutor_verification.status === "rejected" && q.tutor_verification.rejection_reason && (
-                          <p className="text-xs text-red-400/70 mt-0.5">
-                            {q.tutor_verification.rejection_reason}
-                          </p>
-                        )}
-                      </div>
-                    )}
+                      )}
+                    </div>
+                  </div>
+                )}
+
 
                     {/* ── Admin review controls ── */}
                     <AdminVerifyControls
