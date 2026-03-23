@@ -335,7 +335,6 @@ router.delete("/admins/:adminId", async (req, res) => {
 // TUTOR MANAGEMENT
 // ═══════════════════════════════════════════════════════════
 
-// GET /api/admin/tutors — list all tutors
 router.get("/tutors", async (req, res) => {
   try {
     await connectDB();
@@ -350,7 +349,6 @@ router.get("/tutors", async (req, res) => {
   }
 });
 
-// POST /api/admin/tutors — create a tutor account
 router.post("/tutors", async (req, res) => {
   try {
     await connectDB();
@@ -390,7 +388,6 @@ router.post("/tutors", async (req, res) => {
   }
 });
 
-// PATCH /api/admin/tutors/:tutorId/quizzes — assign quizzes to a tutor
 router.patch("/tutors/:tutorId/quizzes", async (req, res) => {
   try {
     await connectDB();
@@ -412,7 +409,49 @@ router.patch("/tutors/:tutorId/quizzes", async (req, res) => {
   }
 });
 
-// PATCH /api/admin/tutors/:tutorId — suspend / reactivate tutor
+router.patch("/tutors/:tutorId/edit", async (req, res) => {
+  try {
+    await connectDB();
+    if (req.admin.role !== "admin") {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+
+    const tutor = await Admin.findOne({ _id: req.params.tutorId, role: "tutor" });
+    if (!tutor) return res.status(404).json({ error: "Tutor not found" });
+
+    const { name, password } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: "Name is required" });
+    }
+    tutor.name = String(name).trim();
+
+    if (password) {
+      if (String(password).length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      }
+      tutor.password_hash = String(password);
+    }
+
+    await tutor.save();
+
+    return res.json({
+      ok: true,
+      tutor: {
+        _id:               tutor._id,
+        name:              tutor.name,
+        email:             tutor.email,
+        role:              tutor.role,
+        status:            tutor.status,
+        assigned_quiz_ids: tutor.assigned_quiz_ids || [],
+        createdAt:         tutor.createdAt,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.patch("/tutors/:tutorId", async (req, res) => {
   try {
     await connectDB();
@@ -440,53 +479,6 @@ router.patch("/tutors/:tutorId", async (req, res) => {
   }
 });
 
-// ✅ NEW: PATCH /api/admin/tutors/:tutorId/edit — change name and/or password
-router.patch("/tutors/:tutorId/edit", async (req, res) => {
-  try {
-    await connectDB();
-    if (req.admin.role !== "admin") {
-      return res.status(403).json({ error: "Admin access required" });
-    }
-
-    const tutor = await Admin.findOne({ _id: req.params.tutorId, role: "tutor" });
-    if (!tutor) return res.status(404).json({ error: "Tutor not found" });
-
-    const { name, password } = req.body;
-
-    if (!name || !String(name).trim()) {
-      return res.status(400).json({ error: "Name is required" });
-    }
-    tutor.name = String(name).trim();
-
-    // Only update password if one was supplied
-    if (password) {
-      if (String(password).length < 8) {
-        return res.status(400).json({ error: "Password must be at least 8 characters" });
-      }
-      // Assign plain text — the pre-save hook on Admin model bcrypts it automatically
-      tutor.password_hash = String(password);
-    }
-
-    await tutor.save();
-
-    return res.json({
-      ok: true,
-      tutor: {
-        _id:               tutor._id,
-        name:              tutor.name,
-        email:             tutor.email,
-        role:              tutor.role,
-        status:            tutor.status,
-        assigned_quiz_ids: tutor.assigned_quiz_ids || [],
-        createdAt:         tutor.createdAt,
-      },
-    });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/admin/tutors/:tutorId — delete a tutor
 router.delete("/tutors/:tutorId", async (req, res) => {
   try {
     await connectDB();
@@ -498,7 +490,6 @@ router.delete("/tutors/:tutorId", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
-
 
 // ═══════════════════════════════════════════════════════════
 // FILE UPLOAD (AWS S3)
@@ -563,7 +554,6 @@ router.get("/quizzes/:quizId", async (req, res) => {
     if (!quiz) quiz = await Quiz.findById(req.params.quizId).lean();
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
-    // ✅ FIX (nulls sort last, then fall back to createdAt)
     const questions = await Question.aggregate([
       {
         $match: {
@@ -697,6 +687,11 @@ router.delete("/quizzes/:quizId", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
+// ═══════════════════════════════════════════════════════════
+// QUESTION ROUTES
+// ═══════════════════════════════════════════════════════════
+
 router.patch("/questions/:questionId/move", requireAdmin, async (req, res) => {
   try {
     await connectDB();
@@ -706,7 +701,6 @@ router.patch("/questions/:questionId/move", requireAdmin, async (req, res) => {
     if (!from_quiz_id || !to_quiz_id)
       return res.status(400).json({ error: "from_quiz_id and to_quiz_id required" });
 
-    // Remove from source quiz, add to destination
     await Question.updateOne(
       { question_id: questionId },
       { $pull: { quiz_ids: from_quiz_id } }
@@ -721,10 +715,8 @@ router.patch("/questions/:questionId/move", requireAdmin, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-// ═══════════════════════════════════════════════════════════
-// QUESTION ROUTES
-// ═══════════════════════════════════════════════════════════
 
+// ✅ Tutor verification (writes to tutor_verification only)
 router.patch("/questions/:questionId/verify", async (req, res) => {
   try {
     await connectDB();
@@ -747,6 +739,39 @@ router.patch("/questions/:questionId/verify", async (req, res) => {
       },
       { new: true }
     ).lean();
+    if (!question) return res.status(404).json({ error: "Question not found" });
+    return res.json({ ok: true, question });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Admin verification (writes to admin_verification only — tutor_verification NEVER touched)
+router.patch("/questions/:questionId/admin-verify", async (req, res) => {
+  try {
+    await connectDB();
+    const { status, message } = req.body;
+
+    if (!["approved", "rejected", "pending"].includes(status)) {
+      return res.status(400).json({ error: "status must be 'approved', 'rejected', or 'pending'" });
+    }
+    if (status === "rejected" && !message?.trim()) {
+      return res.status(400).json({ error: "message is required when rejecting" });
+    }
+
+    const question = await Question.findOneAndUpdate(
+      { question_id: req.params.questionId },
+      {
+        $set: {
+          "admin_verification.status":      status,
+          "admin_verification.verified_by": req.admin.email,
+          "admin_verification.verified_at": status === "pending" ? null : new Date(),
+          "admin_verification.message":     status === "pending" ? null : (message?.trim() || null),
+        },
+      },
+      { new: true }
+    ).lean();
+
     if (!question) return res.status(404).json({ error: "Question not found" });
     return res.json({ ok: true, question });
   } catch (err) {
@@ -831,7 +856,6 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
   }
 });
 
-// ✅ ADD THIS NEW ROUTE
 router.patch("/questions/:questionId", async (req, res) => {
   try {
     await connectDB();
@@ -841,8 +865,7 @@ router.patch("/questions/:questionId", async (req, res) => {
       "text", "type", "options", "correct_answer", "case_sensitive",
       "points", "categories", "image_url", "image_size", "image_width",
       "image_height", "explanation", "shuffle_options", "voice_url",
-      "video_url", "order",
-      // ✅ ADD THESE:
+      "video_url", "order", "sub_topic",
       "text_font_size", "text_font_family", "text_font_weight",
       "text_align", "text_line_height", "text_letter_spacing",
       "text_color", "max_length", "text_style_scope",
@@ -852,12 +875,10 @@ router.patch("/questions/:questionId", async (req, res) => {
       if (req.body[f] !== undefined) updates[f] = req.body[f];
     }
 
-    // Handle question_text alias
     if (req.body.question_text && !updates.text) {
       updates.text = req.body.question_text;
     }
 
-    // Handle category → categories
     if (req.body.category && !updates.categories) {
       updates.categories = [{ name: req.body.category }];
     }
@@ -902,7 +923,6 @@ router.delete("/questions/:questionId", async (req, res) => {
   }
 });
 
-
 // ═══════════════════════════════════════════════════════════
 // QUIZ UPLOAD
 // ═══════════════════════════════════════════════════════════
@@ -926,22 +946,22 @@ router.post("/quizzes/upload", async (req, res) => {
           return { ...opt, option_id: opt.option_id || uuidv4(), correct: opt.correct === true || correctLabels.includes(label.toUpperCase()) };
         });
         return {
-  question_id: uuidv4(),
-  quiz_ids: [quiz_id],
-  text: q.question_text || q.text || "",
-  type: q.type || "radio_button",
-  options: mappedOptions,
-  correct_answer: q.correct_answer || null,
-  points: q.points || 1,
-  categories: q.category ? [{ name: q.category }] : (q.categories || []),
-  image_url: q.image_url || null,
-  explanation: q.explanation || "",
-  sub_topic: q.sub_topic || null,
-  voice_url: q.voice_url || null,
-  video_url: q.video_url || null,
-  image_width:  q.image_width  != null ? Number(q.image_width)  || null : null,
-  image_height: q.image_height != null ? Number(q.image_height) || null : null,
-  order: idx * 1000,   // ✅ ADD THIS
+          question_id: uuidv4(),
+          quiz_ids: [quiz_id],
+          text: q.question_text || q.text || "",
+          type: q.type || "radio_button",
+          options: mappedOptions,
+          correct_answer: q.correct_answer || null,
+          points: q.points || 1,
+          categories: q.category ? [{ name: q.category }] : (q.categories || []),
+          image_url: q.image_url || null,
+          explanation: q.explanation || "",
+          sub_topic: q.sub_topic || null,
+          voice_url: q.voice_url || null,
+          video_url: q.video_url || null,
+          image_width:  q.image_width  != null ? Number(q.image_width)  || null : null,
+          image_height: q.image_height != null ? Number(q.image_height) || null : null,
+          order: idx * 1000,
         };
       })
     );
@@ -1112,7 +1132,6 @@ router.patch("/children/:childId/bundles", async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
-
 });
-// PATCH /api/admin/questions/:questionId/move
+
 module.exports = router;

@@ -209,6 +209,15 @@ function VerifyControls({ question, onVerified }) {
           <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
         )}
       </div>
+
+        {current === "rejected" && question.tutor_verification?.rejection_reason && !showReject && (
+            <div className="px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-lg">
+              <p className="text-[11px] text-red-400">
+                <span className="font-semibold">Rejection reason:</span> {question.tutor_verification.rejection_reason}
+              </p>
+            </div>
+          )}
+
       {showReject && (
         <div className="flex items-center gap-2 mt-1">
           <input type="text" value={reason} onChange={(e) => setReason(e.target.value)}

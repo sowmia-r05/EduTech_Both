@@ -103,12 +103,26 @@ const QuestionSchema = new mongoose.Schema(
       type: TutorVerificationSchema,
       default: () => ({ status: "pending", verified_by: null, verified_at: null, rejection_reason: null }),
     },
+    // ✅ NEW: Admin verification
+  admin_verification: {
+    type: new mongoose.Schema({
+      status:      { type: String, enum: ["approved", "rejected", "pending"], default: "pending" },
+      verified_by: { type: String, default: null },
+      verified_at: { type: Date,   default: null },
+      message:     { type: String, default: null },
+    }, { _id: false }),
+    default: () => ({ status: "pending", verified_by: null, verified_at: null, message: null }),
+  },
   },
   { timestamps: true, versionKey: false }
+  
 );
+
+
 
 // Compound indexes for efficient queries
 QuestionSchema.index({ quiz_ids: 1, order: 1 });
 QuestionSchema.index({ "tutor_verification.status": 1 });
+QuestionSchema.index({ "admin_verification.status": 1 });
 
 module.exports = mongoose.model("Question", QuestionSchema);
