@@ -97,6 +97,8 @@ const QuestionSchema = new mongoose.Schema(
     case_sensitive: { type: Boolean, default: false },
 
     sub_topic: { type: String, default: null },
+    tutor_edited_at: { type: Date,   default: null },   // ✅ ADD
+    tutor_edited_by: { type: String, default: null },   // ✅ ADD
 
     // ✅ NEW: Tutor verification
     tutor_verification: {
