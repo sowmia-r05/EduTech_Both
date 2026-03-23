@@ -253,6 +253,7 @@ const update = {
     "tutor_verification.verified_by":      null,
     "tutor_verification.verified_at":      null,
     "tutor_verification.rejection_reason": null,
+    "tutor_edited_by": req.tutor.email, 
   },
 };
    

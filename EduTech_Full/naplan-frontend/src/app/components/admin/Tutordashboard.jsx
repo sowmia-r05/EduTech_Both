@@ -1,32 +1,12 @@
-/**
- * Tutordashboard.jsx  ✅ UPDATED
- *
- * Changes:
- *   ✅ EditQuestionModal — 4 editable sections:
- *       1. Question Text  (textarea)
- *       2. Answer Options (edit text per option + click to toggle correct)
- *       3. Sub-topic      (dropdown built from unique sub_topics already set
- *                          by admin across questions in the current quiz;
- *                          falls back to free-text if none exist yet)
- *       4. Explanation    (shows existing explanation with Remove button;
- *                          if absent / removed → "+ Add explanation" button)
- *   ✅ ✏️ Edit button on every question card
- *   ✅ handleQuestionEdited updates questions + sidebar quiz stats
- *   ✅ PATCH /api/tutor/questions/:id/edit  →  { text, options, sub_topic, explanation }
- */
-
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
 const ADMIN_PATH = "/admin-portal";
-
-
-// ─── tutorFetch ───────────────────────────────────────────────────────────────
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
 async function tutorFetch(url, options = {}) {
   const token = localStorage.getItem("tutor_token");
-  return fetch(`${API}${url}`, { 
+  return fetch(`${API}${url}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -68,6 +48,45 @@ function VerificationProgress({ verification }) {
       </div>
       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-indigo-500"}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── AdminReviewBanner (read-only, shown to tutor) ────────────────────────────
+function AdminReviewBanner({ question }) {
+  const adminStatus  = question.admin_verification?.status  || "pending";
+  const adminMessage = question.admin_verification?.message || null;
+  if (adminStatus === "pending") return null;
+  const isApproved = adminStatus === "approved";
+  return (
+    <div className={`mt-3 px-3 py-2.5 rounded-lg border flex items-start gap-2.5 ${
+      isApproved ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
+    }`}>
+      <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5 ${
+        isApproved ? "bg-emerald-500/20" : "bg-red-500/20"
+      }`}>
+        {isApproved ? (
+          <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        ) : (
+          <svg className="w-3 h-3 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        )}
+      </div>
+      <div className="min-w-0">
+        <p className={`text-[10px] font-bold uppercase tracking-wider ${
+          isApproved ? "text-emerald-400" : "text-red-400"
+        }`}>
+          Admin {isApproved ? "Approved" : "Rejected"}
+        </p>
+        {adminMessage && (
+          <p className={`text-xs mt-0.5 ${isApproved ? "text-emerald-400/70" : "text-red-400/70"}`}>
+            {adminMessage}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -155,19 +174,14 @@ function VerifyControls({ question, onVerified }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ✅ EditQuestionModal
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── EditQuestionModal ────────────────────────────────────────────────────────
 function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
-  const [text,           setText]          = useState(question.text || "");
-  const [subTopic,       setSubTopic]      = useState(question.sub_topic || "");
-  const [options,        setOptions]       = useState((question.options || []).map((o) => ({ ...o })));
-  // ✅ Explanation state: null means "removed / not present"; string means present
-  const [explanation,    setExplanation]   = useState(
-    question.explanation ? question.explanation : null
-  );
-  const [loading,        setLoading]       = useState(false);
-  const [error,          setError]         = useState("");
+  const [text,        setText]       = useState(question.text || "");
+  const [subTopic,    setSubTopic]   = useState(question.sub_topic || "");
+  const [options,     setOptions]    = useState((question.options || []).map((o) => ({ ...o })));
+  const [explanation, setExplanation] = useState(question.explanation ? question.explanation : null);
+  const [loading,     setLoading]    = useState(false);
+  const [error,       setError]      = useState("");
 
   const isMultiCorrect = question.type === "checkbox";
   const hasOptions     = options.length > 0;
@@ -197,7 +211,6 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
         method: "PATCH",
         body: JSON.stringify({
           text:        text.trim(),
-          // ✅ Send empty string when explanation was removed so backend clears it
           explanation: explanation !== null ? explanation.trim() : "",
           sub_topic:   subTopic.trim() || null,
           options:     options.map((o) => ({
@@ -218,7 +231,6 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
     }
   };
 
-  // Section number badge helper
   const sectionNum = (n) => (
     <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
       n === 1 ? "bg-indigo-600/30 border border-indigo-500/40 text-indigo-400"
@@ -228,15 +240,12 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
     }`}>{n}</span>
   );
 
-  // The section number for sub-topic and explanation shifts if there are no options
-  const subTopicNum   = hasOptions ? 3 : 2;
+  const subTopicNum    = hasOptions ? 3 : 2;
   const explanationNum = hasOptions ? 4 : 3;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 flex items-start justify-center p-4 overflow-y-auto">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl my-8 shadow-2xl">
-
-        {/* Header */}
         <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-4 border-b border-slate-800">
           <div>
             <h2 className="text-base font-semibold text-white">Edit Question</h2>
@@ -249,27 +258,19 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
 
         <form onSubmit={handleSave}>
           <div className="px-6 py-5 space-y-7">
-
             {error && (
               <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">{error}</p>
             )}
 
-            {/* ── 1. Question Text ── */}
             <section className="space-y-2">
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                {sectionNum(1)} Question Text
-                <span className="text-red-400 font-normal normal-case tracking-normal">*</span>
+                {sectionNum(1)} Question Text <span className="text-red-400 font-normal normal-case tracking-normal">*</span>
               </label>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                rows={4}
+              <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
                 placeholder="Enter the question text…"
-                className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl px-4 py-3 resize-y placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition leading-relaxed"
-              />
+                className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl px-4 py-3 resize-y placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition leading-relaxed" />
             </section>
 
-            {/* ── 2. Answer Options ── */}
             {hasOptions && (
               <section className="space-y-2">
                 <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
@@ -278,58 +279,35 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
                     — {isMultiCorrect ? "check all correct" : "click circle to set correct answer"}
                   </span>
                 </label>
-
                 <div className="space-y-2">
                   {options.map((opt, idx) => {
                     const label = String.fromCharCode(65 + idx);
                     return (
                       <div key={opt.option_id || idx}
                         className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${
-                          opt.correct
-                            ? "bg-emerald-500/10 border-emerald-500/30"
-                            : "bg-slate-800/60 border-slate-700/50 hover:border-slate-600"
-                        }`}
-                      >
-                        {/* Correct toggle button */}
+                          opt.correct ? "bg-emerald-500/10 border-emerald-500/30" : "bg-slate-800/60 border-slate-700/50 hover:border-slate-600"
+                        }`}>
                         <button type="button" onClick={() => toggleCorrect(idx)}
-                          title={opt.correct ? "Mark as incorrect" : "Mark as correct"}
                           className={`flex-shrink-0 mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                            opt.correct
-                              ? "bg-emerald-500 border-emerald-500 text-white shadow-emerald-500/30 shadow-md"
-                              : "bg-transparent border-slate-600 hover:border-emerald-500 hover:bg-emerald-500/10"
-                          }`}
-                        >
+                            opt.correct ? "bg-emerald-500 border-emerald-500 text-white" : "bg-transparent border-slate-600 hover:border-emerald-500"
+                          }`}>
                           {opt.correct && (
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                             </svg>
                           )}
                         </button>
-
-                        {/* Label chip */}
                         <span className={`flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold mt-0.5 ${
                           opt.correct ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-700 text-slate-400"
                         }`}>{label}</span>
-
-                        {/* Image preview (read-only) */}
                         {opt.image_url && (
-                          <img src={opt.image_url} alt={`Option ${label}`}
-                            className="h-12 rounded-lg object-contain border border-slate-600 flex-shrink-0" />
+                          <img src={opt.image_url} alt={`Option ${label}`} className="h-12 rounded-lg object-contain border border-slate-600 flex-shrink-0" />
                         )}
-
-                        {/* Editable text */}
-                        <input
-                          type="text"
-                          value={opt.text || ""}
-                          onChange={(e) => updateOptionText(idx, e.target.value)}
+                        <input type="text" value={opt.text || ""} onChange={(e) => updateOptionText(idx, e.target.value)}
                           placeholder={`Option ${label}…`}
-                          className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none"
-                        />
-
+                          className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none" />
                         {opt.correct && (
-                          <span className="flex-shrink-0 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md mt-0.5 whitespace-nowrap">
-                            ✓ Correct
-                          </span>
+                          <span className="flex-shrink-0 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md mt-0.5 whitespace-nowrap">✓ Correct</span>
                         )}
                       </div>
                     );
@@ -338,124 +316,77 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
               </section>
             )}
 
-            {/* ── 3. Sub-topic ── */}
             <section className="space-y-2">
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
                 {sectionNum(subTopicNum)} Sub-topic
-                <span className="text-[10px] text-slate-500 font-normal normal-case tracking-normal ml-1">
-                  — from admin settings
-                </span>
+                <span className="text-[10px] text-slate-500 font-normal normal-case tracking-normal ml-1">— from admin settings</span>
               </label>
-
               <div className="relative">
-                {/* Cyan bookmark icon */}
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-cyan-400">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                   </svg>
                 </span>
-
                 {subTopicOptions.length > 0 ? (
                   <>
-                    <select
-                      value={subTopic}
-                      onChange={(e) => setSubTopic(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl pl-10 pr-10 py-2.5 appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition"
-                    >
+                    <select value={subTopic} onChange={(e) => setSubTopic(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl pl-10 pr-10 py-2.5 appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition">
                       <option value="">— None —</option>
-                      {subTopicOptions.map((st) => (
-                        <option key={st} value={st}>{st}</option>
-                      ))}
+                      {subTopicOptions.map((st) => <option key={st} value={st}>{st}</option>)}
                     </select>
                     <span className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                      </svg>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                     </span>
                   </>
                 ) : (
-                  <input
-                    type="text"
-                    value={subTopic}
-                    onChange={(e) => setSubTopic(e.target.value)}
-                    placeholder="No sub-topics found — type one manually…"
-                    maxLength={80}
-                    className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl pl-10 pr-4 py-2.5 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition"
-                  />
+                  <input type="text" value={subTopic} onChange={(e) => setSubTopic(e.target.value)}
+                    placeholder="No sub-topics found — type one manually…" maxLength={80}
+                    className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl pl-10 pr-4 py-2.5 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition" />
                 )}
               </div>
-
-              {/* Live badge preview */}
               {subTopic && (
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className="text-[10px] text-slate-500">Preview:</span>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-cyan-500/15 border border-cyan-500/30 rounded-lg text-cyan-300 text-[11px] font-semibold">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                    </svg>
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
                     {subTopic}
                   </span>
                 </div>
               )}
             </section>
 
-            {/* ── 4. Explanation ── ✅ NEW SECTION */}
             <section className="space-y-2">
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
                 {sectionNum(explanationNum)} Explanation
-                <span className="text-[10px] text-slate-500 font-normal normal-case tracking-normal ml-1">
-                  — optional
-                </span>
+                <span className="text-[10px] text-slate-500 font-normal normal-case tracking-normal ml-1">— optional</span>
               </label>
-
               {explanation !== null ? (
-                /* ── Explanation is present: show editable textarea + Remove button ── */
                 <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2 border-b border-amber-500/15">
                     <div className="flex items-center gap-2">
-                      {/* Amber dot indicator */}
                       <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
-                      <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wide">
-                        Explanation present
-                      </span>
+                      <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wide">Explanation present</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setExplanation(null)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition"
-                    >
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+                    <button type="button" onClick={() => setExplanation(null)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                       Remove
                     </button>
                   </div>
-                  <textarea
-                    value={explanation}
-                    onChange={(e) => setExplanation(e.target.value)}
-                    rows={3}
+                  <textarea value={explanation} onChange={(e) => setExplanation(e.target.value)} rows={3}
                     placeholder="Enter the explanation…"
-                    className="w-full bg-transparent text-sm text-amber-300/90 placeholder:text-slate-500 px-4 py-3 resize-y focus:outline-none leading-relaxed"
-                  />
+                    className="w-full bg-transparent text-sm text-amber-300/90 placeholder:text-slate-500 px-4 py-3 resize-y focus:outline-none leading-relaxed" />
                 </div>
               ) : (
-                /* ── Explanation is absent / removed: show Add button ── */
-                <button
-                  type="button"
-                  onClick={() => setExplanation("")}
-                  className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-dashed border-slate-600 hover:border-amber-500/40 text-slate-500 hover:text-amber-400 text-sm transition group"
-                >
-                  <svg className="w-4 h-4 group-hover:text-amber-400 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
+                <button type="button" onClick={() => setExplanation("")}
+                  className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-dashed border-slate-600 hover:border-amber-500/40 text-slate-500 hover:text-amber-400 text-sm transition group">
+                  <svg className="w-4 h-4 group-hover:text-amber-400 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                   Add explanation
                 </button>
               )}
             </section>
-
           </div>
 
-          {/* Footer */}
           <div className="px-6 pb-6 pt-4 border-t border-slate-800 flex gap-3">
             <button type="button" onClick={onClose}
               className="flex-1 py-2.5 text-sm text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded-xl transition">
@@ -492,12 +423,11 @@ export default function TutorDashboard() {
   const [filter,         setFilter]         = useState("all");
   const [zoomedImage,    setZoomedImage]    = useState(null);
   const [editQuestion,   setEditQuestion]   = useState(null);
+  const [subTopicOptions, setSubTopicOptions] = useState([]);
 
   const tutorData = (() => {
     try { return JSON.parse(localStorage.getItem("tutor_info") || "{}"); } catch { return {}; }
   })();
-
-  const [subTopicOptions, setSubTopicOptions] = useState([]);
 
   const fetchQuizzes = useCallback(async () => {
     try {
@@ -524,10 +454,10 @@ export default function TutorDashboard() {
       setSelectedQuiz(data);
       setQuestions(data.questions || []);
       setFilter("all");
-         const fromQuiz = data.sub_topic ? [data.sub_topic] : [];
-          const fromQs   = (data.questions || []).map(q => q.sub_topic).filter(Boolean);
-          const unique   = [...new Set([...fromQuiz, ...fromQs])].sort();
-          setSubTopicOptions(unique);
+      const fromQuiz = data.sub_topic ? [data.sub_topic] : [];
+      const fromQs   = (data.questions || []).map(q => q.sub_topic).filter(Boolean);
+      const unique   = [...new Set([...fromQuiz, ...fromQs])].sort();
+      setSubTopicOptions(unique);
     } catch (err) { alert(err.message); }
     finally { setLoadingQs(false); }
   };
@@ -700,8 +630,8 @@ export default function TutorDashboard() {
                           status === "approved" ? "border-emerald-800/40" :
                           status === "rejected" ? "border-red-800/40" :
                           "border-slate-800"
-                        }`}
-                      >
+                        }`}>
+
                         {/* Card header */}
                         <div className="flex items-start justify-between gap-3 mb-3">
                           <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -711,9 +641,6 @@ export default function TutorDashboard() {
                             )}
                             {(q.sub_category || q.subcategory) && (
                               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-500/15 border border-violet-500/30 rounded-lg">
-                                <svg className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                </svg>
                                 <span className="text-xs font-semibold text-violet-300">{q.sub_category || q.subcategory}</span>
                               </div>
                             )}
@@ -726,10 +653,7 @@ export default function TutorDashboard() {
                               </div>
                             )}
                           </div>
-
-                          {/* Edit button */}
                           <button onClick={() => setEditQuestion(q)}
-                            title="Edit question text, options, sub-topic, explanation"
                             className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 rounded-lg transition">
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 3.487a2.25 2.25 0 013.182 3.182L6.75 19.963l-4.5 1.125 1.125-4.5L16.862 3.487z" />
@@ -781,10 +705,14 @@ export default function TutorDashboard() {
                           </div>
                         )}
 
-                        {/* Verify controls */}
+                        {/* ── Tutor verify controls ── */}
                         <div className="pt-3 border-t border-slate-800">
                           <VerifyControls question={q} onVerified={handleQuestionVerified} />
                         </div>
+
+                        {/* ── Admin decision (read-only, visible to tutor) ── */}
+                        <AdminReviewBanner question={q} />
+
                       </div>
                     );
                   })

@@ -1042,6 +1042,20 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                         <p className="text-xs text-amber-400/80">{q.explanation}</p>
                       </div>
                     )}
+                    {/* ── Tutor edited indicator ── */}
+                      {q.tutor_edited_at && (
+                        <div className="mt-2 ml-10 inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-500/10 border border-violet-500/20 rounded-lg">
+                          <svg className="w-3 h-3 text-violet-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 3.487a2.25 2.25 0 013.182 3.182L6.75 19.963l-4.5 1.125 1.125-4.5L16.862 3.487z" />
+                          </svg>
+                          <span className="text-[10px] font-semibold text-violet-400">
+                            Edited by tutor
+                            {q.tutor_edited_by && (
+                              <span className="font-normal opacity-70 ml-1">({q.tutor_edited_by})</span>
+                            )}
+                          </span>
+                        </div>
+                      )}
 
                     {/* ✅ Tutor verification — standalone, always visible */}
                      {q.tutor_verification?.status && q.tutor_verification.status !== "pending" && (
