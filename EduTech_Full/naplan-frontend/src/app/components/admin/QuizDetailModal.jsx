@@ -925,13 +925,47 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                     )}
 
                     {/* Explanation */}
+                   {/* Explanation */}
                     {q.explanation && (
                       <div className="mt-3 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
                         <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-0.5">Explanation</p>
                         <p className="text-xs text-amber-400/80">{q.explanation}</p>
                       </div>
                     )}
-                  </div>
+
+                    {/* ✅ Tutor verification — standalone, always visible */}
+                    {q.tutor_verification?.status && (
+                      <div className={`mt-3 ml-10 px-3 py-2 rounded-lg border ${
+                        q.tutor_verification.status === "approved"
+                          ? "bg-emerald-500/5 border-emerald-500/20"
+                          : q.tutor_verification.status === "rejected"
+                          ? "bg-red-500/5 border-red-500/20"
+                          : "bg-amber-500/5 border-amber-500/20"
+                      }`}>
+                        <p className={`text-[10px] font-bold uppercase tracking-wider ${
+                          q.tutor_verification.status === "approved" ? "text-emerald-400"
+                          : q.tutor_verification.status === "rejected" ? "text-red-400"
+                          : "text-amber-400"
+                        }`}>
+                          {q.tutor_verification.status === "approved" && "✓ Tutor Approved"}
+                          {q.tutor_verification.status === "rejected" && "✗ Tutor Rejected"}
+                          {q.tutor_verification.status === "pending"  && "⋯ Pending Verification"}
+                          {q.tutor_verification.verified_by && (
+                            <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">
+                              by {q.tutor_verification.verified_by}
+                            </span>
+                          )}
+                        </p>
+                        {q.tutor_verification.status === "rejected" && q.tutor_verification.rejection_reason && (
+                          <p className="text-xs text-red-400/80 mt-0.5">
+                            Reason: {q.tutor_verification.rejection_reason}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                      </div>
+                      
+                    
 
                   {/* Insert form AFTER this card */}
                   {showInsertAfter && (

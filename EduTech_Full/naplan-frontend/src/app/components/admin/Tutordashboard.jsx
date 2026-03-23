@@ -20,10 +20,13 @@ import { useNavigate } from "react-router-dom";
 
 const ADMIN_PATH = "/admin-portal";
 
+
 // ─── tutorFetch ───────────────────────────────────────────────────────────────
+const API = import.meta.env.VITE_API_BASE_URL || "";
+
 async function tutorFetch(url, options = {}) {
   const token = localStorage.getItem("tutor_token");
-  return fetch(url, {
+  return fetch(`${API}${url}`, { 
     ...options,
     headers: {
       "Content-Type": "application/json",
