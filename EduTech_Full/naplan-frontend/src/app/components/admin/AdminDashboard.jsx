@@ -767,7 +767,7 @@ export default function AdminDashboard() {
 
                           {/* Actions */}
                          <td className="px-5 py-3 text-right sticky right-0 z-10 bg-slate-900 group-hover:bg-slate-800/50 transition-colors">
-                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                           <div className="flex items-center justify-end gap-1">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
