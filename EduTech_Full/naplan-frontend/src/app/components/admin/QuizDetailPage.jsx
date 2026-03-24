@@ -18,6 +18,10 @@
  * ✅ Added: Right-click context menu — Edit / Insert Before / Insert After / Delete
  * ✅ Fixed: Insert before/after — no double form, correct order calculation
  * ✅ Fixed: picture_choice option upload uses ${API} prefix + URL normalization
+ * ✅ FIXED: Removed duplicate form state keys (text_font_size etc. were doubled)
+ * ✅ FIXED: Removed duplicate handleSave payload keys
+ * ✅ FIXED: Card view now correctly applies buildTextStyle(q) to question text
+ * ✅ FIXED: Card view now correctly applies optStyle to option labels
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -154,7 +158,6 @@ function VerificationBadge({ status }) {
   );
 }
 
-// ─── Verify Controls ─────────────────────────────────────────────────────────
 // ─── Admin Verify Controls ────────────────────────────────────────────────────
 function AdminVerifyControls({ question, onVerified }) {
   const [mode,    setMode]    = useState(null);
@@ -178,15 +181,11 @@ function AdminVerifyControls({ question, onVerified }) {
 
   return (
     <div className="space-y-3">
-
-      {/* ══ TUTOR REVIEW (read-only) ══ */}
       {question.tutor_verification?.status && question.tutor_verification.status !== "pending" && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <div className="flex-1 border-t border-slate-700/60" />
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">
-              Tutor Review
-            </span>
+            <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">Tutor Review</span>
             <div className="flex-1 border-t border-slate-700/60" />
           </div>
           <div className={`px-3 py-2.5 rounded-lg border flex items-start gap-2.5 ${
@@ -210,22 +209,17 @@ function AdminVerifyControls({ question, onVerified }) {
                 Tutor {question.tutor_verification.status === "approved" ? "Approved" : "Rejected"}
               </p>
               {question.tutor_verification.rejection_reason && (
-                <p className="text-xs text-red-400/70 mt-0.5 break-words">
-                  {question.tutor_verification.rejection_reason}
-                </p>
+                <p className="text-xs text-red-400/70 mt-0.5 break-words">{question.tutor_verification.rejection_reason}</p>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ══ ADMIN REVIEW ══ */}
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <div className="flex-1 border-t border-slate-700/60" />
-          <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">
-            Admin Review
-          </span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">Admin Review</span>
           <div className="flex-1 border-t border-slate-700/60" />
         </div>
 
@@ -286,8 +280,7 @@ function AdminVerifyControls({ question, onVerified }) {
               className="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-40">
               Confirm
             </button>
-            <button onClick={() => { setMode(null); setMessage(""); }}
-              className="text-xs text-slate-500 hover:text-white">Cancel</button>
+            <button onClick={() => { setMode(null); setMessage(""); }} className="text-xs text-slate-500 hover:text-white">Cancel</button>
           </div>
         )}
 
@@ -301,8 +294,7 @@ function AdminVerifyControls({ question, onVerified }) {
               className="px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-40">
               Confirm
             </button>
-            <button onClick={() => { setMode(null); setMessage(""); }}
-              className="text-xs text-slate-500 hover:text-white">Cancel</button>
+            <button onClick={() => { setMode(null); setMessage(""); }} className="text-xs text-slate-500 hover:text-white">Cancel</button>
           </div>
         )}
       </div>
@@ -448,14 +440,15 @@ function MoveToQuizModal({ question, currentQuizId, onClose, onMoved }) {
 // ─── Question Editor ──────────────────────────────────────────────────────────
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const [form, setForm] = useState({
-    text:            question.text            || "",
-    type:            question.type            || "radio_button",
-    points:          question.points          || 1,
-    category:        question.categories?.[0]?.name || "",
-    image_url:       question.image_url       || "",
-    image_size:      question.image_size      || "medium",
-    image_width:     question.image_width     ?? null,
-    image_height:    question.image_height    ?? null,
+    // ✅ FIX: Each field declared ONCE only (removed all duplicates)
+    text:                question.text            || "",
+    type:                question.type            || "radio_button",
+    points:              question.points          || 1,
+    category:            question.categories?.[0]?.name || "",
+    image_url:           question.image_url       || "",
+    image_size:          question.image_size      || "medium",
+    image_width:         question.image_width     ?? null,
+    image_height:        question.image_height    ?? null,
     text_font_size:      question.text_font_size      ?? null,
     text_font_family:    question.text_font_family     || null,
     text_font_weight:    question.text_font_weight     || null,
@@ -465,12 +458,12 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     text_color:          question.text_color           || null,
     max_length:          question.max_length           ?? null,
     text_style_scope:    question.text_style_scope     || "question",
-    explanation:     question.explanation     || "",
-    shuffle_options: question.shuffle_options ?? (quizRandomizeOptions || false),
-    voice_url:       question.voice_url       || "",
-    video_url:       question.video_url       || "",
-    correct_answer:  question.correct_answer  || "",
-    case_sensitive:  question.case_sensitive  || false,
+    explanation:         question.explanation     || "",
+    shuffle_options:     question.shuffle_options ?? (quizRandomizeOptions || false),
+    voice_url:           question.voice_url       || "",
+    video_url:           question.video_url       || "",
+    correct_answer:      question.correct_answer  || "",
+    case_sensitive:      question.case_sensitive  || false,
     options: (question.options || []).map((o) => ({
       option_id: o.option_id,
       text:      o.text      || "",
@@ -498,6 +491,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
 
   const handleSave = async () => {
     setSaving(true);
+    // ✅ FIX: Each field sent ONCE only (removed all duplicates)
     await onSave(question.question_id, {
       text:                form.text,
       type:                form.type,
@@ -605,7 +599,8 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           </div>
         )}
         <CollapsibleImageResize form={form} setForm={setForm} />
-        <CollapsibleTextStyle form={form} setForm={setForm} />  {/* ✅ ADD THIS */}
+        {/* ✅ CollapsibleTextStyle wired in — this is what drives font changes */}
+        <CollapsibleTextStyle form={form} setForm={setForm} />
       </div>
 
       <div>
@@ -703,7 +698,6 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
                     <input type="text" value={opt.image_url || ""} onChange={(e) => updateOption(i, "image_url", e.target.value)}
                       placeholder="Image URL..."
                       className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
-                    {/* ✅ FIXED: uses ${API} prefix + URL normalization */}
                     <button type="button"
                       onClick={async () => {
                         const fileInput = document.createElement("input");
@@ -829,17 +823,14 @@ export default function QuizDetailPage() {
     if (res.ok) fetchDetail(); else alert("Delete failed");
   };
 
-  // ✅ FIXED: clean insert logic with -1 support for before-first-question
-    const handleAddQuestion = async (newQ) => {
+  const handleAddQuestion = async (newQ) => {
     if (addingRef.current) return;
     addingRef.current = true;
     try {
       const getEffectiveOrder = (q, idx) =>
         q?.order != null ? q.order : idx * 1000;
 
-      // ✅ FIX: Normalize null-order questions before positional insert
       if (insertAtIndex !== null) {
-        // ✅ WITH THIS:
         const allSameOrder = new Set(questions.map(q => q.order ?? 0)).size === 1;
         const hasNullOrders = questions.some(q => q.order == null) || allSameOrder;
         if (hasNullOrders) {
@@ -852,13 +843,11 @@ export default function QuizDetailPage() {
               })
             )
           );
-          // Update local state so order calc below uses correct values
           questions.forEach((q, idx) => { q.order = idx * 1000; });
         }
       }
 
       let order;
-
       if (insertAtIndex === null) {
         const lastIdx = questions.length - 1;
         order = questions.length > 0
@@ -899,6 +888,7 @@ export default function QuizDetailPage() {
       addingRef.current = false;
     }
   };
+
   const handleSaveSettings = async () => {
     setSavingSettings(true);
     try {
@@ -1076,7 +1066,12 @@ export default function QuizDetailPage() {
                 ...(q.image_height ? { height: `${q.image_height}px`, objectFit: "contain" } : {}),
               } : undefined;
 
-              // ✅ FIXED: no double-form — before only shows for i===0 with insertAtIndex===-1
+              // ✅ Declared BEFORE the return, in proper JS scope
+          const qTextStyle = buildTextStyle(q);
+          const optStyle   = (q.text_style_scope === "options" || q.text_style_scope === "all")
+                              ? buildTextStyle(q)
+                              : {};
+
               const showInsertBefore = showAddForm && i === 0 && insertAtIndex === -1;
               const showInsertAfter  = showAddForm && insertAtIndex === i;
 
@@ -1127,9 +1122,9 @@ export default function QuizDetailPage() {
                       </div>
                     </div>
 
-                    <div className="mb-3 ml-10">
-                      <HtmlContent html={q.text}
-                        className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
+                    {/* ✅ FIX: Question text with saved font/style applied */}
+                    <div className="text-sm text-slate-200 leading-relaxed mb-3 ml-10" style={qTextStyle}>
+                      <HtmlContent html={q.text} />
                     </div>
 
                     {q.image_url && !q.text?.includes(q.image_url) && (
@@ -1171,7 +1166,8 @@ export default function QuizDetailPage() {
                             <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"}`}>
                               {opt.correct ? "✓" : String.fromCharCode(65 + oi)}
                             </span>
-                            <span className="text-slate-300">{opt.text}</span>
+                            {/* ✅ FIX: Option text with saved style applied (scope-aware) */}
+                            <span className="text-slate-300" style={optStyle}>{opt.text}</span>
                             {opt.image_url && <img src={opt.image_url} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-700" />}
                           </div>
                         ))}

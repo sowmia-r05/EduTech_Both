@@ -70,9 +70,9 @@ function FileUploadButton({ onUploaded, accept = "image/*,.pdf", label = "Upload
   );
 }
 
-function HtmlContent({ html, className = "" }) {
+function HtmlContent({ html, className = "", style = {} }) {
   if (!html) return null;
-  return <div className={className} dangerouslySetInnerHTML={{ __html: html }} style={{ overflowWrap: "break-word" }} />;
+  return <div className={className} dangerouslySetInnerHTML={{ __html: html }} style={{ overflowWrap: "break-word", ...style }} />;
 }
 
 function TypeBadge({ type }) {
@@ -427,7 +427,7 @@ function AdminVerifyControls({ question, onVerified }) {
 }
 
 /* ── Question Editor ── */
-function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
+function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel, textStyle }) {
   const resolvedShuffle = question.shuffle_options != null ? question.shuffle_options : (quizRandomizeOptions || false);
   const [form, setForm] = useState({
     text:            question.text || question.question_text || "",
@@ -484,6 +484,13 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
         <label className="block text-xs text-slate-400 mb-1">Question Text (HTML supported)</label>
         <textarea rows={3} value={form.text} onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:ring-2 focus:ring-indigo-500" />
+            {form.text && (
+    <div className="mt-2 px-3 py-2 bg-slate-900/60 border border-slate-700 rounded-lg">
+      <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wide">Rendered Preview</p>
+      <div style={textStyle} dangerouslySetInnerHTML={{ __html: form.text }}
+        className="text-white leading-relaxed" />
+    </div>
+     )}
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div>
@@ -841,13 +848,19 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                 </>)}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setEditSettings(!editSettings)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded-lg transition">⚙️ Settings</button>
-              <button onClick={onClose}
-                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">✕</button>
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setEditSettings(!editSettings)}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded-lg transition">⚙️ Settings</button>
+          <button onClick={fetchDetail} title="Refresh questions"
+            className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+          <button onClick={onClose}
+            className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">✕</button>
+        </div>
+         </div>
 
           {editSettings && (
             <div className="mt-4 pt-4 border-t border-slate-700 space-y-3">
@@ -901,7 +914,7 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
             // ── PATCH 5 + 6: cards with insert forms + right-click + hint ──
             questions.map((q, i) => {
               if (editingId === q.question_id) {
-                return <QuestionEditor key={q.question_id} question={q} quizRandomizeOptions={quiz.randomize_options} onSave={handleSaveQuestion} onCancel={() => setEditingId(null)} />;
+                return <QuestionEditor key={q.question_id} question={q} quizRandomizeOptions={quiz.randomize_options} onSave={handleSaveQuestion} onCancel={() => setEditingId(null)} textStyle={textStyle} />;
               }
               const imgSizeCls = IMAGE_SIZE_MAP[q.image_size] || "max-w-md";
               const imgStyle = (q.image_width || q.image_height) ? {

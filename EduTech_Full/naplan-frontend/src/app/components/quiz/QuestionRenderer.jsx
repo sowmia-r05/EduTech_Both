@@ -630,11 +630,13 @@ export default function QuestionRenderer({
       <TextSettingsBar settings={textSettings} onChange={setTextSettings} />
 
       {/* ── Question text ── */}
+      {/* ── Question text ── */}
       <div className="leading-relaxed" style={textStyle}>
         {question.text && question.text.includes("<") ? (
           <div
             dangerouslySetInnerHTML={{ __html: question.text }}
-            className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
+            className="prose prose-slate max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
+            style={textStyle}
           />
         ) : question.text ? (
           <p>{question.text}</p>
