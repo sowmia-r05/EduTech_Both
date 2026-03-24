@@ -689,7 +689,7 @@ export default function AdminDashboard() {
             )}
 
             {!loading && !error && filtered.length > 0 && (
-              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-800">
@@ -701,7 +701,7 @@ export default function AdminDashboard() {
                       {/* ✅ NEW: Verified column */}
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Verified</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Bundle</th>
-                      <th className="px-5 py-3 text-right  text-[11px] font-medium text-slate-500 uppercase tracking-wide">Actions</th>
+                      <th className="px-5 py-3 text-right text-[11px] font-medium text-slate-500 uppercase tracking-wide sticky right-0 z-10 bg-slate-900">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
@@ -766,7 +766,7 @@ export default function AdminDashboard() {
                           </td>
 
                           {/* Actions */}
-                          <td className="px-5 py-3 text-right">
+                         <td className="px-5 py-3 text-right sticky right-0 z-10 bg-slate-900 group-hover:bg-slate-800/50 transition-colors">
                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
                                 onClick={(e) => {
