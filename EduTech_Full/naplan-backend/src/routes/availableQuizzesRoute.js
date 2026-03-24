@@ -46,9 +46,11 @@ function normalizeSubject(subject) {
     s === "numeracy" ||
     s.includes("numeracy") ||
     s.includes("number and algebra") ||
+    s.includes("number") ||
     s.includes("statistics") ||
-    s.includes("measurement") ||
     s.includes("probability") ||
+    s.includes("algebra") ||
+    s.includes("measurement") ||
     s.includes("geometry")
   ) {
     return "Numeracy";
@@ -66,6 +68,7 @@ function normalizeSubject(subject) {
   ) {
     return "Language";
   }
+
 
   // Language (exact match — must come AFTER conventions check)
   if (s === "language") return "Language";
@@ -108,6 +111,9 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
     const childStatus = child.status || "trial";
     const childBundleIds = child.entitled_bundle_ids || [];
 
+    const yearNum = Number(child.year_level);
+    const yearStr = String(child.year_level);
+
     // ═══════════════════════════════════════════════════════
     // ✅ NEW: BUNDLE-BASED QUIZ LOOKUP
     // Instead of relying on entitled_quiz_ids (which goes out of sync),
@@ -138,20 +144,24 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
 
     if (childStatus === "trial") {
       // Trial children → only see trial quizzes for their year level
+
       quizzes = await Quiz.find({
         is_active: true,
-        year_level: child.year_level,
+        year_level: { $in: [yearNum, yearStr] },
         is_trial: true,
       })
         .sort({ subject: 1, quiz_name: 1 })
         .select("quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number")
         .lean();
+
+
     } else {
       // Active children → see quizzes from their bundles + trial quizzes
       // Use $or to get: (quizzes in their bundles) OR (trial quizzes for their year level)
       const orConditions = [
-        { is_active: true, year_level: child.year_level, is_trial: true },
+        { is_active: true, year_level: { $in: [yearNum, yearStr] }, is_trial: true },
       ];
+
 
       if (bundleQuizIds.length > 0) {
         orConditions.push({ is_active: true, quiz_id: { $in: bundleQuizIds } });
@@ -195,6 +205,8 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
         total_points: q.total_points || 0,
         set_number: q.set_number || 1,
         is_entitled: isEntitled,
+        attempts_enabled: q.attempts_enabled || false,
+        max_attempts: q.max_attempts ?? null,
       };
     });
 
