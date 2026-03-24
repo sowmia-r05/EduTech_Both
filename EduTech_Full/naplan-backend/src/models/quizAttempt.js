@@ -22,6 +22,7 @@ const AnswerSchema = new mongoose.Schema(
     text_answer: { type: String, default: "" },
     points_scored: { type: Number, default: 0 },
     points_available: { type: Number, default: 0 },
+    is_correct: { type: Boolean, default: false },
   },
   { _id: false }
 );

@@ -77,7 +77,7 @@ router.get("/attempts/:attemptId/flashcards", verifyToken, requireAuth, async (r
         passage:           q.passage || null,
         correct_answers:   correctOptionTexts,
         child_answer:      childAnswerText,
-        is_correct:        answer?.is_correct ?? false,
+        is_correct:        answer?.is_correct ?? (answer ? (answer.points_scored ?? 0) > 0 : false),
         explanation:       q.explanation || null,
         difficulty:        q.difficulty || null,
         topic:             q.topic || q.strand || null,

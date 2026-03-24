@@ -39,7 +39,17 @@ function normalizeSubject(subject) {
   return "Other";
 }
 
+function extractBaseName(name) {
+  return (name || "")
+    .replace(/\s*set\s*\d+/i, "")
+    .trim()
+    .toLowerCase();
+}
+
+
 const SUBJECTS = ["Reading", "Writing", "Numeracy", "Language"];
+
+const SUBJECT_ORDER = { Reading: 0, Writing: 1, Numeracy: 2, Language: 3, Other: 4 };
 
 /* ─── Subject styles (original) ─── */
 const SUBJECT_STYLE = {
@@ -49,6 +59,12 @@ const SUBJECT_STYLE = {
   Language: { bg: "bg-emerald-100", text: "text-emerald-700", icon: Languages },
   Other:    { bg: "bg-slate-100",   text: "text-slate-600",   icon: Library   },
 };
+
+// ✅ Extracts trailing set number for natural sort: "Writing set 10" → 10
+function extractSetNumber(name) {
+  const match = (name || "").match(/set\s*(\d+)/i);
+  return match ? parseInt(match[1], 10) : 0;
+}
 
 function sanitizeText(raw) {
   return String(raw || "").replace(/[<>"']/g, "").trim().slice(0, 100);
@@ -208,7 +224,7 @@ const getInitialTab = () => {
   const [currentPage,          setCurrentPage]          = useState(1);
   const [subjectFilter,        setSubjectFilter]        = useState("All");
   const [search,               setSearch]               = useState("");
-  const [sortConfig,           setSortConfig]           = useState({ key: "subject", direction: "asc" });
+  const [sortConfig,           setSortConfig]           = useState({ key: "default", direction: "asc" });
   const [childInfo,            setChildInfo]            = useState(null);
   const [activeTab,            setActiveTab]            = useState(getInitialTab);
   const [activeQuiz,           setActiveQuiz]           = useState(null);
@@ -465,60 +481,159 @@ const overallAverage = useMemo(() => {
   }, [entitledTests]);
 
   /* ─── mergedQuizzes (original — drives the quiz table) ─── */
-  const mergedQuizzes = useMemo(() => entitledCatalog.map((quiz) => {
-    const matches = tests.filter((t) => {
-      // Guard: never match a writing quiz against a non-writing attempt or vice versa
-      if ((quiz.subject === "Writing") !== (t.subject === "Writing")) return false;
-      if (quiz.quiz_id && t.quiz_id) return quiz.quiz_id === t.quiz_id;
-      // Fallback: normalised name match
-      const catalogName = (quiz.quiz_name || "").toLowerCase().replace(/\s+/g, " ").trim();
-      const testName    = (t.name || t.quiz_name || "").toLowerCase().replace(/\s+/g, " ").trim();
-      return catalogName === testName;
-    });
-    const m = matches.length ? matches.sort((a, b) => new Date(b.date) - new Date(a.date))[0] : null;
-    return {
-      id: quiz.quiz_id, quiz_id: quiz.quiz_id,
-      name: quiz.quiz_name, quiz_name: quiz.quiz_name,
-      subject: quiz.subject,
-      year_level: quiz.year_level, difficulty: quiz.difficulty || "Standard",
-      time_limit_minutes: quiz.time_limit_minutes, question_count: quiz.question_count,
-      is_trial: quiz.is_trial, is_entitled: quiz.is_entitled,
-      status: m ? "completed" : "not_started",
-      score: m?.score ?? null, grade: m?.grade ?? null,
-      date_completed: m?.date ?? null, response_id: m?.response_id ?? null, ai_status: m?.ai_status ?? null,
-      violations: m?.violations ?? m?.proctoring?.violations ?? null,
-    };
-  }), [tests, entitledCatalog]);
+const mergedQuizzes = useMemo(() => entitledCatalog.map((quiz) => {
+  const matches = tests.filter((t) => {
+    if ((quiz.subject === "Writing") !== (t.subject === "Writing")) return false;
+    if (quiz.quiz_id && t.quiz_id) return quiz.quiz_id === t.quiz_id;
+    const catalogName = (quiz.quiz_name || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const testName    = (t.name || t.quiz_name || "").toLowerCase().replace(/\s+/g, " ").trim();
+    return catalogName === testName;
+  });
+  const m = matches.length ? matches.sort((a, b) => new Date(b.date) - new Date(a.date))[0] : null;
 
-  const completedCount = mergedQuizzes.filter((q) => q.status === "completed").length;
-  const availableCount = mergedQuizzes.filter((q) => q.status === "not_started").length;
+  // ✅ Count total completed attempts for this quiz
+  const attemptCount = matches.length;
 
-  /* ─── Quiz filtering / sorting / paging (original) ─── */
-  const filteredQuizzes = useMemo(() => {
-    let list = [...mergedQuizzes];
-    if (viewMode === "available") list = list.filter((q) => q.status === "not_started");
-    if (viewMode === "completed") list = list.filter((q) => q.status === "completed");
-    if (subjectFilter !== "All")  list = list.filter((q) => q.subject === subjectFilter);
-    if (search.trim()) { const s = search.toLowerCase(); list = list.filter((q) => q.name.toLowerCase().includes(s) || q.subject.toLowerCase().includes(s)); }
-    return list;
-  }, [mergedQuizzes, viewMode, subjectFilter, search]);
+  // ✅ Determine if attempts are exhausted
+  const maxAttempts = quiz.attempts_enabled
+    ? (quiz.max_attempts ?? Infinity)
+    : 1;
+  const attemptsExhausted = attemptCount >= maxAttempts;
 
-  const sortedQuizzes = useMemo(() => {
-    return [...filteredQuizzes].sort((a, b) => {
-      let cmp = 0;
-      if (sortConfig.key === "subject") cmp = a.subject.localeCompare(b.subject);
-      else if (sortConfig.key === "name") cmp = a.name.localeCompare(b.name);
-      else if (sortConfig.key === "score") cmp = (a.score || 0) - (b.score || 0);
-      else if (sortConfig.key === "status") cmp = (a.status === "completed" ? 1 : 0) - (b.status === "completed" ? 1 : 0);
-      return sortConfig.direction === "asc" ? cmp : -cmp;
-    });
-  }, [filteredQuizzes, sortConfig]);
+  return {
+    id: quiz.quiz_id, quiz_id: quiz.quiz_id,
+    name: quiz.quiz_name, quiz_name: quiz.quiz_name,
+    subject: quiz.subject,
+    year_level: quiz.year_level, difficulty: quiz.difficulty || "Standard",
+    time_limit_minutes: quiz.time_limit_minutes, question_count: quiz.question_count,
+    is_trial: quiz.is_trial, is_entitled: quiz.is_entitled,
+    set_number: quiz.set_number || 1,
+    attempts_enabled: quiz.attempts_enabled || false,  // ✅ ADD
+    max_attempts: quiz.max_attempts ?? null,            // ✅ ADD
+    attempt_count: attemptCount,                        // ✅ ADD
+    attempts_exhausted: attemptsExhausted,              // ✅ ADD
+    status: m ? "completed" : "not_started",
+    score: m?.score ?? null, grade: m?.grade ?? null,
+    date_completed: m?.date ?? null, response_id: m?.response_id ?? null,
+    ai_status: m?.ai_status ?? null,
+    violations: m?.violations ?? m?.proctoring?.violations ?? null,
+  };
+}), [tests, entitledCatalog]);
 
-  const totalPages       = Math.max(1, Math.ceil(sortedQuizzes.length / testsPerPage));
-  const paginatedQuizzes = sortedQuizzes.slice((currentPage - 1) * testsPerPage, currentPage * testsPerPage);
 
-  const handleSort = (key) => setSortConfig((prev) => prev.key === key ? { key, direction: prev.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" });
-  useEffect(() => { setCurrentPage(1); }, [subjectFilter, search, viewMode]);
+/* ─── Quiz filtering / sorting / paging ─── */
+const filteredQuizzes = useMemo(() => {
+  let list = [...mergedQuizzes];
+
+  // Tab filter (status)
+  if (viewMode === "available") list = list.filter((q) => q.status === "not_started");
+  if (viewMode === "completed") list = list.filter((q) => q.status === "completed");
+
+  // Subject filter
+  if (subjectFilter !== "All") list = list.filter((q) => q.subject === subjectFilter);
+
+  // Search filter — search name, quiz_name, subject and difficulty
+  if (search.trim()) {
+    const s = search.toLowerCase();
+    list = list.filter((q) =>
+      (q.name || "").toLowerCase().includes(s) ||
+      (q.quiz_name || "").toLowerCase().includes(s) ||
+      (q.subject || "").toLowerCase().includes(s) ||
+      (q.difficulty || "").toLowerCase().includes(s)
+    );
+  }
+
+  return list;
+}, [mergedQuizzes, viewMode, subjectFilter, search]);
+
+// ✅ FIX 1: Counts reflect CURRENT subject+search filter, not raw mergedQuizzes
+const filteredBySearchAndSubject = useMemo(() => {
+  let list = [...mergedQuizzes];
+  if (subjectFilter !== "All") list = list.filter((q) => q.subject === subjectFilter);
+  if (search.trim()) {
+    const s = search.toLowerCase();
+    list = list.filter((q) =>
+      (q.name || "").toLowerCase().includes(s) ||
+      (q.subject || "").toLowerCase().includes(s)
+    );
+  }
+  return list;
+}, [mergedQuizzes, subjectFilter, search]);
+
+// ✅ FIX 1: Tab counts now respect active search/subject filters
+const completedCount = useMemo(() =>
+  filteredBySearchAndSubject.filter((q) => q.status === "completed").length,
+  [filteredBySearchAndSubject]
+);
+const availableCount = useMemo(() =>
+  filteredBySearchAndSubject.filter((q) => q.status === "not_started").length,
+  [filteredBySearchAndSubject]
+);
+
+
+
+
+
+const sortedQuizzes = useMemo(() => {
+  return [...filteredQuizzes].sort((a, b) => {
+    if (sortConfig.key === "default") {
+      // 1. Subject (NAPLAN order)
+      const subjectCmp =
+        (SUBJECT_ORDER[a.subject] ?? 99) - (SUBJECT_ORDER[b.subject] ?? 99);
+      if (subjectCmp !== 0) return subjectCmp;
+
+      // 2. ✅ Topic/base name alphabetically (groups same topics together)
+      const baseA = extractBaseName(a.name);
+      const baseB = extractBaseName(b.name);
+      const baseCmp = baseA.localeCompare(baseB);
+      if (baseCmp !== 0) return baseCmp;
+
+      // 3. Set number numerically within same topic
+      const setA = extractSetNumber(a.name) || a.set_number || 1;
+      const setB = extractSetNumber(b.name) || b.set_number || 1;
+      return setA - setB;
+    }
+
+    let cmp = 0;
+    if (sortConfig.key === "subject") {
+      cmp = (SUBJECT_ORDER[a.subject] ?? 99) - (SUBJECT_ORDER[b.subject] ?? 99);
+      if (cmp === 0) {
+      const setA = extractSetNumber(a.name) || a.set_number || 1;
+      const setB = extractSetNumber(b.name) || b.set_number || 1;
+        cmp = setA - setB;
+      }
+    }
+    else if (sortConfig.key === "name") {
+      // ✅ Natural sort for name column too
+      const setA = extractSetNumber(a.name);
+      const setB = extractSetNumber(b.name);
+      if (setA && setB && a.subject === b.subject) cmp = setA - setB;
+      else cmp = (a.name || "").localeCompare(b.name || "");
+    }
+    else if (sortConfig.key === "score")  cmp = (a.score || 0) - (b.score || 0);
+    else if (sortConfig.key === "status") cmp = (a.status === "completed" ? 1 : 0) - (b.status === "completed" ? 1 : 0);
+
+    return sortConfig.direction === "asc" ? cmp : -cmp;
+  });
+}, [filteredQuizzes, sortConfig]);
+
+
+
+const totalPages       = Math.max(1, Math.ceil(sortedQuizzes.length / testsPerPage));
+const paginatedQuizzes = sortedQuizzes.slice((currentPage - 1) * testsPerPage, currentPage * testsPerPage);
+
+const handleSort = (key) => {
+  setSortConfig((prev) =>
+    prev.key === key
+      ? { key, direction: prev.direction === "asc" ? "desc" : "asc" }
+      : { key, direction: "asc" }
+  );
+  setCurrentPage(1); // ✅ FIX 2: Reset page when sort changes
+};
+
+// ✅ FIX 3: Reset page on ANY filter change including sort
+useEffect(() => { setCurrentPage(1); }, [subjectFilter, search, viewMode]);
+
 
   /* ─── handleViewResult (original) ─── */
   const handleViewResult = useCallback(async (item) => {
@@ -1042,10 +1157,39 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
                             </td>
                             {/* Action */}
                             <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                              {isCompleted
-                                ? <button onClick={() => setActiveQuiz(quiz)} className="inline-flex items-center justify-center px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition border border-slate-200 whitespace-nowrap">Retake Quiz</button>
-                                : <button onClick={() => setActiveQuiz(quiz)} className="inline-flex items-center justify-center px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap">Start Quiz</button>}
+                              {isCompleted ? (
+                                quiz.attempts_exhausted ? (
+                                  // ✅ All attempts used — disabled button with tooltip
+                                  <span
+                                    title={`Max attempts reached (${quiz.attempt_count}/${quiz.max_attempts ?? 1})`}
+                                    className="inline-flex items-center justify-center px-3 py-1.5 bg-slate-100 text-slate-400 text-xs font-semibold rounded-lg border border-slate-200 cursor-not-allowed whitespace-nowrap"
+                                  >
+                                    No Attempts Left
+                                  </span>
+                                ) : (
+                                  // ✅ Retake allowed — show remaining attempts if limited
+                                  <button
+                                    onClick={() => setActiveQuiz(quiz)}
+                                    className="inline-flex items-center justify-center px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition border border-slate-200 whitespace-nowrap"
+                                  >
+                                    Retake Quiz
+                                    {quiz.attempts_enabled && quiz.max_attempts && (
+                                      <span className="ml-1.5 text-slate-400">
+                                        ({quiz.attempt_count}/{quiz.max_attempts})
+                                      </span>
+                                    )}
+                                  </button>
+                                )
+                              ) : (
+                                <button
+                                  onClick={() => setActiveQuiz(quiz)}
+                                  className="inline-flex items-center justify-center px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap"
+                                >
+                                  Start Quiz
+                                </button>
+                              )}
                             </td>
+
                             {/* View Results — opens specific test dashboard */}
                             <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                               {isCompleted && quiz.response_id

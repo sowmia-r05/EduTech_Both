@@ -269,7 +269,7 @@ function parseCustomTemplate(workbook) {
     time_limit_minutes: meta.time_limit_minutes ? parseInt(meta.time_limit_minutes) : null,
     difficulty: meta.difficulty || null,
     set_number: parseInt(meta.set_number) || 1,
-    is_trial: meta.is_trial === "true",
+    is_trial: String(meta.is_trial || "").toLowerCase().trim() === "true",
     voice_url: meta.voice_url || null,
     video_url: meta.video_url || null,
   };

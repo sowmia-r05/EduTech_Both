@@ -35,6 +35,7 @@ const SUBJECT_LIGHT_BG = { Reading: "bg-blue-50",    Writing: "bg-purple-50",  N
 const SUBJECT_TEXT     = { Reading: "text-blue-700", Writing: "text-purple-700",Numeracy: "text-amber-700", Language: "text-emerald-700"};
 const SUBJECT_BORDER   = { Reading: "border-blue-200",Writing: "border-purple-200",Numeracy:"border-amber-200",Language:"border-emerald-200"};
 const SUBJECT_ICON     = { Reading: BookOpen, Writing: PenLine, Numeracy: Hash, Language: Languages, Other: Library, All: LayoutDashboard };
+const SUBJECT_EMOJI = { Reading: "📖", Writing: "✍️", Numeracy: "🔢", Language: "💬" };
 
 const TIME_FILTERS = [
   { label: "Week",     days: 7 },
@@ -209,15 +210,78 @@ function FeedbackSkeleton() {
    AI COACH — shared helpers
    ═══════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════
+   TONE TRANSFORMERS — same data, different voice
+   ═══════════════════════════════════════════════════════════ */
+
 function reframeForParent(text, name) {
   if (!text || !name) return text;
   const e = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   return text
-    .replace(new RegExp(",\\s*" + e + "([!.?]|\\b)", "gi"), "$1")
+    // ✅ Step 1: Remove direct name address at start of sentences
+    // "Tharun, you are..." → "You are..."
+    // "Hey Tharun! You..." → "Hey! You..."
+    .replace(new RegExp("\\b" + e + ",\\s*", "gi"), "")
+    .replace(new RegExp("Hey\\s+" + e + "!", "gi"), "Hey!")
+
+    // ✅ Step 2: Remove trailing direct address
+    // "Keep it up, Tharun!" → "Keep it up!"
+    .replace(new RegExp(",\\s*" + e + "([!.?])", "gi"), "$1")
+
+    // ✅ Step 3: Now safely convert second-person → third-person
+    .replace(/\bYou('ve| have)\b/gi, name + " has")
+    .replace(/\bYou're\b/gi, name + " is")
+    .replace(/\bYou are\b/gi, name + " is")
+    .replace(/\bYou\b/gi, name)
+    .replace(/\byour\b/gi, name + "'s")
+    .replace(/\bYour\b/gi, name + "'s")
+
+    // ✅ Step 4: Reframe child-directed encouragement as parent guidance
     .replace(/\bkeep practising\b/gi, "encourage " + name + " to keep practising")
     .replace(/\bKeep going!\b/g, name + " is on a great track!")
-    .replace(/\bKeep it up!\b/g, "Encourage " + name + " to keep it up!");
+    .replace(/\bKeep it up!\b/g, "Encourage " + name + " to keep it up!")
+    .replace(/\btry again\b/gi, "give it another go")
+    .replace(/\bYou can do it\b/gi, name + " can do it")
+
+    // ✅ Step 5: Clean up any double spaces left behind
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
+
+
+
+// 🧒 CHILD tone — warm, exciting, personal, direct second-person
+// Keeps "you", adds energy, gamified language
+function reframeForChild(text, name) {
+  if (!text || !name) return text;
+  const e = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  return text
+    // ✅ Step 1: Remove direct address comma at start
+    // "Tharun, you are..." → "you are..."
+    .replace(new RegExp("\\b" + e + ",\\s*", "gi"), "")
+    .replace(new RegExp("Hey\\s+" + e + "!", "gi"), "Hey!")
+
+    // ✅ Step 2: Replace remaining name references with "you"
+    .replace(new RegExp(e + " has\\b", "gi"), "You've")
+    .replace(new RegExp(e + " is\\b", "gi"), "You are")
+    .replace(new RegExp(e + "'s\\b", "gi"), "Your")
+    .replace(new RegExp("\\b" + e + "\\b", "gi"), "you")
+
+    // ✅ Step 3: Boost energy
+    .replace(/\bCompleted\b/gi, "Crushed")
+    .replace(/\barea for improvement\b/gi, "next level to unlock")
+    .replace(/\bneeds more practice\b/gi, "is your next big win")
+    .replace(/\bwork on\b/gi, "level up in")
+    .replace(/\bpractise\b/gi, "practise — you've got this")
+
+    // ✅ Step 4: Clean up double spaces
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+
 
 const TREND_CONFIG = {
   improving: { Icon: TrendingUp,   label: "Improving",    color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200" },
@@ -245,14 +309,14 @@ function TrendBadge({ trend }) {
    ██████████████████████████████████████████████████████
    ═══════════════════════════════════════════════════════════ */
 
-function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbackLoading, refreshing, onRefresh, timeFilter, setTimeFilter }) {
+function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbackLoading, refreshing, onRefresh, timeFilter, setTimeFilter, selectedSubject, setSelectedSubject }) {
   const subjectStats  = useMemo(() => buildSubjectStats(tests), [tests]);
   const status        = useMemo(() => overallStatus(subjectStats), [subjectStats]);
-  const [subjectFilter, setSubjectFilter] = useState("All");
-    const subjectFilteredStats = useMemo(() => {
-    if (subjectFilter === "All") return subjectStats;
-    return subjectStats.filter((s) => s.subject === subjectFilter);
-  }, [subjectStats, subjectFilter]);
+  const subjectFilteredStats = useMemo(() => {
+    if (selectedSubject === "All") return subjectStats;
+    return subjectStats.filter((s) => s.subject === selectedSubject);
+  }, [subjectStats, selectedSubject]);
+
 
   const weakestSubj   = useMemo(() => {
     const active = subjectStats.filter((s) => s.count > 0);
@@ -281,12 +345,14 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
     "no-data":   { Icon: Sparkles,     iconColor: "text-slate-400",   headline: "Welcome!",                           sub: displayName + " hasn't started any quizzes yet.",       bg: "bg-slate-50",   border: "border-slate-200",   text: "text-slate-600",   badge: "bg-slate-100 text-slate-600"    },
   }[status];
 
-  // AI feedback for "Overall"
-  const feedbackDoc  = cumulativeFeedback["Overall"] || null;
-  const rawFeedback  = feedbackDoc?.feedback;
-  const aiSummary    = rawFeedback?.summary ? reframeForParent(rawFeedback.summary, displayName) : null;
-  const aiTips       = rawFeedback?.study_tips?.slice(0, 2).map((t) => reframeForParent(t, displayName)) || [];
-  const aiFocus      = rawFeedback?.areas_for_improvement?.[0];
+  // In ParentView — update feedbackDoc lookup:
+  const feedbackDoc = cumulativeFeedback[selectedSubject === "All" ? "Overall" : selectedSubject] || null;
+  const rawFeedback = feedbackDoc?.feedback;
+  const aiSummary   = rawFeedback?.summary     ? reframeForParent(rawFeedback.summary, displayName)     : null;
+  const aiTips      = rawFeedback?.study_tips?.slice(0, 2).map((t) => reframeForParent(t, displayName)) || [];
+  const aiFocus     = rawFeedback?.areas_for_improvement?.[0];
+
+
 
   return (
     <div className="space-y-5">
@@ -299,7 +365,7 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-xs text-slate-400 font-medium shrink-0">Subject:</p>
           {["All", ...SUBJECTS].map((s) => {
-            const isActive = subjectFilter === s;
+            const isActive = selectedSubject === s;
             const Icon = SUBJECT_ICON[s] || Library;
             const activeBg   = s === "All" ? "bg-slate-800 text-white border-slate-800" : SUBJECT_LIGHT_BG[s] + " " + SUBJECT_TEXT[s] + " " + SUBJECT_BORDER[s] + " ring-2 ring-offset-1 ring-" + (
               s === "Reading" ? "blue" : s === "Writing" ? "purple" : s === "Numeracy" ? "amber" : "emerald"
@@ -309,8 +375,7 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
               <button
                 key={s}
                 onClick={() => {
-                  setSubjectFilter(s);
-                  setActiveSubject(null); // collapse drill panel when filter changes
+                  setSelectedSubject(s);
                 }}
                 className={
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all shadow-sm " +
@@ -486,8 +551,12 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
       <Card>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-bold text-slate-800">📝 Note from {displayName}'s AI Tutor</h3>
-            <p className="text-[10px] text-slate-400 mt-0.5">Updated based on all completed quizzes</p>
+            <h3 className="text-sm font-bold text-slate-800">
+              📝 {selectedSubject === "All" ? `${displayName}'s Overall Report` : `${displayName}'s ${selectedSubject} Report`}
+            </h3>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              {selectedSubject === "All" ? "Across all subjects" : `Based on ${selectedSubject} quizzes only`}
+            </p>
           </div>
           <button onClick={onRefresh} disabled={refreshing || feedbackLoading}
             className="text-xs text-indigo-600 font-medium disabled:opacity-40 border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1">
@@ -558,7 +627,7 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
    ██████████████████████████████████████████████████████
    ═══════════════════════════════════════════════════════════ */
 
-function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, refreshing, onRefresh, timeFilter, setTimeFilter, selectedSubject, setSelectedSubject }) {
+function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, refreshing, onRefresh, timeFilter, setTimeFilter, selectedSubject, setSelectedSubject  }) {
   const subjectStats = useMemo(() => buildSubjectStats(tests), [tests]);
   const streak       = useMemo(() => calcStreak(tests), [tests]);
   const totalTests   = tests.length;
@@ -582,6 +651,16 @@ function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, re
   // AI feedback for selected subject
   const feedbackDoc  = cumulativeFeedback[selectedSubject === "All" ? "Overall" : selectedSubject] || null;
   const rawFeedback  = feedbackDoc?.feedback;
+
+  const childSummary      = rawFeedback?.summary      ? reframeForChild(rawFeedback.summary, displayName)      : null;
+  const childEncouragement= rawFeedback?.encouragement? reframeForChild(rawFeedback.encouragement, displayName) : null;
+  const childTips         = rawFeedback?.study_tips?.slice(0, 3).map((t) => reframeForChild(t, displayName))   || [];
+  const childStrengths    = rawFeedback?.strengths?.slice(0, 3).map((s) => reframeForChild(s, displayName))    || [];
+  const childImprovements = rawFeedback?.areas_for_improvement?.slice(0, 2).map((a) => ({
+    issue:          reframeForChild(a.issue, displayName),
+    how_to_improve: reframeForChild(a.how_to_improve, displayName),
+  })) || [];
+
 
   return (
     <div className="space-y-4">
@@ -875,85 +954,87 @@ function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, re
 
           {/* AI Coach Card */}
           <Card>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                  <span className="text-lg">🤖</span> Your AI Coach
-                </h3>
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  {selectedSubject === "All" ? "Overall coaching report" : "Your " + selectedSubject + " coaching report"}
-                </p>
-              </div>
-              <button onClick={onRefresh} disabled={refreshing || feedbackLoading}
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">
+                      🤖 {selectedSubject === "All" ? "Your AI Coach" : `Your ${selectedSubject} Coach`}
+                    </h3>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {selectedSubject === "All" ? "Personalised just for you" : `Tips for your ${selectedSubject} journey`}
+                    </p>
+                  </div>
+                 <button onClick={onRefresh} disabled={refreshing || feedbackLoading}
                 className="text-xs text-indigo-600 font-bold disabled:opacity-40 border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1">
                 <svg className={"w-3 h-3 " + (refreshing ? "animate-spin" : "")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
                 {refreshing ? "Updating…" : "Update"}
               </button>
-            </div>
+                </div>
 
-            {feedbackLoading || refreshing ? (
-              <FeedbackSkeleton />
-            ) : rawFeedback ? (
-              <div className="space-y-4">
-                {rawFeedback.trend && <TrendBadge trend={rawFeedback.trend} />}
+                {feedbackLoading || refreshing ? (
+                  <FeedbackSkeleton />
+                ) : childSummary ? (
+                  <div className="space-y-4">
+                    {rawFeedback.trend && <TrendBadge trend={rawFeedback.trend} />}
 
-                {rawFeedback.summary && (
-                  <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
-                    <p className="text-sm text-indigo-800 leading-relaxed font-medium">{rawFeedback.summary}</p>
-                  </div>
-                )}
-
-                {rawFeedback.strengths?.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">💪 You're great at</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {rawFeedback.strengths.slice(0, 3).map((item, i) => (
-                        <span key={i} className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          ✅ {item}
-                        </span>
-                      ))}
+                    {/* Summary — child voice */}
+                    <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+                      <p className="text-sm text-indigo-800 leading-relaxed font-medium">{childSummary}</p>
                     </div>
-                  </div>
-                )}
 
-                {rawFeedback.areas_for_improvement?.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">🎯 Next challenge</p>
-                    {rawFeedback.areas_for_improvement.slice(0, 2).map((a, i) => (
-                      <div key={i} className={"rounded-xl border p-3 mb-2 " + (selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] + " " + SUBJECT_BORDER[selectedSubject] : "bg-amber-50 border-amber-200")}>
-                        <p className={"text-xs font-bold mb-0.5 " + (selectedSubject !== "All" ? SUBJECT_TEXT[selectedSubject] : "text-amber-700")}>{a.issue}</p>
-                        <p className="text-xs text-slate-500 leading-relaxed">{a.how_to_improve}</p>
+                    {/* Strengths — celebrate! */}
+                    {childStrengths.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">💪 You're crushing it at</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {childStrengths.map((s, i) => (
+                            <span key={i} className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">✅ {s}</span>
+                          ))}
+                        </div>
                       </div>
-                    ))}
+                    )}
+
+                    {/* Next level unlocks */}
+                    {childImprovements.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">🎮 Next level to unlock</p>
+                        {childImprovements.map((a, i) => (
+                          <div key={i} className={"rounded-xl border p-3 mb-2 " + (selectedSubject !== "All" ? SUBJECT_LIGHT_BG[selectedSubject] + " " + SUBJECT_BORDER[selectedSubject] : "bg-amber-50 border-amber-200")}>
+                            <p className={"text-xs font-bold mb-0.5 " + (selectedSubject !== "All" ? SUBJECT_TEXT[selectedSubject] : "text-amber-700")}>{a.issue}</p>
+                            <p className="text-xs text-slate-500 leading-relaxed">{a.how_to_improve}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Pro tips */}
+                    {childTips.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">⚡ Power moves</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {childTips.map((tip, i) => (
+                            <span key={i} className="text-xs font-bold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200">⚡ {tip}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Encouragement */}
+                    {childEncouragement && (
+                      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-3 border border-indigo-100 mt-2">
+                        <p className="text-sm text-indigo-700 font-semibold">✨ {childEncouragement}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 space-y-2">
+                    <span className="text-4xl">🤖</span>
+                    <p className="text-sm font-bold text-slate-600">Your coach is ready!</p>
+                    <p className="text-xs text-slate-400">Complete more quizzes to unlock your personalised coaching report.</p>
                   </div>
                 )}
 
-                {rawFeedback.study_tips?.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">💡 Pro tips</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {rawFeedback.study_tips.slice(0, 3).map((tip, i) => (
-                        <span key={i} className="text-xs font-bold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200">⚡ {tip}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {rawFeedback.encouragement && (
-                  <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-3 border border-indigo-100 mt-2">
-                    <p className="text-sm text-indigo-700 font-semibold">✨ {rawFeedback.encouragement}</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8 space-y-2">
-                <span className="text-4xl">🤖</span>
-                <p className="text-sm font-bold text-slate-600">Your coach is waiting!</p>
-                <p className="text-xs text-slate-400">Complete more quizzes and your AI coach will give you personalised tips.</p>
-              </div>
-            )}
 
             {/* Per-subject feedback buttons */}
             {selectedSubject === "All" && Object.keys(cumulativeFeedback).length > 0 && (
@@ -999,8 +1080,8 @@ export default function StudentDashboardAnalytics({
   const { logout, logoutChild, childToken, parentToken, user } = useAuth();
 
   const [timeFilter,         setTimeFilter]         = useState(3);
-
-  const [selectedSubject,    setSelectedSubject]    = useState("All");
+  const [selectedSubject, setSelectedSubject]       = useState("All");
+  
   const [cumulativeFeedback, setCumulativeFeedback] = useState({});
   const [feedbackLoading,    setFeedbackLoading]    = useState(false);
   const [refreshing,         setRefreshing]         = useState(false);
@@ -1067,6 +1148,8 @@ export default function StudentDashboardAnalytics({
     onRefresh: handleRefresh,
     timeFilter,
     setTimeFilter,
+    selectedSubject,
+    setSelectedSubject,
   };
 
   return (
@@ -1098,7 +1181,9 @@ export default function StudentDashboardAnalytics({
         {/* Year 3: same layout for both parent & child (use parent layout)
             Year 5, 7, 9: distinguish parent vs child views */}
         {([3, 5].includes(Number(yearLevel)) || isParentView) ? (
-          <ParentView {...sharedProps} />
+          <ParentView {...sharedProps}
+          selectedSubject={selectedSubject} 
+          setSelectedSubject={setSelectedSubject}/>
         ) : (
           <ChildView
             {...sharedProps}
