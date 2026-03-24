@@ -177,7 +177,7 @@ function VerifyControls({ question, onVerified }) {
 // ─── EditQuestionModal ────────────────────────────────────────────────────────
 function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
   const [text,        setText]       = useState(question.text || "");
-  const [subTopic,    setSubTopic]   = useState(question.sub_topic || "");
+  const [subTopic, setSubTopic] = useState(question.sub_topic || question.categories?.[0]?.name || "");
   const [options,     setOptions]    = useState((question.options || []).map((o) => ({ ...o })));
   const [explanation, setExplanation] = useState(question.explanation ? question.explanation : null);
   const [loading,     setLoading]    = useState(false);
@@ -223,7 +223,7 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save");
-      onSaved(data.question);
+      onSaved({ ...data.question, sub_topic: subTopic.trim() || null });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -327,22 +327,9 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                   </svg>
                 </span>
-                {subTopicOptions.length > 0 ? (
-                  <>
-                    <select value={subTopic} onChange={(e) => setSubTopic(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl pl-10 pr-10 py-2.5 appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition">
-                      <option value="">— None —</option>
-                      {subTopicOptions.map((st) => <option key={st} value={st}>{st}</option>)}
-                    </select>
-                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                    </span>
-                  </>
-                ) : (
-                  <input type="text" value={subTopic} onChange={(e) => setSubTopic(e.target.value)}
-                    placeholder="No sub-topics found — type one manually…" maxLength={80}
-                    className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl pl-10 pr-4 py-2.5 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition" />
-                )}
+                <input type="text" value={subTopic} onChange={(e) => setSubTopic(e.target.value)}
+                placeholder="Type sub-topic…" maxLength={80}
+                className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl pl-10 pr-4 py-2.5 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition" />
               </div>
               {subTopic && (
                 <div className="flex items-center gap-2 mt-1.5">
@@ -410,7 +397,132 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
     </div>
   );
 }
+// ─── Difficulty Badge ─────────────────────────────────────────────────────────
+function DifficultyBadge({ difficulty }) {
+  if (difficulty === undefined || difficulty === null || difficulty === "") return null;
 
+  // Numeric scale (0-5) → label
+  const numMap = { 0: "Standard", 1: "Easy", 2: "Easy", 3: "Medium", 4: "Hard", 5: "Hard" };
+  const label = typeof difficulty === "number" ? numMap[difficulty] : String(difficulty);
+
+  const styles = {
+    Easy:     "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    easy:     "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    Medium:   "bg-amber-500/15  text-amber-300  border-amber-500/30",
+    medium:   "bg-amber-500/15  text-amber-300  border-amber-500/30",
+    Standard: "bg-amber-500/15  text-amber-300  border-amber-500/30",
+    Hard:     "bg-rose-500/15   text-rose-300   border-rose-500/30",
+    hard:     "bg-rose-500/15   text-rose-300   border-rose-500/30",
+  };
+  const dots = {
+    Easy: "bg-emerald-400", easy: "bg-emerald-400",
+    Medium: "bg-amber-400", medium: "bg-amber-400", Standard: "bg-amber-400",
+    Hard: "bg-rose-400",   hard: "bg-rose-400",
+  };
+
+  const cls = styles[label] || "bg-slate-500/15 text-slate-300 border-slate-500/30";
+  const dot = dots[label]   || "bg-slate-400";
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-semibold ${cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />
+      {label}
+    </span>
+  );
+}
+// ─── QuizFlagPanel ────────────────────────────────────────────────────────────
+function QuizFlagPanel({ quiz, onFlagged }) {
+  const [open,    setOpen]    = useState(false);
+  const [comment, setComment] = useState(quiz.tutor_flag?.comment || "");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState("");
+
+  const isFlagged = quiz.tutor_flag?.status === "flagged";
+
+  const handleSubmit = async (status) => {
+    if (status === "flagged" && !comment.trim()) {
+      setError("Please enter a comment."); return;
+    }
+    setLoading(true); setError("");
+    try {
+      const res = await tutorFetch(`/api/tutor/quizzes/${quiz.quiz_id}/flag`, {
+        method: "PATCH",
+        body: JSON.stringify({ status, comment: comment.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      onFlagged(data.quiz);
+      setOpen(false);
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const QUICK = [
+    "Quiz name appears incorrect",
+    "Difficulty level seems wrong",
+    "Time limit is too short / too long",
+    "Wrong subject or year level",
+    "Other issue",
+  ];
+
+  return (
+    <div>
+      <button onClick={() => setOpen((v) => !v)}
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-medium transition ${
+          isFlagged
+            ? "bg-orange-500/15 border-orange-500/40 text-orange-300 hover:bg-orange-500/25"
+            : "bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500"
+        }`}>
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
+        </svg>
+        {isFlagged ? "Flagged" : "Flag Issue"}
+      </button>
+
+      {open && (
+        <div className="mt-3 bg-slate-800/60 border border-orange-500/20 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-orange-300">Report a quiz-level issue</p>
+            <button onClick={() => setOpen(false)} className="text-slate-500 hover:text-white text-sm">✕</button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK.map((q) => (
+              <button key={q} type="button" onClick={() => setComment(q)}
+                className={`px-2.5 py-1 rounded-lg border text-[10px] font-medium transition ${
+                  comment === q
+                    ? "bg-orange-500/20 border-orange-500/40 text-orange-300"
+                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-white hover:border-slate-500"
+                }`}>{q}</button>
+            ))}
+          </div>
+          <textarea value={comment} onChange={(e) => { setComment(e.target.value); setError(""); }}
+            rows={3} placeholder="Describe the issue in detail…"
+            className="w-full bg-slate-900 border border-slate-700 text-white text-xs rounded-lg px-3 py-2 resize-none placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-orange-500 transition" />
+          {error && <p className="text-[11px] text-red-400">{error}</p>}
+          <div className="flex items-center gap-2">
+            <button disabled={loading || !comment.trim()} onClick={() => handleSubmit("flagged")}
+              className="px-4 py-1.5 text-xs font-semibold bg-orange-600 hover:bg-orange-700 disabled:opacity-40 text-white rounded-lg transition">
+              {loading ? "Saving…" : "Submit Flag"}
+            </button>
+            {isFlagged && (
+              <button disabled={loading} onClick={() => handleSubmit("cleared")}
+                className="px-4 py-1.5 text-xs font-medium text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded-lg transition disabled:opacity-40">
+                Clear Flag
+              </button>
+            )}
+            <button onClick={() => setOpen(false)} className="text-xs text-slate-500 hover:text-white ml-auto">Cancel</button>
+          </div>
+          {isFlagged && quiz.tutor_flag?.flagged_by && (
+            <p className="text-[10px] text-slate-500 border-t border-slate-700 pt-2">
+              Flagged by <span className="text-orange-400">{quiz.tutor_flag.flagged_by}</span>
+              {quiz.tutor_flag.flagged_at && ` · ${new Date(quiz.tutor_flag.flagged_at).toLocaleDateString()}`}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 // ─── Main TutorDashboard ──────────────────────────────────────────────────────
 export default function TutorDashboard() {
   const navigate = useNavigate();
@@ -455,8 +567,18 @@ export default function TutorDashboard() {
       setQuestions(data.questions || []);
       setFilter("all");
       const fromQuiz = data.sub_topic ? [data.sub_topic] : [];
-      const fromQs   = (data.questions || []).map(q => q.sub_topic).filter(Boolean);
-      const unique   = [...new Set([...fromQuiz, ...fromQs])].sort();
+
+      // Pull from sub_topic OR categories[0].name — whichever admin set
+      const fromQs = (data.questions || []).flatMap(q => {
+        const vals = [];
+        if (q.sub_topic) vals.push(q.sub_topic);
+        if (q.categories?.length > 0) {
+          q.categories.forEach(c => { if (c.name) vals.push(c.name); });
+        }
+        return vals;
+      });
+
+      const unique = [...new Set([...fromQuiz, ...fromQs])].sort();
       setSubTopicOptions(unique);
     } catch (err) { alert(err.message); }
     finally { setLoadingQs(false); }
@@ -487,11 +609,22 @@ export default function TutorDashboard() {
   };
 
   const handleQuestionEdited = (updatedQ) => {
-    const allQs = questions.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q);
-    setQuestions(allQs);
-    syncQuizStats(allQs);
-    setEditQuestion(null);
-  };
+  const allQs = questions.map((q) =>
+    q.question_id === updatedQ.question_id
+      ? { ...q, ...updatedQ, sub_topic: updatedQ.sub_topic }
+      : q
+  );
+  setQuestions(allQs);
+  syncQuizStats(allQs);
+  setEditQuestion(null);
+};
+
+  const handleQuizFlagged = (updatedQuiz) => {
+  setSelectedQuiz((prev) => ({ ...prev, tutor_flag: updatedQuiz.tutor_flag }));
+  setQuizzes((prev) => prev.map((qz) =>
+    qz.quiz_id === updatedQuiz.quiz_id ? { ...qz, tutor_flag: updatedQuiz.tutor_flag } : qz
+  ));
+};
 
   const handleLogout = async () => {
     try { await tutorFetch("/api/admin/logout", { method: "POST" }); } catch {}
@@ -552,13 +685,30 @@ export default function TutorDashboard() {
             quizzes.map((qz) => {
               const isSelected = selectedQuiz?.quiz_id === qz.quiz_id;
               return (
-                <button key={qz.quiz_id} onClick={() => fetchQuizDetail(qz.quiz_id)}
+               <button key={qz.quiz_id} onClick={() => fetchQuizDetail(qz.quiz_id)}
                   className={`w-full text-left rounded-xl px-3 py-3 mb-1.5 transition border ${
                     isSelected ? "bg-indigo-600/20 border-indigo-500/40 text-white" : "bg-transparent border-transparent hover:bg-slate-800/60 text-slate-300"
                   }`}>
                   <p className="text-sm font-medium leading-tight line-clamp-2">{qz.quiz_name}</p>
                   {qz.year_level && (
                     <p className="text-[10px] text-slate-500 mt-0.5">Year {qz.year_level}{qz.subject ? ` · ${qz.subject}` : ""}</p>
+                  )}
+
+                  {/* ── Difficulty + Duration badges ── */}
+                  {(qz.difficulty != null || qz.time_limit_minutes) && (
+                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                      {qz.difficulty != null && qz.difficulty !== "" && (
+                        <DifficultyBadge difficulty={qz.difficulty} />
+                      )}
+                      {qz.time_limit_minutes && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold bg-slate-700/50 text-slate-300 border-slate-600/50">
+                          <svg className="w-3 h-3 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z" />
+                          </svg>
+                          {qz.time_limit_minutes} min
+                        </span>
+                      )}
+                    </div>
                   )}
                   <VerificationProgress verification={qz.verification} />
                 </button>
@@ -600,8 +750,20 @@ export default function TutorDashboard() {
                     <span className="text-slate-600">|</span>
                     <span className="text-amber-400 font-semibold">{verStats.pending}⋯</span>
                     <span className="text-slate-500">/ {questions.length}</span>
+                    <QuizFlagPanel quiz={selectedQuiz} onFlagged={handleQuizFlagged} />
                   </div>
                 </div>
+                {selectedQuiz.tutor_flag?.status === "flagged" && (
+                  <div className="mt-3 flex items-start gap-2.5 px-3 py-2.5 bg-orange-500/5 border border-orange-500/20 rounded-xl">
+                    <svg className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
+                    </svg>
+                    <div>
+                      <p className="text-[11px] font-semibold text-orange-300">Quiz Flagged</p>
+                      <p className="text-xs text-orange-400/80 mt-0.5">{selectedQuiz.tutor_flag.comment}</p>
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-1 mt-3">
                   {[
                     { key: "all",      label: `All (${questions.length})` },
@@ -644,13 +806,19 @@ export default function TutorDashboard() {
                                 <span className="text-xs font-semibold text-violet-300">{q.sub_category || q.subcategory}</span>
                               </div>
                             )}
-                            {q.sub_topic && (
-                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-cyan-500/15 border border-cyan-500/30 rounded-lg">
-                                <svg className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                                </svg>
-                                <span className="text-xs font-semibold text-cyan-300">{q.sub_topic}</span>
-                              </div>
+                  {(q.sub_topic || q.categories?.[0]?.name) && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-cyan-500/15 border border-cyan-500/30 rounded-lg">
+                        <svg className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                        </svg>
+                        <span className="text-xs font-semibold text-cyan-300">
+                          {q.sub_topic || q.categories?.[0]?.name}
+                        </span>
+                      </div>
+                    )}
+
+                             {(q.difficulty !== undefined && q.difficulty !== null) && (
+                            <DifficultyBadge difficulty={q.difficulty} />
                             )}
                           </div>
                           <button onClick={() => setEditQuestion(q)}
@@ -663,8 +831,10 @@ export default function TutorDashboard() {
                         </div>
 
                         {/* Question text */}
-                        <p className="text-sm text-white leading-relaxed mb-3">{q.text}</p>
-
+                      <div
+                        className="text-sm text-white leading-relaxed mb-3 prose prose-invert prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: q.text }}
+                      />
                         {/* Question image */}
                         {q.image_url && (
                           <div className="mb-3">
@@ -701,7 +871,10 @@ export default function TutorDashboard() {
                         {q.explanation && (
                           <div className="mb-3 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
                             <p className="text-[10px] text-amber-500 font-bold mb-0.5">Explanation</p>
-                            <p className="text-xs text-amber-400/80">{q.explanation}</p>
+                            <div
+                              className="text-xs text-amber-400/80 prose prose-sm max-w-none"
+                                dangerouslySetInnerHTML={{ __html: q.explanation }}
+                              />
                           </div>
                         )}
 
