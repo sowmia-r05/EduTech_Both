@@ -237,6 +237,7 @@ router.patch("/questions/:questionId/edit", async (req, res) => {
     if (!hasAccess) {
       return res.status(403).json({ error: "You are not assigned to edit this question" });
     }
+  
 
     // ✅ Destructure sub_topic too
 const { text, explanation, options, sub_topic } = req.body;
@@ -248,12 +249,21 @@ const update = {
   $set: {
     text:        String(text).trim(),
     explanation: String(explanation || "").trim(),
-    sub_topic:   sub_topic !== undefined ? (String(sub_topic || "").trim() || null) : question.sub_topic,
+    sub_topic:   sub_topic !== undefined 
+      ? (String(sub_topic || "").trim() || null) 
+      : question.sub_topic,
+    // ✅ ADD THIS LINE — syncs categories so admin dashboard updates too
+    ...(sub_topic !== undefined && String(sub_topic || "").trim()
+  ? question.categories && question.categories.length > 0
+    ? { "categories.0.name": String(sub_topic).trim() }
+    : { categories: [{ name: String(sub_topic).trim() }] }
+  : {}),
     "tutor_verification.status":           "pending",
     "tutor_verification.verified_by":      null,
     "tutor_verification.verified_at":      null,
     "tutor_verification.rejection_reason": null,
-    "tutor_edited_by": req.tutor.email, 
+    "tutor_edited_by": req.tutor.email,
+    "tutor_edited_at":  new Date(),
   },
 };
    
@@ -284,5 +294,42 @@ const update = {
     return res.status(500).json({ error: err.message });
   }
 });
+router.patch("/quizzes/:quizId/flag", async (req, res) => {
+  try {
+    await connectDB();
 
+    const account = await Admin.findById(req.tutor.adminId).lean();
+    const assignedIds = account?.assigned_quiz_ids || [];
+
+    if (!assignedIds.includes(req.params.quizId)) {
+      return res.status(403).json({ error: "This quiz is not assigned to you" });
+    }
+
+    const { comment, status } = req.body;
+    if (!["flagged", "cleared"].includes(status)) {
+      return res.status(400).json({ error: "status must be 'flagged' or 'cleared'" });
+    }
+    if (status === "flagged" && !comment?.trim()) {
+      return res.status(400).json({ error: "A comment is required when flagging" });
+    }
+
+    const updated = await Quiz.findOneAndUpdate(
+      { quiz_id: req.params.quizId },
+      {
+        $set: {
+          "tutor_flag.status":     status,
+          "tutor_flag.comment":    status === "flagged" ? comment.trim() : "",
+          "tutor_flag.flagged_by": req.tutor.email,
+          "tutor_flag.flagged_at": new Date(),
+        },
+      },
+      { new: true }
+    ).lean();
+
+    if (!updated) return res.status(404).json({ error: "Quiz not found" });
+    return res.json({ ok: true, quiz: updated });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 module.exports = router;
