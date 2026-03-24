@@ -977,6 +977,21 @@ export default function QuizDetailPage() {
           <div className="mb-6 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">{error}</div>
         )}
 
+        {quiz?.tutor_flag?.status === "flagged" && (
+  <div className="mb-6 flex items-start gap-2.5 px-4 py-3 bg-orange-500/5 border border-orange-500/20 rounded-xl">
+    <svg className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
+    </svg>
+    <div>
+      <p className="text-[11px] font-semibold text-orange-300">
+        🚩 Flagged by Tutor: {quiz.tutor_flag.flagged_by}
+        {quiz.tutor_flag.flagged_at && ` · ${new Date(quiz.tutor_flag.flagged_at).toLocaleDateString()}`}
+      </p>
+      <p className="text-xs text-orange-400/80 mt-0.5">{quiz.tutor_flag.comment}</p>
+    </div>
+  </div>
+)}
+
         {showSettings && (
           <div className="mb-6 bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
             <h3 className="text-sm font-semibold text-white">Quiz Settings</h3>
