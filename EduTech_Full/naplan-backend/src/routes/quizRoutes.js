@@ -440,6 +440,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
         text_answer: ans.text_answer || "",
         points_scored: pointsScored,
         points_available: pointsAvailable,
+        is_correct: pointsScored > 0,
       };
     });
 
