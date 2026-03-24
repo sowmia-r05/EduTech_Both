@@ -36,7 +36,10 @@ const AICoachPanel = ({
                 <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-blue-400 animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
               </div>
               <p className="text-slate-700 text-sm font-semibold">Generating AI Insights…</p>
-              <p className="text-slate-400 text-xs mt-1">Analysing your performance — this takes 15–30 seconds</p>
+              <p className="text-slate-400 text-xs mt-1 text-center" style={{ whiteSpace: "nowrap", fontSize: "clamp(10px, 1.8vw, 12px)" }}>
+                Analysing your performance — this takes 15–30 seconds
+              </p>
+
             </>
           ) : (
             <>
