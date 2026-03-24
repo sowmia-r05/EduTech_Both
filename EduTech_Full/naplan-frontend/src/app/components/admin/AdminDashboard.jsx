@@ -294,10 +294,21 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
               <input type="number" value={form.time_limit_minutes} onChange={tf("time_limit_minutes")} placeholder="No limit"
                 className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Set Number</label>
-              <input type="number" value={form.set_number} onChange={tf("set_number")}
-                className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            // ✅ FIXED — pass setForm directly so function updaters work correctly
+                <QuizSettingsExtras form={form} onChange={setForm} />
+            <div className="space-y-2 pt-2">
+              {[
+                { label: "Active",               field: "is_active"           },
+                { label: "Trial (free access)",  field: "is_trial"            },
+                { label: "Randomize Questions",  field: "randomize_questions" },
+                { label: "Randomize Options",    field: "randomize_options"   },
+              ].map(({ label, field }) => (
+                <label key={field} className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={form[field]} onChange={tf(field)}
+                    className="w-4 h-4 rounded accent-indigo-500" />
+                  <span className="text-sm text-slate-300">{label}</span>
+                </label>
+              ))}
             </div>
           </div>
 
@@ -352,20 +363,35 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
 
   const handleSave = async () => {
     setSaving(true);
-    const toAdd    = [...selected].filter((id) => !assignedBundleIds.includes(id));
-    const toRemove = assignedBundleIds.filter((id) => !selected.has(id));
-    await Promise.all([
-      ...toAdd.map((bundleId) =>
-        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, { method: "POST",   body: JSON.stringify({ quiz_id: quizId }) })
-      ),
-      ...toRemove.map((bundleId) =>
-        adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, { method: "DELETE", body: JSON.stringify({ quiz_id: quizId }) })
-      ),
-    ]);
-    await onRefresh();
-    setSaving(false);
-    onClose();
-  };
+    setError("");
+    try {
+      const toAdd    = [...selected].filter((id) => !assignedBundleIds.includes(id));
+      const toRemove = assignedBundleIds.filter((id) => !selected.has(id));
+      const results = await Promise.all([
+        ...toAdd.map((bundleId) =>
+          adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
+            method: "POST", body: JSON.stringify({ quiz_id: quizId }),
+          })
+        ),
+        ...toRemove.map((bundleId) =>
+          adminFetch(`/api/admin/bundles/${bundleId}/quizzes`, {
+            method: "DELETE", body: JSON.stringify({ quiz_id: quizId }),
+          })
+        ),
+      ]);
+      const failed = results.find((r) => !r.ok);
+      if (failed) {
+        const d = await failed.json().catch(() => ({}));
+        throw new Error(d.error || "Failed to update bundle mapping");
+      }
+      await onRefresh();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+};
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
@@ -719,6 +745,11 @@ export default function AdminDashboard() {
                                 <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-1.5 py-0.5 rounded">Trial</span>
                               )}
                               <TierBadge tier={quiz.tier} />
+                              {quiz.tutor_flag?.status === "flagged" && (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30 rounded">
+                                  🚩 FLAGGED
+                                </span>
+                              )}
                             </div>
                           </td>
 
@@ -804,21 +835,15 @@ export default function AdminDashboard() {
 
       {/* Modals */}
       {showInvite    && <InviteModal onClose={() => setShowInvite(false)} />}
-      {settingsQuiz  && (
-        <QuizSettingsModal
-          quiz={settingsQuiz}
-          onSave={() => { setSettingsQuiz(null); fetchQuizzes(); }}
-          onClose={() => setSettingsQuiz(null)}
-        />
-      )}
-      {bundleMapQuiz && (
-        <BundleMappingModal
-          quiz={bundleMapQuiz}
-          bundles={bundles}
-          onClose={() => setBundleMapQuiz(null)}
-          onRefresh={fetchBundles}
-        />
-      )}
+      {settingsQuiz  && <QuizSettingsModal quiz={settingsQuiz} onSave={() => { setSettingsQuiz(null); fetchQuizzes(); }} onClose={() => setSettingsQuiz(null)} />}
+     {bundleMapQuiz && (
+  <BundleMappingModal
+    quiz={bundleMapQuiz}
+    bundles={bundles}
+    onClose={() => setBundleMapQuiz(null)}
+    onRefresh={async () => { await fetchBundles(); await fetchQuizzes(); }}
+  />
+)}
     </div>
   );
 }
