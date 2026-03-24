@@ -50,7 +50,15 @@ const QuizSchema = new mongoose.Schema(
     admin_verified:    { type: Boolean, default: false },
     admin_verified_by: { type: String,  default: null },
     admin_verified_at: { type: Date,    default: null },
+    tutor_flag: {
+    status:     { type: String, enum: ["flagged", "cleared"], default: null },
+    comment:    { type: String, default: null },
+    flagged_by: { type: String, default: null },
+    flagged_at: { type: Date,   default: null },
+   },
+    
   },
+  
   { timestamps: true, versionKey: false }
 );
 
