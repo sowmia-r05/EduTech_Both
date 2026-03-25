@@ -441,9 +441,9 @@ export default function AdminDashboard() {
   const [loading,              setLoading]              = useState(true);
   const [bundlesLoading,       setBundlesLoading]       = useState(true);
   const [error,                setError]                = useState("");
-  const [search,               setSearch]               = useState("");
-  const [filterYear,           setFilterYear]           = useState("all");
-  const [filterSubject,        setFilterSubject]        = useState("all");
+  const [search,               setSearch]               = useState(() => localStorage.getItem("aq_search")        || "");
+  const [filterYear,           setFilterYear]           = useState(() => localStorage.getItem("aq_filterYear")    || "all");
+  const [filterSubject,        setFilterSubject]        = useState(() => localStorage.getItem("aq_filterSubject") || "all");
   const [deletingId,           setDeletingId]           = useState(null);
   const [settingsQuiz,         setSettingsQuiz]         = useState(null);
   const [bundleMapQuiz,        setBundleMapQuiz]        = useState(null);
@@ -518,6 +518,16 @@ export default function AdminDashboard() {
     fetchBundles();
     fetchVerificationSummary();
   }, [fetchQuizzes, fetchBundles, fetchVerificationSummary]);
+  useEffect(() => {
+  const interval = setInterval(() => {
+    fetchQuizzes();
+    fetchVerificationSummary();
+  }, 60000);
+  return () => clearInterval(interval);
+}, [fetchQuizzes, fetchVerificationSummary]);
+  useEffect(() => { localStorage.setItem("aq_search",        search);        }, [search]);
+  useEffect(() => { localStorage.setItem("aq_filterYear",    filterYear);    }, [filterYear]);
+  useEffect(() => { localStorage.setItem("aq_filterSubject", filterSubject); }, [filterSubject]);
 
   const handleDelete = async (quizId, quizName) => {
     if (!confirm(`Delete "${quizName}"?\nThis cannot be undone.`)) return;
@@ -577,14 +587,14 @@ export default function AdminDashboard() {
   };
 
   const filtered = useMemo(() => quizzes.filter((q) => {
-  if (filterYear !== "all" && q.year_level !== Number(filterYear)) return false;
-  if (filterSubject !== "all" && q.subject !== filterSubject) return false;
+  if (filterYear !== "all" && String(q.year_level) !== String(filterYear)) return false;
+  if (filterSubject !== "all" && (q.subject || "").trim().toLowerCase() !== filterSubject.trim().toLowerCase()) return false;
   if (search) {
     const s = search.toLowerCase();
-    return (q.quiz_name || "").toLowerCase().includes(s);
+    if (!(q.quiz_name || "").toLowerCase().includes(s)) return false;
   }
   return true;
-}), [quizzes, filterYear, filterSubject, search])
+}), [quizzes, filterYear, filterSubject, search]);
 
   const totalQuizzes   = quizzes.length;
   const activeQuizzes  = quizzes.filter((q) => q.is_active === true).length;
@@ -684,6 +694,19 @@ export default function AdminDashboard() {
 
                 {filtered.length} quiz{filtered.length !== 1 ? "zes" : ""}
               </span>
+              <div className="flex items-center gap-3 ml-auto">
+            <span className="text-xs text-slate-500">
+              {filtered.length} quiz{filtered.length !== 1 ? "zes" : ""}
+            </span>
+            <button
+              onClick={() => { fetchQuizzes(); fetchVerificationSummary(); }}
+              className="text-xs text-slate-500 hover:text-white border border-slate-700 hover:border-slate-500 px-2.5 py-1 rounded-lg transition flex items-center gap-1.5">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh
+            </button>
+          </div>
             </div>
 
             {error && (
