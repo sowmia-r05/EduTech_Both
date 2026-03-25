@@ -20,6 +20,8 @@ import QuizSettingsExtras from "./QuizSettingsExtras";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import FreeTextPreview from "./FreeTextPreview";
 import { AddQuestionForm } from "./ManualQuizCreator"; // ← PATCH 1
+import CollapsibleTextStyle from "./Collapsibletextstyle";
+
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -96,6 +98,17 @@ function TypeBadge({ type }) {
 }
 
 const IMAGE_SIZE_MAP = { small: "max-w-[200px]", medium: "max-w-md", large: "max-w-xl", full: "max-w-full" };
+function buildTextStyle(q) {
+  return {
+    fontSize:      q.text_font_size      ? `${q.text_font_size}px`      : undefined,
+    fontFamily:    q.text_font_family    || undefined,
+    fontWeight:    q.text_font_weight    || undefined,
+    textAlign:     q.text_align          || undefined,
+    lineHeight:    q.text_line_height    || undefined,
+    letterSpacing: q.text_letter_spacing ? `${q.text_letter_spacing}px` : undefined,
+    color:         q.text_color          || undefined,
+  };
+}
 
 /* ── PATCH 2: Context Menu ── */
 function ContextMenu({ x, y, items, onClose }) {
@@ -438,6 +451,15 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     image_size:      question.image_size || "medium",
     image_width:     question.image_width  ?? null,
     image_height:    question.image_height ?? null,
+    text_font_size:      question.text_font_size      ?? null,
+    text_font_family:    question.text_font_family     || null,
+    text_font_weight:    question.text_font_weight     || null,
+    text_align:          question.text_align           || null,
+    text_line_height:    question.text_line_height     ?? null,
+    text_letter_spacing: question.text_letter_spacing  ?? null,
+    text_color:          question.text_color           || null,
+    max_length:          question.max_length           ?? null,
+    text_style_scope:    question.text_style_scope     || "question",
     explanation:     question.explanation || "",
     shuffle_options: resolvedShuffle,
     voice_url:       question.voice_url || "",
@@ -466,6 +488,15 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       text: form.text, type: form.type, points: form.points, category: form.category,
       image_url: form.image_url, image_size: form.image_size,
       image_width: form.image_width, image_height: form.image_height,
+      text_font_size:      form.text_font_size,
+      text_font_family:    form.text_font_family,
+      text_font_weight:    form.text_font_weight,
+      text_align:          form.text_align,
+      text_line_height:    form.text_line_height,
+      text_letter_spacing: form.text_letter_spacing,
+      text_color:          form.text_color,
+      max_length:          form.max_length,
+      text_style_scope:    form.text_style_scope,
       explanation: form.explanation, shuffle_options: form.shuffle_options,
       voice_url: form.voice_url || null, video_url: form.video_url || null,
       correct_answer: form.correct_answer || null, case_sensitive: form.case_sensitive,
@@ -554,6 +585,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       </div>
 
       <CollapsibleImageResize form={form} setForm={setForm} />
+      <CollapsibleTextStyle form={form} setForm={setForm} />
       <div>
         <label className="block text-xs text-slate-400 mb-1">Explanation</label>
         <input type="text" value={form.explanation} onChange={(e) => setForm((f) => ({ ...f, explanation: e.target.value }))}
@@ -654,6 +686,122 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     </div>
   );
 }
+
+function BulkMoveModal({ questionIds, currentQuizId, onClose, onMoved }) {
+  const [quizzes,  setQuizzes]  = useState([]);
+  const [search,   setSearch]   = useState("");
+  const [targetId, setTargetId] = useState("");
+  const [moving,   setMoving]   = useState(false);
+  const [loading,  setLoading]  = useState(true);
+
+  useEffect(() => {
+    adminFetch("/api/admin/quizzes?limit=200")
+      .then((r) => r.json())
+      .then((data) => {
+        const list = (data.quizzes || data || []).filter(
+          (q) => String(q.quiz_id || q._id) !== String(currentQuizId)
+        );
+        setQuizzes(list);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [currentQuizId]);
+
+  const filtered = quizzes.filter((q) =>
+    q.quiz_name?.toLowerCase().includes(search.toLowerCase()) ||
+    q.subject?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleMove = async () => {
+    if (!targetId) return;
+    setMoving(true);
+    try {
+      const results = await Promise.all(
+        questionIds.map((qId) =>
+          adminFetch(`/api/admin/questions/${qId}/move`, {
+            method: "PATCH",
+            body: JSON.stringify({ from_quiz_id: currentQuizId, to_quiz_id: targetId }),
+          })
+        )
+      );
+      const failed = results.find((r) => !r.ok);
+      if (failed) {
+        const d = await failed.json().catch(() => ({}));
+        throw new Error(d.error || "Some questions failed to move");
+      }
+      onMoved();
+      onClose();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Move {questionIds.length} Question{questionIds.length !== 1 ? "s" : ""}</h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">Select destination quiz</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white text-lg leading-none">✕</button>
+        </div>
+        <div className="px-5 py-3 border-b border-slate-800">
+          <input autoFocus type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search quizzes..."
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div className="overflow-y-auto max-h-72">
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center text-slate-500 text-sm py-10">No quizzes found</p>
+          ) : filtered.map((q) => {
+            const id = String(q.quiz_id || q._id);
+            const selected = targetId === id;
+            return (
+              <button key={id} onClick={() => setTargetId(id)}
+                className={`w-full text-left px-5 py-3 flex items-center gap-3 transition border-b border-slate-800/50 last:border-0 ${
+                  selected ? "bg-indigo-600/20 border-l-2 border-l-indigo-500" : "hover:bg-slate-800"
+                }`}>
+                <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                  selected ? "border-indigo-500 bg-indigo-500" : "border-slate-600"
+                }`}>
+                  {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-white font-medium truncate">{q.quiz_name}</p>
+                  <p className="text-[11px] text-slate-500">{q.subject} · Year {q.year_level}
+                    {q.question_count != null && ` · ${q.question_count} questions`}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="px-5 py-4 border-t border-slate-800 flex items-center justify-between">
+          <p className="text-xs text-slate-500">
+            {targetId
+              ? `→ ${quizzes.find((q) => String(q.quiz_id || q._id) === targetId)?.quiz_name}`
+              : "Select a destination quiz"}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition">Cancel</button>
+            <button onClick={handleMove} disabled={!targetId || moving}
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition flex items-center gap-2">
+              {moving && <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />}
+              {moving ? "Moving..." : `Move ${questionIds.length} Question${questionIds.length !== 1 ? "s" : ""}`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function TextSettingsBar({ settings, onChange }) {
   const { fontSize, fontFamily, bold } = settings;
   const isDefault = fontSize === DEFAULT_TEXT.fontSize && fontFamily === DEFAULT_TEXT.fontFamily && !bold;
@@ -697,6 +845,16 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
   const [insertAtIndex, setInsertAtIndex] = useState(null);
   const addingRef = useRef(false); 
   const [moveQuestion, setMoveQuestion] = useState(null);
+  const [selectedIds,  setSelectedIds]  = useState(new Set());
+  const [showBulkMove, setShowBulkMove] = useState(false);
+
+const toggleSelect = (id) => {
+  setSelectedIds((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+};
   // ── Text preview settings ──
   const [textSettings, setTextSettings] = useState({ ...DEFAULT_TEXT });
   const textStyle = { fontSize: `${textSettings.fontSize}px`, fontFamily: textSettings.fontFamily, fontWeight: textSettings.bold ? "700" : "400" };
@@ -892,6 +1050,26 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
 
           {/* ── Text Preview Settings Toolbar ── */}
           <TextSettingsBar settings={textSettings} onChange={setTextSettings} />
+          {/* Bulk select toolbar */}
+            {questions.length > 0 && !loading && (
+              <div className="flex items-center justify-between">
+                <button onClick={() => {
+                  if (selectedIds.size === questions.length) {
+                    setSelectedIds(new Set());
+                  } else {
+                    setSelectedIds(new Set(questions.map((q) => q.question_id)));
+                  }
+                }} className="text-[11px] text-slate-500 hover:text-slate-300 transition underline">
+                  {selectedIds.size === questions.length ? "Deselect All" : "Select All"}
+                </button>
+                {selectedIds.size > 0 && (
+                  <button onClick={() => setShowBulkMove(true)}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition flex items-center gap-1.5">
+                    ↗️ Move {selectedIds.size} Selected
+                  </button>
+                )}
+              </div>
+            )}
 
           {loading ? (
             <div className="flex items-center justify-center py-20"><div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>
@@ -939,25 +1117,37 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                     }}
                   >
                     {/* Question header */}
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">{i + 1}</span>
-                        <TypeBadge type={q.type} />
-                        <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
-                        {q.categories?.[0]?.name && <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>}
-                        {effectiveShuffle && <span className="text-[10px] px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-medium">🔀 Shuffle</span>}
-                        {q.voice_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">🔊 Audio</span>}
-                        {q.video_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20 font-medium">🎬 Video</span>}
-                      </div>
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                        <button onClick={() => setEditingId(q.question_id)} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
-                        <button onClick={() => handleDeleteQuestion(q.question_id)} className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
-                        <span className="text-[10px] text-slate-600 italic">right-click for more</span>
+                    {/* Question header */}
+                    <div className="flex items-start gap-3 mb-3">
+                      {/* ✅ Selection checkbox */}
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(q.question_id)}
+                        onChange={() => toggleSelect(q.question_id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1 w-4 h-4 rounded accent-indigo-500 flex-shrink-0 cursor-pointer"
+                      />
+                      <div className="flex items-start justify-between flex-1">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">{i + 1}</span>
+                          <TypeBadge type={q.type} />
+                          <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
+                          {q.categories?.[0]?.name && <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>}
+                          {effectiveShuffle && <span className="text-[10px] px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-medium">🔀 Shuffle</span>}
+                          {q.voice_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">🔊 Audio</span>}
+                          {q.video_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20 font-medium">🎬 Video</span>}
+                        </div>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                          <button onClick={() => setEditingId(q.question_id)} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
+                          <button onClick={() => handleDeleteQuestion(q.question_id)} className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
+                          <span className="text-[10px] text-slate-600 italic">right-click for more</span>
+                        </div>
                       </div>
                     </div>
 
                     {/* Question text */}
-                    <div style={textStyle}>
+                    {/* Question text */}
+                    <div style={buildTextStyle(q)}>
                       <HtmlContent html={q.text} className={`leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
                     </div>
 
@@ -1005,7 +1195,10 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
                               <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"}`}>
                                 {opt.correct ? "✓" : letter}
                               </span>
-                              <span className="text-slate-300" style={textStyle}>{opt.text}</span>
+                              <span className="text-slate-300" style={
+                            (q.text_style_scope === "options" || q.text_style_scope === "all")
+                              ? buildTextStyle(q) : {}
+                          }>{opt.text}</span>
                               {opt.image_url && <img src={opt.image_url} alt={`Option ${letter}`} className="w-16 h-16 rounded-lg object-cover border border-slate-700" />}
                             </div>
                           );
@@ -1153,6 +1346,18 @@ export default function QuizDetailModal({ quizId, onClose, onRefresh }) {
           onMoved={() => { setMoveQuestion(null); fetchDetail(); }}
         />
       )}
+      {showBulkMove && (
+  <BulkMoveModal
+    questionIds={[...selectedIds]}
+    currentQuizId={quizId}
+    onClose={() => setShowBulkMove(false)}
+    onMoved={() => {
+      setSelectedIds(new Set());
+      setShowBulkMove(false);
+      fetchDetail();
+    }}
+  />
+)}
     </div>
   );
 }
