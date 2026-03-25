@@ -371,6 +371,8 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
       onAnswer({ text: data.text });
     } catch (err) {
       setOcrError(err.message);
+      setPreviewUrl(null);
+      onAnswer({ text: "" });
     } finally {
       setOcrLoading(false);
       onUploadingChange?.(false);

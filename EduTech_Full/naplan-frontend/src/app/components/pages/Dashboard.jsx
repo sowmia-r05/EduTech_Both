@@ -170,7 +170,10 @@ const AiPendingOverlay = ({ aiMessage }) => (
         <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-blue-500 animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
       </div>
       <h3 className="text-xl font-bold text-gray-800 mb-2">Preparing Your Results</h3>
-      <p className="text-sm text-gray-500 mb-4">{aiMessage || "Our AI is analysing your performance — this usually takes 15–30 seconds."}</p>
+      <p className="text-sm text-gray-500 mb-4 text-center">
+      {aiMessage || "Our AI is analysing your performance — this usually takes 15–30 seconds."}
+      </p>
+
       <div className="flex justify-center gap-1.5">
         {[0, 1, 2, 3, 4].map((i) => (
           <span key={i} className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
