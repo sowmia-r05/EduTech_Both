@@ -35,13 +35,13 @@ export default function QuizSettingsExtras({ form, onChange, compact = false }) 
               <input type="number" min="2" max="99"
                 value={form.max_attempts ?? ""}
                 onChange={(e) => handleMaxAttemptsChange(e.target.value)}
-                placeholder="Default (5)"
+                placeholder="∞ Unlimited"
                 className={`w-28 bg-slate-800 border border-slate-600 rounded-lg px-3 ${compact ? "py-1 text-xs" : "py-1.5 text-sm"} text-white outline-none focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-500`} />
             </div>
           )}
         </div>
         <p className="text-[10px] text-slate-500 mt-1">
-          {allowRetakes ? "Students can retake this quiz (system default: 5 attempts)." : "Students get only one attempt — no retakes allowed."}
+          {allowRetakes ? "Students can retake this quiz. Leave blank for unlimited attempts." : "Students get only one attempt — no retakes allowed."}
         </p>
       </div>
 
