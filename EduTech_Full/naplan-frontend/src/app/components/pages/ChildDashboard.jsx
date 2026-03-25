@@ -700,28 +700,35 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
 }, [navigate, childInfo, childProfile, childId]);
 
 
-
-
-
   /* ─── handleQuizClose (original) ─── */
   const handleQuizClose = useCallback((result) => {
     setActiveQuiz(null);
     refreshData();
     if (result?.attempt_id || result?.response_id) {
+
+      // ✅ Detect writing from multiple sources — never rely on is_writing alone
+      const isWritingSubject =
+        result.is_writing === true ||
+        (result.subject || "").toLowerCase() === "writing" ||
+        (result.quiz_name || "").toLowerCase().includes("writing") ||
+        (activeQuiz?.subject || "").toLowerCase() === "writing" ||
+        (activeQuiz?.name || "").toLowerCase().includes("writing");
+
       setSelectedQuizResult({
         result: {
           score:           result.score || {},
           topic_breakdown: result.topic_breakdown || {},
-          is_writing:      result.is_writing || false,
+          is_writing:      isWritingSubject,             // ✅ reliable
           ai_status:       result.ai_status || "queued",
           attempt_id:      result.attempt_id,
           response_id:     result.attempt_id || result.response_id,
-          subject:         result.subject || "",
+          subject:         result.subject || (isWritingSubject ? "Writing" : ""),
         },
         quizName: result.quiz_name || "Quiz",
       });
     }
-  }, [refreshData]);
+  }, [refreshData, activeQuiz]);  // ✅ add activeQuiz to deps
+
 
   /* ─── Derived display values ─── */
   const displayName  = childInfo?.display_name || childProfile?.displayName || "Student";

@@ -71,11 +71,16 @@ router.post("/handwriting", async (req, res) => {
               {
                 text: `You are a handwriting transcription assistant for an Australian primary school student (Year 3, approx. 8-9 years old).
 
-Please transcribe ALL the handwritten text in this image exactly as written.
-- Keep the original spelling and punctuation (even if there are mistakes)
-- Preserve paragraph breaks
-- Do NOT add corrections, comments, or explanations
-- Return ONLY the transcribed text, nothing else`,
+              STEP 1 — Check if this image contains handwritten English text:
+              - If the image does NOT contain handwriting (e.g. it is a photo of a person, animal, landscape, object, printed text, or anything other than handwriting), respond with exactly: NO_HANDWRITING
+              - If the image contains handwriting but it is NOT in English (e.g. Arabic, Chinese, Hindi, Tamil, or any other non-English language), respond with exactly: NON_ENGLISH
+              - Only proceed to STEP 2 if the image clearly contains handwritten English text.
+
+              STEP 2 — Transcribe the English handwriting:
+              - Keep the original spelling and punctuation exactly as written (even if there are mistakes)
+              - Preserve paragraph breaks
+              - Do NOT add corrections, comments, translations, or explanations
+              - Return ONLY the transcribed English text, nothing else`,
               },
             ],
           },
@@ -88,7 +93,7 @@ Please transcribe ALL the handwritten text in this image exactly as written.
       {
         headers: { "Content-Type": "application/json" },
         timeout: 45000,
-      }
+      },
     );
 
     // ── Extract text from Gemini response ──
@@ -96,13 +101,37 @@ Please transcribe ALL the handwritten text in this image exactly as written.
       response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
 
     if (!extractedText) {
-      return res.status(500).json({
-        error: "No text could be extracted. Please take a clearer photo with good lighting.",
+      return res.status(422).json({
+        error:
+          "No text could be extracted. Please take a clearer photo with good lighting.",
       });
     }
 
-    console.log(`✅ OCR success — extracted ${extractedText.split(/\s+/).length} words`);
+    // ✅ Fix 2: Reject non-handwriting images (photos, scenery, objects etc.)
+    if (extractedText === "NO_HANDWRITING") {
+      console.log("⚠️ OCR rejected — image does not contain handwriting");
+      return res.status(422).json({
+        error:
+          "This image doesn't appear to contain handwriting. Please upload a photo of your written work only.",
+      });
+    }
+
+    // ✅ Fix 1: Reject non-English handwriting
+    if (extractedText === "NON_ENGLISH") {
+      console.log("⚠️ OCR rejected — non-English handwriting detected");
+      return res.status(422).json({
+        error:
+          "Only English handwriting is accepted. Please upload a photo of your English writing.",
+      });
+    }
+
+    console.log(
+      `✅ OCR success — extracted ${extractedText.split(/\s+/).length} words`,
+    );
     return res.json({ text: extractedText });
+
+
+
 
   } catch (err) {
     if (err.response) {
