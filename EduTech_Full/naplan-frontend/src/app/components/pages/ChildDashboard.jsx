@@ -808,25 +808,48 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
   );
 
    if (selectedQuizResult) return (
-    <QuizResult
-      result={selectedQuizResult.result}
-      quizName={selectedQuizResult.quizName}
-      childStatus={childStatus}
-      displayName={displayName}
-      isParentViewing={isParentViewing}
-      childId={childId}
-      onClose={() => setSelectedQuizResult(null)}
-      onRetake={() => {
-        const quiz = mergedQuizzes.find(
-          (q) =>
-            q.quiz_id === selectedQuizResult.result?.quiz_id ||
-            (q.name || "").toLowerCase() === (selectedQuizResult.quizName || "").toLowerCase()
-        );
-        if (quiz) {
-          setSelectedQuizResult(null);
-          setActiveQuiz(quiz);
-        }
-      }}
+      <QuizResult
+        result={selectedQuizResult.result}
+        quizName={selectedQuizResult.quizName}
+        childStatus={childStatus}
+        displayName={displayName}
+        isParentViewing={isParentViewing}
+        childId={childId}
+        onClose={() => setSelectedQuizResult(null)}
+
+        // ✅ FIX: Only pass onRetake if attempts are NOT exhausted
+        onRetake={(() => {
+          const quiz = mergedQuizzes.find(
+            (q) =>
+              q.quiz_id === selectedQuizResult.result?.quiz_id ||
+              (q.name || "").toLowerCase() === (selectedQuizResult.quizName || "").toLowerCase()
+          );
+          // ✅ If no quiz found OR attempts exhausted → don't pass onRetake at all
+          if (!quiz || quiz.attempts_exhausted) return undefined;
+          return () => {
+            setSelectedQuizResult(null);
+            setActiveQuiz(quiz);
+          };
+        })()}
+
+        // ✅ Pass attempt info so QuizResult can show a message if exhausted
+        attemptsExhausted={(() => {
+          const quiz = mergedQuizzes.find(
+            (q) =>
+              q.quiz_id === selectedQuizResult.result?.quiz_id ||
+              (q.name || "").toLowerCase() === (selectedQuizResult.quizName || "").toLowerCase()
+          );
+          return quiz?.attempts_exhausted ?? false;
+        })()}
+        attemptCount={(() => {
+          const quiz = mergedQuizzes.find(
+            (q) =>
+              q.quiz_id === selectedQuizResult.result?.quiz_id ||
+              (q.name || "").toLowerCase() === (selectedQuizResult.quizName || "").toLowerCase()
+          );
+          return { used: quiz?.attempt_count ?? 1, max: quiz?.max_attempts ?? 1 };
+        })()}
+
       onViewAnalytics={() => {
         setSelectedQuizResult(null);
         setActiveTab("cumulative");

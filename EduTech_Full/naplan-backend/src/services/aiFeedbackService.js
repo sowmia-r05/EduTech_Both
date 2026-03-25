@@ -32,6 +32,10 @@ const QuizAttempt = require("../models/quizAttempt");
 const Writing = require("../models/writing");
 const Child = require("../models/child");
 const Question = require("../models/question");
+const {
+  sendQuizCompletionEmail,
+  checkNotificationEligibility,
+} = require("./emailNotifications");
 
 const { triggerCumulativeFeedback } = require("./cumulativeFeedbackService");
 
@@ -365,6 +369,27 @@ async function saveWritingToCollection({
     // Delete QuizAttempt — writing data now fully lives in Writing collection
     await QuizAttempt.deleteOne({ attempt_id: attemptId });
     console.log(`🗑️ QuizAttempt deleted for writing attempt ${attemptId}`);
+    // ✅ Send quiz completion email to parent (respects email_notifications checkbox)
+    ;(async () => {
+      try {
+        const eligibility = await checkNotificationEligibility(childId);
+        if (!eligibility.shouldSend) return; // ✅ checkbox off — skip silently
+
+        await sendQuizCompletionEmail({
+          parentEmail:    eligibility.parentEmail,
+          childName:      eligibility.childName,
+          quizName:       quizName || "Writing Quiz",
+          score:          null,         // writing has no instant score
+          topicBreakdown: {},
+          duration:       attemptSnapshot?.duration_sec,
+          subject:        "Writing",
+        });
+        console.log(`📧 Writing completion email sent to ${eligibility.parentEmail} for ${eligibility.childName}`);
+      } catch (emailErr) {
+        console.error("⚠️ Writing completion email failed:", emailErr.message);
+      }
+    })();
+
 
   } catch (err) {
     console.error(`❌ saveWritingToCollection failed for ${attemptId}:`, err.message);

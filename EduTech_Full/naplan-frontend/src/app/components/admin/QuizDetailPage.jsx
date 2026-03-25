@@ -1011,7 +1011,7 @@ export default function QuizDetailPage() {
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Max Attempts</label>
                 <input type="number" value={settingsForm.max_attempts}
-                  onChange={(e) => setSettingsForm((f) => ({ ...f, max_attempts: e.target.value }))}
+                  onChange={(e) => setSettingsForm((f) => ({...f, max_attempts: e.target.value, attempts_enabled: Number(e.target.value) > 1 ? true : f.attempts_enabled,}))}
                   placeholder="Unlimited" className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-white outline-none" />
               </div>
               <div>

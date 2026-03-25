@@ -207,9 +207,9 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
       const payload = {
         ...form,
         time_limit_minutes: form.time_limit_minutes === "" ? null : Number(form.time_limit_minutes),
-        max_attempts: form.attempts_enabled
-          ? (form.max_attempts === "" ? null : Number(form.max_attempts))
-          : 1,
+        max_attempts: form.max_attempts === "" || form.max_attempts === null
+          ? (form.attempts_enabled ? null : 1)
+          : Number(form.max_attempts),
         passing_score: form.passing_score === "" ? null : Number(form.passing_score),
         difficulty: form.difficulty || null,
       };
