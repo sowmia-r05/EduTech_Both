@@ -18,6 +18,8 @@
  * ✅ Added: Right-click context menu — Edit / Insert Before / Insert After / Delete
  * ✅ Fixed: Insert before/after — no double form, correct order calculation
  * ✅ Fixed: picture_choice option upload uses ${API} prefix + URL normalization
+ * ✅ Added: Bulk move selected questions to another quiz
+ * ✅ Added: buildTextStyle applied to question text and options in card view
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -102,9 +104,9 @@ function FileUploadButton({ onUploaded, accept = "image/*", label = "Upload" }) 
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function HtmlContent({ html, className = "" }) {
+function HtmlContent({ html, className = "", style = {} }) {
   if (!html) return null;
-  return <div className={className} dangerouslySetInnerHTML={{ __html: html }} style={{ overflowWrap: "break-word" }} />;
+  return <div className={className} dangerouslySetInnerHTML={{ __html: html }} style={{ overflowWrap: "break-word", ...style }} />;
 }
 
 function TypeBadge({ type }) {
@@ -154,7 +156,6 @@ function VerificationBadge({ status }) {
   );
 }
 
-// ─── Verify Controls ─────────────────────────────────────────────────────────
 // ─── Admin Verify Controls ────────────────────────────────────────────────────
 function AdminVerifyControls({ question, onVerified }) {
   const [mode,    setMode]    = useState(null);
@@ -178,85 +179,58 @@ function AdminVerifyControls({ question, onVerified }) {
 
   return (
     <div className="space-y-3">
-
-      {/* ══ TUTOR REVIEW (read-only) ══ */}
       {question.tutor_verification?.status && question.tutor_verification.status !== "pending" && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <div className="flex-1 border-t border-slate-700/60" />
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">
-              Tutor Review
-            </span>
+            <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">Tutor Review</span>
             <div className="flex-1 border-t border-slate-700/60" />
           </div>
           <div className={`px-3 py-2.5 rounded-lg border flex items-start gap-2.5 ${
-            question.tutor_verification.status === "approved"
-              ? "bg-emerald-500/5 border-emerald-500/20"
-              : "bg-red-500/5 border-red-500/20"
+            question.tutor_verification.status === "approved" ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
           }`}>
             {question.tutor_verification.status === "approved" ? (
-              <svg className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
+              <svg className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
             ) : (
-              <svg className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <svg className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             )}
             <div className="min-w-0">
-              <p className={`text-[10px] font-bold uppercase tracking-wider ${
-                question.tutor_verification.status === "approved" ? "text-emerald-400" : "text-red-400"
-              }`}>
+              <p className={`text-[10px] font-bold uppercase tracking-wider ${question.tutor_verification.status === "approved" ? "text-emerald-400" : "text-red-400"}`}>
                 Tutor {question.tutor_verification.status === "approved" ? "Approved" : "Rejected"}
               </p>
               {question.tutor_verification.rejection_reason && (
-                <p className="text-xs text-red-400/70 mt-0.5 break-words">
-                  {question.tutor_verification.rejection_reason}
-                </p>
+                <p className="text-xs text-red-400/70 mt-0.5 break-words">{question.tutor_verification.rejection_reason}</p>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ══ ADMIN REVIEW ══ */}
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <div className="flex-1 border-t border-slate-700/60" />
-          <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">
-            Admin Review
-          </span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">Admin Review</span>
           <div className="flex-1 border-t border-slate-700/60" />
         </div>
 
         {adminStatus !== "pending" && (
-          <div className={`px-3 py-2 rounded-lg border ${
-            adminStatus === "approved" ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
-          }`}>
+          <div className={`px-3 py-2 rounded-lg border ${adminStatus === "approved" ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className={`text-[10px] font-bold uppercase tracking-wider ${
-                  adminStatus === "approved" ? "text-emerald-400" : "text-red-400"
-                }`}>
+                <p className={`text-[10px] font-bold uppercase tracking-wider ${adminStatus === "approved" ? "text-emerald-400" : "text-red-400"}`}>
                   {adminStatus === "approved" ? "✓ Admin Approved" : "✗ Admin Rejected"}
                   {question.admin_verification?.verified_by && (
-                    <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">
-                      by {question.admin_verification.verified_by}
-                    </span>
+                    <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">by {question.admin_verification.verified_by}</span>
                   )}
                 </p>
                 {question.admin_verification?.message && (
-                  <p className={`text-xs mt-0.5 break-words ${
-                    adminStatus === "approved" ? "text-emerald-400/70" : "text-red-400/70"
-                  }`}>
+                  <p className={`text-xs mt-0.5 break-words ${adminStatus === "approved" ? "text-emerald-400/70" : "text-red-400/70"}`}>
                     {question.admin_verification.message}
                   </p>
                 )}
               </div>
               <button disabled={loading} onClick={() => handleSubmit("pending")}
-                className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40 flex-shrink-0">
-                Reset
-              </button>
+                className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40 flex-shrink-0">Reset</button>
             </div>
           </div>
         )}
@@ -283,11 +257,8 @@ function AdminVerifyControls({ question, onVerified }) {
               className="flex-1 bg-slate-800 border border-emerald-600/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-emerald-500"
               onKeyDown={(e) => { if (e.key === "Enter") handleSubmit("approved"); }} />
             <button disabled={loading} onClick={() => handleSubmit("approved")}
-              className="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-40">
-              Confirm
-            </button>
-            <button onClick={() => { setMode(null); setMessage(""); }}
-              className="text-xs text-slate-500 hover:text-white">Cancel</button>
+              className="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-40">Confirm</button>
+            <button onClick={() => { setMode(null); setMessage(""); }} className="text-xs text-slate-500 hover:text-white">Cancel</button>
           </div>
         )}
 
@@ -298,11 +269,8 @@ function AdminVerifyControls({ question, onVerified }) {
               className="flex-1 bg-slate-800 border border-red-600/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-red-500"
               onKeyDown={(e) => { if (e.key === "Enter" && message.trim()) handleSubmit("rejected"); }} />
             <button disabled={!message.trim() || loading} onClick={() => handleSubmit("rejected")}
-              className="px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-40">
-              Confirm
-            </button>
-            <button onClick={() => { setMode(null); setMessage(""); }}
-              className="text-xs text-slate-500 hover:text-white">Cancel</button>
+              className="px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-40">Confirm</button>
+            <button onClick={() => { setMode(null); setMessage(""); }} className="text-xs text-slate-500 hover:text-white">Cancel</button>
           </div>
         )}
       </div>
@@ -328,11 +296,8 @@ function ContextMenu({ x, y, items, onClose }) {
         item === "divider" ? (
           <div key={i} className="my-1 border-t border-slate-700" />
         ) : (
-          <button
-            key={i}
-            onClick={() => { item.onClick(); onClose(); }}
-            className={`w-full text-left px-4 py-2 text-xs flex items-center gap-2.5 transition hover:bg-slate-700 ${item.danger ? "text-red-400 hover:text-red-300" : "text-slate-300 hover:text-white"}`}
-          >
+          <button key={i} onClick={() => { item.onClick(); onClose(); }}
+            className={`w-full text-left px-4 py-2 text-xs flex items-center gap-2.5 transition hover:bg-slate-700 ${item.danger ? "text-red-400 hover:text-red-300" : "text-slate-300 hover:text-white"}`}>
             <span>{item.icon}</span>
             <span>{item.label}</span>
           </button>
@@ -437,6 +402,121 @@ function MoveToQuizModal({ question, currentQuizId, onClose, onMoved }) {
               className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition flex items-center gap-2">
               {moving && <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />}
               {moving ? "Moving..." : "Move Question"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Bulk Move Modal ──────────────────────────────────────────────────────────
+function BulkMoveModal({ questionIds, currentQuizId, onClose, onMoved }) {
+  const [quizzes,  setQuizzes]  = useState([]);
+  const [search,   setSearch]   = useState("");
+  const [targetId, setTargetId] = useState("");
+  const [moving,   setMoving]   = useState(false);
+  const [loading,  setLoading]  = useState(true);
+
+  useEffect(() => {
+    adminFetch("/api/admin/quizzes?limit=200")
+      .then((r) => r.json())
+      .then((data) => {
+        const list = (data.quizzes || data || []).filter(
+          (q) => String(q.quiz_id || q._id) !== String(currentQuizId)
+        );
+        setQuizzes(list);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [currentQuizId]);
+
+  const filtered = quizzes.filter((q) =>
+    q.quiz_name?.toLowerCase().includes(search.toLowerCase()) ||
+    q.subject?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleMove = async () => {
+    if (!targetId) return;
+    setMoving(true);
+    try {
+      const results = await Promise.all(
+        questionIds.map((qId) =>
+          adminFetch(`/api/admin/questions/${qId}/move`, {
+            method: "PATCH",
+            body: JSON.stringify({ from_quiz_id: currentQuizId, to_quiz_id: targetId }),
+          })
+        )
+      );
+      const failed = results.find((r) => !r.ok);
+      if (failed) {
+        const d = await failed.json().catch(() => ({}));
+        throw new Error(d.error || "Some questions failed to move");
+      }
+      onMoved();
+      onClose();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Move {questionIds.length} Question{questionIds.length !== 1 ? "s" : ""}</h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">Select destination quiz</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white text-lg leading-none">✕</button>
+        </div>
+        <div className="px-5 py-3 border-b border-slate-800">
+          <input autoFocus type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search quizzes..."
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div className="overflow-y-auto max-h-72">
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center text-slate-500 text-sm py-10">No quizzes found</p>
+          ) : filtered.map((q) => {
+            const id = String(q.quiz_id || q._id);
+            const selected = targetId === id;
+            return (
+              <button key={id} onClick={() => setTargetId(id)}
+                className={`w-full text-left px-5 py-3 flex items-center gap-3 transition border-b border-slate-800/50 last:border-0 ${
+                  selected ? "bg-indigo-600/20 border-l-2 border-l-indigo-500" : "hover:bg-slate-800"
+                }`}>
+                <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                  selected ? "border-indigo-500 bg-indigo-500" : "border-slate-600"
+                }`}>
+                  {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-white font-medium truncate">{q.quiz_name}</p>
+                  <p className="text-[11px] text-slate-500">{q.subject} · Year {q.year_level}
+                    {q.question_count != null && ` · ${q.question_count} questions`}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="px-5 py-4 border-t border-slate-800 flex items-center justify-between">
+          <p className="text-xs text-slate-500">
+            {targetId ? `→ ${quizzes.find((q) => String(q.quiz_id || q._id) === targetId)?.quiz_name}` : "Select a destination quiz"}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition">Cancel</button>
+            <button onClick={handleMove} disabled={!targetId || moving}
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition flex items-center gap-2">
+              {moving && <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />}
+              {moving ? "Moving..." : `Move ${questionIds.length} Question${questionIds.length !== 1 ? "s" : ""}`}
             </button>
           </div>
         </div>
@@ -605,7 +685,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           </div>
         )}
         <CollapsibleImageResize form={form} setForm={setForm} />
-        <CollapsibleTextStyle form={form} setForm={setForm} />  {/* ✅ ADD THIS */}
+        <CollapsibleTextStyle form={form} setForm={setForm} />
       </div>
 
       <div>
@@ -703,7 +783,6 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
                     <input type="text" value={opt.image_url || ""} onChange={(e) => updateOption(i, "image_url", e.target.value)}
                       placeholder="Image URL..."
                       className="w-32 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none" />
-                    {/* ✅ FIXED: uses ${API} prefix + URL normalization */}
                     <button type="button"
                       onClick={async () => {
                         const fileInput = document.createElement("input");
@@ -729,18 +808,14 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
                               const fullUrl = data.url.startsWith("http") ? data.url : `${API}${data.url}`;
                               updateOption(i, "image_url", fullUrl);
                             }
-                          } catch (err) {
-                            alert(err.message);
-                          }
+                          } catch (err) { alert(err.message); }
                         };
                         fileInput.click();
                       }}
                       className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-white rounded border border-slate-600 whitespace-nowrap">
                       📎 Upload
                     </button>
-                    {opt.image_url && (
-                      <img src={opt.image_url} alt="" className="w-8 h-8 rounded object-cover border border-slate-600" />
-                    )}
+                    {opt.image_url && <img src={opt.image_url} alt="" className="w-8 h-8 rounded object-cover border border-slate-600" />}
                   </div>
                 )}
                 {form.options.length > 2 && (
@@ -783,6 +858,26 @@ export default function QuizDetailPage() {
   const [contextMenu,    setContextMenu]    = useState(null);
   const [moveQuestion,   setMoveQuestion]   = useState(null);
   const addingRef = useRef(false);
+
+  // ── Bulk move state ──
+  const [selectedIds,  setSelectedIds]  = useState(new Set());
+  const [showBulkMove, setShowBulkMove] = useState(false);
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === questions.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(questions.map((q) => q.question_id)));
+    }
+  };
 
   const adminRole = getAdminRole();
   const canVerify = ["admin", "tutor"].includes(adminRole);
@@ -829,17 +924,14 @@ export default function QuizDetailPage() {
     if (res.ok) fetchDetail(); else alert("Delete failed");
   };
 
-  // ✅ FIXED: clean insert logic with -1 support for before-first-question
-    const handleAddQuestion = async (newQ) => {
+  const handleAddQuestion = async (newQ) => {
     if (addingRef.current) return;
     addingRef.current = true;
     try {
       const getEffectiveOrder = (q, idx) =>
         q?.order != null ? q.order : idx * 1000;
 
-      // ✅ FIX: Normalize null-order questions before positional insert
       if (insertAtIndex !== null) {
-        // ✅ WITH THIS:
         const allSameOrder = new Set(questions.map(q => q.order ?? 0)).size === 1;
         const hasNullOrders = questions.some(q => q.order == null) || allSameOrder;
         if (hasNullOrders) {
@@ -852,13 +944,11 @@ export default function QuizDetailPage() {
               })
             )
           );
-          // Update local state so order calc below uses correct values
           questions.forEach((q, idx) => { q.order = idx * 1000; });
         }
       }
 
       let order;
-
       if (insertAtIndex === null) {
         const lastIdx = questions.length - 1;
         order = questions.length > 0
@@ -899,6 +989,7 @@ export default function QuizDetailPage() {
       addingRef.current = false;
     }
   };
+
   const handleSaveSettings = async () => {
     setSavingSettings(true);
     try {
@@ -978,19 +1069,19 @@ export default function QuizDetailPage() {
         )}
 
         {quiz?.tutor_flag?.status === "flagged" && (
-  <div className="mb-6 flex items-start gap-2.5 px-4 py-3 bg-orange-500/5 border border-orange-500/20 rounded-xl">
-    <svg className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
-    </svg>
-    <div>
-      <p className="text-[11px] font-semibold text-orange-300">
-        🚩 Flagged by Tutor: {quiz.tutor_flag.flagged_by}
-        {quiz.tutor_flag.flagged_at && ` · ${new Date(quiz.tutor_flag.flagged_at).toLocaleDateString()}`}
-      </p>
-      <p className="text-xs text-orange-400/80 mt-0.5">{quiz.tutor_flag.comment}</p>
-    </div>
-  </div>
-)}
+          <div className="mb-6 flex items-start gap-2.5 px-4 py-3 bg-orange-500/5 border border-orange-500/20 rounded-xl">
+            <svg className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
+            </svg>
+            <div>
+              <p className="text-[11px] font-semibold text-orange-300">
+                🚩 Flagged by Tutor: {quiz.tutor_flag.flagged_by}
+                {quiz.tutor_flag.flagged_at && ` · ${new Date(quiz.tutor_flag.flagged_at).toLocaleDateString()}`}
+              </p>
+              <p className="text-xs text-orange-400/80 mt-0.5">{quiz.tutor_flag.comment}</p>
+            </div>
+          </div>
+        )}
 
         {showSettings && (
           <div className="mb-6 bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
@@ -1011,7 +1102,7 @@ export default function QuizDetailPage() {
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Max Attempts</label>
                 <input type="number" value={settingsForm.max_attempts}
-                  onChange={(e) => setSettingsForm((f) => ({...f, max_attempts: e.target.value, attempts_enabled: Number(e.target.value) > 1 ? true : f.attempts_enabled,}))}
+                  onChange={(e) => setSettingsForm((f) => ({ ...f, max_attempts: e.target.value, attempts_enabled: Number(e.target.value) > 1 ? true : f.attempts_enabled }))}
                   placeholder="Unlimited" className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-white outline-none" />
               </div>
               <div>
@@ -1053,14 +1144,31 @@ export default function QuizDetailPage() {
         ) : (
           <div className="space-y-4">
 
+            {/* ── Questions header with Select All + Move button ── */}
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Questions ({questions.length})</h2>
-              {!showAddForm && (
-                <button onClick={() => { setShowAddForm(true); setInsertAtIndex(null); setEditingId(null); }}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition flex items-center gap-1.5">
-                  + Add Question
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Questions ({questions.length})</h2>
+                {questions.length > 0 && (
+                  <button onClick={toggleSelectAll}
+                    className="text-[11px] text-slate-500 hover:text-slate-300 transition underline">
+                    {selectedIds.size === questions.length ? "Deselect All" : "Select All"}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedIds.size > 0 && (
+                  <button onClick={() => setShowBulkMove(true)}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition flex items-center gap-1.5">
+                    ↗️ Move {selectedIds.size} Selected
+                  </button>
+                )}
+                {!showAddForm && (
+                  <button onClick={() => { setShowAddForm(true); setInsertAtIndex(null); setEditingId(null); }}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition flex items-center gap-1.5">
+                    + Add Question
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Add form at END of list (insertAtIndex === null) */}
@@ -1091,7 +1199,6 @@ export default function QuizDetailPage() {
                 ...(q.image_height ? { height: `${q.image_height}px`, objectFit: "contain" } : {}),
               } : undefined;
 
-              // ✅ FIXED: no double-form — before only shows for i===0 with insertAtIndex===-1
               const showInsertBefore = showAddForm && i === 0 && insertAtIndex === -1;
               const showInsertAfter  = showAddForm && insertAtIndex === i;
 
@@ -1118,34 +1225,46 @@ export default function QuizDetailPage() {
                       setContextMenu({ x: e.clientX, y: e.clientY, questionId: q.question_id, index: i });
                     }}>
 
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <span className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">{i + 1}</span>
-                        <TypeBadge type={q.type} />
-                        <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
-                        {q.categories?.[0]?.name && (
-                          <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>
-                        )}
-                        {(q.shuffle_options ?? quiz?.randomize_options) && (
-                          <span className="text-[10px] px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-medium">🔀 Shuffle</span>
-                        )}
-                        {q.voice_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">🔊 Audio</span>}
-                        {q.video_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20 font-medium">🎬 Video</span>}
-                        <VerificationBadge status={verStatus} />
-                      </div>
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                        <button onClick={() => { setEditingId(q.question_id); setShowAddForm(false); setInsertAtIndex(null); }}
-                          className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
-                        <button onClick={() => handleDeleteQuestion(q.question_id)}
-                          className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
-                        <span className="text-[10px] text-slate-600 italic">right-click for more</span>
+                    {/* ── Question header with checkbox ── */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(q.question_id)}
+                        onChange={() => toggleSelect(q.question_id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1 w-4 h-4 rounded accent-indigo-500 flex-shrink-0 cursor-pointer"
+                      />
+                      <div className="flex items-start justify-between flex-1">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-400">{i + 1}</span>
+                          <TypeBadge type={q.type} />
+                          <span className="text-xs text-slate-500">{q.points} pt{q.points !== 1 ? "s" : ""}</span>
+                          {q.categories?.[0]?.name && (
+                            <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded">{q.categories[0].name}</span>
+                          )}
+                          {(q.shuffle_options ?? quiz?.randomize_options) && (
+                            <span className="text-[10px] px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-medium">🔀 Shuffle</span>
+                          )}
+                          {q.voice_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20 font-medium">🔊 Audio</span>}
+                          {q.video_url && <span className="text-[10px] px-2 py-0.5 rounded border bg-pink-500/10 text-pink-400 border-pink-500/20 font-medium">🎬 Video</span>}
+                          <VerificationBadge status={verStatus} />
+                        </div>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                          <button onClick={() => { setEditingId(q.question_id); setShowAddForm(false); setInsertAtIndex(null); }}
+                            className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
+                          <button onClick={() => handleDeleteQuestion(q.question_id)}
+                            className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
+                          <span className="text-[10px] text-slate-600 italic">right-click for more</span>
+                        </div>
                       </div>
                     </div>
 
+                    {/* ── Question text with buildTextStyle ── */}
                     <div className="mb-3 ml-10">
-                      <HtmlContent html={q.text}
-                        className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
-                    </div>
+                    <HtmlContent html={q.text}
+                      style={buildTextStyle(q)}
+                      className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
+                  </div>
 
                     {q.image_url && !q.text?.includes(q.image_url) && (
                       <div className="mb-3 ml-10">
@@ -1178,6 +1297,7 @@ export default function QuizDetailPage() {
                       </div>
                     )}
 
+                    {/* ── Options with buildTextStyle ── */}
                     {q.options?.length > 0 && (
                       <div className="space-y-1.5 ml-10">
                         {q.options.map((opt, oi) => (
@@ -1186,7 +1306,10 @@ export default function QuizDetailPage() {
                             <span className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5 ${opt.correct ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400"}`}>
                               {opt.correct ? "✓" : String.fromCharCode(65 + oi)}
                             </span>
-                            <span className="text-slate-300">{opt.text}</span>
+                            <span className="text-slate-300" style={
+                              (q.text_style_scope === "options" || q.text_style_scope === "all")
+                                ? buildTextStyle(q) : {}
+                            }>{opt.text}</span>
                             {opt.image_url && <img src={opt.image_url} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-700" />}
                           </div>
                         ))}
@@ -1267,6 +1390,19 @@ export default function QuizDetailPage() {
           currentQuizId={quizId}
           onClose={() => setMoveQuestion(null)}
           onMoved={() => { setMoveQuestion(null); fetchDetail(); }}
+        />
+      )}
+
+      {showBulkMove && (
+        <BulkMoveModal
+          questionIds={[...selectedIds]}
+          currentQuizId={quizId}
+          onClose={() => setShowBulkMove(false)}
+          onMoved={() => {
+            setSelectedIds(new Set());
+            setShowBulkMove(false);
+            fetchDetail();
+          }}
         />
       )}
 

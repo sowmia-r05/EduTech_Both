@@ -630,7 +630,9 @@ export default function CollapsibleTextStyle({ form, setForm }) {
               }}
               className="transition-all duration-150"
             >
-              Which of the following best describes the water cycle?
+              {form.text
+                ? form.text.replace(/<[^>]+>/g, "").slice(0, 200)  // strip HTML tags, limit length
+                : "Your question text will appear here..."}
             </p>
             {form.max_length && (
               <div className="mt-3 relative">

@@ -259,6 +259,15 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       order: q.order,
       voice_url: q.voice_url || null,
       video_url: q.video_url || null,
+      text_font_size:      q.text_font_size      || null,
+      text_font_family:    q.text_font_family     || null,
+      text_font_weight:    q.text_font_weight     || null,
+      text_align:          q.text_align           || null,
+      text_line_height:    q.text_line_height     || null,
+      text_letter_spacing: q.text_letter_spacing  || null,
+      text_color:          q.text_color           || null,
+      max_length:          q.max_length           || null,
+      text_style_scope:    q.text_style_scope     || "question",
     }));
 
     if (quiz.randomize_questions) {

@@ -44,6 +44,18 @@ function reEnterFullscreen() {
     if (fn) fn.call(el).catch(() => {});
   }
 }
+// Add this after the reEnterFullscreen function
+function buildTextStyle(q) {
+  return {
+    fontSize:      q.text_font_size      ? `${q.text_font_size}px`      : undefined,
+    fontFamily:    q.text_font_family    || undefined,
+    fontWeight:    q.text_font_weight    || undefined,
+    textAlign:     q.text_align          || undefined,
+    lineHeight:    q.text_line_height    || undefined,
+    letterSpacing: q.text_letter_spacing ? `${q.text_letter_spacing}px` : undefined,
+    color:         q.text_color          || undefined,
+  };
+}
 
 /* ═══════════════════════════════════════
    TEXT SETTINGS TOOLBAR
@@ -586,11 +598,26 @@ export default function QuestionRenderer({
   // ── Text display settings state ────────────────────────────
   const [textSettings, setTextSettings] = useState({ ...DEFAULT_SETTINGS });
 
-  const textStyle = {
-    fontSize: `${textSettings.fontSize}px`,
-    fontFamily: textSettings.fontFamily,
-    fontWeight: textSettings.bold ? "700" : "400",
-  };
+ 
+const savedStyle = buildTextStyle(question);
+
+// ✅ FIXED — only apply toolbar values if student actually changed from default
+const toolbarOverrides = {};
+if (textSettings.fontSize !== DEFAULT_SETTINGS.fontSize)
+  toolbarOverrides.fontSize = `${textSettings.fontSize}px`;
+if (textSettings.fontFamily !== DEFAULT_SETTINGS.fontFamily)
+  toolbarOverrides.fontFamily = textSettings.fontFamily;
+if (textSettings.bold)
+  toolbarOverrides.fontWeight = "700";
+
+// DB saved styles are the base — student toolbar only overrides if they changed something
+const textStyle = { ...savedStyle, ...toolbarOverrides };
+
+// Options: same logic
+const optionsStyle = (
+  question.text_style_scope === "options" ||
+  question.text_style_scope === "all"
+) ? { ...savedStyle, ...toolbarOverrides } : toolbarOverrides;
 
   return (
     <div className="space-y-4">
@@ -663,13 +690,13 @@ export default function QuestionRenderer({
 
       {/* ── Answer inputs — textStyle passed to every type ── */}
       {question.type === "radio_button" && (
-        <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
+        <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
       )}
       {question.type === "picture_choice" && (
-        <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
+        <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
       )}
       {question.type === "checkbox" && (
-        <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
+        <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
       )}
       {question.type === "writing" && (
         <WritingQuestion
