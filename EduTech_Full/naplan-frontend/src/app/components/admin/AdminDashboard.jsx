@@ -255,78 +255,70 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
         </div>
 
         <div className="px-6 py-5 overflow-y-auto space-y-4">
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+        {error && <p className="text-red-400 text-sm">{error}</p>}
 
-          {[{ label: "Quiz Name", field: "quiz_name", type: "text" }].map(({ label, field, type }) => (
+        {/* Quiz Name */}
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Quiz Name</label>
+          <input type="text" value={form.quiz_name} onChange={tf("quiz_name")}
+            className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+
+        {/* Subject */}
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Subject</label>
+          <select value={form.subject} onChange={tf("subject")}
+            className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— None —</option>
+            <option value="Maths">Maths</option>
+            <option value="Reading">Reading</option>
+            <option value="Writing">Writing</option>
+            <option value="Language conventions">Language conventions</option>
+          </select>
+        </div>
+
+        {/* Year + Difficulty */}
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label: "Year Level", field: "year_level", opts: [3, 5, 7, 9] },
+            { label: "Difficulty", field: "difficulty", opts: ["", "Easy", "Standard", "Hard"] },
+          ].map(({ label, field, opts }) => (
             <div key={field}>
               <label className="block text-xs font-medium text-slate-400 mb-1">{label}</label>
-              <input type={type} value={form[field]} onChange={tf(field)}
-                className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <select value={form[field]} onChange={tf(field)}
+                className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                {opts.map((o) => <option key={o} value={o}>{o || "— None —"}</option>)}
+              </select>
             </div>
           ))}
-          <div>
-        <label className="block text-xs font-medium text-slate-400 mb-1">Subject</label>
-        <select value={form.subject} onChange={tf("subject")}
-          className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          <option value="">— None —</option>
-          <option value="Maths">Maths</option>
-          <option value="Reading">Reading</option>
-          <option value="Writing">Writing</option>
-          <option value="Language conventions">Language conventions</option>
-        </select>
-      </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: "Year Level", field: "year_level", opts: [3, 5, 7, 9] },
-              { label: "Difficulty", field: "difficulty", opts: ["", "Easy", "Standard", "Hard"] },
-            ].map(({ label, field, opts }) => (
-              <div key={field}>
-                <label className="block text-xs font-medium text-slate-400 mb-1">{label}</label>
-                <select value={form[field]} onChange={tf(field)}
-                  className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                  {opts.map((o) => <option key={o} value={o}>{o || "— None —"}</option>)}
-                </select>
-              </div>
-            ))}
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Time Limit (min)</label>
-              <input type="number" value={form.time_limit_minutes} onChange={tf("time_limit_minutes")} placeholder="No limit"
-                className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
-            // ✅ FIXED — pass setForm directly so function updaters work correctly
-                <QuizSettingsExtras form={form} onChange={setForm} />
-            <div className="space-y-2 pt-2">
-              {[
-                { label: "Active",               field: "is_active"           },
-                { label: "Trial (free access)",  field: "is_trial"            },
-                { label: "Randomize Questions",  field: "randomize_questions" },
-                { label: "Randomize Options",    field: "randomize_options"   },
-              ].map(({ label, field }) => (
-                <label key={field} className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={form[field]} onChange={tf(field)}
-                    className="w-4 h-4 rounded accent-indigo-500" />
-                  <span className="text-sm text-slate-300">{label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <QuizSettingsExtras form={form} onChange={handleExtrasChange} />
-
-          <div className="space-y-2 pt-2">
-            {[
-              { label: "Active",              field: "is_active" },
-              { label: "Trial (free access)", field: "is_trial"  },
-            ].map(({ label, field }) => (
-              <label key={field} className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={form[field]} onChange={tf(field)}
-                  className="w-4 h-4 rounded accent-indigo-500" />
-                <span className="text-sm text-slate-300">{label}</span>
-              </label>
-            ))}
-          </div>
         </div>
+
+        {/* Time Limit */}
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Time Limit (min)</label>
+          <input type="number" value={form.time_limit_minutes} onChange={tf("time_limit_minutes")} placeholder="No limit"
+            className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+
+        {/* ✅ QuizSettingsExtras — ONCE ONLY */}
+        <QuizSettingsExtras form={form} onChange={setForm} />
+
+        {/* ✅ Checkboxes — ONCE ONLY */}
+        <div className="space-y-2 pt-2">
+          {[
+            { label: "Active",               field: "is_active"           },
+            { label: "Trial (free access)",  field: "is_trial"            },
+            { label: "Randomize Questions",  field: "randomize_questions" },
+            { label: "Randomize Options",    field: "randomize_options"   },
+          ].map(({ label, field }) => (
+            <label key={field} className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={form[field]} onChange={tf(field)}
+                className="w-4 h-4 rounded accent-indigo-500" />
+              <span className="text-sm text-slate-300">{label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
 
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Cancel</button>
@@ -352,6 +344,8 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
 
   const [saving,   setSaving]   = useState(false);
   const [selected, setSelected] = useState(new Set(assignedBundleIds));
+  const [error, setError] = useState("");
+
 
   const toggle = (bundleId) => {
     setSelected((prev) => {
@@ -421,6 +415,8 @@ function BundleMappingModal({ quiz, bundles, onClose, onRefresh }) {
             </label>
           ))}
         </div>
+        {error && <p className="text-red-400 text-sm px-6 pt-2">{error}</p>}
+
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition">Cancel</button>
           <button onClick={handleSave} disabled={saving}
@@ -725,9 +721,12 @@ export default function AdminDashboard() {
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Qs</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Status</th>
                       {/* ✅ NEW: Verified column */}
-                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Verified</th>
+                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide"> tutor Verified</th>
+                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Admin ✓</th>
                       <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Bundle</th>
+                      <th className="px-3 py-3 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wide">Duration</th>
                       <th className="px-5 py-3 text-right text-[11px] font-medium text-slate-500 uppercase tracking-wide sticky right-0 z-10 bg-slate-900">Actions</th>
+                    
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
@@ -783,6 +782,28 @@ export default function AdminDashboard() {
                             <VerificationSummaryBadge stats={verificationSummary[quizId]} />
                           </td>
 
+                            {/* Admin Verified */}
+                        <td className="px-3 py-3 text-center">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleAdminVerify(quiz); }}
+                            title={quiz.admin_verified ? `Verified by ${quiz.admin_verified_by || "admin"}` : "Click to verify"}
+                            className={`w-7 h-7 rounded-lg border transition flex items-center justify-center mx-auto ${
+                              quiz.admin_verified
+                                ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-400 hover:bg-red-500/10 hover:border-red-500/20 hover:text-red-400"
+                                : "bg-slate-800 border-slate-700 text-slate-600 hover:border-indigo-500/50 hover:text-indigo-400"
+                            }`}>
+                            {quiz.admin_verified ? (
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            ) : (
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                              </svg>
+                            )}
+                          </button>
+                        </td>
+
                           {/* Bundle mapping */}
                           <td className="px-3 py-3 text-center">
                             <button
@@ -794,6 +815,15 @@ export default function AdminDashboard() {
                               }`}>
                               {qBundles.length > 0 ? `+ ${qBundles.length}` : "+ Map"}
                             </button>
+                          </td>
+                        
+
+                          {/* Duration */}
+                          <td className="px-3 py-3 text-center text-slate-400">
+                            {quiz.time_limit_minutes
+                              ? <span className="text-[11px] font-medium text-slate-300">{quiz.time_limit_minutes}<span className="text-slate-500 ml-0.5">m</span></span>
+                              : <span className="text-slate-600 text-[10px]">—</span>
+                            }
                           </td>
 
                           {/* Actions */}

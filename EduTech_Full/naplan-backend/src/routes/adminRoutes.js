@@ -588,7 +588,9 @@ router.patch("/quizzes/:quizId", async (req, res) => {
       "quiz_name", "year_level", "subject", "sub_topic", "tier", "difficulty",
       "time_limit_minutes", "set_number", "is_active", "is_trial",
       "randomize_questions", "randomize_options", "voice_url", "video_url",
-      "max_attempts", "passing_score", "attempts_enabled",
+      "max_attempts", "passing_score", "attempts_enabled","admin_verified",      // ✅ add
+  "admin_verified_by",   // ✅ add
+  "admin_verified_at",   // ✅ add
     ];
     const updates = {};
     for (const f of allowedFields) {
