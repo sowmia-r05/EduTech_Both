@@ -253,9 +253,11 @@ export default function QuizResult({
   onViewAnalytics,
   onViewAIFeedback,
   childStatus:     childStatusProp,
-  displayName,        // ← pass from ChildDashboard
-  isParentViewing,    // ← pass from ChildDashboard
+  displayName,        
+  isParentViewing,    
   childId,
+  attemptsExhausted = false,
+  attemptCount = null,
 }) {
   const navigate = useNavigate();
   const { childProfile, apiFetch, childToken, parentToken } = useAuth();
@@ -492,9 +494,21 @@ useEffect(() => {
 
             {/* Action buttons */}
             <div className="space-y-3 pt-2">
-              {/* AI Feedback — just switches to the tab, no navigate away */}
-              {!isWriting && <ActionBtn onClick={() => setShowAnswers(true)} icon={<IcAnswers/>} label="View My Answers"/>}
-              {onRetake && <ActionBtn onClick={onRetake} icon={<IcRetake/>} label="Retake Quiz"/>}
+              {!isWriting && (
+                <ActionBtn onClick={() => setShowAnswers(true)} icon={<IcAnswers/>} label="View My Answers"/>
+              )}
+
+              {/* ✅ FIX: Show disabled state if attempts exhausted, retake button if allowed */}
+              {attemptsExhausted ? (
+                <div className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-400 text-sm font-semibold cursor-not-allowed">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                  No Attempts Left ({attemptCount?.used}/{attemptCount?.max})
+                </div>
+              ) : onRetake ? (
+                <ActionBtn onClick={onRetake} icon={<IcRetake/>} label="Retake Quiz"/>
+              ) : null}
             </div>
 
           </div>

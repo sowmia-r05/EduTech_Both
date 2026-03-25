@@ -104,9 +104,16 @@ router.post("/quizzes/:quizId/start", async (req, res) => {
       // Retakes disabled
     }
 
-    const maxAttempts = quiz.attempts_enabled
-      ? (quiz.max_attempts !== null ? quiz.max_attempts : Infinity)
-      : 1;
+    const maxAttempts = (() => {
+      if (quiz.max_attempts !== null && quiz.max_attempts > 1) {
+        return quiz.max_attempts; // admin explicitly set a limit
+      }
+      if (quiz.attempts_enabled) {
+        return Infinity; // retakes enabled, no limit set
+      }
+      return 1; // default: one attempt only
+    })();
+
 
     const isWritingQuizCheck = /writing/i.test(quiz.subject || quiz.quiz_name || "");
 

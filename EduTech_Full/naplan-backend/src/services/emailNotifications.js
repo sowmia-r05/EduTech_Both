@@ -1,4 +1,4 @@
-/**
+ /**
  * services/emailNotifications.js
  *
  * Branded email notification service for EduTech.
@@ -134,8 +134,32 @@ async function sendQuizCompletionEmail(opts) {
     subject,
   } = opts;
 
+  const isWriting = (subject || "").toLowerCase() === "writing";
   const pct = score?.percentage || 0;
   const gi = gradeInfo(pct);
+
+  const scoreCardHtml = isWriting
+    ? `
+  <div style="background:#f5f3ff;border:2px solid #e9d5ff;border-radius:12px;padding:28px;text-align:center;margin-bottom:24px;">
+    <p style="margin:0;font-size:36px;">✍️</p>
+    <p style="margin:8px 0 4px;color:#7c3aed;font-size:22px;font-weight:800;">Writing Submitted!</p>
+    <p style="margin:0;color:#6b7280;font-size:14px;line-height:1.6;">
+      ${childName}'s writing is being evaluated by our AI.<br/>
+      Full feedback will appear on the dashboard in 1–2 minutes.
+    </p>
+    ${duration ? `<p style="margin:8px 0 0;color:#9ca3af;font-size:12px;">Time spent: ${formatDuration(duration)}</p>` : ""}
+  </div>
+`
+    : `
+  <div style="background:${gi.color};border-radius:12px;padding:28px;text-align:center;margin-bottom:24px;">
+    <p style="margin:0;font-size:36px;">${gi.emoji}</p>
+    <p style="margin:8px 0 4px;color:#ffffff;font-size:40px;font-weight:800;letter-spacing:-1px;">${pct}%</p>
+    <p style="margin:0 0 4px;color:rgba(255,255,255,0.9);font-size:16px;font-weight:600;">${gi.label}</p>
+    <p style="margin:0;color:rgba(255,255,255,0.75);font-size:13px;">
+      ${score?.points || 0} / ${score?.available || 0} points &nbsp;·&nbsp; Grade ${score?.grade || gi.grade} &nbsp;·&nbsp; ${formatDuration(duration)}
+    </p>
+  </div>
+`;
 
   // Build topic rows
   const topicEntries = Object.entries(topicBreakdown).sort((a, b) => {
@@ -144,55 +168,41 @@ async function sendQuizCompletionEmail(opts) {
     return pA - pB; // weakest first
   });
 
-  const topicRowsHtml = topicEntries.length > 0
-    ? topicEntries.map(([n, d]) => topicBarHtml(n, d.scored, d.total)).join("")
+  const topicRowsHtml =
+      topicEntries.length > 0
+        ? topicEntries
+            .map(([n, d]) => topicBarHtml(n, d.scored, d.total))
+            .join("")
     : `<tr><td colspan="3" style="padding:12px 0;color:#9ca3af;font-size:13px;text-align:center;">No topic data available</td></tr>`;
 
+  // ✅ Topic breakdown — only for MCQ
+  const topicSectionHtml = isWriting
+    ? ""
+    : `
+  <p style="margin:0 0 12px;color:#111827;font-size:14px;font-weight:600;">Topic Breakdown</p>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;" cellpadding="0" cellspacing="0">
+    ${topicRowsHtml}
+  </table>
+  `;
+
   const bodyContent = `
-    <!-- Greeting -->
-    <p style="margin:0 0 4px;color:#111827;font-size:16px;font-weight:600;">
-      Hi there,
-    </p>
+    <p style="margin:0 0 4px;color:#111827;font-size:16px;font-weight:600;">Hi there,</p>
     <p style="margin:0 0 24px;color:#4b5563;font-size:14px;line-height:1.6;">
       <strong>${childName}</strong> just completed a quiz! Here's how they did:
     </p>
 
     <!-- Quiz Name Badge -->
     <div style="background:#f0f0ff;border:1px solid #e0e7ff;border-radius:8px;padding:12px 16px;margin-bottom:20px;">
-      <p style="margin:0;color:#6366f1;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">
-        ${subject || "Quiz"}
-      </p>
-      <p style="margin:4px 0 0;color:#1e1b4b;font-size:15px;font-weight:600;">
-        ${quizName}
-      </p>
+      <p style="margin:0;color:#6366f1;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">${subject || "Quiz"}</p>
+      <p style="margin:4px 0 0;color:#1e1b4b;font-size:15px;font-weight:600;">${quizName}</p>
     </div>
 
-    <!-- Score Card -->
-    <div style="background:${gi.color};border-radius:12px;padding:28px;text-align:center;margin-bottom:24px;">
-      <p style="margin:0;font-size:36px;">${gi.emoji}</p>
-      <p style="margin:8px 0 4px;color:#ffffff;font-size:40px;font-weight:800;letter-spacing:-1px;">
-        ${pct}%
-      </p>
-      <p style="margin:0 0 4px;color:rgba(255,255,255,0.9);font-size:16px;font-weight:600;">
-        ${gi.label}
-      </p>
-      <p style="margin:0;color:rgba(255,255,255,0.75);font-size:13px;">
-        ${score?.points || 0} / ${score?.available || 0} points &nbsp;·&nbsp; Grade ${score?.grade || gi.grade} &nbsp;·&nbsp; ${formatDuration(duration)}
-      </p>
-    </div>
+    ${scoreCardHtml}
+    ${topicSectionHtml}
 
-    <!-- Topic Breakdown -->
-    <p style="margin:0 0 12px;color:#111827;font-size:14px;font-weight:600;">
-      Topic Breakdown
-    </p>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:24px;" cellpadding="0" cellspacing="0">
-      ${topicRowsHtml}
-    </table>
-
-    <!-- CTA Button -->
     <div style="text-align:center;margin:28px 0 16px;">
       <a href="${DASHBOARD_URL}parent-dashboard"
-         style="display:inline-block;background:${BRAND_GRADIENT};color:#ffffff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:8px;text-decoration:none;">
+        style="display:inline-block;background:${BRAND_GRADIENT};color:#ffffff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:8px;text-decoration:none;">
         View Full Results →
       </a>
     </div>
@@ -206,10 +216,16 @@ async function sendQuizCompletionEmail(opts) {
 
   await sendBrevoEmail({
     toEmail: parentEmail,
-    subject: `${gi.emoji} ${childName} scored ${pct}% on ${quizName}`,
-    text: `${childName} completed "${quizName}" and scored ${pct}% (${score?.points || 0}/${score?.available || 0}). View results at ${DASHBOARD_URL}parent-dashboard`,
+    // ✅ Different subject for writing vs MCQ
+    subject: isWriting
+      ? `✍️ ${childName} submitted their Writing Quiz`
+      : `${gi.emoji} ${childName} scored ${pct}% on ${quizName}`,
+    text: isWriting
+      ? `${childName} submitted "${quizName}". AI feedback will be ready on the dashboard shortly.`
+      : `${childName} completed "${quizName}" and scored ${pct}% (${score?.points || 0}/${score?.available || 0}). View results at ${DASHBOARD_URL}parent-dashboard`,
     html,
   });
+
 }
 
 // ═══════════════════════════════════════
@@ -347,7 +363,7 @@ async function sendWeeklyProgressEmail(opts) {
 
     <!-- CTA -->
     <div style="text-align:center;margin:28px 0 16px;">
-      <a href="${DASHBOARD_URL}/parent-dashboard"
+      <a href="${DASHBOARD_URL}parent-dashboard"
          style="display:inline-block;background:${BRAND_GRADIENT};color:#ffffff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:8px;text-decoration:none;">
         View Detailed Progress →
       </a>
