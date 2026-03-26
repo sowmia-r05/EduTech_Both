@@ -560,6 +560,56 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   });
   const [saving, setSaving] = useState(false);
 
+  const textareaRef = useRef(null);
+const [selectionToolbar, setSelectionToolbar] = useState(null);
+const editorRef = useRef(null);
+const [showRawHtml, setShowRawHtml] = useState(false);
+
+const syncFromEditor = () => {
+  if (editorRef.current) {
+    setForm((f) => ({ ...f, text: editorRef.current.innerHTML }));
+  }
+};
+
+const applyRichStyle = (cssStyle) => {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  const span = document.createElement("span");
+  span.setAttribute("style", cssStyle);
+  range.surroundContents(span);
+  sel.removeAllRanges();
+  syncFromEditor();
+};
+
+useEffect(() => {
+  if (editorRef.current && !showRawHtml) {
+    editorRef.current.innerHTML = form.text || "";
+  }
+}, []);
+
+const handleTextareaSelect = () => {
+  const el = textareaRef.current;
+  if (!el) return;
+  const start = el.selectionStart;
+  const end   = el.selectionEnd;
+  if (start === end) { setSelectionToolbar(null); return; }
+  setSelectionToolbar({ start, end, text: el.value.slice(start, end) });
+};
+
+const applyInlineStyle = (tag, style) => {
+  if (!selectionToolbar) return;
+  const { start, end, text } = selectionToolbar;
+  const before  = form.text.slice(0, start);
+  const after   = form.text.slice(end);
+  const wrapped = style
+    ? `<span style="${style}">${text}</span>`
+    : `<${tag}>${text}</${tag}>`;
+  setForm((f) => ({ ...f, text: before + wrapped + after }));
+  setSelectionToolbar(null);
+};
+
+
   const updateOption = (idx, field, value) => {
     setForm((f) => {
       const opts = [...f.options];
@@ -615,10 +665,110 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       </div>
 
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Question Text</label>
-        <textarea rows={3} value={form.text} onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
-          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:ring-2 focus:ring-indigo-500" />
-      </div>
+  <label className="block text-xs text-slate-400 mb-1">
+    Question Text
+    <span className="text-slate-600 font-normal ml-2 normal-case tracking-normal">— select text to format</span>
+  </label>
+
+  {/* ── Formatting Toolbar ── */}
+  <div className="flex flex-wrap items-center gap-1 px-2 py-1.5 bg-slate-800 border border-slate-600 rounded-t-lg border-b-0">
+    {/* Font size */}
+    <select
+      onChange={(e) => {
+        if (!e.target.value) return;
+        document.execCommand("fontSize", false, "7");
+        const els = editorRef.current?.querySelectorAll('font[size="7"]');
+        els?.forEach((el) => {
+          el.removeAttribute("size");
+          el.style.fontSize = e.target.value;
+          el.outerHTML = el.outerHTML.replace(/<font/g, "<span").replace(/<\/font>/g, "</span>");
+        });
+        // simpler approach:
+        applyRichStyle(`font-size:${e.target.value}`);
+        e.target.value = "";
+        syncFromEditor();
+      }}
+      className="h-6 bg-slate-700 border border-slate-600 rounded text-[10px] text-slate-300 px-1 outline-none"
+      defaultValue="">
+      <option value="" disabled>Size</option>
+      {[10,12,14,16,18,20,24,28,32,36,40].map(s => (
+        <option key={s} value={`${s}px`}>{s}px</option>
+      ))}
+    </select>
+
+    <div className="w-px h-4 bg-slate-600" />
+
+    {/* Bold */}
+    <button type="button" onMouseDown={(e) => { e.preventDefault(); document.execCommand("bold"); syncFromEditor(); }}
+      className="px-2 py-0.5 text-[11px] font-bold text-slate-300 hover:bg-indigo-600 hover:text-white rounded transition">B</button>
+
+    {/* Italic */}
+    <button type="button" onMouseDown={(e) => { e.preventDefault(); document.execCommand("italic"); syncFromEditor(); }}
+      className="px-2 py-0.5 text-[11px] italic text-slate-300 hover:bg-indigo-600 hover:text-white rounded transition">I</button>
+
+    {/* Underline */}
+    <button type="button" onMouseDown={(e) => { e.preventDefault(); document.execCommand("underline"); syncFromEditor(); }}
+      className="px-2 py-0.5 text-[11px] underline text-slate-300 hover:bg-indigo-600 hover:text-white rounded transition">U</button>
+
+    <div className="w-px h-4 bg-slate-600" />
+
+    {/* Colors */}
+    {[
+      { color: "#ffffff", label: "White"  },
+      { color: "#ef4444", label: "Red"    },
+      { color: "#f97316", label: "Orange" },
+      { color: "#22c55e", label: "Green"  },
+      { color: "#3b82f6", label: "Blue"   },
+      { color: "#a855f7", label: "Purple" },
+      { color: "#fbbf24", label: "Yellow" },
+    ].map(({ color, label }) => (
+      <button key={color} type="button" title={label}
+        onMouseDown={(e) => { e.preventDefault(); document.execCommand("foreColor", false, color); syncFromEditor(); }}
+        className="w-4 h-4 rounded-full border border-slate-500 flex-shrink-0 hover:scale-110 transition"
+        style={{ background: color }} />
+    ))}
+
+    <div className="w-px h-4 bg-slate-600" />
+
+    {/* Clear formatting */}
+    <button type="button"
+      onMouseDown={(e) => { e.preventDefault(); document.execCommand("removeFormat"); syncFromEditor(); }}
+      className="px-2 py-0.5 text-[10px] text-slate-400 hover:text-white hover:bg-slate-700 rounded transition">
+      Clear
+    </button>
+
+    {/* HTML toggle */}
+    <button type="button"
+      onClick={() => setShowRawHtml(v => !v)}
+      className="ml-auto px-2 py-0.5 text-[10px] text-slate-500 hover:text-white border border-slate-600 hover:border-slate-400 rounded transition">
+      {showRawHtml ? "Rich" : "HTML"}
+    </button>
+  </div>
+
+  {/* ── Editor ── */}
+  {showRawHtml ? (
+    <textarea
+      rows={4}
+      value={form.text}
+      onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
+      onBlur={() => {
+        if (editorRef.current) editorRef.current.innerHTML = form.text;
+      }}
+      className="w-full bg-slate-900 border border-slate-600 rounded-b-lg px-3 py-2 text-xs text-white font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+    />
+  ) : (
+    <div
+      ref={editorRef}
+      contentEditable
+      suppressContentEditableWarning
+      onInput={syncFromEditor}
+      onBlur={syncFromEditor}
+      dangerouslySetInnerHTML={undefined}
+      className="w-full min-h-[80px] bg-slate-900 border border-slate-600 rounded-b-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+      style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+    />
+  )}
+</div>
 
       <div className="grid grid-cols-3 gap-3">
         <div>
