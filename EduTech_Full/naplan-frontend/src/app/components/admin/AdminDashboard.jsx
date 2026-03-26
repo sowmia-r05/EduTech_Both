@@ -308,8 +308,6 @@ function QuizSettingsModal({ quiz, onSave, onClose }) {
           {[
             { label: "Active",               field: "is_active"           },
             { label: "Trial (free access)",  field: "is_trial"            },
-            { label: "Randomize Questions",  field: "randomize_questions" },
-            { label: "Randomize Options",    field: "randomize_options"   },
           ].map(({ label, field }) => (
             <label key={field} className="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" checked={form[field]} onChange={tf(field)}

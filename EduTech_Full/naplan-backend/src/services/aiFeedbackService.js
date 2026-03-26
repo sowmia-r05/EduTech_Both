@@ -297,7 +297,9 @@ async function saveWritingToCollection({
 }) {
   try {
     if (!attemptSnapshot) {
-      console.warn(`⚠️ saveWritingToCollection: no attemptSnapshot for ${attemptId}, skipping`);
+      console.warn(
+        `⚠️ saveWritingToCollection: no attemptSnapshot for ${attemptId}, skipping`,
+      );
       return;
     }
 
@@ -306,7 +308,9 @@ async function saveWritingToCollection({
     const aiSuccess = feedbackResult?.success === true;
     const aiStatus = aiSuccess ? "done" : "error";
     const aiFeedback = feedbackResult?.result || null;
-    const aiError = aiSuccess ? null : (feedbackResult?.error || "AI evaluation failed");
+    const aiError = aiSuccess
+      ? null
+      : feedbackResult?.error || "AI evaluation failed";
 
     await Writing.findOneAndUpdate(
       { response_id: attemptId },
@@ -314,27 +318,27 @@ async function saveWritingToCollection({
         $set: {
           // ─── Identifiers ───
           response_id: attemptId,
-          attempt_id:  attemptId,
+          attempt_id: attemptId,
 
           // ─── Quiz ───
-          quiz_id:    quizId,
-          quiz_name:  quizName,
-          subject:    "Writing",
+          quiz_id: quizId,
+          quiz_name: quizName,
+          subject: "Writing",
           year_level: yearLevel,
 
           // ─── Ownership ───
-          child_id:  childId,
+          child_id: childId,
           parent_id: attemptSnapshot.parent_id || null,
 
           // ─── Timing ───
-          started_at:    attemptSnapshot.started_at   || null,
-          submitted_at:  attemptSnapshot.submitted_at,
-          expires_at:    attemptSnapshot.expires_at   || null,
-          duration_sec:  attemptSnapshot.duration_sec,
+          started_at: attemptSnapshot.started_at || null,
+          submitted_at: attemptSnapshot.submitted_at,
+          expires_at: attemptSnapshot.expires_at || null,
+          duration_sec: attemptSnapshot.duration_sec,
           timer_expired: attemptSnapshot.timer_expired || false,
 
           // ─── Attempt tracking ───
-          status:  "submitted",
+          status: "submitted",
           attempt: attemptSnapshot.attempt_number,
 
           // ─── Proctoring ───
@@ -345,23 +349,23 @@ async function saveWritingToCollection({
 
           // ─── User ───
           user: {
-            user_name:     child?.username || null,
-            first_name:    child?.display_name || "",
-            last_name:     "",
+            user_name: child?.username || null,
+            first_name: child?.display_name || "",
+            last_name: "",
             email_address: "",
           },
 
           // ─── AI ───
           ai: {
-            status:       aiStatus,
-            message:      aiSuccess ? "Evaluation complete" : aiError,
+            status: aiStatus,
+            message: aiSuccess ? "Evaluation complete" : aiError,
             evaluated_at: aiSuccess ? new Date() : null,
-            feedback:     aiFeedback,
-            error:        aiError,
+            feedback: aiFeedback,
+            error: aiError,
           },
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
 
     console.log(`✅ Writing saved for attempt ${attemptId} — AI: ${aiStatus}`);
@@ -370,27 +374,41 @@ async function saveWritingToCollection({
     await QuizAttempt.deleteOne({ attempt_id: attemptId });
     console.log(`🗑️ QuizAttempt deleted for writing attempt ${attemptId}`);
     // ✅ Send quiz completion email to parent (respects email_notifications checkbox)
-    ;(async () => {
+    (async () => {
       try {
         const eligibility = await checkNotificationEligibility(childId);
-        if (!eligibility.shouldSend) return; // ✅ checkbox off — skip silently
+        if (!eligibility.shouldSend) return;
+
+        // ✅ Extract writing score from AI result
+        const writingOverall = aiFeedback?.overall || {};
+        const writingScore = aiSuccess
+          ? {
+              points: writingOverall.total_score ?? null,
+              available: writingOverall.max_score ?? null,
+              band: writingOverall.band || null,
+              percentage:
+                writingOverall.max_score > 0
+                  ? Math.round(
+                      (writingOverall.total_score / writingOverall.max_score) *
+                        100,
+                    )
+                  : null,
+            }
+          : null;
 
         await sendQuizCompletionEmail({
-          parentEmail:    eligibility.parentEmail,
-          childName:      eligibility.childName,
-          quizName:       quizName || "Writing Quiz",
-          score:          null,         // writing has no instant score
+          parentEmail: eligibility.parentEmail,
+          childName: eligibility.childName,
+          quizName: quizName || "Writing Quiz",
+          score: writingScore, // ✅ now passing actual score
           topicBreakdown: {},
-          duration:       attemptSnapshot?.duration_sec,
-          subject:        "Writing",
+          duration: attemptSnapshot?.duration_sec,
+          subject: "Writing",
         });
-        console.log(`📧 Writing completion email sent to ${eligibility.parentEmail} for ${eligibility.childName}`);
       } catch (emailErr) {
         console.error("⚠️ Writing completion email failed:", emailErr.message);
       }
     })();
-
-
   } catch (err) {
     console.error(`❌ saveWritingToCollection failed for ${attemptId}:`, err.message);
   }

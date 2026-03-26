@@ -495,10 +495,14 @@ const mergedQuizzes = useMemo(() => entitledCatalog.map((quiz) => {
   const attemptCount = matches.length;
 
   // ✅ Determine if attempts are exhausted
-  const maxAttempts = quiz.attempts_enabled
-    ? (quiz.max_attempts ?? Infinity)
-    : 1;
+  const maxAttempts = (() => {
+      if (quiz.max_attempts != null && quiz.max_attempts > 1) return quiz.max_attempts; // 
+      if (quiz.attempts_enabled) return Infinity;
+      return 1;
+  })();
   const attemptsExhausted = attemptCount >= maxAttempts;
+
+
 
   return {
     id: quiz.quiz_id, quiz_id: quiz.quiz_id,
