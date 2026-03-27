@@ -110,18 +110,18 @@ function topicBarHtml(name, scored, total) {
 }
 
 // ═══════════════════════════════════════
-// 1. QUIZ COMPLETION EMAIL
+// 1. QUIZ COMPLETION EMAIL  (updated — with parent summary)
 // ═══════════════════════════════════════
 
 /**
- * @param {Object} opts
- * @param {string} opts.parentEmail
- * @param {string} opts.childName
- * @param {string} opts.quizName
- * @param {Object} opts.score       - { points, available, percentage, grade }
- * @param {Object} opts.topicBreakdown - { "Topic": { scored, total }, ... }
- * @param {number} opts.duration    - seconds
- * @param {string} [opts.subject]   - e.g. "Numeracy"
+ * @param {Object}  opts
+ * @param {string}  opts.parentEmail
+ * @param {string}  opts.childName
+ * @param {string}  opts.quizName
+ * @param {Object}  opts.score          – { points, available, percentage, grade }
+ * @param {Object}  opts.topicBreakdown – { "Topic": { scored, total }, ... }
+ * @param {number}  opts.duration       – seconds
+ * @param {string}  [opts.subject]      – e.g. "Numeracy"
  */
 async function sendQuizCompletionEmail(opts) {
   const {
@@ -135,98 +135,281 @@ async function sendQuizCompletionEmail(opts) {
   } = opts;
 
   const isWriting = (subject || "").toLowerCase() === "writing";
-  const pct = score?.percentage || 0;
-  const gi = gradeInfo(pct);
+  const pct       = score?.percentage ?? 0;
+  const gi        = gradeInfo(pct);
 
-  const scoreCardHtml = isWriting
-    ? `
-  <div style="background:#f5f3ff;border:2px solid #e9d5ff;border-radius:12px;padding:28px;text-align:center;margin-bottom:24px;">
-    <p style="margin:0;font-size:36px;">✍️</p>
-    <p style="margin:8px 0 4px;color:#7c3aed;font-size:22px;font-weight:800;">Writing Submitted!</p>
-    <p style="margin:0;color:#6b7280;font-size:14px;line-height:1.6;">
-      ${childName}'s writing is being evaluated by our AI.<br/>
-      Full feedback will appear on the dashboard in 1–2 minutes.
-    </p>
-    ${duration ? `<p style="margin:8px 0 0;color:#9ca3af;font-size:12px;">Time spent: ${formatDuration(duration)}</p>` : ""}
-  </div>
-`
-    : `
-  <div style="background:${gi.color};border-radius:12px;padding:28px;text-align:center;margin-bottom:24px;">
-    <p style="margin:0;font-size:36px;">${gi.emoji}</p>
-    <p style="margin:8px 0 4px;color:#ffffff;font-size:40px;font-weight:800;letter-spacing:-1px;">${pct}%</p>
-    <p style="margin:0 0 4px;color:rgba(255,255,255,0.9);font-size:16px;font-weight:600;">${gi.label}</p>
-    <p style="margin:0;color:rgba(255,255,255,0.75);font-size:13px;">
-      ${score?.points || 0} / ${score?.available || 0} points &nbsp;·&nbsp; Grade ${score?.grade || gi.grade} &nbsp;·&nbsp; ${formatDuration(duration)}
-    </p>
-  </div>
-`;
+  // ── Tile colours (score-based) ────────────────────────────────
+  let scoreBg     = "#f0fdf4"; let scoreBorder = "#bbf7d0"; let scoreValCol = "#059669";
+  if (pct < 50)      { scoreBg = "#fef2f2"; scoreBorder = "#fecaca"; scoreValCol = "#dc2626"; }
+  else if (pct < 60) { scoreBg = "#fff7ed"; scoreBorder = "#fed7aa"; scoreValCol = "#ea580c"; }
+  else if (pct < 75) { scoreBg = "#fffbeb"; scoreBorder = "#fde68a"; scoreValCol = "#d97706"; }
 
-  // Build topic rows
-  const topicEntries = Object.entries(topicBreakdown).sort((a, b) => {
-    const pA = a[1].total > 0 ? a[1].scored / a[1].total : 0;
-    const pB = b[1].total > 0 ? b[1].scored / b[1].total : 0;
-    return pA - pB; // weakest first
-  });
+  // ── Split topics → strengths / needs work ────────────────────
+  const topicEntries = Object.entries(topicBreakdown);
 
-  const topicRowsHtml =
-      topicEntries.length > 0
-        ? topicEntries
-            .map(([n, d]) => topicBarHtml(n, d.scored, d.total))
-            .join("")
-    : `<tr><td colspan="3" style="padding:12px 0;color:#9ca3af;font-size:13px;text-align:center;">No topic data available</td></tr>`;
+  const strengths = topicEntries
+    .map(([name, d]) => ({
+      name,
+      percentage: d.total > 0 ? Math.round((d.scored / d.total) * 100) : 0,
+    }))
+    .filter((t) => t.percentage >= 60)
+    .sort((a, b) => b.percentage - a.percentage);
 
-  // ✅ Topic breakdown — only for MCQ
-  const topicSectionHtml = isWriting
-    ? ""
-    : `
-  <p style="margin:0 0 12px;color:#111827;font-size:14px;font-weight:600;">Topic Breakdown</p>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;" cellpadding="0" cellspacing="0">
-    ${topicRowsHtml}
-  </table>
-  `;
+  const needsWork = topicEntries
+    .map(([name, d]) => ({
+      name,
+      percentage: d.total > 0 ? Math.round((d.scored / d.total) * 100) : 0,
+    }))
+    .filter((t) => t.percentage < 60)
+    .sort((a, b) => a.percentage - b.percentage);
+
+  // ── Build dot-list for strengths/needs work columns ──────────
+  function dotList(topics, dotColor) {
+    if (!topics || topics.length === 0)
+      return `<p style="margin:0;font-size:12px;color:#9ca3af;">No data yet</p>`;
+    return topics
+      .map(
+        ({ name, percentage }) =>
+          `<p style="margin:0 0 6px;font-size:13px;color:#374151;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:6px;vertical-align:middle;"></span>
+            ${name} <span style="color:#6b7280;font-size:12px;">(${percentage}%)</span>
+          </p>`
+      )
+      .join("");
+  }
+
+  // ── Build narrative summary sentences ─────────────────────────
+  function buildSummary() {
+    const goodAtLine = strengths.length > 0
+      ? `<strong>${childName}</strong> is performing well in <strong>${strengths.map((t) => t.name).join(", ")}</strong>.`
+      : `<strong>${childName}</strong> is working through all topics in this quiz.`;
+
+    const nextStepsLine = needsWork.length > 0
+      ? `The areas that need more attention are <strong>${needsWork.map((t) => t.name).join(", ")}</strong>. Focused practice on these topics will help improve the overall score.`
+      : `Keep up the great work — ${childName} is performing well across all topics!`;
+
+    return `${goodAtLine} ${nextStepsLine}`;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // WRITING PATH
+  // ══════════════════════════════════════════════════════════════
+  if (isWriting) {
+    const hasScore  = score?.points != null && score?.available != null;
+    const writingPct = hasScore && score.available > 0
+      ? Math.round((score.points / score.available) * 100)
+      : score?.percentage ?? null;
+
+    const bandLabel  = score?.band || null;
+    const bandBg     = bandLabel?.includes("Above") ? "#f0fdf4" : bandLabel?.includes("Below") ? "#fef2f2" : "#fffbeb";
+    const bandBorder = bandLabel?.includes("Above") ? "#bbf7d0" : bandLabel?.includes("Below") ? "#fecaca" : "#fde68a";
+    const bandColor  = bandLabel?.includes("Above") ? "#059669" : bandLabel?.includes("Below") ? "#dc2626" : "#d97706";
+    const wScoreBg   = writingPct != null && writingPct >= 75 ? "#f0fdf4" : writingPct != null && writingPct >= 50 ? "#fffbeb" : writingPct != null ? "#fef2f2" : "#f5f3ff";
+    const wScoreBdr  = writingPct != null && writingPct >= 75 ? "#bbf7d0" : writingPct != null && writingPct >= 50 ? "#fde68a" : writingPct != null ? "#fecaca" : "#e9d5ff";
+    const wScoreCol  = writingPct != null && writingPct >= 75 ? "#059669" : writingPct != null && writingPct >= 50 ? "#d97706" : writingPct != null ? "#dc2626" : "#7c3aed";
+
+    // Writing summary (band-based since no topic breakdown)
+    const writingSummaryText = hasScore
+      ? bandLabel?.includes("Above")
+        ? `<strong>${childName}</strong> has demonstrated strong writing skills in this task — performing <strong>above the minimum standard</strong>. Keep encouraging regular writing practice to maintain this level.`
+        : bandLabel?.includes("Below")
+        ? `<strong>${childName}</strong> is working towards the writing standard. This is a great opportunity to focus on <strong>structure, vocabulary and idea development</strong>. Consistent practice will make a big difference.`
+        : `<strong>${childName}</strong> is meeting the minimum writing standard. Next steps include expanding vocabulary, improving sentence variety, and developing ideas more fully.`
+      : `<strong>${childName}</strong> has submitted their writing task. AI feedback with detailed strengths and next steps will be available on the dashboard shortly.`;
+
+    const bodyContent = `
+      <p style="margin:0 0 4px;color:#111827;font-size:16px;font-weight:600;">Quiz Results</p>
+      <p style="margin:0 0 20px;color:#4b5563;font-size:14px;line-height:1.6;">
+        Here's how <strong>${childName}</strong> did:
+      </p>
+
+      <!-- Quiz badge -->
+      <div style="background:#f5f3ff;border:1px solid #e9d5ff;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+        <p style="margin:0;color:#7c3aed;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">Writing</p>
+        <p style="margin:4px 0 0;color:#1e1b4b;font-size:15px;font-weight:600;">${quizName}</p>
+      </div>
+
+      ${hasScore ? `
+      <!-- Stat tiles -->
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:8px;">
+        <tr>
+          <td style="width:50%;padding:4px;">
+            <div style="background:${wScoreBg};border:1px solid ${wScoreBdr};border-radius:10px;padding:16px 12px;text-align:center;">
+              <p style="margin:0;font-size:24px;font-weight:700;color:${wScoreCol};">${score.points}/${score.available}</p>
+              <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Score</p>
+            </div>
+          </td>
+          <td style="width:50%;padding:4px;">
+            <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:16px 12px;text-align:center;">
+              <p style="margin:0;font-size:24px;font-weight:700;color:#4F46E5;">${writingPct != null ? writingPct + "%" : "—"}</p>
+              <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Percentage</p>
+            </div>
+          </td>
+        </tr>
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:16px;">
+        <tr>
+          <td style="width:50%;padding:4px;">
+            <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:16px 12px;text-align:center;">
+              <p style="margin:0;font-size:24px;font-weight:700;color:#d97706;">${formatDuration(duration)}</p>
+              <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Time Spent</p>
+            </div>
+          </td>
+          <td style="width:50%;padding:4px;">
+            <div style="background:${bandBg};border:1px solid ${bandBorder};border-radius:10px;padding:16px 12px;text-align:center;">
+              <p style="margin:0;font-size:13px;font-weight:700;color:${bandColor};padding-top:4px;">${bandLabel ? bandLabel.replace(" Minimum Standard", "") : "—"}</p>
+              <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Band</p>
+            </div>
+          </td>
+        </tr>
+      </table>
+      ` : `
+      <!-- Fallback tiles (AI not done yet) -->
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:16px;">
+        <tr>
+          <td style="width:50%;padding:4px;">
+            <div style="background:#f5f3ff;border:1px solid #e9d5ff;border-radius:10px;padding:16px 12px;text-align:center;">
+              <p style="margin:0;font-size:18px;font-weight:700;color:#7c3aed;padding-top:4px;">Submitted</p>
+              <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Status</p>
+            </div>
+          </td>
+          <td style="width:50%;padding:4px;">
+            <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:16px 12px;text-align:center;">
+              <p style="margin:0;font-size:24px;font-weight:700;color:#d97706;">${formatDuration(duration)}</p>
+              <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Time Spent</p>
+            </div>
+          </td>
+        </tr>
+      </table>
+      `}
+
+      <!-- ✅ Parent Summary -->
+      <div style="background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:16px 18px;margin-bottom:16px;">
+        <p style="margin:0 0 6px;font-size:11px;font-weight:600;color:#4F46E5;text-transform:uppercase;letter-spacing:0.8px;">Summary for you</p>
+        <p style="margin:0;font-size:13px;color:#374151;line-height:1.7;">${writingSummaryText}</p>
+      </div>
+
+      <!-- CTA -->
+      <div style="text-align:center;margin:20px 0 12px;">
+        <a href="${DASHBOARD_URL}parent-dashboard"
+          style="display:inline-block;background:${BRAND_GRADIENT};color:#ffffff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:8px;text-decoration:none;">
+          View Full Results →
+        </a>
+      </div>
+      <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center;">
+        Keep encouraging ${childName} — consistent practice makes a big difference!
+      </p>
+    `;
+
+    const html = emailWrapper(`${childName}'s Quiz Results`, bodyContent);
+    await sendBrevoEmail({
+      toEmail: parentEmail,
+      subject: hasScore
+        ? `✍️ ${childName} scored ${score.points}/${score.available} on their Writing Quiz`
+        : `✍️ ${childName} submitted their Writing Quiz`,
+      text: hasScore
+        ? `${childName} completed "${quizName}" and scored ${score.points}/${score.available} (${writingPct}%). Band: ${bandLabel || "—"}. View results at ${DASHBOARD_URL}parent-dashboard`
+        : `${childName} submitted "${quizName}". AI feedback will be ready on the dashboard shortly.`,
+      html,
+    });
+    return;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // MCQ PATH
+  // ══════════════════════════════════════════════════════════════
+  const summaryText = topicEntries.length > 0
+    ? buildSummary()
+    : `<strong>${childName}</strong> just completed <strong>${quizName}</strong> with a score of <strong>${pct}%</strong>. Detailed topic-level feedback is available on the dashboard.`;
 
   const bodyContent = `
-    <p style="margin:0 0 4px;color:#111827;font-size:16px;font-weight:600;">Hi there,</p>
-    <p style="margin:0 0 24px;color:#4b5563;font-size:14px;line-height:1.6;">
-      <strong>${childName}</strong> just completed a quiz! Here's how they did:
+    <p style="margin:0 0 4px;color:#111827;font-size:16px;font-weight:600;">Quiz Results</p>
+    <p style="margin:0 0 20px;color:#4b5563;font-size:14px;line-height:1.6;">
+      Here's how <strong>${childName}</strong> did:
     </p>
 
-    <!-- Quiz Name Badge -->
-    <div style="background:#f0f0ff;border:1px solid #e0e7ff;border-radius:8px;padding:12px 16px;margin-bottom:20px;">
-      <p style="margin:0;color:#6366f1;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">${subject || "Quiz"}</p>
-      <p style="margin:4px 0 0;color:#1e1b4b;font-size:15px;font-weight:600;">${quizName}</p>
+    <!-- Stat tiles — 2×2 -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:8px;">
+      <tr>
+        <td style="width:50%;padding:4px;">
+          <div style="background:${scoreBg};border:1px solid ${scoreBorder};border-radius:10px;padding:16px 12px;text-align:center;">
+            <p style="margin:0;font-size:28px;font-weight:700;color:${scoreValCol};">${pct}%</p>
+            <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Score</p>
+          </div>
+        </td>
+        <td style="width:50%;padding:4px;">
+          <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:16px 12px;text-align:center;">
+            <p style="margin:0;font-size:28px;font-weight:700;color:#4F46E5;">${score?.grade || gi.grade}</p>
+            <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Grade</p>
+          </div>
+        </td>
+      </tr>
+    </table>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:16px;">
+      <tr>
+        <td style="width:50%;padding:4px;">
+          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:16px 12px;text-align:center;">
+            <p style="margin:0;font-size:24px;font-weight:700;color:#d97706;">${formatDuration(duration)}</p>
+            <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Time Spent</p>
+          </div>
+        </td>
+        <td style="width:50%;padding:4px;">
+          <div style="background:#f5f3ff;border:1px solid #e9d5ff;border-radius:10px;padding:16px 12px;text-align:center;">
+            <p style="margin:0;font-size:24px;font-weight:700;color:#7c3aed;">${score?.points ?? 0}/${score?.available ?? 0}</p>
+            <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;">Points</p>
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Quiz name badge -->
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+      <p style="margin:0;font-size:11px;color:#059669;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">${subject || "Quiz"}</p>
+      <p style="margin:4px 0 0;font-size:14px;color:#111827;font-weight:600;">${quizName} — ${gi.emoji} ${gi.label}</p>
     </div>
 
-    ${scoreCardHtml}
-    ${topicSectionHtml}
+    <!-- ✅ Parent Summary -->
+    <div style="background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:16px 18px;margin-bottom:16px;">
+      <p style="margin:0 0 6px;font-size:11px;font-weight:600;color:#4F46E5;text-transform:uppercase;letter-spacing:0.8px;">Summary for you</p>
+      <p style="margin:0;font-size:13px;color:#374151;line-height:1.7;">${summaryText}</p>
+    </div>
 
-    <div style="text-align:center;margin:28px 0 16px;">
+    <!-- Strengths & Needs Work (only when topic data exists) -->
+    ${topicEntries.length > 0 ? `
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:8px;margin-bottom:16px;">
+      <tr>
+        <td style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px;vertical-align:top;width:50%;">
+          <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.5px;">✅ Good at</p>
+          ${dotList(strengths, "#059669")}
+        </td>
+        <td style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px;vertical-align:top;width:50%;">
+          <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:0.5px;">🔴 Next steps</p>
+          ${dotList(needsWork, "#dc2626")}
+        </td>
+      </tr>
+    </table>` : ""}
+
+    <!-- CTA -->
+    <div style="text-align:center;margin:20px 0 12px;">
       <a href="${DASHBOARD_URL}parent-dashboard"
         style="display:inline-block;background:${BRAND_GRADIENT};color:#ffffff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:8px;text-decoration:none;">
         View Full Results →
       </a>
     </div>
-
     <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center;">
-      Detailed AI-powered feedback is available on the dashboard.
+      Keep encouraging ${childName} — consistent practice makes a big difference!
     </p>
   `;
 
   const html = emailWrapper(`${childName}'s Quiz Results`, bodyContent);
-
   await sendBrevoEmail({
     toEmail: parentEmail,
-    // ✅ Different subject for writing vs MCQ
-    subject: isWriting
-      ? `✍️ ${childName} submitted their Writing Quiz`
-      : `${gi.emoji} ${childName} scored ${pct}% on ${quizName}`,
-    text: isWriting
-      ? `${childName} submitted "${quizName}". AI feedback will be ready on the dashboard shortly.`
-      : `${childName} completed "${quizName}" and scored ${pct}% (${score?.points || 0}/${score?.available || 0}). View results at ${DASHBOARD_URL}parent-dashboard`,
+    subject: `${gi.emoji} ${childName} scored ${pct}% on ${quizName}`,
+    text:    `${childName} completed "${quizName}" and scored ${pct}% (${score?.points ?? 0}/${score?.available ?? 0} points). View results at ${DASHBOARD_URL}parent-dashboard`,
     html,
   });
-
 }
+
 
 // ═══════════════════════════════════════
 // 2. WEEKLY PROGRESS EMAIL
