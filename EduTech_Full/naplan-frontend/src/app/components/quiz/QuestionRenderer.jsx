@@ -2,7 +2,6 @@
  * QuestionRenderer.jsx  (v10 — text display settings toolbar)
  *
  * Changes from v9:
- *  ✅ NEW: TextSettingsBar — font size (A− / A+), bold toggle, font family selector
  *  ✅ textSettings state applied to question text + all answer option labels
  *  ✅ Full OCR / Year 3 handwriting upload preserved from v9
  */
@@ -12,17 +11,6 @@ import { useAuth } from "@/app/context/AuthContext";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
-/* ─── Text settings constants ─────────────────────────────── */
-const FONT_OPTIONS = [
-  { label: "Default",  value: "system-ui, sans-serif" },
-  { label: "Serif",    value: "'Georgia', 'Times New Roman', serif" },
-  { label: "Verdana",  value: "'Verdana', 'Geneva', sans-serif" },
-  { label: "Dyslexic", value: "'Comic Sans MS', 'Trebuchet MS', sans-serif" },
-  { label: "Mono",     value: "'Courier New', 'Courier', monospace" },
-];
-const MIN_FONT = 12;
-const MAX_FONT = 26;
-const DEFAULT_SETTINGS = { fontSize: 16, fontFamily: FONT_OPTIONS[0].value, bold: false };
 
 /* ─── Helpers ─────────────────────────────────────────────── */
 function resolveImgSrc(url) {
@@ -57,88 +45,7 @@ function buildTextStyle(q) {
   };
 }
 
-/* ═══════════════════════════════════════
-   TEXT SETTINGS TOOLBAR
-   ═══════════════════════════════════════ */
-function TextSettingsBar({ settings, onChange }) {
-  const { fontSize, fontFamily, bold } = settings;
-  const isDefault =
-    fontSize === DEFAULT_SETTINGS.fontSize &&
-    fontFamily === DEFAULT_SETTINGS.fontFamily &&
-    bold === DEFAULT_SETTINGS.bold;
 
-  return (
-    <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs select-none">
-      <span className="text-slate-400 font-medium tracking-wide uppercase text-[10px] mr-1">
-        Display
-      </span>
-
-      {/* Font size */}
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => onChange({ ...settings, fontSize: Math.max(MIN_FONT, fontSize - 1) })}
-          disabled={fontSize <= MIN_FONT}
-          title="Decrease text size"
-          className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center font-bold text-slate-600 transition"
-        >
-          A−
-        </button>
-        <span className="w-8 text-center text-slate-500 font-mono text-[11px]">{fontSize}px</span>
-        <button
-          onClick={() => onChange({ ...settings, fontSize: Math.min(MAX_FONT, fontSize + 1) })}
-          disabled={fontSize >= MAX_FONT}
-          title="Increase text size"
-          className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center font-bold text-slate-600 transition"
-        >
-          A+
-        </button>
-      </div>
-
-      <div className="w-px h-5 bg-slate-200" />
-
-      {/* Bold */}
-      <button
-        onClick={() => onChange({ ...settings, bold: !bold })}
-        title="Toggle bold"
-        className={`w-7 h-7 rounded-lg border flex items-center justify-center font-bold text-sm transition ${
-          bold
-            ? "bg-indigo-600 border-indigo-600 text-white"
-            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
-        }`}
-      >
-        B
-      </button>
-
-      <div className="w-px h-5 bg-slate-200" />
-
-      {/* Font family */}
-      <select
-        value={fontFamily}
-        onChange={(e) => onChange({ ...settings, fontFamily: e.target.value })}
-        title="Change font"
-        className="h-7 rounded-lg border border-slate-200 bg-white text-slate-600 text-[11px] px-2 outline-none hover:border-indigo-400 focus:border-indigo-400 transition cursor-pointer"
-      >
-        {FONT_OPTIONS.map((f) => (
-          <option key={f.value} value={f.value}>{f.label}</option>
-        ))}
-      </select>
-
-      {/* Reset */}
-      {!isDefault && (
-        <>
-          <div className="w-px h-5 bg-slate-200" />
-          <button
-            onClick={() => onChange({ ...DEFAULT_SETTINGS })}
-            title="Reset to defaults"
-            className="text-[10px] text-slate-400 hover:text-slate-600 transition underline"
-          >
-            Reset
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════
    IMAGE ZOOM MODAL
@@ -595,29 +502,18 @@ export default function QuestionRenderer({
 }) {
   const [zoomImg, setZoomImg] = useState(null);
 
-  // ── Text display settings state ────────────────────────────
-  const [textSettings, setTextSettings] = useState({ ...DEFAULT_SETTINGS });
-
  
 const savedStyle = buildTextStyle(question);
 
-// ✅ FIXED — only apply toolbar values if student actually changed from default
-const toolbarOverrides = {};
-if (textSettings.fontSize !== DEFAULT_SETTINGS.fontSize)
-  toolbarOverrides.fontSize = `${textSettings.fontSize}px`;
-if (textSettings.fontFamily !== DEFAULT_SETTINGS.fontFamily)
-  toolbarOverrides.fontFamily = textSettings.fontFamily;
-if (textSettings.bold)
-  toolbarOverrides.fontWeight = "700";
+
 
 // DB saved styles are the base — student toolbar only overrides if they changed something
-const textStyle = { ...savedStyle, ...toolbarOverrides };
-
-// Options: same logic
+const textStyle = { ...savedStyle };
 const optionsStyle = (
   question.text_style_scope === "options" ||
   question.text_style_scope === "all"
-) ? { ...savedStyle, ...toolbarOverrides } : toolbarOverrides;
+) ? { ...savedStyle } : {};
+
 
   return (
     <div className="space-y-4">
@@ -655,8 +551,6 @@ const optionsStyle = (
         </button>
       </div>
 
-      {/* ── Text Settings Toolbar ── */}
-      <TextSettingsBar settings={textSettings} onChange={setTextSettings} />
 
       {/* ── Question text ── */}
       <div className="leading-relaxed" style={textStyle}>
