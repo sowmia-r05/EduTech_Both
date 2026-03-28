@@ -1,10 +1,9 @@
 const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
 
 /**
  * Parent: primary account holder.
- * Authenticates via email + password (or Auth0 SSO in future).
- * See Design Document v2.1 — Section 4.1
+ * Passwordless auth: Email OTP or Google SSO.
+ * No passwords stored.
  */
 const ParentSchema = new mongoose.Schema(
   {
@@ -15,11 +14,6 @@ const ParentSchema = new mongoose.Schema(
       index: true,
       trim: true,
       lowercase: true,
-    },
-
-    password_hash: {
-      type: String,
-      default: null, // null if using SSO
     },
 
     first_name: {
@@ -40,15 +34,22 @@ const ParentSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // 'local' | 'auth0'
+    // 'otp' | 'google' | 'both' (tracks how they first signed up)
     auth_provider: {
       type: String,
-      default: "local",
-      enum: ["local", "auth0"],
+      default: "otp",
+      enum: ["otp", "google", "both"],
     },
 
-    // Auth0 subject ID (if SSO)
-    auth0_sub: {
+    // Google OAuth subject ID
+    google_sub: {
+      type: String,
+      default: null,
+      sparse: true,
+    },
+
+    // Google profile picture URL (optional)
+    google_picture: {
       type: String,
       default: null,
     },
@@ -58,24 +59,24 @@ const ParentSchema = new mongoose.Schema(
       default: false,
     },
 
-    // Token for email verification flow
-    email_verify_token: {
+    // ─── OTP fields (in-DB instead of in-memory for multi-instance support) ───
+
+    otp_hash: {
       type: String,
       default: null,
     },
 
-    email_verify_expires: {
+    otp_expires: {
       type: Date,
       default: null,
     },
 
-    // Token for password reset flow
-    password_reset_token: {
-      type: String,
-      default: null,
+    otp_attempts: {
+      type: Number,
+      default: 0,
     },
 
-    password_reset_expires: {
+    otp_last_sent: {
       type: Date,
       default: null,
     },
@@ -94,38 +95,22 @@ const ParentSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, // createdAt + updatedAt
+    timestamps: true,
     versionKey: false,
   }
 );
 
 // ─── Indexes ───
+ParentSchema.index({ google_sub: 1 }, { sparse: true });
 ParentSchema.index({ stripe_customer_id: 1 }, { sparse: true });
-ParentSchema.index({ auth0_sub: 1 }, { sparse: true });
-
-// ─── Pre-save: hash password if modified ───
-// Note: Mongoose 9+ async pre hooks do NOT receive next(); just return or throw.
-ParentSchema.pre("save", async function () {
-  if (!this.isModified("password_hash") || !this.password_hash) return;
-
-  const salt = await bcrypt.genSalt(12);
-  this.password_hash = await bcrypt.hash(this.password_hash, salt);
-});
-
-// ─── Instance method: compare password ───
-ParentSchema.methods.comparePassword = async function (candidatePassword) {
-  if (!this.password_hash) return false;
-  return bcrypt.compare(candidatePassword, this.password_hash);
-};
 
 // ─── Instance method: safe JSON (strip sensitive fields) ───
 ParentSchema.methods.toSafeJSON = function () {
   const obj = this.toObject();
-  delete obj.password_hash;
-  delete obj.email_verify_token;
-  delete obj.email_verify_expires;
-  delete obj.password_reset_token;
-  delete obj.password_reset_expires;
+  delete obj.otp_hash;
+  delete obj.otp_expires;
+  delete obj.otp_attempts;
+  delete obj.otp_last_sent;
   return obj;
 };
 
