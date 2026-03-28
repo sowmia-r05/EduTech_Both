@@ -66,9 +66,9 @@ router.get("/attempts/:attemptId/flashcards", verifyToken, requireAuth, async (r
               return opt ? opt.text : optId;
             })
             .join(", ");
-        } else if (answer.free_text) {
-          childAnswerText = answer.free_text;
-        }
+        } else if (answer.text_answer) {
+        childAnswerText = answer.text_answer;
+       }
       }
 
      return {

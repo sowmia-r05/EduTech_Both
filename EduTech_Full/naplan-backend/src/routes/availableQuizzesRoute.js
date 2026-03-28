@@ -151,7 +151,7 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
         is_trial: true,
       })
         .sort({ subject: 1, quiz_name: 1 })
-        .select("quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number")
+        .select("quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number attempts_enabled max_attempts")
         .lean();
 
 
@@ -169,7 +169,7 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
 
       quizzes = await Quiz.find({ $or: orConditions })
         .sort({ subject: 1, quiz_name: 1 })
-        .select("quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number")
+        .select("quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number attempts_enabled max_attempts")
         .lean();
     }
 
@@ -205,8 +205,8 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
         total_points: q.total_points || 0,
         set_number: q.set_number || 1,
         is_entitled: isEntitled,
-        attempts_enabled: q.attempts_enabled || false,
-        max_attempts: q.max_attempts ?? null,
+        attempts_enabled: q.attempts_enabled || false,  // ✅ now actually true
+        max_attempts: q.max_attempts ?? null, 
       };
     });
 
