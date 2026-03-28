@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 import {
@@ -171,7 +171,7 @@ function TabSlider({ activeTab, onChange }) {
 }
 
 function assertAllowedParams(searchParams, navigate, isParentViewing) {
-  const ALLOWED = new Set(["tab"]);
+  const ALLOWED = new Set(["tab", "page"]);
   for (const key of searchParams.keys()) {
     if (!ALLOWED.has(key)) {
       console.warn(`[ChildDashboard] Blocked unknown URL param: ${key}`);
@@ -190,7 +190,7 @@ function assertAllowedParams(searchParams, navigate, isParentViewing) {
 ══════════════════════════════════════════════ */
 export default function ChildDashboard() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation ();
   const { childToken, childProfile, parentToken, logoutChild, logout, isInitializing } = useAuth();
   
@@ -221,8 +221,22 @@ const getInitialTab = () => {
   const [childStatus, setChildStatus] = useState("trial");
   const [loading,              setLoading]              = useState(true);
   const [error,                setError]                = useState(null);
-  const [currentPage,          setCurrentPage]          = useState(1);
+  const [currentPage,          setCurrentPage]          = useState(() => {
+    const p = parseInt(searchParams.get("page"),10);
+    return p > 0 ? p:1
+  });
   const [subjectFilter,        setSubjectFilter]        = useState("All");
+  const goToPage = (pg) => {
+    setCurrentPage(pg);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (pg === 1) next.delete("page");
+      else next.set("page", String(pg));
+      return next;
+    }, { replace: true, state: location.state });
+  };
+
+
   const [search,               setSearch]               = useState("");
   const [sortConfig,           setSortConfig]           = useState({ key: "default", direction: "asc" });
   const [childInfo,            setChildInfo]            = useState(null);
@@ -248,6 +262,7 @@ const getInitialTab = () => {
   const HISTORY_PER_PAGE = 10;
 
   const testsPerPage = 8;
+  const isFirstRender = useRef(true);
 
   const handleLogout = useCallback(() => {
     if (childToken) logoutChild(); else logout();
@@ -500,6 +515,7 @@ const mergedQuizzes = useMemo(() => entitledCatalog.map((quiz) => {
     : 1;
   const attemptsExhausted = attemptCount >= maxAttempts;
 
+
   return {
     id: quiz.quiz_id, quiz_id: quiz.quiz_id,
     name: quiz.quiz_name, quiz_name: quiz.quiz_name,
@@ -632,7 +648,14 @@ const handleSort = (key) => {
 };
 
 // ✅ FIX 3: Reset page on ANY filter change including sort
-useEffect(() => { setCurrentPage(1); }, [subjectFilter, search, viewMode]);
+useEffect(() => {
+  if (isFirstRender.current) {
+    isFirstRender.current = false;
+    return;
+  }
+  goToPage(1);
+}, [subjectFilter, search, viewMode]);
+
 
 
   /* ─── handleViewResult (original) ─── */
@@ -1023,7 +1046,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
       {/* Tab Slider */}
       <TabSlider activeTab={activeTab} onChange={(t) => {
         setActiveTab(t);
-        setCurrentPage(1);
+        goToPage(1);
         // Update URL so reload returns to same tab
         const newParams = new URLSearchParams(searchParams);
         newParams.set("tab", t);
@@ -1255,11 +1278,11 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
                     <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50">
                       <p className="text-xs text-slate-500">Showing {(currentPage - 1) * testsPerPage + 1}–{Math.min(currentPage * testsPerPage, sortedQuizzes.length)} of {sortedQuizzes.length}</p>
                       <div className="flex gap-1">
-                        <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 text-xs rounded border border-slate-200 hover:bg-slate-100 disabled:opacity-40">Prev</button>
+                      <button onClick={() => goToPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className="px-3 py-1 text-xs rounded border border-slate-200 hover:bg-slate-100 disabled:opacity-40">Prev</button>
                         {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
-                          <button key={pg} onClick={() => setCurrentPage(pg)} className={`px-3 py-1 text-xs rounded border ${pg === currentPage ? "bg-indigo-600 text-white border-indigo-600" : "border-slate-200 hover:bg-slate-100"}`}>{pg}</button>
+                          <button key={pg} onClick={() => goToPage(pg)} className={`px-3 py-1 text-xs rounded border ${pg === currentPage ? "bg-indigo-600 text-white border-indigo-600" : "border-slate-200 hover:bg-slate-100"}`}>{pg}</button>
                         ))}
-                        <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 text-xs rounded border border-slate-200 hover:bg-slate-100 disabled:opacity-40">Next</button>
+                        <button onClick={() => goToPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages} className="px-3 py-1 text-xs rounded border border-slate-200 hover:bg-slate-100 disabled:opacity-40">Next</button>
                       </div>
                     </div>
                   )}
