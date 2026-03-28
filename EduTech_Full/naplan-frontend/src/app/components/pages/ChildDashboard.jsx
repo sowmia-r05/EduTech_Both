@@ -495,9 +495,11 @@ const mergedQuizzes = useMemo(() => entitledCatalog.map((quiz) => {
   const attemptCount = matches.length;
 
   // ✅ Determine if attempts are exhausted
-  const maxAttempts = quiz.attempts_enabled
-    ? (quiz.max_attempts ?? Infinity)
-    : 1;
+  const maxAttempts = (() => {
+  if (quiz.max_attempts !== null && quiz.max_attempts > 1) return quiz.max_attempts;
+  if (quiz.attempts_enabled) return Infinity;  // enabled but no limit set = unlimited
+  return 1;
+})();
   const attemptsExhausted = attemptCount >= maxAttempts;
 
   return {
@@ -660,6 +662,7 @@ useEffect(() => { setCurrentPage(1); }, [subjectFilter, search, viewMode]);
           ai_status: data.ai?.status || data.ai_feedback_meta?.status || null,
           attempt_id: data.response_id || rid,
           response_id: rid,
+          quiz_id: data.quiz_id || item.quiz_id,  
           subject: item.subject || data.subject || "",
         },
         quizName: item.name || data.quiz_name || "Quiz",
@@ -669,7 +672,7 @@ useEffect(() => { setCurrentPage(1); }, [subjectFilter, search, viewMode]);
         result: {
           score: { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" },
           topic_breakdown: {}, is_writing: (item.subject || "").toLowerCase() === "writing",
-          attempt_id: rid, response_id: rid, subject: item.subject || "",
+          attempt_id: rid, response_id: rid, quiz_id: item.quiz_id,  subject: item.subject || "",
         },
         quizName: item.name || "Quiz",
       });
