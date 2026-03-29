@@ -542,7 +542,7 @@ const mergedQuizzes = useMemo(() => entitledCatalog.map((quiz) => {
     attempts_exhausted: attemptsExhausted,              // ✅ ADD
     status: m ? "completed" : "not_started",
     score: m?.score ?? null, grade: m?.grade ?? null,
-    date_completed: m?.date ?? null, response_id: m?.response_id ?? null,
+    date_completed: m?.date ?? null, response_id: m?.response_id ?? matches[0]?.response_id ?? null,
     ai_status: m?.ai_status ?? null,
     violations: m?.violations ?? m?.proctoring?.violations ?? null,
   };
@@ -689,7 +689,12 @@ useEffect(() => {
       const data = await res.json();
       const quizResultToSave = {
         result: {
-          score: data.score || { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" },
+          score: {
+            percentage: data.score?.percentage ?? item.score ?? 0,
+            points:     data.score?.points     ?? 0,
+            available:  data.score?.available  ?? 0,
+            grade:      data.score?.grade      || item.grade || "",
+          },
           topic_breakdown: data.topicBreakdown || data.topic_breakdown || {},
           is_writing: (item.subject || "").toLowerCase() === "writing",
           ai_status: data.ai?.status || data.ai_feedback_meta?.status || null,
@@ -697,6 +702,7 @@ useEffect(() => {
           response_id: rid,
           quiz_id: data.quiz_id || item.quiz_id,
           subject: item.subject || data.subject || "",
+          violations: result.proctoring?.violations ?? 0,
         },
         quizName: item.name || data.quiz_name || "Quiz",
       };
@@ -856,6 +862,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
       <QuizResult
         result={selectedQuizResult.result}
         quizName={selectedQuizResult.quizName}
+        violations={selectedQuizResult.result?.violations ?? 0}
         childStatus={childStatus}
         displayName={displayName}
         isParentViewing={isParentViewing}

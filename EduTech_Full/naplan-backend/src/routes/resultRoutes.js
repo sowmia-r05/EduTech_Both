@@ -73,6 +73,7 @@ function normalizeQuizAttempt(attempt, child) {
       error: metaStatus === "error" ? "AI feedback generation failed" : null,
       evaluated_at: attempt.ai_feedback_meta?.generated_at || null,
     },
+    proctoring: attempt.proctoring || { violations: 0, fullscreen_enforced: false},
     source: "native",
   };
 }

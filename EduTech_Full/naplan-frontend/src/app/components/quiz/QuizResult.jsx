@@ -489,10 +489,13 @@ useEffect(() => {
                   <div className="flex items-center justify-center gap-3 mt-2">
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
-                  {isWriting 
-                    ? (percentage === 0 ? "AI scoring..." : "See AI Feedback tab") 
-                    : `${score.points||0} / ${score.available||0} pts`}
+                    {isWriting 
+                      ? (percentage === 0 ? "AI scoring..." : "See AI Feedback tab") 
+                      : (score.available > 0 
+                          ? `${score.points||0} / ${score.available} pts` 
+                          : `${percentage}%`)}
                   </span>
+
                   {!isWriting && (
                     <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
                       Grade {score.grade||"—"}
@@ -508,7 +511,7 @@ useEffect(() => {
 
             {/* Action buttons */}
             <div className="space-y-3 pt-2">
-              {showAnswers && !isWriting && (
+              {!isWriting && (
                 <ActionBtn onClick={() => setShowAnswers(true)} icon={<IcAnswers/>} label="View My Answers"/>
               )}  
 
@@ -537,7 +540,7 @@ useEffect(() => {
         <AnswersModal
           attemptId={attemptId}
           quizName={quizName}
-          score={{...score, correct: score.points, total: score.available }}
+          score={score}
           topics={topics}
           onClose={() => setShowAnswers(false)}
         />
