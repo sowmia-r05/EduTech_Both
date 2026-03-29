@@ -108,20 +108,28 @@ router.get("/", verifyToken, requireAuth, async (req, res) => {
       }
     }
 
-    const hasAnyDone          = Object.values(feedbackMap).some((d) => d.status === "done");
+    const hasAnyDone = Object.values(feedbackMap).some((d) => d.status === "done");
     const isCurrentlyGenerating = Object.values(feedbackMap).some(
-      (d) => d.status === "generating" || d.status === "pending"
+      (d) => d.status === "generating" || d.status === "pending",
     );
 
-    const shouldTrigger = !hasAnyDone && !isCurrentlyGenerating;
+    // Check if any subjects that the child HAS data for are missing feedback
+    const ALL_SUBJECTS = ["Overall", "Reading", "Writing", "Numeracy", "Language"];
+    const missingSubjects = ALL_SUBJECTS.filter(
+      (s) => !feedbackMap[s] || feedbackMap[s].status === "error",
+    );
+
+    const shouldTrigger =
+      (!hasAnyDone || missingSubjects.length > 0) && !isCurrentlyGenerating;
 
     if (shouldTrigger) {
       setImmediate(() => {
         triggerCumulativeFeedback(childId).catch((e) =>
-          console.error("Async cumulative trigger error:", e.message)
+          console.error("Async cumulative trigger error:", e.message),
         );
       });
     }
+
 
     return res.json({
       ok: true,
