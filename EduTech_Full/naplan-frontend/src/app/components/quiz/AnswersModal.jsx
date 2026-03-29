@@ -31,11 +31,17 @@ function getChildAnswer(card) {
 }
 
 function getCorrectAnswer(card) {
+  // Short answer — correct answer is a plain string, not an options array
+  if (card.type === "short_answer" && card.correct_answer) {
+    return card.correct_answer;
+  }
+  // MCQ — correct answer comes from option texts array
   if (Array.isArray(card.correct_answers) && card.correct_answers.length > 0) {
     return card.correct_answers.join(", ");
   }
   return card.correct_answer || card.correct_answer_text || "—";
 }
+
 
 
 function getIsCorrect(card) {
@@ -115,7 +121,12 @@ export default function AnswersModal({ attemptId, quizName, score, topics, onClo
           throw new Error(d.error || "Failed to load answers");
         }
         const data = await res.json();
-        if (!cancelled) setFlashcards(data.flashcards || data || []);
+        if (!cancelled) setFlashcards(
+          (data.flashcards || data || []).filter(
+            (card) => card.type !== "free_text" && card.type !== "writing"
+          )
+        );
+
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {

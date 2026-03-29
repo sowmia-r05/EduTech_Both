@@ -244,9 +244,16 @@ const getInitialTab = () => {
   const [activeQuiz,           setActiveQuiz]           = useState(null);
   const [selectedQuizResult, setSelectedQuizResult] = useState(null);
 
+  // ✅ REPLACE WITH — restore instead of clear:
   useEffect(() => {
-    try { sessionStorage.removeItem("quizResultState"); } catch {}
-  },[]);
+    try {
+      const saved = sessionStorage.getItem("quizResultState");
+      if (saved) {
+        setSelectedQuizResult(JSON.parse(saved));
+      }
+    } catch {}
+  }, []);
+
 
   const [resultLoading,        setResultLoading]        = useState(false);
   const [viewMode,             setViewMode]             = useState("all");
@@ -680,7 +687,7 @@ useEffect(() => {
 
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setSelectedQuizResult({
+      const quizResultToSave = {
         result: {
           score: data.score || { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" },
           topic_breakdown: data.topicBreakdown || data.topic_breakdown || {},
@@ -688,20 +695,26 @@ useEffect(() => {
           ai_status: data.ai?.status || data.ai_feedback_meta?.status || null,
           attempt_id: data.response_id || rid,
           response_id: rid,
-          quiz_id: data.quiz_id || item.quiz_id,  
+          quiz_id: data.quiz_id || item.quiz_id,
           subject: item.subject || data.subject || "",
         },
         quizName: item.name || data.quiz_name || "Quiz",
-      });
+      };
+      setSelectedQuizResult(quizResultToSave);
+      try { sessionStorage.setItem("quizResultState", JSON.stringify(quizResultToSave)); } catch {}
+
     } catch {
-      setSelectedQuizResult({
-        result: {
-          score: { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" },
-          topic_breakdown: {}, is_writing: (item.subject || "").toLowerCase() === "writing",
-          attempt_id: rid, response_id: rid, quiz_id: item.quiz_id,  subject: item.subject || "",
-        },
-        quizName: item.name || "Quiz",
-      });
+    const quizResultToSave = {
+      result: {
+        score: { percentage: item.score || 0, points: 0, available: 0, grade: item.grade || "" },
+        topic_breakdown: {}, is_writing: (item.subject || "").toLowerCase() === "writing",
+        attempt_id: rid, response_id: rid, quiz_id: item.quiz_id, subject: item.subject || "",
+      },
+      quizName: item.name || "Quiz",
+    };
+    setSelectedQuizResult(quizResultToSave);
+    try { sessionStorage.setItem("quizResultState", JSON.stringify(quizResultToSave)); } catch {}
+
     } finally { setResultLoading(false); }
   }, [activeToken]);
 
@@ -743,18 +756,21 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
         (activeQuiz?.subject || "").toLowerCase() === "writing" ||
         (activeQuiz?.name || "").toLowerCase().includes("writing");
 
-      setSelectedQuizResult({
+      const quizResultToSave = {
         result: {
           score:           result.score || {},
           topic_breakdown: result.topic_breakdown || {},
-          is_writing:      isWritingSubject,             // ✅ reliable
+          is_writing:      isWritingSubject,
           ai_status:       result.ai_status || "queued",
           attempt_id:      result.attempt_id,
           response_id:     result.attempt_id || result.response_id,
           subject:         result.subject || (isWritingSubject ? "Writing" : ""),
         },
         quizName: result.quiz_name || activeQuiz?.name || activeQuiz?.quiz_name || "Quiz",
-      });
+      };
+      setSelectedQuizResult(quizResultToSave);
+      try { sessionStorage.setItem("quizResultState", JSON.stringify(quizResultToSave)); } catch {}
+
     }
   }, [refreshData, activeQuiz]);  // ✅ add activeQuiz to deps
 
@@ -844,7 +860,11 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
         displayName={displayName}
         isParentViewing={isParentViewing}
         childId={childId}
-        onClose={() => setSelectedQuizResult(null)}
+        onClose={() => {
+          setSelectedQuizResult(null);
+          try { sessionStorage.removeItem("quizResultState"); } catch {}
+        }}
+
 
         // ✅ FIX: Only pass onRetake if attempts are NOT exhausted
         onRetake={(() => {
