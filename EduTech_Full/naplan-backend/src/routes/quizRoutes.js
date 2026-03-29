@@ -548,6 +548,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
       topic_breakdown: Object.fromEntries(
         attempt.topic_breakdown instanceof Map ? attempt.topic_breakdown : Object.entries(topicBreakdown)
       ),
+      proctoring: attempt.proctoring || {violations: 0},
     });
   } catch (err) {
     console.error("Submit error:", err);

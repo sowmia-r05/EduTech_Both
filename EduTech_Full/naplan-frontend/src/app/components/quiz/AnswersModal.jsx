@@ -145,8 +145,9 @@ export default function AnswersModal({ attemptId, quizName, score, topics, onClo
   }, [onClose]);
 
   // ─── Summary stats ───
-  const totalCorrect   = score?.correct ?? flashcards.filter((f) => getIsCorrect(f)).length;
-  const totalQuestions = score?.total   ?? flashcards.length;
+  const totalCorrect   = flashcards.filter((f) => getIsCorrect(f)).length;
+  const totalQuestions = flashcards.length;
+
 
 
   return (
@@ -207,12 +208,12 @@ export default function AnswersModal({ attemptId, quizName, score, topics, onClo
                   {score?.percentage || 0}%
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    {score?.points || 0} / {score?.available || 0} points
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {totalCorrect} of {totalQuestions} correct · Grade {score?.grade || "—"}
-                  </p>
+                <p className="text-sm font-semibold text-slate-800">
+                  {totalCorrect} / {totalQuestions} correct
+                </p>
+                <p className="text-xs text-slate-500">
+                  {score?.percentage || 0}% · Grade {score?.grade || "—"}
+                </p>
                 </div>
               </div>
 
