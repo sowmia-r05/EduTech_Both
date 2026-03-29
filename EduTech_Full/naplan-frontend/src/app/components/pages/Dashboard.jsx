@@ -544,9 +544,21 @@ return (
           <ChildAvatarMenu
             displayName={displayName}
             isParentViewing={isParentViewing}
-            onBackToChildDashboard={() => navigate("/child-dashboard")}
+            onBackToChildDashboard={() => {
+              try { sessionStorage.removeItem("quizResultState"); } catch {}
+              navigate("/child-dashboard", {
+                state: {
+                  childId:   location.state?.childId   || null,
+                  childName: location.state?.childName || null,
+                  yearLevel: location.state?.yearLevel || null,
+                  username:  location.state?.username  || null,
+                },
+                replace: true,
+              });
+            }}
             onBackToParent={() => navigate("/parent-dashboard")}
           />
+
         </div>
       </nav>
     ) : (

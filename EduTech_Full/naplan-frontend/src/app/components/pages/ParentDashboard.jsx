@@ -1398,6 +1398,7 @@ const handleAddChild = async (formData) => {
 
 
 const handleViewChild = (child) => {
+  try { sessionStorage.removeItem("quizResultState"); } catch {}
   navigate("/child-dashboard", {
     state: {
       childId: child._id || child.id,
@@ -1405,8 +1406,9 @@ const handleViewChild = (child) => {
       yearLevel: child.year_level || "",
       username: child.username || "",
     }
-  })
+  });
 };
+
 
   const handleDeleteRequest = (childId) => {
     const raw = rawChildren.find((c) => String(c._id) === String(childId));

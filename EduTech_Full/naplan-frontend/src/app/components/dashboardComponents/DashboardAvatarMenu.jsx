@@ -1,28 +1,25 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 
-export default function AvatarMenu() {
+export default function AvatarMenu({ onBackToDashboard }) {
   const navigate = useNavigate();
   const { childToken, logoutChild, logout } = useAuth();
 
- const handleBackToDashboard = () => {
+  const handleBackToDashboard = () => {
+    if (onBackToDashboard) {
+      try { sessionStorage.removeItem("quizResultState"); } catch {}
+      onBackToDashboard();
+      return;
+    }
     if (window.self !== window.top) {
-      // Inside iframe — must navigate the top window, not the iframe
       window.top.location.hash = "#/child-dashboard";
     } else {
+      try { sessionStorage.removeItem("quizResultState"); } catch {}
       navigate("/child-dashboard");
     }
   };
 
 
-  const handleLogout = () => {
-    if (childToken) {
-      logoutChild();
-    } else {
-      logout();
-    }
-    navigate("/", { replace: true });
-  };
 
   return (
     <div className="flex items-center gap-2">
