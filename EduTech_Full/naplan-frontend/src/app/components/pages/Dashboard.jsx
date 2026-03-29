@@ -474,13 +474,13 @@ export default function Dashboard() {
   const percentage = Math.round(Number(selectedResult?.score?.percentage || 0));
   const duration = formatDuration(selectedResult?.duration);
   const attemptsUsed = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
-  const { strongTopics, weakTopics } = buildTopicStrength(selectedResult?.topicBreakdown || {});
-  const violations =
+  const { strongTopics, weakTopics } = buildTopicStrength(resolvedResult?.topicBreakdown || {});
+  const suggestions = buildSuggestionsFromFeedback(resolvedResult?.ai_feedback);
+   const violations =
     selectedResult?.proctoring_summary?.total_violations ||
     selectedResult?.proctoring?.violations ||
     selectedResult?.violations ||
     0;
-  const suggestions = buildSuggestionsFromFeedback(selectedResult?.ai_feedback);
 
   const displayName = `${selectedResult?.user?.first_name || ""} ${selectedResult?.user?.last_name || ""}`.trim()
   || location.state?.childName
@@ -748,10 +748,9 @@ return (
                   <div className="flex-1 p-3 overflow-y-auto">
                     {/* ✅ showTitle={false} removes the duplicate inner title */}
                     <AISuggestionPanel
-                      suggestions={suggestions}
-                      studyTips={selectedResult?.ai_feedback?.study_tips || []}
-                      topicWiseTips={selectedResult?.ai_feedback?.topic_wise_tips || []}
-                      showTitle={false}
+                        suggestions={suggestions}
+                        studyTips={resolvedResult?.ai_feedback?.study_tips || []}
+                        topicWiseTips={resolvedResult?.ai_feedback?.topic_wise_tips || []}
                     />
                   </div>
                 </div>
@@ -772,7 +771,7 @@ return (
               <div className="flex-1 overflow-y-auto min-h-0">
                 {/* ✅ showTitle={false} removes the duplicate inner title */}
                 <AICoachPanel
-                  feedback={selectedResult?.ai_feedback}
+                  feedback={resolvedResult?.ai_feedback}
                   strongTopics={strongTopics}
                   weakTopics={weakTopics}
                   showTitle={false}
