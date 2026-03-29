@@ -63,15 +63,14 @@ const stats = useMemo(() => {
           <h3 className="text-sm font-semibold text-slate-700 mb-4">All Questions</h3>
           <div className="grid grid-cols-8 sm:grid-cols-10 gap-2">
             {questions.map((q, idx) => {
+              if (q.type === "free_text") return null;  
 
-              //skippng free_text
-              if (q.text === "free_text") return null;
-              
               const a = answers[q.question_id];
               const isAnswered = a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim()));
               const isFlagged = flagged.has(q.question_id);
 
               let bgClass = "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100";
+
               if (isAnswered && isFlagged) bgClass = "bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200";
               else if (isAnswered) bgClass = "bg-emerald-100 text-emerald-700 hover:bg-emerald-200";
               else if (isFlagged) bgClass = "bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-100";

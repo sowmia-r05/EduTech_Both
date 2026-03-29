@@ -1,20 +1,22 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/app/context/AuthContext";
 
-export default function AvatarMenu({ className = "" }) {
+export default function AvatarMenu({ className = "" , onBackToDashboard }) {
+
   const navigate = useNavigate();
   const { childToken, logoutChild, logout } = useAuth();
 
 const handleBackToDashboard = () => {
+    if (onBackToDashboard) {
+      onBackToDashboard();
+      return;
+    }
     if (window.self !== window.top) {
       window.top.location.hash = "#/child-dashboard";
     } else {
       navigate("/child-dashboard");
     }
   };
-
-
-
 
   const handleLogout = () => {
     if (childToken) {

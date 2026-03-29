@@ -346,6 +346,8 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
   return !(a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim())));
   }).length;
 
+  const answerableQuestions = questions.filter((q) => q.type !== "free_text");
+
 
   // ═══ RENDER: ERROR ═══
   if (phase === "error") {
@@ -436,11 +438,11 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
       const currentQuestion = questions[currentIdx];
       return (
         <div className="flex flex-col min-h-full">
-          <QuizHeader
-            quizName={quizMeta?.quiz_name || quiz.quiz_name}
-            currentIdx={currentIdx} totalQuestions={questions.length}
-            answeredCount={answeredCount} timeLeft={timeLeft} onCancel={handleCancel}
-          />
+        <QuizHeader
+          quizName={quizMeta?.quiz_name || quiz.quiz_name}
+          currentIdx={currentIdx} totalQuestions={answerableQuestions.length}
+          answeredCount={answeredCount} timeLeft={timeLeft} onCancel={handleCancel}
+        />
           <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-8 md:px-8">
             {/* Quiz-level media (same for all questions) */}
             <QuizMediaPanel voiceUrl={voiceUrl} videoUrl={videoUrl} />
