@@ -753,7 +753,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
           response_id:     result.attempt_id || result.response_id,
           subject:         result.subject || (isWritingSubject ? "Writing" : ""),
         },
-        quizName: result.quiz_name || "Quiz",
+        quizName: result.quiz_name || activeQuiz?.name || activeQuiz?.quiz_name || "Quiz",
       });
     }
   }, [refreshData, activeQuiz]);  // ✅ add activeQuiz to deps
