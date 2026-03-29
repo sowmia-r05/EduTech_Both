@@ -111,6 +111,14 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
     const childStatus = child.status || "trial";
     const childBundleIds = child.entitled_bundle_ids || [];
 
+    // ✅ FIX — guard against missing year level
+    if (!child.year_level) {
+      console.warn(
+        `Child ${childId} has no year_level set — returning empty catalog`,
+      );
+      return res.json({ quizzes: [], child_status: childStatus });
+    }
+
     const yearNum = Number(child.year_level);
     const yearStr = String(child.year_level);
 
@@ -130,9 +138,10 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
       }).lean();
 
       for (const bundle of bundles) {
-        const ids = (bundle.quiz_ids && bundle.quiz_ids.length > 0)
-          ? bundle.quiz_ids
-          : bundle.flexiquiz_quiz_ids || [];
+        const ids =
+          bundle.quiz_ids && bundle.quiz_ids.length > 0
+            ? bundle.quiz_ids
+            : bundle.flexiquiz_quiz_ids || [];
         bundleQuizIds.push(...ids);
       }
       // Deduplicate
@@ -151,17 +160,20 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
         is_trial: true,
       })
         .sort({ subject: 1, quiz_name: 1 })
-        .select("quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number attempts_enabled max_attempts")
+        .select(
+          "quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number attempts_enabled max_attempts",
+        )
         .lean();
-
-
     } else {
       // Active children → see quizzes from their bundles + trial quizzes
       // Use $or to get: (quizzes in their bundles) OR (trial quizzes for their year level)
       const orConditions = [
-        { is_active: true, year_level: { $in: [yearNum, yearStr] }, is_trial: true },
+        {
+          is_active: true,
+          year_level: { $in: [yearNum, yearStr] },
+          is_trial: true,
+        },
       ];
-
 
       if (bundleQuizIds.length > 0) {
         orConditions.push({ is_active: true, quiz_id: { $in: bundleQuizIds } });
@@ -169,7 +181,9 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
 
       quizzes = await Quiz.find({ $or: orConditions })
         .sort({ subject: 1, quiz_name: 1 })
-        .select("quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number attempts_enabled max_attempts")
+        .select(
+          "quiz_id quiz_name subject year_level tier difficulty time_limit_minutes is_trial question_count total_points set_number attempts_enabled max_attempts",
+        )
         .lean();
     }
 
@@ -188,9 +202,7 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
       // A child is entitled to a quiz if:
       //   1. It's a trial quiz (always accessible), OR
       //   2. The quiz_id is in one of their purchased bundles
-      const isEntitled =
-        q.is_trial === true ||
-        bundleQuizIdSet.has(q.quiz_id);
+      const isEntitled = q.is_trial === true || bundleQuizIdSet.has(q.quiz_id);
 
       return {
         quiz_id: q.quiz_id,
@@ -205,8 +217,8 @@ router.get("/children/:childId/available-quizzes", verifyToken, requireAuth, asy
         total_points: q.total_points || 0,
         set_number: q.set_number || 1,
         is_entitled: isEntitled,
-        attempts_enabled: q.attempts_enabled || false,  // ✅ now actually true
-        max_attempts: q.max_attempts ?? null, 
+        attempts_enabled: q.attempts_enabled || false, // ✅ now actually true
+        max_attempts: q.max_attempts ?? null,
       };
     });
 

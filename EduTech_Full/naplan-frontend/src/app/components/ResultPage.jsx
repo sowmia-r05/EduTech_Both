@@ -299,7 +299,29 @@ export default function ResultPage() {
         setLoading(true); setError(null);
         const data = await fetchWritingByResponseId(responseId, authOpts);
         if (cancelled) return;
-        if (!data) { setError("No writing document found."); setLoading(false); return; }
+        if (!data) {
+          // Writing doc may not exist yet — AI pipeline might still be running.
+          // Check the ai-status endpoint before showing an error.
+          try {
+            const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+            const statusRes = await fetch(`${API_BASE}/api/attempts/${responseId}/ai-status`, {
+              headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
+            });
+            if (statusRes.ok) {
+              const { ai_status } = await statusRes.json();
+              if (["queued", "generating", "pending"].includes(ai_status)) {
+                // Still processing — set a placeholder doc so the polling useEffect kicks in
+                setDoc({ response_id: responseId, ai: { status: "generating", message: "Your writing is being evaluated — hang tight!" } });
+                setLoading(false);
+                return;
+              }
+            }
+          } catch { /* fall through to error */ }
+          setError("No writing document found.");
+          setLoading(false);
+          return;
+        }
+
         setDoc(data);
         const effectiveUsername = usernameParam || data?.user?.user_name || "";
         if (effectiveUsername) {
@@ -331,9 +353,15 @@ export default function ResultPage() {
       pollCount++;
       if (pollCount > 60) { setError("AI evaluation timed out. Please try again in 1–2 minutes."); return; }
       try {
-        const latest = await fetchWritingByResponseId(responseId, authOpts);
-        if (cancelled) return; setDoc(latest);
-        if (isAiPending(latest)) timer = setTimeout(poll, 4000);
+      const latest = await fetchWritingByResponseId(responseId, authOpts);
+      if (cancelled) return;
+      if (!latest) {
+        // Writing doc still not saved — Python is still running, keep polling
+        timer = setTimeout(poll, 4000);
+        return;
+      }
+      setDoc(latest);
+      if (isAiPending(latest)) timer = setTimeout(poll, 4000);  
       } catch { if (!cancelled) timer = setTimeout(poll, 6000); }
     };
     timer = setTimeout(poll, 2000);
