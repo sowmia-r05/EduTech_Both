@@ -253,6 +253,7 @@ const getInitialTab = () => {
   const [childEntitledQuizIds, setChildEntitledQuizIds] = useState(null);
   const [availableQuizzes,     setAvailableQuizzes]     = useState([]);
   const [quizzesLoading,       setQuizzesLoading]       = useState(true);
+  const isPageReady = !loading && !quizzesLoading;
   const [historySubject, setHistorySubject] = useState("All");
   const [historySearch,  setHistorySearch]  = useState("");
   const [historyScore,   setHistoryScore]   = useState("All");
@@ -359,13 +360,16 @@ useEffect(() => {
     .then((data) => {
       const q = Array.isArray(data) ? data : data?.quizzes || [];
       setAvailableQuizzes(q.map((x) => ({ ...x, subject: normalizeSubject(x.subject) })));
-
-      // ✅ childStatus comes ONLY from API response — never from URL params
       if (data?.child_status) setChildStatus(data.child_status);
     })
-    .catch(() => setAvailableQuizzes([]))
+    .catch((err) => {
+      console.warn("[ChildDashboard] catalog fetch failed:", err?.message || err);
+      setAvailableQuizzes([]);
+    })
     .finally(() => setQuizzesLoading(false));
 }, [activeToken, childId]);
+
+
 
 
 
@@ -443,13 +447,12 @@ useEffect(() => {
   [availableQuizzes]
 );
 
-const entitledTests = useMemo(() =>
-  tests.filter((t) =>
-    // Keep if quiz_id matches catalog OR if no quiz_id (legacy fallback)
-    !t.quiz_id || catalogQuizIdSet.has(t.quiz_id)
-  ),
-  [tests, catalogQuizIdSet]
-);
+const entitledTests = useMemo(() => {
+  // If catalog is still loading or came back empty (API failed / no year_level set),
+  // show ALL completed tests so results are never hidden from the child.
+  if (!isPageReady || catalogQuizIdSet.size === 0) return tests;
+  return tests.filter((t) => !t.quiz_id || catalogQuizIdSet.has(t.quiz_id));
+}, [tests, catalogQuizIdSet, isPageReady]);
 
 
   /* ─── Entitled tests (original) ─── */
@@ -780,7 +783,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
      EARLY RETURNS (original)
   ════════════════════════════════ */
 
-  if (loading) return (
+  if (loading || quizzesLoading) return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center">
       <div className="text-center">
         <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
@@ -1064,9 +1067,15 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
           {/* ══════════════════════════════════════════════
               TAB 1 — MY QUIZZES (ORIGINAL, UNCHANGED)
           ══════════════════════════════════════════════ */}
-          {activeTab === "quizzes" && (
-            <section>
-              {!hasTests && !quizzesLoading && entitledCatalog.length === 0 && (
+        {activeTab === "quizzes" && (
+          <section>
+            {!isPageReady && (
+              <div className="flex items-center justify-center py-20">
+                <div className="w-8 h-8 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin" />
+              </div>
+            )}
+            {isPageReady && !hasTests && entitledCatalog.length === 0 && (
+
                 <div className="rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 p-8 text-white mb-6">
                   <p className="text-2xl font-bold mb-2">Welcome, {displayName}!</p>
                   <p className="text-indigo-100 text-sm leading-relaxed max-w-xl mb-6">
