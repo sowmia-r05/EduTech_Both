@@ -14,19 +14,22 @@ import { useState, useMemo } from "react";
 export default function QuizReview({ questions, answers, flagged, onGoToQuestion, onSubmit, onBack }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const stats = useMemo(() => {
-    let answered = 0,
-      unanswered = 0,
-      flaggedCount = 0;
-    questions.forEach((q) => {
-      const a = answers[q.question_id];
-      const hasAnswer = a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim()));
-      if (hasAnswer) answered++;
-      else unanswered++;
-      if (flagged.has(q.question_id)) flaggedCount++;
-    });
-    return { answered, unanswered, flaggedCount };
-  }, [questions, answers, flagged]);
+const stats = useMemo(() => {
+  let answered = 0,
+    unanswered = 0,
+    flaggedCount = 0;
+  questions.forEach((q) => {
+    // ✅ Skip free_text (reading passages) — they are display-only, not answerable
+    if (q.type === "free_text") return;
+    const a = answers[q.question_id];
+    const hasAnswer = a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim()));
+    if (hasAnswer) answered++;
+    else unanswered++;
+    if (flagged.has(q.question_id)) flaggedCount++;
+  });
+  return { answered, unanswered, flaggedCount };
+}, [questions, answers, flagged]);
+
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-8">
@@ -60,6 +63,10 @@ export default function QuizReview({ questions, answers, flagged, onGoToQuestion
           <h3 className="text-sm font-semibold text-slate-700 mb-4">All Questions</h3>
           <div className="grid grid-cols-8 sm:grid-cols-10 gap-2">
             {questions.map((q, idx) => {
+
+              //skippng free_text
+              if (q.text === "free_text") return null;
+              
               const a = answers[q.question_id];
               const isAnswered = a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim()));
               const isFlagged = flagged.has(q.question_id);

@@ -508,9 +508,9 @@ useEffect(() => {
 
             {/* Action buttons */}
             <div className="space-y-3 pt-2">
-              {!isWriting && (
+              {showAnswers && !isWriting && (
                 <ActionBtn onClick={() => setShowAnswers(true)} icon={<IcAnswers/>} label="View My Answers"/>
-              )}
+              )}  
 
               {/* ✅ FIX: Show disabled state if attempts exhausted, retake button if allowed */}
               {attemptsExhausted ? (
@@ -533,7 +533,7 @@ useEffect(() => {
     {/* ── TAB 1: AI FEEDBACK (non-writing — embedded iframe) ── */}
 
  
-      {showAnswers && !isWriting && (
+      {showAnswers && !isWriting &&(
         <AnswersModal
           attemptId={attemptId}
           quizName={quizName}

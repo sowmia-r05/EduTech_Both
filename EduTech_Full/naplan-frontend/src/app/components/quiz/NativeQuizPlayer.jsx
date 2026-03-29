@@ -335,10 +335,17 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
 
   // ─── Stats ───
   const answeredCount = questions.filter((q) => {
+    if (q.type === "free_text") return false; // ← exclude passages
     const a = answers[q.question_id];
-    return a && (a.selected?.length > 0 || a.text?.trim());
+    return a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim()));
   }).length;
-  const unansweredCount = questions.length - answeredCount;
+
+  const unansweredCount = questions.filter((q) => {
+  if (q.type === "free_text") return false; // ← exclude passages
+  const a = answers[q.question_id];
+  return !(a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim())));
+  }).length;
+
 
   // ═══ RENDER: ERROR ═══
   if (phase === "error") {
