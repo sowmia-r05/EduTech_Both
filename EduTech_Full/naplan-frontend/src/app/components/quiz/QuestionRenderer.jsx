@@ -521,15 +521,18 @@ const optionsStyle = (
       {/* ── Question number + flag row ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
+        {question.type !== "free_text" && (
           <span className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-bold">
             {questionNumber}
           </span>
+           )}  
           {question.points > 0 && (
             <span className="text-xs text-slate-400">
               {question.points} {question.points === 1 ? "pt" : "pts"}
             </span>
           )}
         </div>
+        {question.type !== "free_text" && (
         <button
           onClick={onToggleFlag}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
@@ -549,6 +552,7 @@ const optionsStyle = (
           </svg>
           {isFlagged ? "Flagged" : "Flag"}
         </button>
+          )}
       </div>
 
 

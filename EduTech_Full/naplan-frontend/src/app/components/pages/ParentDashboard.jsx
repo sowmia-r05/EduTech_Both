@@ -1114,11 +1114,14 @@ export default function ParentDashboard() {
 
   const children = useMemo(() => rawChildren.map(mapChild), [rawChildren]);
   const payments  = useMemo(() => rawPayments.map(mapPayment), [rawPayments]);
-const user = useMemo(() => {
+  const user = useMemo(() => {
   // ✅ Build name from firstName + lastName first, then fall back to name field, then email
   const firstName = (parentProfile?.firstName || "").trim();
   const lastName  = (parentProfile?.lastName  || "").trim();
   const fullName  = [firstName, lastName].filter(Boolean).join(" ");
+
+
+
 
   // Use fullName if available, then .name field, then email as last resort
   const name = fullName || parentProfile?.name || parentProfile?.email || "";
@@ -1134,12 +1137,14 @@ const user = useMemo(() => {
   return { name, initials };
 }, [parentProfile]);
 
+  const lastLoadedAt = useRef(0);
+  const CACHE_TTL_MS = 60_000;
 
   // ── Data loading ─────────────────────────────────────────────
-const loadChildren = useCallback(async () => {
+const loadChildren = useCallback(async (silent = false) => {
   if (!parentToken) return;
   try {
-    setLoading(true);
+    if (!silent) setLoading(true);
 
     // Step 1 — get child list (names, status, year level)
     const summaries = await fetchChildrenSummaries(parentToken);
@@ -1243,6 +1248,7 @@ const loadChildren = useCallback(async () => {
         setError(err?.message || "Failed to load children");
       } finally {
         setLoading(false);
+        lastLoadedAt.current = Date.now();
       }
     }, [parentToken]);
 
@@ -1264,14 +1270,17 @@ const loadChildren = useCallback(async () => {
       }, [loadChildren, loadPayments]);
 
       useEffect(() => {
-      const handleVisibility = () => {
-        if (document.visibilityState === "visible") {
-          loadChildren();
-        }
-      };
-      document.addEventListener("visibilitychange", handleVisibility);
-      return () => document.removeEventListener("visibilitychange", handleVisibility);
-    }, [loadChildren]);
+        const handleVisibility = () => {
+          if (document.visibilityState === "visible") {
+            const age = Date.now() - lastLoadedAt.current;
+            if (age > CACHE_TTL_MS) {
+              loadChildren(true);
+            }
+          }
+        };
+        document.addEventListener("visibilitychange", handleVisibility);
+        return () => document.removeEventListener("visibilitychange", handleVisibility);
+      }, [loadChildren]);
 
 
     useEffect(() => {
@@ -1331,6 +1340,7 @@ const handleAddChild = async (formData) => {
     alert(err?.message || "Failed to add child");
   } finally {
     setActionLoading(false);
+    lastLoadedAt.current = Date.now();
   }
 };
 
@@ -1345,6 +1355,7 @@ const handleAddChild = async (formData) => {
       alert(err?.message || "Failed to update child");
     } finally {
       setActionLoading(false);
+      lastLoadedAt.current = Date.now();
     }
   };
 
@@ -1359,6 +1370,7 @@ const handleAddChild = async (formData) => {
       alert(err?.message || "Failed to delete child");
     } finally {
       setActionLoading(false);
+      lastLoadedAt.current = Date.now();
     }
   };
 

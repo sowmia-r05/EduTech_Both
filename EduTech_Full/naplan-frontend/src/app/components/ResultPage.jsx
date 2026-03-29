@@ -488,9 +488,11 @@ const isAiError   = resolvedDoc?.ai?.status === "error";
           state: {
             ...backToDashboardState,
             childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+            restoreQuizResult: location.state?.savedQuizResult || null,
           },
           replace: true,
         })}
+
         onBackToParentDashboard={() => {
           if (window.self !== window.top) {
             window.top.location.hash = "#/parent-dashboard";
@@ -541,9 +543,11 @@ const isAiError   = resolvedDoc?.ai?.status === "error";
           state: {
             ...backToDashboardState,
             childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+            restoreQuizResult: location.state?.savedQuizResult || null,
           },
           replace: true,
         })}
+
         onBackToParentDashboard={() => {
           if (window.self !== window.top) {
             window.top.location.hash = "#/parent-dashboard";
@@ -624,9 +628,11 @@ return (
           state: {
             ...backToDashboardState,
             childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+            restoreQuizResult: location.state?.savedQuizResult || null,
           },
           replace: true,
         })}
+
         onBackToParentDashboard={() => {
           if (window.self !== window.top) {
             window.top.location.hash = "#/parent-dashboard";

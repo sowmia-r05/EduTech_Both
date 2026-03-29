@@ -551,7 +551,18 @@ return (
       </nav>
     ) : (
       <DashboardHeader>
-        <AvatarMenu />
+        <AvatarMenu
+        onBackToDashboard={() => navigate("/child-dashboard", {
+          state: {
+            childId:   location.state?.childId   || null,
+            childName: location.state?.childName || null,
+            yearLevel: location.state?.yearLevel || null,
+            username:  location.state?.username  || null,
+          },
+          replace: true,
+        })}
+      />
+
       </DashboardHeader>
     )}
 

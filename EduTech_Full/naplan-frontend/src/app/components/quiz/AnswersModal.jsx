@@ -80,6 +80,21 @@ function QuestionImage({ card }) {
   );
 }
 
+function PassageCard({ card }) {
+  return (
+    <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-bold text-blue-600 uppercase tracking-wide px-2 py-0.5 bg-blue-100 rounded-full">
+          📖 Reading Passage
+        </span>
+      </div>
+      <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+        {stripHtml(card.question_text)}
+      </p>
+    </div>
+  );
+}
+
 
 function stripHtml(html) {
   if (!html) return "";
@@ -123,7 +138,7 @@ export default function AnswersModal({ attemptId, quizName, score, topics, onClo
         const data = await res.json();
         if (!cancelled) setFlashcards(
           (data.flashcards || data || []).filter(
-            (card) => card.type !== "free_text" && card.type !== "writing"
+            (card) => card.type !== "writing"
           )
         );
 
@@ -145,8 +160,10 @@ export default function AnswersModal({ attemptId, quizName, score, topics, onClo
   }, [onClose]);
 
   // ─── Summary stats ───
-  const totalCorrect   = flashcards.filter((f) => getIsCorrect(f)).length;
-  const totalQuestions = flashcards.length;
+  const answerableCards = flashcards.filter((f) => f.type !== "free_text");
+  const totalCorrect    = answerableCards.filter((f) => getIsCorrect(f)).length;
+  const totalQuestions  = answerableCards.length;
+
 
 
 
@@ -243,76 +260,84 @@ export default function AnswersModal({ attemptId, quizName, score, topics, onClo
 
               {/* Questions List */}
               <div className="space-y-3">
-                {flashcards.map((card, idx) => {
-                  const isCorrect = getIsCorrect(card);
-                  return (
-                    <div
-                      key={card.question_id || idx}
-                      className={`rounded-xl border p-4 space-y-2 ${
-                        isCorrect
-                          ? "border-emerald-200 bg-emerald-50/30"
-                          : "border-red-200 bg-red-50/30"
-                      }`}
-                    >
-                      {/* Question header */}
-                      <div className="flex items-start gap-2.5">
-                        <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold text-white ${
-                          isCorrect ? "bg-emerald-500" : "bg-red-500"
-                        }`}>
-                          {isCorrect ? "✓" : "✗"}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">
-                            Question {idx + 1}
-                          </p>
-                          <p className="text-sm text-slate-800 font-medium leading-relaxed">
-                            {stripHtml(card.question_text)}
-                          </p>
 
-                          {/* ── Question Image ── */}
-                          <QuestionImage card={card} />
-                        </div>
-                      </div>
+              {(() => {
+                    let questionNum = 0;
+                    return flashcards.map((card, idx) => {
 
-                      {/* Answers */}
-                      <div className="space-y-1.5" style={{ marginLeft: "28px" }}>
-                        {/* Child's answer */}
-                        <div className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${
-                          isCorrect
-                            ? "bg-emerald-100/70 text-emerald-800"
-                            : "bg-red-100/70 text-red-800"
-                        }`}>
-                          <span className="font-semibold text-xs mt-0.5 flex-shrink-0">
-                            {isCorrect ? "✓" : "✗"}
-                          </span>
-                          <div>
-                            <span className="text-xs font-medium opacity-70">Your answer: </span>
-                            <span className="font-medium">{getChildAnswer(card)}</span>
-                          </div>
-                        </div>
+                      // ── Passage — render as styled block, no number ──
+                      if (card.type === "free_text") {
+                        return <PassageCard key={card.question_id || idx} card={card} />;
+                      }
 
-                        {/* Correct answer (only if wrong) */}
-                        {!isCorrect && (
-                          <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-sm bg-emerald-100/70 text-emerald-800">
-                            <span className="font-semibold text-xs mt-0.5 flex-shrink-0">✓</span>
-                            <div>
-                              <span className="text-xs font-medium opacity-70">Correct answer: </span>
-                              <span className="font-medium">{getCorrectAnswer(card)}</span>
+                      // ── Regular question ──
+                      questionNum++;
+                      const isCorrect = getIsCorrect(card);
+                      return (
+                        <div
+                          key={card.question_id || idx}
+                          className={`rounded-xl border p-4 space-y-2 ${
+                            isCorrect
+                              ? "border-emerald-200 bg-emerald-50/30"
+                              : "border-red-200 bg-red-50/30"
+                          }`}
+                        >
+                          {/* Question header */}
+                          <div className="flex items-start gap-2.5">
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold text-white ${
+                              isCorrect ? "bg-emerald-500" : "bg-red-500"
+                            }`}>
+                              {isCorrect ? "✓" : "✗"}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">
+                                Question {questionNum}
+                              </p>
+                              <p className="text-sm text-slate-800 font-medium leading-relaxed">
+                                {stripHtml(card.question_text)}
+                              </p>
+                              <QuestionImage card={card} />
                             </div>
                           </div>
-                        )}
 
-                        {/* Explanation */}
-                        {card.explanation && (
-                          <div className="px-3 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs leading-relaxed">
-                            <span className="font-semibold">💡 </span>
-                            {card.explanation}
+                          {/* Answers */}
+                          <div className="space-y-1.5" style={{ marginLeft: "28px" }}>
+                            <div className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm ${
+                              isCorrect
+                                ? "bg-emerald-100/70 text-emerald-800"
+                                : "bg-red-100/70 text-red-800"
+                            }`}>
+                              <span className="font-semibold text-xs mt-0.5 flex-shrink-0">
+                                {isCorrect ? "✓" : "✗"}
+                              </span>
+                              <div>
+                                <span className="text-xs font-medium opacity-70">Your answer: </span>
+                                <span className="font-medium">{getChildAnswer(card)}</span>
+                              </div>
+                            </div>
+
+                            {!isCorrect && (
+                              <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-sm bg-emerald-100/70 text-emerald-800">
+                                <span className="font-semibold text-xs mt-0.5 flex-shrink-0">✓</span>
+                                <div>
+                                  <span className="text-xs font-medium opacity-70">Correct answer: </span>
+                                  <span className="font-medium">{getCorrectAnswer(card)}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {card.explanation && (
+                              <div className="px-3 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs leading-relaxed">
+                                <span className="font-semibold">💡 </span>
+                                {card.explanation}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                        </div>
+                      );
+                    });
+                  })()}
+
               </div>
 
               {/* Empty state */}
