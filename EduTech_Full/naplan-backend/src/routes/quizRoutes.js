@@ -539,6 +539,8 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
 
     res.json({
       attempt_id: attempt.attempt_id,
+      quiz_name: attempt.quiz_name,
+      subject: attempt.subject,
       is_writing: isWriting,
       ai_status: "queued",
       timer_expired: timerExpired,
