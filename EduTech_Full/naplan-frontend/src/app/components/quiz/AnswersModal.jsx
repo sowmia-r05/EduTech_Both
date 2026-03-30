@@ -88,9 +88,12 @@ function PassageCard({ card }) {
           📖 Reading Passage
         </span>
       </div>
+      {card.question_text && (
       <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
         {stripHtml(card.question_text)}
       </p>
+      )}
+      <QuestionImage card={card} />
     </div>
   );
 }

@@ -484,14 +484,19 @@ const isAiError   = resolvedDoc?.ai?.status === "error";
           },
           replace: true,
         })}
-        onBackToChildDashboard={() => navigate("/child-dashboard", {
-          state: {
-            ...backToDashboardState,
-            childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
-            restoreQuizResult: location.state?.savedQuizResult || null,
-          },
-          replace: true,
-        })}
+
+        onBackToChildDashboard={() => {
+          try { sessionStorage.removeItem("quizResultState"); } catch {}
+          navigate("/child-dashboard", {
+            state: {
+              ...backToDashboardState,
+              childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+              // ❌ No restoreQuizResult — we want the main dashboard, not the quiz result card
+            },
+            replace: true,
+          });
+        }}
+
 
         onBackToParentDashboard={() => {
           if (window.self !== window.top) {
@@ -539,14 +544,19 @@ const isAiError   = resolvedDoc?.ai?.status === "error";
           },
           replace: true,
         })}
-        onBackToChildDashboard={() => navigate("/child-dashboard", {
-          state: {
-            ...backToDashboardState,
-            childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
-            restoreQuizResult: location.state?.savedQuizResult || null,
-          },
-          replace: true,
-        })}
+
+        onBackToChildDashboard={() => {
+          try { sessionStorage.removeItem("quizResultState"); } catch {}
+          navigate("/child-dashboard", {
+            state: {
+              ...backToDashboardState,
+              childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
+              // ❌ No restoreQuizResult — we want the main dashboard, not the quiz result card
+            },
+            replace: true,
+          });
+        }}
+
 
         onBackToParentDashboard={() => {
           if (window.self !== window.top) {
@@ -624,14 +634,20 @@ return (
           },
           replace: true,
         })}
-        onBackToChildDashboard={() => navigate("/child-dashboard", {
+
+
+        onBackToChildDashboard={() => {
+        try { sessionStorage.removeItem("quizResultState"); } catch {}
+        navigate("/child-dashboard", {
           state: {
             ...backToDashboardState,
             childId: childIdParam || doc?.child_id || activeDoc?.child_id || childProfile?.childId || null,
-            restoreQuizResult: location.state?.savedQuizResult || null,
+            // ❌ No restoreQuizResult — we want the main dashboard, not the quiz result card
           },
           replace: true,
-        })}
+        });
+      }}
+
 
         onBackToParentDashboard={() => {
           if (window.self !== window.top) {
