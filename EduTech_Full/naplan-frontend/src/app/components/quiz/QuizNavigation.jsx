@@ -11,7 +11,7 @@
 
 import { useState } from "react";
 
-export default function QuizNavigation({ currentIdx, totalQuestions, questions, answers, flagged, onPrev, onNext, onGoTo, onReview, unansweredCount }) {
+export default function QuizNavigation({ currentIdx, totalQuestions, questions, answers, flagged, onPrev, onNext, onGoTo, onReview, unansweredCount, onNextHover }) {
   const [showGrid, setShowGrid] = useState(false);
 
   return (
@@ -110,6 +110,8 @@ export default function QuizNavigation({ currentIdx, totalQuestions, questions, 
           {/* Right: Next or Review */}
           {currentIdx < totalQuestions - 1 ? (
             <button
+              onMouseEnter={onNextHover} 
+              onTouchStart={onNextHover} 
               onClick={onNext}
               className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-all"
             >

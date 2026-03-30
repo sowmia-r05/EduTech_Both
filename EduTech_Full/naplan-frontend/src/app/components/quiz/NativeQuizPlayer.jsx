@@ -172,6 +172,14 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
         setAttemptId(startData.attempt_id);
         setQuizMeta(startData.quiz);
         setQuestions(qData.questions || []);
+        (qData.questions || []).forEach((q) => {
+        if (!q.image_url) return;
+        const url = q.image_url.startsWith("http")
+          ? q.image_url
+          : `${import.meta.env.VITE_API_BASE_URL || ""}${q.image_url}`;
+        const img = new window.Image();
+        img.src = url;
+      });
         setVoiceUrl(qData.voice_url || null);
         setVideoUrl(qData.video_url || null);
 
@@ -308,6 +316,16 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
   );
   const goNext = useCallback(() => goTo(currentIdx + 1), [currentIdx, goTo]);
   const goPrev = useCallback(() => goTo(currentIdx - 1), [currentIdx, goTo]);
+  // ✅ ADD THIS — preload on hover so image is cached before click
+const preloadNextImage = useCallback(() => {
+  const nextQ = questions[currentIdx + 1];
+  if (!nextQ?.image_url) return;
+  const url = nextQ.image_url.startsWith("http")
+    ? nextQ.image_url
+    : `${import.meta.env.VITE_API_BASE_URL || ""}${nextQ.image_url}`;
+  const img = new window.Image();
+  img.src = url;
+}, [currentIdx, questions]);
 
   // ═══ SUBMIT ═══
   const handleSubmit = useCallback(async () => {
@@ -486,6 +504,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
             questions={questions} answers={answers} flagged={flagged}
             onPrev={goPrev} onNext={goNext} onGoTo={goTo}
             onReview={() => setPhase("review")} unansweredCount={unansweredCount}
+            onNextHover={preloadNextImage}
           />
         </div>
       );
