@@ -83,7 +83,7 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
 
         if (existingPurchase.status === "pending" && isRecent) {
           return res.status(409).json({
-            error: `A checkout is already in progress for "${bundle.bundle_name}". Please complete or cancel it first.`,
+            error: `A checkout is already in progress for "${bundle.bundle_name}". Please complete or cancel it first. Please check payment history in parent dashboard for more details`,
             code: "CHECKOUT_IN_PROGRESS",
             child_name: childName,
             bundle_name: bundle.bundle_name,
@@ -548,5 +548,39 @@ router.post("/retry-provision/:purchaseId", verifyToken, requireParent, async (r
     return res.status(500).json({ error: "Failed to retry provisioning" });
   }
 });
+
+router.patch(
+  "/cancel/:purchaseId",
+  verifyToken,
+  requireParent,
+  async (req, res) => {
+    try {
+      await connectDB();
+      const parentId = req.user?.parentId || req.user?.parent_id;
+      const { purchaseId } = req.params;
+
+      const purchase = await Purchase.findOne({
+        _id: purchaseId,
+        parent_id: parentId,
+        status: { $in: ["pending", "failed"] },
+      });
+
+      if (!purchase) {
+        return res
+          .status(404)
+          .json({ error: "Purchase not found or not cancellable" });
+      }
+
+      purchase.status = "cancelled";
+      await purchase.save();
+
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error("Cancel payment error:", err);
+      return res.status(500).json({ error: "Failed to cancel payment" });
+    }
+  },
+);
+
 
 module.exports = router;

@@ -22,6 +22,7 @@ import {
   createCheckout,
   fetchPurchaseHistory,
   retryPayment,
+  cancelPayment
 } from "@/app/utils/api-payments";
 import { BUNDLE_CATALOG } from "@/app/data/bundleCatalog";
 import PaymentSuccessModal from "@/app/components/payments/PaymentSuccessModal";
@@ -575,28 +576,145 @@ const STATUS_STYLE = {
   Refunded: { bg: "#F8FAFC",  color: "#64748B", border: "#E2E8F0" },
   Pending:  { bg: "#FFF7ED",  color: "#D97706", border: "#FDE68A" },
   Failed:   { bg: "#FFF1F2",  color: "#EF4444", border: "#FECACA" },
+  cancelled: { bg: "#F3F4F6", color: "#6B7280", dot: "#9CA3AF" },
 };
 
-function RetryConfirmModal({ payment, onConfirm, onCancel, loading, error }) {
+
+
+function RetryConfirmModal({ payment, onConfirm, onCancel, loading, error, parentToken, onCancelled }) {
+  const [cancelling,   setCancelling]   = useState(false);
+  const [cancelError,  setCancelError]  = useState(null);
+  const [cancelled,    setCancelled]    = useState(false);
+
+  const handleCancelPayment = async () => {
+    if (!payment?._id || !parentToken) return;
+    try {
+      setCancelling(true);
+      setCancelError(null);
+      await cancelPayment(parentToken, payment._id);
+      setCancelled(true);
+      setTimeout(() => {
+        onCancelled?.(payment._id);
+        onCancel();
+      }, 1200);
+    } catch (err) {
+      setCancelError(err?.message || "Failed to cancel. Please try again.");
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   return (
     <ModalOverlay onClose={onCancel} maxWidth="400px">
       <div style={{ textAlign: "center" }}>
+
+        {/* Icon */}
         <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#FFF7ED", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="1 4 1 10 7 10"/>
+            <path d="M3.51 15a9 9 0 1 0 .49-3.51"/>
+          </svg>
         </div>
+
+        {/* Title */}
         <h3 style={{ fontSize: "17px", fontWeight: 700, color: "#111827", margin: "0 0 6px" }}>Retry Payment?</h3>
-        <p style={{ fontSize: "14px", color: "#6B7280", margin: "0 0 4px", lineHeight: 1.6 }}><strong>{payment.description}</strong></p>
-        <p style={{ fontSize: "14px", color: "#6B7280", margin: "0 0 20px" }}>{payment.amount} · Status: <span style={{ fontWeight: 600, color: payment.status === "Failed" ? "#EF4444" : "#D97706" }}>{payment.status}</span></p>
-        <p style={{ fontSize: "13px", color: "#9CA3AF", margin: "0 0 24px" }}>You'll be taken to a secure payment page to complete this.</p>
-        {error && <div style={{ background: "#FFF1F2", border: "1px solid #FECDD3", borderRadius: "9px", padding: "10px 14px", fontSize: "13px", color: "#BE123C", marginBottom: "16px" }}>{error}</div>}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-          <button onClick={onCancel} style={{ padding: "13px", borderRadius: "9px", background: "#F3F4F6", border: "1px solid #E5E7EB", cursor: "pointer", fontSize: "15px", fontWeight: 600, color: "#374151", minHeight: "44px" }}>Cancel</button>
-          <button onClick={onConfirm} disabled={loading} style={{ padding: "13px", borderRadius: "9px", background: loading ? PURPLE[400] : PURPLE[600], border: "none", cursor: loading ? "not-allowed" : "pointer", fontSize: "15px", fontWeight: 600, color: "#fff", minHeight: "44px" }}>{loading ? "Redirecting…" : "Retry"}</button>
+        <p style={{ fontSize: "13px", color: "#6B7280", margin: "0 0 4px", lineHeight: 1.6 }}>
+          <strong>{payment.description}</strong>
+        </p>
+        <p style={{ fontSize: "13px", color: "#6B7280", margin: "0 0 20px" }}>
+          {payment.amount} · Status:{" "}
+          <span style={{ fontWeight: 600, color: payment.status === "Failed" ? "#EF4444" : "#D97706" }}>
+            {payment.status}
+          </span>
+        </p>
+
+        <p style={{ fontSize: "13px", color: "#9CA3AF", margin: "0 0 24px" }}>
+          You'll be taken to a secure payment page to complete this.
+        </p>
+
+        {error && (
+          <div style={{ background: "#FFF1F2", border: "1px solid #FECDD3", borderRadius: "9px", padding: "10px 14px", fontSize: "13px", color: "#BE123C", marginBottom: "16px" }}>
+            {error}
+          </div>
+        )}
+
+        {/* Close + Retry buttons */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
+          <button
+            onClick={onCancel}
+            disabled={loading || cancelling}
+            style={{ padding: "13px", borderRadius: "9px", background: "#F3F4F6", border: "1px solid #E5E7EB", cursor: "pointer", fontSize: "15px", fontWeight: 600, color: "#374151", minHeight: "44px" }}
+          >
+            Close
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading || cancelling}
+            style={{ padding: "13px", borderRadius: "9px", background: loading ? PURPLE[400] : PURPLE[600], border: "none", cursor: loading ? "not-allowed" : "pointer", fontSize: "15px", fontWeight: 600, color: "#fff", minHeight: "44px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+          >
+            {loading ? (
+              <>
+                <div style={{ width: "13px", height: "13px", border: "2px solid rgba(255,255,255,0.35)", borderTopColor: "#fff", borderRadius: "50%", animation: "pd-spin 0.7s linear infinite" }} />
+                Redirecting…
+              </>
+            ) : "Retry →"}
+          </button>
         </div>
+
+        {/* Cancel section — visible red box */}
+        <div style={{ background: "#FFF5F5", border: "1px solid #FECACA", borderRadius: "10px", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+          <div style={{ textAlign: "left" }}>
+            <p style={{ fontSize: "13px", fontWeight: 600, color: "#374151", margin: "0 0 2px" }}>
+              Don't want this anymore?
+            </p>
+            <p style={{ fontSize: "11px", color: "#9CA3AF", margin: 0 }}>
+              Permanently marks as cancelled.
+            </p>
+          </div>
+
+          {cancelled ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "5px", color: "#059669", fontSize: "13px", fontWeight: 600, flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              Cancelled
+            </div>
+          ) : (
+            <button
+              onClick={handleCancelPayment}
+              disabled={cancelling || loading}
+              style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: "5px", padding: "8px 14px", borderRadius: "8px", background: cancelling ? "#FCA5A5" : "#EF4444", border: "none", cursor: cancelling ? "not-allowed" : "pointer", fontSize: "12px", fontWeight: 600, color: "#fff" }}
+            >
+              {cancelling ? (
+                <>
+                  <div style={{ width: "11px", height: "11px", border: "2px solid rgba(255,255,255,0.35)", borderTopColor: "#fff", borderRadius: "50%", animation: "pd-spin 0.7s linear infinite" }} />
+                  Cancelling…
+                </>
+              ) : (
+                <>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                  Cancel Payment
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {cancelError && (
+          <p style={{ fontSize: "12px", color: "#EF4444", margin: "8px 0 0", textAlign: "center" }}>
+            {cancelError}
+          </p>
+        )}
       </div>
     </ModalOverlay>
   );
 }
+
+
+
+
 
 function PaymentHistory({ payments = [], parentToken }) {
   const [filterOpen,   setFilterOpen]   = useState(false);
