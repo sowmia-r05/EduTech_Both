@@ -519,6 +519,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
 
     (async () => {
       try {
+        if (isWriting) return;
         const eligibility = await checkNotificationEligibility(attempt.child_id);
         if (!eligibility.shouldSend) return;
         const tbObj = attempt.topic_breakdown instanceof Map ? Object.fromEntries(attempt.topic_breakdown) : topicBreakdown;
