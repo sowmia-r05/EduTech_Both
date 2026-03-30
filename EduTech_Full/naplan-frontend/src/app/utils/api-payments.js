@@ -53,6 +53,35 @@ async function authPost(path, data, token) {
   return body;
 }
 
+async function authPatch(path, data, token) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = new Error(body?.error || `Request failed: ${res.status}`);
+    err.code = body?.code || null;
+    throw err;
+  }
+  return body;
+}
+
+
+/**
+ * Cancel a pending/failed purchase — marks it as "cancelled" in the DB.
+ * @param {string} token - Parent JWT
+ * @param {string} purchaseId - The _id of the purchase to cancel
+ */
+export async function cancelPayment(token, purchaseId) {
+  return authPatch(`/api/payments/cancel/${encodeURIComponent(purchaseId)}`, {}, token);
+}
 
 
 
@@ -113,3 +142,5 @@ export async function fetchPurchaseHistory(token) {
 export async function retryPayment(token, purchaseId) {
   return authPost(`/api/payments/retry/${encodeURIComponent(purchaseId)}`, {}, token);
 }
+
+
