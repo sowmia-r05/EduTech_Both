@@ -231,6 +231,13 @@ const fmtDuration = s => {
   return m<=0?`${r}s`:`${m}m ${r}s`;
 };
 
+const cleanTopicName = (raw) => {
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 3) return parts[1]; // "Category, Sub-topic, Difficulty" → Sub-topic
+  if (parts.length === 2) return parts[1]; // "Category, Sub-topic" → Sub-topic
+  return parts[0];                         // already clean (e.g. reading passage names)
+};
+
 const getStatus = pct =>
   pct>=85?{ label:"Outstanding",  cls:"text-emerald-600" }:
   pct>=70?{ label:"Well Done",    cls:"text-emerald-600" }:
@@ -507,6 +514,7 @@ useEffect(() => {
             </div>
 
             <TopicBreakdown entries={topicEntries}/>
+        
 
 
             {/* Action buttons */}
