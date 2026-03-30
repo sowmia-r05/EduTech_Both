@@ -216,6 +216,7 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       year_level,
       pin_hash: pin,
       status:       "trial",
+       email_notifications: req.body.email_notifications === true,
     });
     await child.save();
 
