@@ -374,12 +374,19 @@ async function saveWritingToCollection({
       try {
         const eligibility = await checkNotificationEligibility(childId);
         if (!eligibility.shouldSend) return; // ✅ checkbox off — skip silently
+        const writingScore = aiSuccess && aiFeedback ? {
+            points:    aiFeedback.overall?.total_score ?? null,
+            available: aiFeedback.overall?.max_score   ?? null,
+            band:      aiFeedback.overall?.band        || null,
+            summary:   aiFeedback.overall?.summary     || null,
+          } : null;
+
 
         await sendQuizCompletionEmail({
           parentEmail:    eligibility.parentEmail,
           childName:      eligibility.childName,
           quizName:       quizName || "Writing Quiz",
-          score:          null,         // writing has no instant score
+          score:          writingScore,         // writing has no instant score
           topicBreakdown: {},
           duration:       attemptSnapshot?.duration_sec,
           subject:        "Writing",
