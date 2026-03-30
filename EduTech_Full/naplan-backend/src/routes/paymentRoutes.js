@@ -154,6 +154,7 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
     await Purchase.create({
       parent_id: parentId,
       child_ids: child_ids,
+      child_namess: children.map((c) => c.display_name || c.username),
       bundle_id: bundle_id,
       bundle_name: bundle.bundle_name,
       stripe_session_id: session.id,
@@ -308,6 +309,7 @@ router.get(
             await Purchase.findByIdAndUpdate(purchase._id, {
               $set: {
                 status: "paid",
+                child_namess: children.map((c) => c.display_name || c.username),
                 stripe_payment_intent: stripeSession.payment_intent,
               },
             });

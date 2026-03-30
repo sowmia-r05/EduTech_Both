@@ -14,6 +14,7 @@ const PurchaseSchema = new mongoose.Schema(
         ref: "Child",
       },
     ],
+    child_names: [{ type: String, default: "" }],
     bundle_id: { type: String, required: true, index: true },
     bundle_name: { type: String, default: "" },
 
@@ -38,7 +39,7 @@ const PurchaseSchema = new mongoose.Schema(
     // Expiry
     expires_at: { type: Date, default: null },
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true, versionKey: false },
 );
 
 module.exports = mongoose.model("Purchase", PurchaseSchema);

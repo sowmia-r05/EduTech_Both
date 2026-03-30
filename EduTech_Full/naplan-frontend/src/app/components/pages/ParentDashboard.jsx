@@ -183,17 +183,28 @@ function mapChild(c) {
 }
 
 function mapPayment(p) {
-  const childName = p.child_name || (p.child_ids?.[0]?.display_name) || "Unknown child";
+  let childName = "—";
+  if (Array.isArray(p.child_ids) && p.child_ids.length) {
+    const names = p.child_ids
+      .map((c) => typeof c === "object" ? c.display_name || c.username || "?" : "?")
+      .filter(Boolean);
+    if (names.length) childName = names.join(", ");
+  }
+    if (childName === "—" && Array.isArray(p.child_names) && p.child_names.length) {
+    childName = p.child_names.filter(Boolean).join(", ");
+  }
+  const isDeletedChild = Array.isArray(p.child_ids) && p.child_ids.length > 0 && p.child_ids.every((c) => typeof c === "string");
   return {
     _id:         p._id,
-    description: p.description || p.bundle_name || "Bundle Purchase",
+    description: p.bundle_name || p.description || "Bundle Purchase",
     amount:      formatAUD(p.amount_cents ?? p.price_cents),
     status:      p.status ? p.status.charAt(0).toUpperCase() + p.status.slice(1) : "Pending",
-    date:        p.created_at ? new Date(p.created_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "—",
+    date:        p.createdAt ? new Date(p.createdAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "—",
     child:       childName,
-    isDeletedChild: false,
+    isDeletedChild,
   };
 }
+
 
 const cap = (s = "") => s.charAt(0).toUpperCase() + s.slice(1);
 const ini = (name = "") => name.split(" ").map((w) => w[0] || "").join("").slice(0, 2).toUpperCase() || "?";
@@ -716,8 +727,10 @@ function RetryConfirmModal({ payment, onConfirm, onCancel, loading, error, paren
 
 
 
-function PaymentHistory({ payments = [], parentToken }) {
-  const [filterOpen,   setFilterOpen]   = useState(false);
+function PaymentHistory({ payments: initialPayments = [], parentToken }) {
+  const [payments, setPayments] = useState(initialPayments);
+  useEffect(() => { setPayments(initialPayments); }, [initialPayments]);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [activeStatus, setActiveStatus] = useState("All");
   const [collapsed,    setCollapsed]    = useState(false);
   const filterRef   = useRef(null);
@@ -786,7 +799,7 @@ function PaymentHistory({ payments = [], parentToken }) {
               <div style={{ padding: "48px 24px", textAlign: "center", color: "#9CA3AF", fontSize: "14px" }}>{payments.length === 0 ? "No payment history yet" : "No payments match this filter"}</div>
             ) : filtered.map((p, idx) => {
               const st = STATUS_STYLE[p.status] || STATUS_STYLE.Paid;
-              const isRetryable = p.status === "Pending" || p.status === "Failed";
+              const isRetryable = p.status === "Pending"
               return (
                 <div key={p._id || idx}
                   onClick={isRetryable ? () => setRetryTarget(p) : undefined}
@@ -813,7 +826,17 @@ function PaymentHistory({ payments = [], parentToken }) {
           </div>
         )}
       </div>
-      {retryTarget && <RetryConfirmModal payment={retryTarget} loading={retryLoading} error={retryError} onConfirm={handleRetryConfirm} onCancel={() => { setRetryTarget(null); setRetryError(null); setRetryLoading(false); }} />}
+      {retryTarget && <RetryConfirmModal
+        payment={retryTarget}
+        loading={retryLoading}
+        error={retryError}
+        onConfirm={handleRetryConfirm}
+        parentToken={parentToken}
+        onCancelled={(id) => {
+          setPayments(prev => prev.map(p => p._id === id ? { ...p, status: "cancelled" } : p));
+        }}
+        onCancel={() => { setRetryTarget(null); setRetryError(null); setRetryLoading(false); }}
+      />}
     </>
   );
 }
