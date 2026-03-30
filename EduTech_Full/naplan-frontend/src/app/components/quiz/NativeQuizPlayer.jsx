@@ -474,7 +474,7 @@ const preloadNextImage = useCallback(() => {
         <div className="flex flex-col min-h-full">
         <QuizHeader
           quizName={quizMeta?.quiz_name || quiz.quiz_name}
-          currentIdx={currentIdx} totalQuestions={answerableQuestions.length}
+          currentIdx={currentIdx} totalQuestions={questions.length}
           answeredCount={answeredCount} timeLeft={timeLeft} onCancel={handleCancel}
         />
           <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-8 md:px-8">
@@ -504,7 +504,7 @@ const preloadNextImage = useCallback(() => {
             questions={questions} answers={answers} flagged={flagged}
             onPrev={goPrev} onNext={goNext} onGoTo={goTo}
             onReview={() => setPhase("review")} unansweredCount={unansweredCount}
-            onNextHover={preloadNextImage}
+            
           />
         </div>
       );
