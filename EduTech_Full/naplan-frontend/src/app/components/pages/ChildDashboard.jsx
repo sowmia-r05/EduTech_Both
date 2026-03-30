@@ -470,12 +470,24 @@ const entitledTests = useMemo(() => {
   /* ─── Gamification stats (original) ─── */
   const hasTests       = entitledTests.length > 0;
 
-const overallAverage = useMemo(() => {
-  const scored = entitledTests.filter(t => t.score !== null && t.score !== undefined);
-  return scored.length
-    ? Math.round(scored.reduce((s, t) => s + t.score, 0) / scored.length)
-    : 0;
-}, [entitledTests]);
+  const overallAverage = useMemo(() => {
+    // ✅ Deduplicate to latest attempt per quiz — matches parent dashboard logic
+    const latestPerQuiz = {};
+    entitledTests.forEach((t) => {
+      const key = t.quiz_id || t.quiz_name || t.name;
+      if (!key) return;
+      const existing = latestPerQuiz[key];
+      if (!existing || new Date(t.date) > new Date(existing.date)) {
+        latestPerQuiz[key] = t;
+      }
+    });
+    const latest = Object.values(latestPerQuiz);
+    const scored = latest.filter(t => t.score !== null && t.score !== undefined);
+    return scored.length
+      ? Math.round(scored.reduce((s, t) => s + t.score, 0) / scored.length)
+      : 0;
+  }, [entitledTests]);
+
 
 
 
