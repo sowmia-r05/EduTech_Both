@@ -260,6 +260,22 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
     return () => clearInterval(autoSaveTimer.current);
   }, [phase, attemptId, answers]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ═══ PRELOAD NEXT QUESTION IMAGE ═══   ← ADD THIS BLOCK HERE
+  useEffect(() => {
+    if (!questions || questions.length === 0) return;
+    const nextIdx = currentIdx + 1;
+    if (nextIdx >= questions.length) return;
+    const nextQuestion = questions[nextIdx];
+    if (!nextQuestion?.image_url) return;
+
+    const url = nextQuestion.image_url.startsWith("http")
+      ? nextQuestion.image_url
+      : `${import.meta.env.VITE_API_BASE_URL || ""}${nextQuestion.image_url}`;
+
+    const img = new window.Image();
+    img.src = url;
+  }, [currentIdx, questions]);
+
   // ═══ BUILD ANSWERS PAYLOAD ═══
   const buildAnswersPayload = useCallback(() => {
     return questions.map((q) => {

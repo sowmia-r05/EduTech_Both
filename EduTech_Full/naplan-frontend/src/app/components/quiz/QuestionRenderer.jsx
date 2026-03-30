@@ -73,6 +73,48 @@ function ImageModal({ src, alt, onClose }) {
 }
 
 /* ═══════════════════════════════════════
+   IMAGE WITH LOADING SKELETON
+   ═══════════════════════════════════════ */
+function ImageWithLoader({ src, width, height, onClick }) {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+
+  return (
+    <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+      {!loaded && !error && (
+        <div
+          className="mx-auto rounded-lg bg-slate-200 animate-pulse"
+          style={{
+            width: width ? `${Math.min(width, 600)}px` : "100%",
+            height: height ? `${height}px` : "200px",
+            maxWidth: "100%",
+          }}
+        />
+      )}
+      {!error && (
+        <img
+          src={src}
+          alt="Question image"
+          fetchPriority="high"
+          onLoad={() => setLoaded(true)}
+          onError={() => { setLoaded(true); setError(true); }}
+          onClick={onClick}
+          className={`object-contain mx-auto rounded-lg cursor-zoom-in transition-opacity duration-300 ${
+            loaded ? "opacity-100" : "opacity-0 h-0 pointer-events-none"
+          }${!height ? " max-h-96" : ""}${!width ? " max-w-full" : ""}`}
+          style={{
+            ...(width  ? { width: `${width}px`, maxWidth: "100%" } : {}),
+            ...(height ? { height: `${height}px`, objectFit: "contain" } : {}),
+          }}
+        />
+      )}
+      {error && (
+        <p className="text-center text-sm text-slate-400 py-6">⚠️ Image could not be loaded</p>
+      )}
+    </div>
+  );
+}
+/* ═══════════════════════════════════════
    RADIO BUTTON QUESTION
    ═══════════════════════════════════════ */
 function RadioQuestion({ question, answer, onAnswer, textStyle }) {
@@ -570,20 +612,13 @@ const optionsStyle = (
 
       {/* ── Question image ── */}
       {question.image_url && (
-        <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-          <img
-            src={resolveImgSrc(question.image_url)}
-            alt="Question image"
-            className={`object-contain mx-auto rounded-lg cursor-zoom-in${
-              !question.image_height ? " max-h-96" : ""
-            }${!question.image_width ? " max-w-full" : ""}`}
-            style={{
-              ...(question.image_width ? { width: `${question.image_width}px`, maxWidth: "100%" } : {}),
-              ...(question.image_height ? { height: `${question.image_height}px`, objectFit: "contain" } : {}),
-            }}
-            onClick={() => setZoomImg(resolveImgSrc(question.image_url))}
-          />
-        </div>
+        <ImageWithLoader
+          key={question.question_id}
+          src={resolveImgSrc(question.image_url)}
+          width={question.image_width}
+          height={question.image_height}
+          onClick={() => setZoomImg(resolveImgSrc(question.image_url))}
+        />
       )}
 
       {/* ── Answer inputs — textStyle passed to every type ── */}
