@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { ADMIN_PATH } from "@/app/App";
 
-const ADMIN_PATH = "/admin-portal";
+
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
 async function tutorFetch(url, options = {}) {
@@ -558,6 +559,7 @@ export default function TutorDashboard() {
   }, [navigate]);
 
   const fetchQuizDetail = async (quizId) => {
+    localStorage.setItem("tutor_selected_quiz_id", quizId);
     try {
       setLoadingQs(true);
       const res = await tutorFetch(`/api/tutor/quizzes/${quizId}`);
@@ -584,17 +586,21 @@ export default function TutorDashboard() {
     finally { setLoadingQs(false); }
   };
 
-  useEffect(() => {
-    fetchQuizzes();
-    tutorFetch("/api/tutor/me")
-      .then((r) => r.json())
-      .then((d) => { if (d.tutor) setTutorInfo(d.tutor); })
-      .catch(() => {});
-  }, [fetchQuizzes]);
+   useEffect(() => {
+  fetchQuizzes().then(() => {
+    const lastQuizId = localStorage.getItem("tutor_selected_quiz_id");
+    if (lastQuizId) fetchQuizDetail(lastQuizId);
+  });
 
-  const syncQuizStats = (allQs) => {
+  tutorFetch("/api/tutor/me")
+    .then((r) => r.json())
+    .then((d) => { if (d.tutor) setTutorInfo(d.tutor); })
+    .catch(() => {});
+}, [fetchQuizzes]);
+
+  const syncQuizStats = (allQs, quizId) => {
     setQuizzes((prev) => prev.map((qz) => {
-      if (qz.quiz_id !== selectedQuiz?.quiz_id) return qz;
+      if (qz.quiz_id !== quizId) return qz;
       const approved = allQs.filter((q) => (q.tutor_verification?.status || "pending") === "approved").length;
       const rejected = allQs.filter((q) => (q.tutor_verification?.status || "pending") === "rejected").length;
       const pending  = allQs.filter((q) => (q.tutor_verification?.status || "pending") === "pending").length;
@@ -605,7 +611,7 @@ export default function TutorDashboard() {
   const handleQuestionVerified = (updatedQ) => {
     const allQs = questions.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q);
     setQuestions(allQs);
-    syncQuizStats(allQs);
+    syncQuizStats(allQs, selectedQuiz?.quiz_id);
   };
 
   const handleQuestionEdited = (updatedQ) => {
@@ -615,7 +621,7 @@ export default function TutorDashboard() {
       : q
   );
   setQuestions(allQs);
-  syncQuizStats(allQs);
+  syncQuizStats(allQs, selectedQuiz?.quiz_id);
   setEditQuestion(null);
 };
 
