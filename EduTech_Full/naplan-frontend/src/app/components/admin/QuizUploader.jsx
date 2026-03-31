@@ -291,7 +291,7 @@ function parseCustomTemplate(workbook) {
     (row) => row.question_text && !String(row.question_text).startsWith("The question text")
   );
 
-  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing"];
+  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer"];
   const questions = [];
 
   dataRows.forEach((row, idx) => {
@@ -301,7 +301,7 @@ function parseCustomTemplate(workbook) {
       question_text: String(row.question_text || "").trim(),
       type: String(row.type || "").trim().toLowerCase(),
       options: [],
-      correct_answer: String(row.correct_answer || "").trim().toUpperCase(),
+      correct_answer: String(row.correct_answer || "").trim(),
       points: parseInt(row.points) || 1,
       category: String(row.category || "").trim(),
       image_url: String(row.image_url || "").trim(),
@@ -329,8 +329,11 @@ function parseCustomTemplate(workbook) {
       }
     });
 
-    if (q.type === "free_text") {
+     if (q.type === "free_text") {
       q.correct_answer = "";
+    } else if (q.type === "short_answer") {
+      // short_answer has no options — correct_answer is the actual text
+      q.options = [];
     } else {
       if (q.options.length < 2) { errors.push(`Row ${rowNum}: MCQ needs at least 2 options`); return; }
       if (!q.correct_answer) { errors.push(`Row ${rowNum}: Missing correct_answer`); return; }
@@ -400,7 +403,7 @@ function parseSimpleTemplate(workbook, fileName) {
     (row) => row.question_text && !String(row.question_text).startsWith("The question text")
   );
 
-  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing"];
+  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer"];
   const questions  = [];
 
   dataRows.forEach((row, idx) => {
@@ -410,7 +413,7 @@ function parseSimpleTemplate(workbook, fileName) {
       question_text:  String(row.question_text  || "").trim(),
       type:           String(row.type           || "radio_button").trim().toLowerCase(),
       options:        [],
-      correct_answer: String(row.correct_answer || "").trim().toUpperCase(),
+      correct_answer: String(row.correct_answer || "").trim(),
       points:         parseInt(row.points)      || 1,
       category:       String(row.category       || "").trim(),
       image_url:      String(row.image_url      || "").trim(),
@@ -440,6 +443,8 @@ function parseSimpleTemplate(workbook, fileName) {
 
     if (q.type === "free_text") {
       q.correct_answer = "";
+    } else if (q.type === "short_answer") {
+      q.options = [];  // no options needed
     } else {
       if (q.options.length < 2) { errors.push(`Row ${rowNum}: MCQ needs at least 2 options`); return; }
       if (!q.correct_answer)    { errors.push(`Row ${rowNum}: Missing correct_answer`); return; }
@@ -491,7 +496,8 @@ function Badge({ type }) {
   picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
   free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",  // ✅ NEW
+  writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
+  short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",  // ✅ ADD THIS
 };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>
