@@ -222,6 +222,7 @@ function parseFlexiQuiz(workbook, fileName) {
       category: categories,
       image_url: imageUrl,
       explanation: feedback,
+      voice_url:   "",
     };
 
     if (type !== "free_text") {
@@ -306,6 +307,7 @@ function parseCustomTemplate(workbook) {
       category: String(row.category || "").trim(),
       image_url: String(row.image_url || "").trim(),
       explanation: String(row.explanation || "").trim(),
+      voice_url:  String(row.voice_url      || "").trim(),
     };
 
     if (!q.question_text) { errors.push(`Row ${rowNum}: Missing question text`); return; }
@@ -418,6 +420,7 @@ function parseSimpleTemplate(workbook, fileName) {
       category:       String(row.category       || "").trim(),
       image_url:      String(row.image_url      || "").trim(),
       explanation:    String(row.explanation    || "").trim(),
+      voice_url:      String(row.voice_url      || "").trim(),
     };
 
     if (!q.question_text) { errors.push(`Row ${rowNum}: Missing question text`); return; }
@@ -598,6 +601,7 @@ export default function QuizUploader({ onUploadSuccess }) {
               category:       q.category,
               image_url:      q.image_url   || "",
               explanation:    q.explanation || "",
+              voice_url:      q.voice_url   || "",
             };
           }),
         }),
