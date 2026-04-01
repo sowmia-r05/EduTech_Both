@@ -629,12 +629,19 @@ export default function QuizUploader({ onUploadSuccess }) {
             return {
               question_text: q.question_text,
               type:          q.type,
-              options: (q.options || []).map((opt) => ({
-                ...opt,
-                correct:
-                  opt.correct === true ||
-                  correctLabels.includes((opt.label || "").toUpperCase()),
-              })),
+              options: q.type === "matching"
+  ? (q.options || []).map((opt) => ({
+      option_id: opt.option_id,
+      text:      opt.text,
+      match:     opt.match,   // ✅ explicitly preserved — was silently dropped if backend strips unknowns
+      correct:   true,
+    }))
+  : (q.options || []).map((opt) => ({
+      ...opt,
+      correct:
+        opt.correct === true ||
+        correctLabels.includes((opt.label || "").toUpperCase()),
+    })),
               correct_answer: q.correct_answer,
               points:         q.points,
               category:       q.category,
