@@ -556,6 +556,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     options: (question.options || []).map((o) => ({
       option_id: o.option_id,
       text:      o.text      || "",
+      match:     o.match     || "",   // ← ADD THIS
       image_url: o.image_url || "",
       correct:   o.correct   || false,
     })),
