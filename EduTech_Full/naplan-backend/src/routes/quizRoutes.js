@@ -434,7 +434,17 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
       let pointsScored = 0;
       const pointsAvailable = question.points || 1;
 
-      if (question.type !== "free_text") {
+      if (question.type === "matching") {
+        const pairs = ans.pairs || {};
+        const correctOptions = question.options || [];
+        let correctCount = 0;
+        for (const opt of correctOptions) {
+          if (pairs[opt.option_id] && pairs[opt.option_id] === opt.match) {
+            correctCount++;
+          }
+        }
+        pointsScored = correctCount === correctOptions.length ? pointsAvailable : 0;
+      } else if (question.type !== "free_text") {
         const correctIds = question.options.filter((o) => o.correct).map((o) => o.option_id).sort();
         const selectedIds = (ans.selected_option_ids || []).sort();
         const isCorrect = correctIds.length === selectedIds.length && correctIds.every((id, i) => id === selectedIds[i]);
@@ -454,6 +464,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
         question_id: ans.question_id,
         selected_option_ids: ans.selected_option_ids || [],
         text_answer: ans.text_answer || "",
+        pairs: ans.pairs || {},
         points_scored: pointsScored,
         points_available: pointsAvailable,
         is_correct: pointsScored > 0,
@@ -466,6 +477,13 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     else if (percentage >= 75) grade = "B";
     else if (percentage >= 60) grade = "C";
     else if (percentage >= 50) grade = "D";
+
+       attempt.answers = answers.map((a) => ({
+        question_id: a.question_id,
+        selected_option_ids: a.selected_option_ids || [],
+        text_answer: a.text_answer || "",
+        pairs: a.pairs || {},
+      }));
 
     attempt.answers = scoredAnswers;
     attempt.submitted_at = new Date();
