@@ -1451,7 +1451,8 @@ export default function QuizDetailPage() {
                     )}
 
                     {/* ── Options with buildTextStyle ── */}
-                    {q.options?.length > 0 && (
+            
+                    {q.options?.length > 0 && q.type !== "matching" && (
                       <div className="space-y-1.5 ml-10">
                         {q.options.map((opt, oi) => (
                           <div key={opt.option_id || oi}
@@ -1475,18 +1476,26 @@ export default function QuizDetailPage() {
                       </div>
                     )}
 
+                    {/* Matching pairs display — for tutor/admin review */}
                     {q.type === "matching" && q.options?.length > 0 && (
-                      <div className="mt-2 ml-10 space-y-1">
-                        {q.options.slice(0, 4).map((opt, oi) => (
+                      <div className="mt-3 ml-10 space-y-1.5">
+                        <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider mb-1.5">
+                          🔗 Match Pairs
+                        </p>
+                        {q.options.map((opt, oi) => (
                           <div key={oi} className="flex items-center gap-2 text-xs">
-                            <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded">{opt.text}</span>
-                            <span className="text-slate-600">→</span>
-                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded">{opt.match}</span>
+                            <span className="px-2 py-1 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-md font-medium">
+                              {opt.text}
+                            </span>
+                            <span className="text-slate-500">→</span>
+                            <span className="px-2 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded-md font-medium">
+                              {opt.match}
+                            </span>
                           </div>
                         ))}
-                        {q.options.length > 4 && (
-                          <p className="text-[10px] text-slate-600">+{q.options.length - 4} more pairs</p>
-                        )}
+                                {q.options.length > 4 && (
+          <p className="text-[10px] text-slate-600">+{q.options.length - 4} more pairs</p>
+        )}
                       </div>
                     )}
 

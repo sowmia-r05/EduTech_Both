@@ -16,13 +16,13 @@ const { v4: uuidv4 } = require("uuid");
 const OptionSchema = new mongoose.Schema(
   {
     option_id: { type: String, default: () => uuidv4() },
-    text: { type: String, default: "" },
+    text:      { type: String, default: "" },
     image_url: { type: String, default: null },
-    correct: { type: Boolean, default: false },
+    correct:   { type: Boolean, default: false },
+    match:     { type: String, default: null },  // ← ADD THIS
   },
   { _id: false }
 );
-
 const CategorySchema = new mongoose.Schema(
   {
     category_id: { type: String, default: () => uuidv4() },
