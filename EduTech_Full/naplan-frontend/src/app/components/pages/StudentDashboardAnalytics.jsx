@@ -133,10 +133,10 @@ function calcStreak(tests) {
 
 function scoreToStars(avg) {
   if (avg === null) return 0;
-  if (avg >= 85) return 5;
-  if (avg >= 70) return 4;
-  if (avg >= 55) return 3;
-  if (avg >= 40) return 2;
+  if (avg >= 81) return 5;
+  if (avg >= 61) return 4;
+  if (avg >= 41) return 3;
+  if (avg >= 21) return 2;
   return 1;
 }
 
@@ -461,9 +461,14 @@ const aiFocus     = rawFeedback?.areas_for_improvement?.[0] || null;
                                     <div className="flex items-center gap-2">
                     <SubjectIconBadge subject={s.subject} size="sm" />
                     <span className={"text-sm font-bold " + (hasData ? SUBJECT_TEXT[s.subject] : "text-slate-400")}>{s.subject}</span>
-                  </div>                  {hasData && (
-                    <span className={"text-[10px] font-bold px-1.5 py-0.5 rounded-full " + (trendUp ? "bg-emerald-100 text-emerald-700" : trendDn ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-500")}>
-                      {trendUp ? "↑ Up" : trendDn ? "↓ Down" : "→ Steady"}
+                  </div>                 
+                  {hasData && (
+                    <span className={"text-[10px] font-bold px-1.5 py-0.5 rounded-full " + 
+                      (stars <= 1 ? "bg-rose-100 text-rose-700" :
+                      trendUp ? "bg-emerald-100 text-emerald-700" : 
+                      trendDn ? "bg-rose-100 text-rose-700" : 
+                      "bg-slate-100 text-slate-500")}>
+                      {stars <= 1 ? "↓ Down" : trendUp ? "↑ Up" : trendDn ? "↓ Down" : "→ Steady"}
                     </span>
                   )}
                 </div>
