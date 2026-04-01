@@ -1451,7 +1451,8 @@ export default function QuizDetailPage() {
                     )}
 
                     {/* ── Options with buildTextStyle ── */}
-                    {q.options?.length > 0 && (
+            
+                    {q.options?.length > 0 && q.type !== "matching" && (
                       <div className="space-y-1.5 ml-10">
                         {q.options.map((opt, oi) => (
                           <div key={opt.option_id || oi}
