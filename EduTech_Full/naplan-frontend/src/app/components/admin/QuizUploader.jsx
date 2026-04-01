@@ -334,8 +334,27 @@ function parseCustomTemplate(workbook) {
      if (q.type === "free_text") {
       q.correct_answer = "";
     } else if (q.type === "short_answer") {
-      // short_answer has no options — correct_answer is the actual text
       q.options = [];
+    } else if (q.type === "matching") {
+      // Build pairs from option_a..d (left) + match_a..d (right)
+      q.options = [];
+      ["a","b","c","d"].forEach((letter) => {
+        const left  = String(row[`option_${letter}`] || "").trim();
+        const right = String(row[`match_${letter}`]  || "").trim();
+        if (left && right) {
+          q.options.push({
+            option_id: `pair_${Date.now()}_${letter}`,
+            text:    left,
+            match:   right,
+            correct: true,
+          });
+        }
+      });
+      q.correct_answer = "";
+      if (q.options.length < 2) {
+        errors.push(`Row ${rowNum}: Matching question needs at least 2 pairs (use option_a/match_a columns)`);
+        return;
+      }
     } else {
       if (q.options.length < 2) { errors.push(`Row ${rowNum}: MCQ needs at least 2 options`); return; }
       if (!q.correct_answer) { errors.push(`Row ${rowNum}: Missing correct_answer`); return; }
@@ -447,7 +466,26 @@ function parseSimpleTemplate(workbook, fileName) {
     if (q.type === "free_text") {
       q.correct_answer = "";
     } else if (q.type === "short_answer") {
-      q.options = [];  // no options needed
+      q.options = [];
+    } else if (q.type === "matching") {
+      q.options = [];
+      ["a","b","c","d"].forEach((letter) => {
+        const left  = String(row[`option_${letter}`] || "").trim();
+        const right = String(row[`match_${letter}`]  || "").trim();
+        if (left && right) {
+          q.options.push({
+            option_id: `pair_${Date.now()}_${letter}`,
+            text:    left,
+            match:   right,
+            correct: true,
+          });
+        }
+      });
+      q.correct_answer = "";
+      if (q.options.length < 2) {
+        errors.push(`Row ${rowNum}: Matching question needs at least 2 pairs (use option_a/match_a columns)`);
+        return;
+      }
     } else {
       if (q.options.length < 2) { errors.push(`Row ${rowNum}: MCQ needs at least 2 options`); return; }
       if (!q.correct_answer)    { errors.push(`Row ${rowNum}: Missing correct_answer`); return; }
