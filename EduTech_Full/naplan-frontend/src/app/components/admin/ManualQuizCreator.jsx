@@ -111,10 +111,10 @@ function FileUploadButton({ onUploaded, accept = "image/*,.pdf", label = "Upload
         type="file"
         accept={accept}
         className="hidden"
-        onChange={(e) => {
-          uploadFile(e.target.files?.[0]);
-          e.target.value = "";
-        }}
+            onChange={(e) => {
+              uploadFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
       />
     </div>
   );
@@ -159,6 +159,52 @@ function ImageField({ value, onChange, label = "Image" }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════
+   MATCHING PAIRS EDITOR
+   ═══════════════════════════════════════ */
+function MatchingPairsEditor({ pairs, onChange }) {
+  const addPair = () => {
+    if (pairs.length >= 8) return;
+    onChange([...pairs, { option_id: `pair_${Date.now()}`, text: "", match: "", correct: true }]);
+  };
+  const removePair = (idx) => {
+    if (pairs.length <= 2) return;
+    onChange(pairs.filter((_, i) => i !== idx));
+  };
+  const updatePair = (idx, field, value) => {
+    const next = [...pairs];
+    next[idx] = { ...next[idx], [field]: value };
+    onChange(next);
+  };
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-[1fr_1fr_28px] gap-2">
+        <div className="text-xs font-semibold text-indigo-400 uppercase tracking-wide px-1">Column A (Left)</div>
+        <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wide px-1">Column B (Right)</div>
+        <div />
+      </div>
+      {pairs.map((pair, idx) => (
+        <div key={pair.option_id || idx} className="grid grid-cols-[1fr_1fr_28px] gap-2 items-center">
+          <input type="text" value={pair.text || ""} onChange={(e) => updatePair(idx, "text", e.target.value)}
+            placeholder={`Left item ${idx + 1}`}
+            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white outline-none focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-500" />
+          <input type="text" value={pair.match || ""} onChange={(e) => updatePair(idx, "match", e.target.value)}
+            placeholder={`Right item ${idx + 1}`}
+            className="w-full bg-slate-900 border border-emerald-600/50 rounded-lg px-3 py-2 text-xs text-white outline-none focus:ring-2 focus:ring-emerald-500 placeholder:text-slate-500" />
+          <button type="button" onClick={() => removePair(idx)} disabled={pairs.length <= 2}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-30 transition">✕</button>
+        </div>
+      ))}
+      <button type="button" onClick={addPair} disabled={pairs.length >= 8}
+        className="text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-40 flex items-center gap-1">
+        + Add pair {pairs.length >= 8 ? "(max 8)" : ""}
+      </button>
+      <p className="text-[10px] text-slate-500 italic">Right items are shuffled for the student.</p>
     </div>
   );
 }
@@ -237,6 +283,9 @@ export function AddQuestionForm({ onAdd, onCancel }) {
 
     if (q.type === "short_answer") {
       if (!q.correct_answer.trim()) return alert("Correct answer is required for Short Answer questions");
+    } else if (q.type === "matching") {
+      const validPairs = q.options.filter((o) => (o.text || "").trim() && (o.match || "").trim());
+      if (validPairs.length < 2) return alert("At least 2 complete pairs required");
     } else if (q.type !== "free_text" && q.type !== "writing") {
       const validCount = q.options.filter(hasValidOption).length;
       if (validCount < 2) return alert("At least 2 options required");
@@ -244,8 +293,17 @@ export function AddQuestionForm({ onAdd, onCancel }) {
     }
 
     const cleanedOptions =
-    q.type === "free_text" || q.type === "short_answer" || q.type === "writing"
-      ? []
+      q.type === "free_text" || q.type === "short_answer" || q.type === "writing"
+        ? []
+        : q.type === "matching"
+        ? q.options
+            .filter((o) => (o.text || "").trim() && (o.match || "").trim())
+            .map((o) => ({
+              option_id: o.option_id || `pair_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+              text: o.text.trim(),
+              match: o.match.trim(),
+              correct: true,
+            }))
         : q.options
             .filter(hasValidOption)
             .map((o) => ({
@@ -266,7 +324,7 @@ export function AddQuestionForm({ onAdd, onCancel }) {
       correct_answer:
         q.type === "short_answer"
           ? q.correct_answer.trim()
-          : q.type === "free_text" || q.type === "writing"
+          : q.type === "free_text" || q.type === "writing" || q.type === "matching"
           ? ""
           : q.options
               .filter((o) => o.correct)
@@ -315,7 +373,24 @@ export function AddQuestionForm({ onAdd, onCancel }) {
       <div className="grid grid-cols-3 gap-3">
         <select
             value={q.type}
-            onChange={(e) => setQ((p) => ({ ...p, type: e.target.value }))}
+            onChange={(e) => {
+              const newType = e.target.value;
+              setQ((p) => ({
+                ...p,
+                type: newType,
+                options: newType === "matching"
+                  ? [
+                      { option_id: `pair_${Date.now()}_1`, text: "", match: "", correct: true },
+                      { option_id: `pair_${Date.now()}_2`, text: "", match: "", correct: true },
+                    ]
+                  : p.type === "matching"
+                  ? [
+                      { label: "A", text: "", image_url: "", correct: false },
+                      { label: "B", text: "", image_url: "", correct: false },
+                    ]
+                  : p.options,
+              }));
+            }}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
           >
             <option value="radio_button">Single Choice (MCQ)</option>
@@ -324,6 +399,7 @@ export function AddQuestionForm({ onAdd, onCancel }) {
             <option value="writing">Writing (text box)</option>
             <option value="free_text">Free Text (display only)</option>
             <option value="short_answer">Short Answer</option>
+            <option value="matching">Match the Following</option>
           </select>
 
         <div>
@@ -488,8 +564,19 @@ export function AddQuestionForm({ onAdd, onCancel }) {
         </div>
       )}
 
+      {/* Matching pairs */}
+      {q.type === "matching" && (
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-2">Match Pairs *</label>
+          <MatchingPairsEditor
+            pairs={q.options}
+            onChange={(pairs) => setQ((p) => ({ ...p, options: pairs }))}
+          />
+        </div>
+      )}
+
       {/* Options (hidden for free_text and short_answer) */}
-      {q.type !== "free_text" && q.type !== "short_answer" && q.type !== "writing" && (
+      {q.type !== "free_text" && q.type !== "short_answer" && q.type !== "writing" && q.type !== "matching" && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-medium text-slate-400">Options * (click ✓ for correct)</label>
@@ -818,6 +905,8 @@ export default function ManualQuizCreator({ isOpen, onClose, onSuccess }) {
                               ? "bg-orange-500/10 text-orange-400"
                               : qq.type === "writing"
                               ? "bg-pink-500/10 text-pink-400"
+                              : qq.type === "matching"
+                              ? "bg-teal-500/10 text-teal-400"
                               : "bg-purple-500/10 text-purple-400"
                           }`}
                         >

@@ -346,11 +346,11 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
   }[status];
 
   // In ParentView — update feedbackDoc lookup:
-  const feedbackDoc = cumulativeFeedback[selectedSubject === "All" ? "Overall" : selectedSubject] || null;
-  const rawFeedback = feedbackDoc?.feedback;
-  const aiSummary   = rawFeedback?.summary     ? reframeForParent(rawFeedback.summary, displayName)     : null;
-  const aiTips      = rawFeedback?.study_tips?.slice(0, 2).map((t) => reframeForParent(t, displayName)) || [];
-  const aiFocus     = rawFeedback?.areas_for_improvement?.[0];
+const feedbackDoc = cumulativeFeedback[selectedSubject === "All" ? "Overall" : selectedSubject] || null;
+const rawFeedback = feedbackDoc?.feedback;           // parent tone (pre-generated)
+const aiSummary   = rawFeedback?.summary             || null;
+const aiTips      = rawFeedback?.study_tips?.slice(0, 2) || [];
+const aiFocus     = rawFeedback?.areas_for_improvement?.[0] || null;
 
 
 
@@ -603,9 +603,9 @@ function ParentView({ tests, displayName, yearLevel, cumulativeFeedback, feedbac
             )}
 
             {/* Encouragement */}
-            {rawFeedback?.encouragement && (
+             {rawFeedback?.encouragement && (
               <p className="text-xs text-slate-500 italic border-t border-slate-100 pt-3">
-                ✨ {reframeForParent(rawFeedback.encouragement, displayName)}
+                ✨ {rawFeedback.encouragement}
               </p>
             )}
           </div>
@@ -649,17 +649,16 @@ function ChildView({ tests, displayName, cumulativeFeedback, feedbackLoading, re
   const subjectColor    = selectedSubject !== "All" ? SUBJECT_COLORS[selectedSubject] : "#6366F1";
 
   // AI feedback for selected subject
-  const feedbackDoc  = cumulativeFeedback[selectedSubject === "All" ? "Overall" : selectedSubject] || null;
-  const rawFeedback  = feedbackDoc?.feedback;
+ // AI feedback for selected subject
+const feedbackDoc      = cumulativeFeedback[selectedSubject === "All" ? "Overall" : selectedSubject] || null;
+const rawFeedback      = feedbackDoc?.feedback;                                  // parent tone
+const rawChildFeedback = feedbackDoc?.feedback_child || feedbackDoc?.feedback;   // child tone (fallback to parent if not yet generated)
 
-  const childSummary      = rawFeedback?.summary      ? reframeForChild(rawFeedback.summary, displayName)      : null;
-  const childEncouragement= rawFeedback?.encouragement? reframeForChild(rawFeedback.encouragement, displayName) : null;
-  const childTips         = rawFeedback?.study_tips?.slice(0, 3).map((t) => reframeForChild(t, displayName))   || [];
-  const childStrengths    = rawFeedback?.strengths?.slice(0, 3).map((s) => reframeForChild(s, displayName))    || [];
-  const childImprovements = rawFeedback?.areas_for_improvement?.slice(0, 2).map((a) => ({
-    issue:          reframeForChild(a.issue, displayName),
-    how_to_improve: reframeForChild(a.how_to_improve, displayName),
-  })) || [];
+const childSummary       = rawChildFeedback?.summary                             || null;
+const childEncouragement = rawChildFeedback?.encouragement                       || null;
+const childTips          = rawChildFeedback?.study_tips?.slice(0, 3)             || [];
+const childStrengths     = rawChildFeedback?.strengths?.slice(0, 3)              || [];
+const childImprovements  = rawChildFeedback?.areas_for_improvement?.slice(0, 2)  || [];
 
 
   return (

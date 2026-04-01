@@ -1,19 +1,15 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth }     from "@/app/context/AuthContext";
-import AnswersModal    from "./AnswersModal";
 import ChildAvatarMenu from "@/app/components/ui/ChildAvatarMenu";
-
-
-
-
+import AITutorTab from "./Aitutortab";
 
 
 /* ═══════════════════════════════════════════
    SELF-CONTAINED HEADER
    KAI logo  |  Tab pills  |  Quiz name + Avatar
    ═══════════════════════════════════════════ */
-function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentViewing, onBack, onBackToParent }) {
+  function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentViewing, onBack, onBackToParent, isWriting }) {
   const navigate = useNavigate();
 
   return (
@@ -82,6 +78,8 @@ function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentVie
               </svg>
             ),
           },
+
+
         ].map(tab => (
           <button key={tab.id} onClick={() => onTabChange(tab.id)} style={{
             display:"flex", alignItems:"center", gap:6,
@@ -231,6 +229,13 @@ const fmtDuration = s => {
   return m<=0?`${r}s`:`${m}m ${r}s`;
 };
 
+const cleanTopicName = (raw) => {
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 3) return parts[1]; // "Category, Sub-topic, Difficulty" → Sub-topic
+  if (parts.length === 2) return parts[1]; // "Category, Sub-topic" → Sub-topic
+  return parts[0];                         // already clean (e.g. reading passage names)
+};
+
 const getStatus = pct =>
   pct>=85?{ label:"Outstanding",  cls:"text-emerald-600" }:
   pct>=70?{ label:"Well Done",    cls:"text-emerald-600" }:
@@ -265,7 +270,7 @@ export default function QuizResult({
   useEffect(() => { authRef.current = { childProfile }; }, [childProfile]);
 
   const [activeTab,        setActiveTab]        = useState(0);
-  const [showAnswers,      setShowAnswers]       = useState(false);
+  const [showExplanations, setShowExplanations] = useState(false);
   const [aiPollStatus,     setAiPollStatus]      = useState(null);  // "done"|"error"|null
   const [subscriptionStatus, setSubscriptionStatus] = useState(childStatusProp || null); // "trial"|"active"|null
 
@@ -426,13 +431,11 @@ useEffect(() => {
           quizName={quizName}
           displayName={resolvedName}
           isParentViewing={isParentViewing || false}
+          isWriting={isWriting}   
           onBack={onClose}
           onBackToParent={() => navigate("/parent-dashboard")}
           onTabChange={(tabId) => {
-            if (tabId === 0) {
-              setActiveTab(0);
-              return;
-            }
+            if (tabId === 0) { setActiveTab(0); return; }
             if (!attemptId) return;
             const cp = authRef.current?.childProfile;
             const state = {
@@ -507,12 +510,37 @@ useEffect(() => {
             </div>
 
             <TopicBreakdown entries={topicEntries}/>
+        
 
 
             {/* Action buttons */}
             <div className="space-y-3 pt-2">
               {!isWriting && (
-                <ActionBtn onClick={() => setShowAnswers(true)} icon={<IcAnswers/>} label="View My Answers"/>
+                <>
+                  <button
+                    onClick={() => setShowExplanations((v) => !v)}
+                    className="group w-full inline-flex items-center justify-between px-5 py-4 rounded-xl transition-all shadow-sm border border-slate-200 bg-white hover:bg-slate-50"
+                  >
+                    <span className="flex items-center gap-3">
+                      <span className="w-9 h-9 rounded-lg flex items-center justify-center bg-slate-100 group-hover:bg-slate-200 text-slate-600">
+                        <IcAnswers />
+                      </span>
+                      <span className="text-sm font-semibold text-slate-700">View Answers + AI Explanations</span>
+                    </span>
+                    <svg className={`w-4 h-4 text-slate-400 transition-transform ${showExplanations ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+                    </svg>
+                  </button>
+                  {showExplanations && attemptId && (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      <AITutorTab
+                        attemptId={attemptId}
+                        yearLevel={childProfile?.yearLevel || result?.year_level || 3}
+                        apiFetch={apiFetch}
+                      />
+                    </div>
+                  )}
+                </>
               )}  
 
               {/* ✅ FIX: Show disabled state if attempts exhausted, retake button if allowed */}
@@ -534,17 +562,7 @@ useEffect(() => {
 
 
     {/* ── TAB 1: AI FEEDBACK (non-writing — embedded iframe) ── */}
-
- 
-      {showAnswers && !isWriting &&(
-        <AnswersModal
-          attemptId={attemptId}
-          quizName={quizName}
-          score={score}
-          topics={topics}
-          onClose={() => setShowAnswers(false)}
-        />
-      )}
+      
  
     </div>
   );
