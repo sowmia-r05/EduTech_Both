@@ -153,6 +153,7 @@ const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const quizRoutes = require("./routes/quizRoutes");
 const availableQuizzesRoute = require("./routes/availableQuizzesRoute");
 const flashcardsRoute = require("./routes/flashcardsRoute");
+const explanationRoutes = require("./routes/explanationRoutes");  // ✅ ADD HERE (with other requires)
 const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes");
 const ocrRoute = require("./routes/ocrRoute");
 const sessionRoutes = require("./routes/sessionRoutes");
@@ -250,6 +251,8 @@ app.use("/api/tutor", tutorRoutes);
 app.use("/api", quizRoutes);
 app.use("/api", availableQuizzesRoute);
 app.use("/api", flashcardsRoute);
+app.use("/api", explanationRoutes);  // ✅ ADD HERE
+
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
 app.use("/api/payments", paymentRoutes);

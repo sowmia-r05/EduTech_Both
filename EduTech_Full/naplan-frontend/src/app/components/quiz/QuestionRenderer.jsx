@@ -6,7 +6,7 @@
  *  ✅ Full OCR / Year 3 handwriting upload preserved from v9
  */
 
-import { useState, useRef } from "react";
+import { useState, useRef , useMemo  } from "react";
 import { useAuth } from "@/app/context/AuthContext";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
@@ -527,7 +527,91 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
 function FreeTextQuestion() {
   return null;
 }
+function MatchingQuestion({ question, answer, onAnswer, textStyle }) {
+  const rightItems = useMemo(() => {
+    const items = (question.options || []).map((o) => o.match || "").filter(Boolean);
+    const shuffled = [...items];
+    let seed = 0;
+    for (let i = 0; i < (question.question_id || "").length; i++) {
+      seed = (seed * 31 + (question.question_id || "").charCodeAt(i)) & 0xffffffff;
+    }
+    const rng = () => {
+      seed = (seed * 1664525 + 1013904223) & 0xffffffff;
+      return (seed >>> 0) / 0xffffffff;
+    };
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }, [question.question_id, question.options]);
 
+  const pairs = answer?.pairs || {};
+
+  const handleSelect = (optionId, rightText) => {
+    const updated = { ...pairs };
+    if (updated[optionId] === rightText) delete updated[optionId];
+    else updated[optionId] = rightText;
+    onAnswer({ pairs: updated });
+  };
+
+  const usedRightItems = Object.values(pairs);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-[1fr_32px_1fr] gap-2">
+        <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wide text-center pb-1 border-b border-indigo-100">Column A</div>
+        <div />
+        <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wide text-center pb-1 border-b border-emerald-100">Column B</div>
+      </div>
+      {(question.options || []).map((opt) => {
+        const selected = pairs[opt.option_id];
+        return (
+          <div key={opt.option_id} className="grid grid-cols-[1fr_32px_1fr] gap-2 items-center">
+            <div
+              className="px-4 py-3 rounded-xl border-2 border-slate-200 bg-white text-slate-700 text-sm font-medium text-center"
+              style={textStyle}
+            >
+              {opt.text}
+            </div>
+            <div className="flex items-center justify-center">
+              <svg className={`w-5 h-5 transition-colors ${selected ? "text-indigo-400" : "text-slate-300"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
+            <div className="relative">
+              <select
+                value={selected || ""}
+                onChange={(e) => handleSelect(opt.option_id, e.target.value)}
+                className={`w-full px-3 py-3 rounded-xl border-2 text-sm appearance-none outline-none transition-all cursor-pointer pr-8 ${
+                  selected
+                    ? "border-indigo-400 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100"
+                    : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                }`}
+                style={textStyle}
+              >
+                <option value="">— Select match —</option>
+                {rightItems.map((item) => (
+                  <option key={item} value={item} disabled={usedRightItems.includes(item) && selected !== item}>
+                    {item}{usedRightItems.includes(item) && selected !== item ? " ✓" : ""}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <p className="text-xs text-slate-400 text-right">
+        {Object.keys(pairs).length}/{(question.options || []).length} matched
+      </p>
+    </div>
+  );
+}
 /* ═══════════════════════════════════════
    MAIN: QuestionRenderer
    ═══════════════════════════════════════ */
@@ -645,6 +729,10 @@ const optionsStyle = (
       {question.type === "free_text" && <FreeTextQuestion />}
       {question.type === "short_answer" && (
         <ShortAnswerQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
+        
+      )}
+       {question.type === "matching" && (
+        <MatchingQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
       )}
 
       {/* ── Image zoom modal ── */}

@@ -117,6 +117,7 @@ function TypeBadge({ type }) {
     free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
     short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
     writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
+    matching:       "bg-teal-500/10 text-teal-400 border-teal-500/20",
   };
   const labels = {
     radio_button:   "Single Choice",
@@ -125,6 +126,7 @@ function TypeBadge({ type }) {
     free_text:      "Free Text",
     short_answer:   "Short Answer",
     writing:        "Writing",
+    matching:       "Match Following",
   };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>
@@ -781,6 +783,7 @@ const applyInlineStyle = (tag, style) => {
             <option value="writing">Writing (text box)</option>
             <option value="free_text">Free Text (display only)</option>
             <option value="short_answer">Short Answer</option>
+            <option value="matching">Match the Following</option>
           </select>
         </div>
         <div>
@@ -911,7 +914,7 @@ const applyInlineStyle = (tag, style) => {
         </div>
       </div>
 
-      {form.type !== "free_text" && form.type !== "short_answer" && form.type !== "writing" && (
+     {form.type !== "free_text" && form.type !== "short_answer" && form.type !== "writing" && form.type !== "matching" && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs text-slate-400">Options (check = correct)</label>
@@ -1469,6 +1472,21 @@ export default function QuizDetailPage() {
                     {q.type === "writing" && (
                       <div className="mt-2 ml-10 px-3 py-2 bg-pink-500/5 border border-pink-500/10 rounded-lg">
                         <p className="text-[10px] text-pink-400 font-medium">✏️ Student will write a text response</p>
+                      </div>
+                    )}
+
+                    {q.type === "matching" && q.options?.length > 0 && (
+                      <div className="mt-2 ml-10 space-y-1">
+                        {q.options.slice(0, 4).map((opt, oi) => (
+                          <div key={oi} className="flex items-center gap-2 text-xs">
+                            <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded">{opt.text}</span>
+                            <span className="text-slate-600">→</span>
+                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded">{opt.match}</span>
+                          </div>
+                        ))}
+                        {q.options.length > 4 && (
+                          <p className="text-[10px] text-slate-600">+{q.options.length - 4} more pairs</p>
+                        )}
                       </div>
                     )}
 

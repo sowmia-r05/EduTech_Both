@@ -292,7 +292,7 @@ function parseCustomTemplate(workbook) {
     (row) => row.question_text && !String(row.question_text).startsWith("The question text")
   );
 
-  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer"];
+  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer", "matching"];
   const questions = [];
 
   dataRows.forEach((row, idx) => {
@@ -405,7 +405,7 @@ function parseSimpleTemplate(workbook, fileName) {
     (row) => row.question_text && !String(row.question_text).startsWith("The question text")
   );
 
-  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer"];
+ const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer", "matching"];
   const questions  = [];
 
   dataRows.forEach((row, idx) => {
@@ -500,7 +500,8 @@ function Badge({ type }) {
   free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
   writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
-  short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",  // ✅ ADD THIS
+  short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  matching:       "bg-teal-500/10 text-teal-400 border-teal-500/20",
 };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>

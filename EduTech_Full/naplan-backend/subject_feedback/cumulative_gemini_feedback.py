@@ -125,7 +125,7 @@ def topic_pct(vals):
     return round(vals["scored"] / vals["total"] * 100)
 
 
-def build_prompt(payload):
+def build_prompt(payload, tone="parent"):
     display_name = payload.get("display_name") or "the student"
     year_level = payload.get("year_level") or "unknown"
     subject = payload.get("subject") or "Overall"
@@ -139,7 +139,6 @@ def build_prompt(payload):
     trend = compute_trend(tests)
     topics = aggregate_topics(tests)
 
-    # Sort by percentage for strong/weak
     sorted_topics = sorted(
         [(name, topic_pct(v)) for name, v in topics.items() if v.get("total", 0) > 0],
         key=lambda x: x[1], reverse=True
@@ -147,75 +146,102 @@ def build_prompt(payload):
     strong_topics = [f"{n} ({p}%)" for n, p in sorted_topics[:3] if p >= 70]
     weak_topics   = [f"{n} ({p}%)" for n, p in sorted_topics[-3:] if p < 65]
 
-    # Score history (last 8 attempts, chronological)
     sorted_tests  = sorted(tests, key=lambda t: parse_date(t.get("date")) or datetime.min)
     recent        = sorted_tests[-8:]
     score_history = ", ".join(f"{t['score']}%" for t in recent)
     quiz_names    = list({t.get("quiz_name", "") for t in recent if t.get("quiz_name")})
 
-    prompt = f"""You are an expert NAPLAN tutor and learning coach for Australian primary school students.
-You are generating CUMULATIVE feedback for a Year {year_level} student named {display_name}.
+    first_score = sorted_tests[0]["score"] if sorted_tests else 0
+    last_score  = sorted_tests[-1]["score"] if sorted_tests else 0
+    score_delta = last_score - first_score
 
+    quiz_detail_lines = []
+    for t in recent[-5:]:
+        name  = t.get("quiz_name", "Quiz")
+        score = t.get("score", 0)
+        date  = (t.get("date") or "")[:10]
+        quiz_detail_lines.append(f"  - {name}: {score}% on {date}")
+    quiz_detail = "\n".join(quiz_detail_lines) or "  - No detail available"
+
+    # ── tone-specific audience block ──
+    if tone == "child":
+        audience_block = f"""AUDIENCE: The child ({display_name}) is reading this directly.
+TONE: Warm, exciting, fun, direct second-person — always use "you" and "your".
+NEVER use {display_name}'s name in third person — talk TO them, not ABOUT them.
+Use simple Year {year_level} language. Make it feel like their favourite coach is cheering them on.
+Use energy words like "amazing", "you're crushing it", "level up", "you've got this", "keep going"."""
+    else:
+        audience_block = f"""AUDIENCE: The parent of {display_name} is reading this.
+TONE: Professional, warm, informative — use third-person about the child.
+Use "{display_name}" or "your child" throughout — never "you" referring to the child.
+Focus on what the parent can observe and support at home.
+Be encouraging but grounded — parents want honest, actionable insight."""
+
+    data_block = f"""
+STUDENT DATA:
 SUBJECT FOCUS: {subject_label}
 TOTAL QUIZZES COMPLETED: {total_tests}
 AVERAGE SCORE: {avg_score}%
 BEST SCORE: {best_score}%
 LOWEST SCORE: {worst_score}%
 PERFORMANCE TREND: {trend}
+SCORE JOURNEY: {first_score}% → {last_score}% (change: {score_delta:+d}%)
 RECENT SCORE HISTORY: {score_history}
 QUIZZES TAKEN: {', '.join(quiz_names[:5]) or 'Various quizzes'}
-"""
+RECENT QUIZ BREAKDOWN:
+{quiz_detail}"""
 
     if strong_topics:
-        prompt += f"\nSTRONG TOPICS (≥70%): {', '.join(strong_topics)}"
+        data_block += f"\nSTRONG TOPICS (≥70%): {', '.join(strong_topics)}"
     if weak_topics:
-        prompt += f"\nGROWTH TOPICS (<65%): {', '.join(weak_topics)}"
+        data_block += f"\nGROWTH TOPICS (<65%): {', '.join(weak_topics)}"
 
-    prompt += f"""
-
-Generate a personalised, cumulative coaching report based on ALL of {display_name}'s performance data above.
-This is NOT feedback on a single quiz — it synthesises ALL their quiz history.
-
-Return ONLY valid JSON in this exact format (no markdown, no preamble):
+    json_shape = f"""
+Return ONLY valid JSON (no markdown, no preamble):
 {{
-  "summary": "2-3 sentences — open with what they ARE doing well, then build excitement about where they are heading. Never open with a low score or a problem.",
+  "summary": "2-3 sentences — open with what they ARE doing well, then build excitement about where they are heading.",
   "strengths": [
-    "Something genuine to celebrate — even completing quizzes counts. Reference a specific topic or score.",
-    "Another real positive — consistency, a best score, a topic they handled well.",
-    "A third strength or effort-based praise, e.g. 'Completed {total_tests} quizzes — that dedication builds real skill.'"
+    "A genuine strength using their actual topic name or score — not generic.",
+    "Another real positive from their data.",
+    "Effort-based praise referencing {total_tests} quizzes completed."
   ],
   "areas_for_improvement": [
-    {{"issue": "Frame as an exciting next unlock, e.g. 'Levelling up in X' or 'Building speed in Y' — never say struggling or failing.", "how_to_improve": "One small, specific, doable action they can take today or this week."}},
-    {{"issue": "Second growth opportunity — phrased positively.", "how_to_improve": "Practical tip that feels achievable, not overwhelming."}}
+    {{"issue": "Name a specific topic from their actual data that has room to grow — use the real topic name.", "how_to_improve": "One concrete action tied to their quiz history."}},
+    {{"issue": "A second specific growth area — different topic, different angle.", "how_to_improve": "A practical, achievable tip different from the first."}}
   ],
   "study_tips": [
-    "Tip phrased as what TO DO — short, specific, actionable for Year {year_level}.",
-    "Tip 2 — practical and encouraging.",
-    "Tip 3 — can reference a specific topic from their history."
+    "Short, specific, actionable tip for Year {year_level} — references their actual data.",
+    "A second different tip — practical and encouraging.",
+    "A third tip referencing a specific topic from their history."
   ],
-  "encouragement": "1-2 sentences that feel personal and genuine. Reference their actual effort or a specific number (e.g. quizzes completed, best score). Must leave them feeling capable and excited to try again — not just reassured, but genuinely fired up.",
+  "encouragement": "1-2 sentences that feel personal. Reference a specific number (quizzes completed, best score, score improvement). Must feel genuine and fired up.",
   "trend": "{trend}",
   "topic_highlights": [
-    "Celebrate their best topic with enthusiasm and a specific percentage.",
-    "Frame the growth topic as exciting potential: 'X is your next big win — here is why.'"
+    "Name their actual strongest topic and its exact percentage — make it feel like a win.",
+    "Name their actual weakest topic and its score — frame it as their biggest opportunity."
   ]
 }}
 
-TONE RULES — mandatory, not optional:
-- You are the most encouraging coach they have ever had — warm, specific, and genuinely excited about their progress
-- NEVER use words like: struggling, failing, poor, low, bad, weak, behind, disappointing, needs work
-- ALWAYS reframe negatives as opportunities: "building toward", "next unlock", "ready to level up", "great foundation forming"
-- Even if the average score is below 40%, lead with effort — completing quizzes IS progress, any topic above 50% IS a strength
-- The child and their parent will read this together — it must leave both of them feeling hopeful and motivated
-- Be specific — mention actual topic names, quiz counts, or scores so it feels personal, not generic
-- Age-appropriate language for Year {year_level} — simple, direct, warm
+RULES:
+- NEVER use words: struggling, failing, poor, low, bad, weak, behind, disappointing
+- ALWAYS reframe negatives as opportunities
+- Be specific — use real topic names, quiz counts, actual scores from the data above
 - "areas_for_improvement" must have EXACTLY 2-3 items
-- "strengths" must have EXACTLY 2-3 items
+- "strengths" must have EXACTLY 3 items
 - "study_tips" must have EXACTLY 3 items
-- If subject is "Overall", acknowledge every subject they attempted — no subject left unmentioned
+- If subject is "Overall", acknowledge every subject attempted
 - Return ONLY JSON, no explanation, no markdown
 """
-    return prompt
+
+    return f"""You are an expert NAPLAN tutor and learning coach for Australian primary school students.
+You are generating CUMULATIVE feedback for a Year {year_level} student named {display_name}.
+
+{audience_block}
+{data_block}
+
+Generate a personalised cumulative coaching report based on ALL the data above.
+This synthesises ALL their quiz history — not a single quiz.
+{json_shape}"""
 
 
 def clean_json_output(text):
@@ -273,51 +299,57 @@ def main():
         print(json.dumps({"success": False, "error": f"AI init failed: {e}"}))
         sys.exit(0)
 
-    prompt = build_prompt(payload)
+    prompt_parent = build_prompt(payload, tone="parent")
+    prompt_child  = build_prompt(payload, tone="child")
 
-    try:
-        response = model.generate_content(
+    def call_gemini(prompt):
+        resp = model.generate_content(
             prompt,
             generation_config=genai.GenerationConfig(
-                temperature=0.4,
-                max_output_tokens=1200,
+                temperature=0.85,
+                max_output_tokens=1500,
             ),
         )
-        raw_output = response.text or ""
+        return resp.text or ""
+
+    def parse_feedback(raw_output):
+        cleaned = clean_json_output(raw_output)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group())
+                except Exception:
+                    return None
+        return None
+
+    try:
+        raw_parent = call_gemini(prompt_parent)
+        raw_child  = call_gemini(prompt_child)
     except Exception as e:
         print(json.dumps({"success": False, "error": f"AI API error: {e}"}))
         sys.exit(0)
 
-    cleaned = clean_json_output(raw_output)
+    feedback_parent = parse_feedback(raw_parent)
+    feedback_child  = parse_feedback(raw_child)
 
-    try:
-        feedback = json.loads(cleaned)
-    except json.JSONDecodeError:
-        # Fallback: try to extract the last valid JSON block from output
-        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if match:
-            try:
-                feedback = json.loads(match.group())
-            except Exception:
-                print(json.dumps({
-                    "success": False,
-                    "error": "Could not parse AI JSON output",
-                    "raw": raw_output[:500],
-                }))
-                sys.exit(0)
-        else:
-            print(json.dumps({
-                "success": False,
-                "error": "AI returned non-JSON output",
-                "raw": raw_output[:500],
-            }))
-            sys.exit(0)
+    if not feedback_parent or not feedback_child:
+        print(json.dumps({
+            "success": False,
+            "error": "Could not parse AI JSON output",
+            "raw_parent": raw_parent[:300],
+            "raw_child":  raw_child[:300],
+        }))
+        sys.exit(0)
 
     avg_score = round(sum(t["score"] for t in tests) / len(tests), 1) if tests else 0
 
     print(json.dumps({
         "success": True,
-        "feedback": feedback,
+        "feedback":       feedback_parent,   # ← parent sees this
+        "feedback_child": feedback_child,    # ← child sees this
         "meta": {
             "model": model_name,
             "attempt_count": len(tests),
