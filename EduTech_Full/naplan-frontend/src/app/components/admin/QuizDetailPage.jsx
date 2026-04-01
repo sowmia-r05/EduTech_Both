@@ -865,6 +865,49 @@ const applyInlineStyle = (tag, style) => {
         </div>
       )}
 
+      {/* Matching pairs editor */}
+      {form.type === "matching" && (
+        <div className="pt-3 border-t border-slate-700">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs text-slate-400 font-medium">🔗 Match Pairs *</label>
+            <button type="button"
+              onClick={() => setForm((f) => ({ ...f, options: [...f.options, { option_id: `pair_${Date.now()}`, text: "", match: "", correct: true }] }))}
+              disabled={form.options.length >= 8}
+              className="text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-40">
+              + Add Pair
+            </button>
+          </div>
+          <div className="space-y-2">
+            {form.options.map((pair, idx) => (
+              <div key={pair.option_id || idx} className="flex items-center gap-2">
+                <input type="text" value={pair.text || ""}
+                  onChange={(e) => {
+                    const opts = [...form.options];
+                    opts[idx] = { ...opts[idx], text: e.target.value };
+                    setForm((f) => ({ ...f, options: opts }));
+                  }}
+                  placeholder={`Left item ${idx + 1}`}
+                  className="flex-1 bg-slate-900 border border-indigo-600/50 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-indigo-500" />
+                <span className="text-slate-500 text-xs">→</span>
+                <input type="text" value={pair.match || ""}
+                  onChange={(e) => {
+                    const opts = [...form.options];
+                    opts[idx] = { ...opts[idx], match: e.target.value };
+                    setForm((f) => ({ ...f, options: opts }));
+                  }}
+                  placeholder={`Right item ${idx + 1}`}
+                  className="flex-1 bg-slate-900 border border-emerald-600/50 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-emerald-500" />
+                <button type="button"
+                  onClick={() => setForm((f) => ({ ...f, options: f.options.filter((_, i) => i !== idx) }))}
+                  disabled={form.options.length <= 2}
+                  className="text-slate-500 hover:text-red-400 disabled:opacity-30 text-xs">✕</button>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-500 mt-2 italic">Left items shown to students. Right items are shuffled for matching.</p>
+        </div>
+      )}
+
       <div className="pt-3 border-t border-slate-700 space-y-3">
         <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Question Settings</p>
         <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
@@ -1482,7 +1525,7 @@ export default function QuizDetailPage() {
                         <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider mb-1.5">
                           🔗 Match Pairs
                         </p>
-                        {q.options.map((opt, oi) => (
+                       {q.options.slice(0, 4).map((opt, oi) => ( 
                           <div key={oi} className="flex items-center gap-2 text-xs">
                             <span className="px-2 py-1 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-md font-medium">
                               {opt.text}
@@ -1493,9 +1536,9 @@ export default function QuizDetailPage() {
                             </span>
                           </div>
                         ))}
-                                {q.options.length > 4 && (
-          <p className="text-[10px] text-slate-600">+{q.options.length - 4} more pairs</p>
-        )}
+                      {q.options.length > 4 && (
+                   <p className="text-[10px] text-slate-600">+{q.options.length - 4} more pairs</p>
+                  )}
                       </div>
                     )}
 
