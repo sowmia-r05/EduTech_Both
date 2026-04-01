@@ -554,11 +554,12 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     correct_answer:  question.correct_answer  || "",
     case_sensitive:  question.case_sensitive  || false,
     options: (question.options || []).map((o) => ({
-      option_id: o.option_id,
-      text:      o.text      || "",
-      match:     o.match     || "",   // ← ADD THIS
-      image_url: o.image_url || "",
-      correct:   o.correct   || false,
+    option_id: o.option_id,
+  text:      o.text,
+  match:     o.match,      // ← ADD THIS if missing
+  image_url: o.image_url,
+  correct:   o.correct,
+  label:     o.label,
     })),
   });
   const [saving, setSaving] = useState(false);
@@ -1523,6 +1524,9 @@ export default function QuizDetailPage() {
                     {/* Matching pairs display — for tutor/admin review */}
                     {q.type === "matching" && q.options?.length > 0 && (
                       <div className="mt-3 ml-10 space-y-1.5">
+                        <pre className="text-[9px] text-yellow-400 bg-slate-800 p-2 rounded overflow-auto">
+      {JSON.stringify(q.options[0], null, 2)}
+    </pre>
                         <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider mb-1.5">
                           🔗 Match Pairs
                         </p>
