@@ -1524,9 +1524,6 @@ export default function QuizDetailPage() {
                     {/* Matching pairs display — for tutor/admin review */}
                     {q.type === "matching" && q.options?.length > 0 && (
                       <div className="mt-3 ml-10 space-y-1.5">
-                        <pre className="text-[9px] text-yellow-400 bg-slate-800 p-2 rounded overflow-auto">
-      {JSON.stringify(q.options[0], null, 2)}
-    </pre>
                         <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider mb-1.5">
                           🔗 Match Pairs
                         </p>
