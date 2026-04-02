@@ -442,7 +442,6 @@ function BulkMoveModal({ questionIds, currentQuizId, onClose, onMoved }) {
     if (!targetId) return;
     setMoving(true);
     try {
-      // Step 1: Copy questions to target quiz
       const moveResults = await Promise.all(
         questionIds.map((qId) =>
           adminFetch(`/api/admin/questions/${qId}/move`, {
@@ -455,18 +454,6 @@ function BulkMoveModal({ questionIds, currentQuizId, onClose, onMoved }) {
       if (moveFailed) {
         const d = await moveFailed.json().catch(() => ({}));
         throw new Error(d.error || "Some questions failed to move");
-      }
-
-      // Step 2: Delete from current quiz
-      const deleteResults = await Promise.all(
-        questionIds.map((qId) =>
-          adminFetch(`/api/admin/questions/${qId}?quiz_id=${currentQuizId}`, { method: "DELETE" })
-        )
-      );
-      const deleteFailed = deleteResults.find((r) => !r.ok);
-      if (deleteFailed) {
-        const d = await deleteFailed.json().catch(() => ({}));
-        throw new Error(d.error || "Transferred but failed to remove from current quiz");
       }
 
       onMoved();
