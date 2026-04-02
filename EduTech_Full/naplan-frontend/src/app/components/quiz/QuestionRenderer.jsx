@@ -529,7 +529,7 @@ function FreeTextQuestion() {
 }
 function MatchingQuestion({ question, answer, onAnswer, textStyle }) {
   const rightItems = useMemo(() => {
-    const items = (question.options || []).map((o) => o.match || "").filter(Boolean);
+    const items = (question.options || []).map((o) => o.match_text || o.match || o.right || "").filter(Boolean);
     const shuffled = [...items];
     let seed = 0;
     for (let i = 0; i < (question.question_id || "").length; i++) {
