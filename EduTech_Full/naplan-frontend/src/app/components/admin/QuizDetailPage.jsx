@@ -442,7 +442,8 @@ function BulkMoveModal({ questionIds, currentQuizId, onClose, onMoved }) {
     if (!targetId) return;
     setMoving(true);
     try {
-      const results = await Promise.all(
+      // Step 1: Copy questions to target quiz
+      const moveResults = await Promise.all(
         questionIds.map((qId) =>
           adminFetch(`/api/admin/questions/${qId}/move`, {
             method: "PATCH",
@@ -450,11 +451,24 @@ function BulkMoveModal({ questionIds, currentQuizId, onClose, onMoved }) {
           })
         )
       );
-      const failed = results.find((r) => !r.ok);
-      if (failed) {
-        const d = await failed.json().catch(() => ({}));
+      const moveFailed = moveResults.find((r) => !r.ok);
+      if (moveFailed) {
+        const d = await moveFailed.json().catch(() => ({}));
         throw new Error(d.error || "Some questions failed to move");
       }
+
+      // Step 2: Delete from current quiz
+      const deleteResults = await Promise.all(
+        questionIds.map((qId) =>
+          adminFetch(`/api/admin/questions/${qId}?quiz_id=${currentQuizId}`, { method: "DELETE" })
+        )
+      );
+      const deleteFailed = deleteResults.find((r) => !r.ok);
+      if (deleteFailed) {
+        const d = await deleteFailed.json().catch(() => ({}));
+        throw new Error(d.error || "Transferred but failed to remove from current quiz");
+      }
+
       onMoved();
       onClose();
     } catch (err) {
@@ -1060,6 +1074,27 @@ export default function QuizDetailPage() {
   // ── Bulk move state ──
   const [selectedIds,  setSelectedIds]  = useState(new Set());
   const [showBulkMove, setShowBulkMove] = useState(false);
+
+  const handleBulkDelete = async () => {
+  if (!selectedIds.size) return;
+  if (!confirm(`Delete ${selectedIds.size} selected question(s)? This cannot be undone.`)) return;
+  try {
+    const results = await Promise.all(
+      [...selectedIds].map((qId) =>
+        adminFetch(`/api/admin/questions/${qId}?quiz_id=${quizId}`, { method: "DELETE" })
+      )
+    );
+    const failed = results.find((r) => !r.ok);
+    if (failed) {
+      const d = await failed.json().catch(() => ({}));
+      throw new Error(d.error || "Some questions failed to delete");
+    }
+    setSelectedIds(new Set());
+    fetchDetail();
+  } catch (err) {
+    alert(err.message);
+  }
+};
 
   const toggleSelect = (id) => {
     setSelectedIds((prev) => {
