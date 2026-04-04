@@ -1240,17 +1240,20 @@ export default function QuizDetailPage() {
 // ✅ ADD
 const handleGenerateExplanations = async () => {
   if (!confirm("Regenerate AI explanations for all questions in this quiz?")) return;
-  setGeneratingExpl(true);
+  setGeneratingExpl(true);   // ✅ this already shows the loading button
   try {
     const res = await adminFetch(
       `/api/admin/quizzes/${quizId}/generate-explanations`,
       { method: "POST" }
     );
+    const data = await res.json();
     if (res.ok) {
-      alert("Started! Runs in background — may take a few minutes.");
+      alert(`✅ ${data.message}`);
     } else {
-      alert("Failed to start generation.");
+      alert("Failed: " + (data.error || "Unknown error"));
     }
+  } catch (err) {
+    alert("Error: " + err.message);
   } finally {
     setGeneratingExpl(false);
   }
