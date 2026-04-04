@@ -91,7 +91,15 @@ router.post(
         return res.json({ success: true, message: "Already running", ...existing });
       }
 
-      const questions = await Question.find({ quiz_ids: quizId }).lean();
+      const questions = await Question.find({
+        $or: [
+            { quiz_ids: quizId },
+            { quiz_id: quizId },
+            { quiz_ids: { $in: [quizId] } },
+        ]
+        }).lean();
+
+        console.log(`🔍 Found ${questions.length} questions for quiz ${quizId}`);
       if (questions.length === 0) {
         return res.status(404).json({ error: "No questions found for this quiz" });
       }
@@ -108,29 +116,36 @@ router.post(
       res.json({ success: true, total: questions.length, status: "running" });
 
       // ✅ Run in background
+     // ✅ Run in background
       setImmediate(async () => {
         let done = 0, failed = 0;
-        console.log(`🧠 Generating explanations for quiz ${quizId} — ${questions.length} questions`);
+        console.log(`🧠 Starting for quiz ${quizId} — ${questions.length} questions`);
+        console.log(`🐍 Python: ${PYTHON_BIN} | Root: ${BACKEND_ROOT}`);
 
         for (const q of questions) {
           try {
+            const qText = q.question_text || q.text || "";
+            console.log(`⏳ [${q.question_id}] text: "${qText.slice(0, 60)}"`);
+
             const result = await runExplainQuestion(q);
+            console.log(`📦 [${q.question_id}] result:`, JSON.stringify(result).slice(0, 300));
+
             if (result.success && result.explanations_by_year) {
               await Question.updateOne(
                 { question_id: q.question_id },
                 { $set: { explanations_by_year: result.explanations_by_year } }
               );
               done++;
+              console.log(`✅ [${done}/${questions.length}] saved: ${q.question_id}`);
             } else {
               failed++;
-              console.warn(`⚠️ [${q.question_id}]:`, result.error);
+              console.warn(`⚠️ [${q.question_id}] no explanations:`, result.error || JSON.stringify(result));
             }
           } catch (err) {
             failed++;
-            console.error(`❌ [${q.question_id}]:`, err.message);
+            console.error(`❌ [${q.question_id}] threw:`, err.message);
           }
 
-          // ✅ Update progress after each question
           progressMap.set(quizId, {
             status: "running",
             total: questions.length,
@@ -139,15 +154,7 @@ router.post(
           });
         }
 
-        // ✅ Mark complete
-        progressMap.set(quizId, {
-          status: "done",
-          total: questions.length,
-          done,
-          failed,
-        });
-
-        // ✅ Clear after 5 minutes
+        progressMap.set(quizId, { status: "done", total: questions.length, done, failed });
         setTimeout(() => progressMap.delete(quizId), 5 * 60 * 1000);
         console.log(`🏁 Done. ${done} saved, ${failed} failed for quiz ${quizId}`);
       });
