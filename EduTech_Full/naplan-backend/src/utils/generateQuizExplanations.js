@@ -20,11 +20,11 @@ Question ${i + 1} (ID: ${q.question_id})
   Topic: ${q.category}
 `).join("");
 
-  const prompt = `You are an AI tutor for Australian NAPLAN students (Year ${yearLevel}, Subject: ${subject}).
+  const prompt = `You are an expert AI tutor for Australian NAPLAN students (Year ${yearLevel}, Subject: ${subject}).
 
-For each question below, write:
-1. "explanation": Why the correct answer is correct (under 60 words, no emojis)
-2. "tip": A short memorable trick for next time (under 30 words)
+For each question below, write detailed, helpful feedback:
+1. "explanation": Clearly explain WHY the correct answer is correct. Include the concept behind it, how to work it out step by step, and why the other options are wrong. (60-100 words)
+2. "tip": A memorable strategy or trick students can use next time they see a similar question. (under 40 words)
 
 QUESTIONS:
 ${questionsBlock}
@@ -34,7 +34,14 @@ Return ONLY valid JSON, no markdown, no extra text:
   "explanations": [
     { "question_id": "...", "explanation": "...", "tip": "..." }
   ]
-}`;
+}
+
+RULES:
+- explanation must be 60-100 words — detailed but clear
+- mention WHY wrong answers are incorrect if helpful
+- use simple Year ${yearLevel} language
+- no emojis
+- tip must be a concrete strategy, not just a restatement`;
 
   const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
