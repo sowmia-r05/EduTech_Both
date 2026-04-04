@@ -36,15 +36,29 @@ function getIsCorrect(card) {
 }
 
 // ─── Cache helpers using sessionStorage ───
+// ─── Cache helpers using localStorage (7-day TTL) ───
+const EXPLAIN_TTL = 7 * 24 * 60 * 60 * 1000;
+
 function getCached(attemptId) {
   try {
-    const raw = sessionStorage.getItem(`explanations_${attemptId}`);
-    return raw ? JSON.parse(raw) : null;
+    const raw = localStorage.getItem(`explanations_${attemptId}`);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > EXPLAIN_TTL) {
+      localStorage.removeItem(`explanations_${attemptId}`);
+      return null;
+    }
+    return data;
   } catch { return null; }
 }
 
 function setCached(attemptId, data) {
-  try { sessionStorage.setItem(`explanations_${attemptId}`, JSON.stringify(data)); } catch {}
+  try {
+    localStorage.setItem(
+      `explanations_${attemptId}`,
+      JSON.stringify({ data, ts: Date.now() })
+    );
+  } catch {}
 }
 
 // ─── SVG Icons ───
@@ -412,20 +426,21 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
   let questionNum = 0;
 
   return (
-    <div style={{ padding: "24px 0 32px" }}>
+    <div style={{ padding: "24px 16px 32px" }}>
+
 
       {/* Section header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "20px" }}>
         <div>
           <h2 style={{ fontSize: "15px", fontWeight: 700, color: "#111827", margin: "0 0 2px" }}>
-            Answers &amp; AI Explanations
+            Answers &amp; Explanations
           </h2>
           <p style={{ fontSize: "12px", color: "#9CA3AF", margin: 0 }}>
             {totalCorrect} correct · {totalWrong} incorrect
             {loadingAI && (
               <span style={{ marginLeft: "8px", color: "#6366F1", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                 <span style={{ display: "inline-block", width: "10px", height: "10px", borderRadius: "50%", border: "1.5px solid #C7D2FE", borderTopColor: "#6366F1", animation: "spin 0.8s linear infinite" }} />
-                Loading AI explanations...
+                Loading explanations...
               </span>
             )}
           </p>
