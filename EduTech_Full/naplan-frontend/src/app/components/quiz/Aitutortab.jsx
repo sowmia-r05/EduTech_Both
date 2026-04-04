@@ -36,30 +36,6 @@ function getIsCorrect(card) {
 }
 
 // ─── Cache helpers using sessionStorage ───
-// ─── Cache helpers using localStorage (7-day TTL) ───
-const EXPLAIN_TTL = 7 * 24 * 60 * 60 * 1000;
-
-function getCached(attemptId) {
-  try {
-    const raw = localStorage.getItem(`explanations_${attemptId}`);
-    if (!raw) return null;
-    const { data, ts } = JSON.parse(raw);
-    if (Date.now() - ts > EXPLAIN_TTL) {
-      localStorage.removeItem(`explanations_${attemptId}`);
-      return null;
-    }
-    return data;
-  } catch { return null; }
-}
-
-function setCached(attemptId, data) {
-  try {
-    localStorage.setItem(
-      `explanations_${attemptId}`,
-      JSON.stringify({ data, ts: Date.now() })
-    );
-  } catch {}
-}
 
 // ─── SVG Icons ───
 const IcCheck = () => (
@@ -317,13 +293,7 @@ function QuestionCard({ card, questionNum, explanation, attemptId, yearLevel, ap
               </div>
             )}
           </div>
-        ) : (
-          <div style={{ marginTop: "14px", background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: "10px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ width: "14px", height: "14px", borderRadius: "50%", border: "2px solid #D1D5DB", borderTopColor: "#6366F1", animation: "spin 0.8s linear infinite", flexShrink: 0 }} />
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            <span style={{ fontSize: "12px", color: "#9CA3AF" }}>Loading AI explanation...</span>
-          </div>
-        )}
+       ) : null}
 
         {/* Chat — wrong answers only */}
         {!isCorrect && (
@@ -350,9 +320,7 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
   const young = isYoung(yearLevel);
 
   const [flashcards, setFlashcards] = useState([]);
-  const [explanations, setExplanations] = useState({});
-  const [loadingCards, setLoadingCards] = useState(true);
-  const [loadingAI, setLoadingAI] = useState(false);
+  const [loadingCards, setLoadingCards] = useState(true);  // ✅ ADD BACK
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState("all");
 
@@ -367,34 +335,6 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
   }, [attemptId, apiFetch]);
 
   // ── Load AI explanations — with sessionStorage cache ──
-  useEffect(() => {
-    if (!attemptId || loadingCards || flashcards.length === 0) return;
-
-    // ✅ Return cached explanations immediately — never call Gemini twice
-    const cached = getCached(attemptId);
-    if (cached) {
-      setExplanations(cached);
-      return;
-    }
-
-    setLoadingAI(true);
-    const timeout = setTimeout(() => setLoadingAI(false), 30000);
-
-    apiFetch(`/api/attempts/${attemptId}/explain`, { method: "POST", body: JSON.stringify({}) })
-      .then((res) => res.json())
-      .then((data) => {
-        clearTimeout(timeout);
-        const map = {};
-        (data.explanations || []).forEach((e) => { map[e.question_id] = e; });
-        setCached(attemptId, map); // ✅ cache it
-        setExplanations(map);
-        setLoadingAI(false);
-      })
-      .catch(() => { clearTimeout(timeout); setLoadingAI(false); });
-
-    return () => clearTimeout(timeout);
-  }, [attemptId, loadingCards, flashcards.length, apiFetch]);
-
   if (loadingCards) {
     return (
       <div style={{ padding: "32px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
@@ -437,12 +377,6 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
           </h2>
           <p style={{ fontSize: "12px", color: "#9CA3AF", margin: 0 }}>
             {totalCorrect} correct · {totalWrong} incorrect
-            {loadingAI && (
-              <span style={{ marginLeft: "8px", color: "#6366F1", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                <span style={{ display: "inline-block", width: "10px", height: "10px", borderRadius: "50%", border: "1.5px solid #C7D2FE", borderTopColor: "#6366F1", animation: "spin 0.8s linear infinite" }} />
-                Loading explanations...
-              </span>
-            )}
           </p>
         </div>
 
@@ -476,7 +410,11 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
               key={card.question_id || i}
               card={card}
               questionNum={questionNum}
-              explanation={explanations[card.question_id]}
+              explanation={
+  (card.explanation || card.tip)
+    ? { explanation: card.explanation || "", tip: card.tip || "" }
+    : null
+}
               attemptId={attemptId}
               yearLevel={yearLevel}
               apiFetch={apiFetch}

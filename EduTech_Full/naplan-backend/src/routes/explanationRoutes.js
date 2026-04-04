@@ -105,19 +105,10 @@ router.post("/attempts/:attemptId/explain", async (req, res) => {
     const { attempt, child, error, status } = await resolveAttemptAndChild(req, attemptId);
     if (error) return res.status(status).json({ error });
 
-    // Only explain scored/ai_done attempts (not writing, not in-progress)
-    const isWriting = /writing/i.test(attempt.subject || attempt.quiz_name || "");
-    if (isWriting) {
-      return res.status(400).json({ error: "Explanations not available for writing quizzes" });
-    }
+    // ✅ Read year level from child or attempt
+    const yearLevel = String(child?.year_level || attempt.year_level || "3");
 
-     if (attempt.ai_explanations && attempt.ai_explanations.length > 0) {
-      console.log(`✅ Returning cached explanations for ${attemptId}`);
-      return res.json({ explanations: attempt.ai_explanations });
-    }
-
-    // Pull wrong answers from the attempt
-    // ✅ ALL answers — correct + wrong
+    // ✅ Get all question IDs from this attempt
     const allAnswers = attempt.answers || [];
     if (allAnswers.length === 0) {
       return res.json({ explanations: [] });
@@ -125,67 +116,20 @@ router.post("/attempts/:attemptId/explain", async (req, res) => {
 
     const questionIds = allAnswers.map((a) => a.question_id);
     const questions = await Question.find({ question_id: { $in: questionIds } }).lean();
-    const qMap = Object.fromEntries(questions.map((q) => [q.question_id, q]));
 
-    const enrichedQuestions = allAnswers.map((a) => {
-      const q = qMap[a.question_id] || {};
-      const correctOption = (q.options || []).find((o) => o.correct);
-      const childOption = (q.options || []).find(
-        (o) => (a.selected_option_ids || []).includes(o.option_id)
-      );
-      const category = (q.categories && q.categories[0]?.name) || attempt.subject || "General";
+    // ✅ Build explanations from pre-stored explanations_by_year — NO Gemini call
+    const explanations = questions.map((q) => {
+      const expl = (q.explanations_by_year || {})[yearLevel] || {};
+      const answerRecord = allAnswers.find((a) => a.question_id === q.question_id);
       return {
-        question_id:    a.question_id,
-        question_text:  q.text || "(Question text unavailable)",
-        child_answer:   childOption?.text || a.text_answer || "(No answer given)",
-        correct_answer: correctOption?.text || "(See question)",
-        is_correct:     a.is_correct || false,
-        category,
+        question_id: q.question_id,
+        is_correct:  answerRecord?.is_correct || false,
+        explanation: expl.explanation || q.explanation || "",
+        tip:         expl.tip || "",
       };
     });
 
-    const yearLevel = child?.year_level || attempt.year_level || 3;
-    const childName = child?.display_name || child?.username || "Student";
-
-    // ✅ Only send WRONG answers to Gemini — faster + cheaper
-    const wrongQuestions = enrichedQuestions.filter((q) => !q.is_correct);
-    const correctQuestions = enrichedQuestions.filter((q) => q.is_correct);
-
-    // Instant confirmations for correct answers — no AI needed
-    const correctExplanations = correctQuestions.map((q) => ({
-      question_id: q.question_id,
-      is_correct:  true,
-      explanation: yearLevel <= 5 ? "Great job! You got this one right! 🌟" : "Correct. Well done.",
-      tip:         "",
-      emoji:       yearLevel <= 5 ? "🌟" : "",
-    }));
-
-    let wrongExplanations = [];
-    if (wrongQuestions.length > 0) {
-      const payload = {
-        mode:       "explain",
-        questions:  wrongQuestions,
-        year_level: yearLevel,
-        subject:    attempt.subject || "General",
-        child_name: childName,
-      };
-      console.log(`🤖 Generating explanations for ${wrongQuestions.length} wrong answers (skipping ${correctQuestions.length} correct)`);
-      const result = await runExplanationScript(payload);
-      if (!result.success) {
-        console.error(`❌ Explanation failed for ${attemptId}:`, result.error);
-        return res.status(500).json({ error: result.error || "Explanation generation failed" });
-      }
-      wrongExplanations = result.explanations || [];
-    }
-
-    const allExplanations = [...wrongExplanations, ...correctExplanations];
-
-    await QuizAttempt.updateOne(
-      { attempt_id: attemptId },
-      { $set: { ai_explanations: allExplanations } }
-    );
-
-    return res.json({ explanations: allExplanations });
+    return res.json({ success: true, explanations });
 
   } catch (err) {
     console.error("POST /explain error:", err.message);
