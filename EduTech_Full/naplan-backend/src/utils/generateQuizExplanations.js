@@ -1,65 +1,128 @@
-const { spawn } = require("child_process");
-const path = require("path");
-const Question = require("../models/question"); // adjust if path differs
+/**
+ * generateQuizExplanations.js
+ * Calls Gemini API directly from Node.js — no Python spawn needed.
+ */
 
-const PYTHON = process.env.PYTHON_PATH || "python3";
-const SCRIPT = path.join(__dirname, "../../ai/gemini_explanation.py");
+const connectDB  = require("../config/db");
+const Quiz       = require("../models/quiz");
+const Question   = require("../models/question");
 
-function runPython(payload) {
-  return new Promise((resolve) => {
-    const proc = spawn(PYTHON, [SCRIPT], { env: { ...process.env } });
-    let out = "";
-    proc.stdin.write(JSON.stringify(payload));
-    proc.stdin.end();
-    proc.stdout.on("data", (d) => (out += d.toString()));
-    proc.stderr.on("data", (d) => console.error("[AI explain stderr]", d.toString()));
-    proc.on("close", () => {
-      try { resolve(JSON.parse(out)); }
-      catch { resolve({ success: false, error: "JSON parse failed", raw: out }); }
-    });
+const explanation_progress = {};
+
+async function callGemini(questions, yearLevel, subject) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not set in .env");
+
+  const questionsBlock = questions.map((q, i) => `
+Question ${i + 1} (ID: ${q.question_id})
+  Text: ${q.question_text}
+  Correct answer: ${q.correct_answer}
+  Topic: ${q.category}
+`).join("");
+
+  const prompt = `You are an AI tutor for Australian NAPLAN students (Year ${yearLevel}, Subject: ${subject}).
+
+For each question below, write:
+1. "explanation": Why the correct answer is correct (under 60 words, no emojis)
+2. "tip": A short memorable trick for next time (under 30 words)
+
+QUESTIONS:
+${questionsBlock}
+
+Return ONLY valid JSON, no markdown, no extra text:
+{
+  "explanations": [
+    { "question_id": "...", "explanation": "...", "tip": "..." }
+  ]
+}`;
+
+  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
+    }),
   });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Gemini API error ${response.status}: ${err.slice(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+  // Strip markdown fences if present
+  const clean = text.replace(/```json|```/g, "").trim();
+  const parsed = JSON.parse(clean);
+  return parsed.explanations || [];
 }
 
-async function generateQuizExplanations(quizId) {
+async function generateQuizExplanations(quizId, progressMap = explanation_progress) {
+  await connectDB();
+
+  const quiz = await Quiz.findOne({ quiz_id: quizId }).lean();
+  if (!quiz) return;
+
+  const questions = await Question.find({ quiz_ids: quizId }).lean();
+  if (!questions.length) return;
+
+  progressMap[quizId] = { status: "running", done: 0, failed: 0, total: questions.length };
+
   try {
-    const questions = await Question.find({ quiz_id: quizId }).lean();
-    console.log(`[AI] Generating explanations for ${questions.length} questions in quiz ${quizId}`);
+    const payload = questions.map((q) => ({
+      question_id:    q.question_id,
+      question_text:  q.text || q.question_text || "",
+      correct_answer: q.correct_answer || "",
+      category:       q.categories?.[0]?.name || quiz.subject || "General",
+    }));
 
-    for (const q of questions) {
-      // Skip writing questions — nothing to explain
-      if ((q.type || "").toLowerCase() === "writing") continue;
+    const explanations = await callGemini(
+      payload,
+      parseInt(quiz.year_level) || 3,
+      quiz.subject || "General"
+    );
 
-      // Skip if already generated
-      if (q.ai_explanations_generated_at) continue;
+    let done = 0, failed = 0;
 
-      // Skip if no question text
-      if (!q.question_text?.trim()) continue;
+    await Promise.all(
+      explanations.map(async (expl) => {
+        if (!expl?.question_id || !expl?.explanation) { failed++; return; }
+        try {
+          await Question.updateOne(
+            { question_id: expl.question_id },
+            {
+              $set: {
+                "ai_explanation.explanation":  expl.explanation,
+                "ai_explanation.tip":          expl.tip || "",
+                "ai_explanation.generated_at": new Date(),
+              },
+            }
+          );
+          done++;
+        } catch (e) {
+          console.error("DB save failed:", expl.question_id, e.message);
+          failed++;
+        }
+      })
+    );
 
-      const result = await runPython({
-        mode: "explain_question",
-        question: {
-          question_id:    q.question_id || String(q._id),
-          question_text:  q.question_text || "",
-          correct_answer: q.correct_answer || "",
-          category:       q.category || q.sub_topic || "General",
-        },
-      });
+    progressMap[quizId] = { status: "done", done, failed, total: questions.length };
+    console.log(`✅ Quiz ${quizId}: ${done} explanations saved, ${failed} failed`);
 
-      if (result.success && result.explanations_by_year) {
-        await Question.findByIdAndUpdate(q._id, {
-          ai_explanations:              result.explanations_by_year,
-          ai_explanations_generated_at: new Date(),
-        });
-        console.log(`[AI] ✅ Question ${q.question_id || q._id} done`);
-      } else {
-        console.warn(`[AI] ⚠️ Question ${q.question_id || q._id} failed:`, result.error);
-      }
-    }
-
-    console.log(`[AI] ✅ Finished explanations for quiz ${quizId}`);
   } catch (err) {
-    console.error(`[AI] ❌ generateQuizExplanations error:`, err.message);
+    console.error("generateQuizExplanations error:", err.message);
+    progressMap[quizId] = {
+      status: "done", done: 0,
+      failed: questions.length,
+      total: questions.length,
+      error: err.message,   // ← shows in the UI popup
+    };
   }
 }
 
-module.exports = { generateQuizExplanations };
+module.exports = { generateQuizExplanations, explanation_progress };
