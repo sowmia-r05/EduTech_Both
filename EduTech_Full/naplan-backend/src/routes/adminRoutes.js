@@ -706,17 +706,50 @@ router.patch("/questions/:questionId/move", requireAdmin, async (req, res) => {
     if (!from_quiz_id || !to_quiz_id)
       return res.status(400).json({ error: "from_quiz_id and to_quiz_id required" });
 
-    await Question.updateOne(
-      { question_id: questionId },
-      { $pull: { quiz_ids: from_quiz_id } }
-    );
-    await Question.updateOne(
-      { question_id: questionId },
-      { $addToSet: { quiz_ids: to_quiz_id }, $set: { order: null } }
-    );
+    const isObjectId = (id) => /^[a-f\d]{24}$/i.test(id);
 
+    const sourceQuiz = await Quiz.findOne(
+      isObjectId(from_quiz_id)
+        ? { $or: [{ quiz_id: from_quiz_id }, { _id: from_quiz_id }] }
+        : { quiz_id: from_quiz_id }
+    ).lean();
+    if (!sourceQuiz) return res.status(404).json({ error: "Source quiz not found" });
+
+    const destQuiz = await Quiz.findOne(
+      isObjectId(to_quiz_id)
+        ? { $or: [{ quiz_id: to_quiz_id }, { _id: to_quiz_id }] }
+        : { quiz_id: to_quiz_id }
+    ).lean();
+    if (!destQuiz) return res.status(404).json({ error: "Destination quiz not found" });
+
+    const actualFromId = sourceQuiz.quiz_id;
+    const actualToId   = destQuiz.quiz_id;
+
+    const question = await Question.findOne({ question_id: questionId }).lean();
+    if (!question) return res.status(404).json({ error: "Question not found" });
+
+    console.log(`Question ${questionId} current quiz_ids:`, question.quiz_ids);
+    console.log(`Pulling: ${actualFromId}, Adding: ${actualToId}`);
+
+    await Question.updateOne({ question_id: questionId }, { $pull: { quiz_ids: actualFromId } });
+    await Question.updateOne({ question_id: questionId }, { $addToSet: { quiz_ids: actualToId }, $set: { order: null } });
+
+    await Quiz.updateOne({ quiz_id: actualFromId }, { $pull: { question_ids: questionId } });
+    const updatedSource = await Quiz.findOne({ quiz_id: actualFromId }).lean();
+    if (updatedSource) {
+      await Quiz.updateOne({ quiz_id: actualFromId }, { $set: { question_count: (updatedSource.question_ids || []).length } });
+    }
+
+    await Quiz.updateOne({ quiz_id: actualToId }, { $addToSet: { question_ids: questionId } });
+    const updatedDest = await Quiz.findOne({ quiz_id: actualToId }).lean();
+    if (updatedDest) {
+      await Quiz.updateOne({ quiz_id: actualToId }, { $set: { question_count: (updatedDest.question_ids || []).length } });
+    }
+
+    console.log(`✅ Moved ${questionId}: ${actualFromId} → ${actualToId}`);
     res.json({ success: true });
   } catch (err) {
+    console.error("Move error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
