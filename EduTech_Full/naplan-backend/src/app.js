@@ -159,6 +159,7 @@ const ocrRoute = require("./routes/ocrRoute");
 const sessionRoutes = require("./routes/sessionRoutes");
 const resultRoutes = require("./routes/resultRoutes");
 const regenerateAiRoute = require("./routes/regenerateAiRoute");
+const quizExplanationsRoute = require("./routes/quizExplanationsRoute");
 
 const {
   secureLegacyResults,
@@ -244,6 +245,7 @@ app.get("/", (req, res) => {
 // ─── Admin ────────────────────────────────────────────────────────────────────
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
+app.use("/api/admin", quizExplanationsRoute);
 // add right below it:
 app.use("/api/tutor", tutorRoutes);
 
