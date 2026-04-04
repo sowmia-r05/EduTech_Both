@@ -195,37 +195,39 @@ RULES:
 
 def run_explain_question(payload: dict, model) -> dict:
     """
-    Pre-generates explanations for a single question across all year levels.
+    Generates explanation for a single question using the quiz's year level only.
     Called at quiz upload time, NOT per-student.
-    Returns { success, explanations_by_year: { "3": {...}, "5": {...}, "7": {...}, "9": {...} } }
+    Returns { success, explanations_by_year: { "<year>": { explanation, tip } } }
     """
     question = payload.get("question") or {}
+    year_level = payload.get("year_level")  # ← comes from the quiz (e.g. Year 3)
+
     if not question.get("question_text"):
         return {"success": False, "error": "No question_text provided"}
 
-    explanations_by_year = {}
+    if not year_level:
+        return {"success": False, "error": "No year_level provided — skipping"}
 
-    for yr in [3, 5, 7, 9]:
-        prompt = build_single_question_prompt(question, yr)
-        try:
-            resp = model.generate_content(prompt)
-            text = getattr(resp, "text", "") or ""
-            if not text:
-                raise ValueError("Empty response")
-            result = extract_json(text)
-            explanations_by_year[str(yr)] = {
-                "explanation": result.get("explanation", ""),
-                "tip":         result.get("tip", ""),
-            }
-        except Exception as e:
-            # Don't fail entirely — store empty for this year level
-            explanations_by_year[str(yr)] = {
-                "explanation": "",
-                "tip":         "",
-                "error":       str(e),
-            }
+    yr = int(year_level)
+    prompt = build_single_question_prompt(question, yr)
 
-    return {"success": True, "explanations_by_year": explanations_by_year}
+    try:
+        resp = model.generate_content(prompt)
+        text = getattr(resp, "text", "") or ""
+        if not text:
+            raise ValueError("Empty response")
+        result = extract_json(text)
+        return {
+            "success": True,
+            "explanations_by_year": {
+                str(yr): {
+                    "explanation": result.get("explanation", ""),
+                    "tip":         result.get("tip", ""),
+                }
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 def run_explain(payload: dict, model) -> dict:
