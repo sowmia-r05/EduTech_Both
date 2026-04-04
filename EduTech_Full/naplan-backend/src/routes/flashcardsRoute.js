@@ -79,7 +79,10 @@ router.get("/attempts/:attemptId/flashcards", verifyToken, requireAuth, async (r
         correct_answer:    q.correct_answer || null,
         child_answer:      childAnswerText,
         is_correct:        answer?.is_correct ?? (answer ? (answer.points_scored ?? 0) > 0 : false),
-        explanation:       q.explanation || null,
+        explanation: ((q.explanations_by_year || {})[String(attempt.year_level || "3")] || {}).explanation
+             || q.explanation || null,
+        tip:         ((q.explanations_by_year || {})[String(attempt.year_level || "3")] || {}).tip
+             || null,
         difficulty:        q.difficulty || null,
         topic:             q.topic || q.strand || null,
         image_url:         q.image_url || null,        // ✅ ADD
@@ -208,7 +211,10 @@ router.get("/children/:childId/flashcards", verifyToken, requireAuth, async (req
           correct_answers: correctOptions.map((o) => o.text),
           child_answer:   childAnswerText,
           is_correct:     false,
-          explanation:    q.explanation || null,
+          explanation: ((q.explanations_by_year || {})[String(attempt.year_level || "3")] || {}).explanation
+             || q.explanation || null,
+tip:         ((q.explanations_by_year || {})[String(attempt.year_level || "3")] || {}).tip
+             || null,
           topic:          q.topic || q.strand || null,
           subject:        attempt.subject,
           quiz_name:      attempt.quiz_name,
