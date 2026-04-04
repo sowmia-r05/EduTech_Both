@@ -1,11 +1,3 @@
-/**
- * routes/quizExplanationsRoute.js
- *
- * POST /api/admin/quizzes/:quizId/generate-explanations
- * Generates and stores explanations_by_year for every question in a quiz.
- * Called from the admin QuizDetailPage "Generate Explanations" button.
- */
-
 const express = require("express");
 const { spawn } = require("child_process");
 const path = require("path");
@@ -17,9 +9,11 @@ const router = express.Router();
 
 const BACKEND_ROOT = path.resolve(__dirname, "../..");
 const PYTHON_BIN = process.env.PYTHON_BIN || (process.platform === "win32" ? "py" : "python3");
-const TIMEOUT_MS = 60000; // 60s per question
+const TIMEOUT_MS = 60000;
 
-// ─── Run gemini_explanation.py in explain_question mode ───
+// ✅ In-memory progress tracker — { quizId: { total, done, failed, status } }
+const progressMap = new Map();
+
 function runExplainQuestion(question) {
   return new Promise((resolve, reject) => {
     const child = spawn(PYTHON_BIN, ["-m", "ai.gemini_explanation"], {
@@ -27,11 +21,9 @@ function runExplainQuestion(question) {
       env: { ...process.env },
       timeout: TIMEOUT_MS,
     });
-
     let stdout = "", stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
     child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-
     child.on("close", (code) => {
       if (code !== 0) return reject(new Error(`Python exited ${code}: ${stderr || stdout}`));
       const text = (stdout || "").trim();
@@ -47,9 +39,7 @@ function runExplainQuestion(question) {
         return reject(new Error(`No JSON in output: ${text.slice(-200)}`));
       }
     });
-
     child.on("error", (err) => reject(new Error(`Spawn failed: ${err.message}`)));
-
     child.stdin.write(JSON.stringify({
       mode: "explain_question",
       question: {
@@ -66,9 +56,26 @@ function runExplainQuestion(question) {
   });
 }
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════
+// GET /api/admin/quizzes/:quizId/generate-explanations/status
+// ✅ Frontend polls this to check progress
+// ═══════════════════════════════════════════════════
+router.get(
+  "/quizzes/:quizId/generate-explanations/status",
+  verifyToken,
+  requireAuth,
+  (req, res) => {
+    const progress = progressMap.get(req.params.quizId);
+    if (!progress) {
+      return res.json({ status: "idle" });
+    }
+    return res.json(progress);
+  }
+);
+
+// ═══════════════════════════════════════════════════
 // POST /api/admin/quizzes/:quizId/generate-explanations
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════
 router.post(
   "/quizzes/:quizId/generate-explanations",
   verifyToken,
@@ -78,55 +85,76 @@ router.post(
       await connectDB();
       const { quizId } = req.params;
 
-      // Find all questions for this quiz
-      const questions = await Question.find({ quiz_ids: quizId }).lean();
+      // ✅ Prevent double-running
+      const existing = progressMap.get(quizId);
+      if (existing?.status === "running") {
+        return res.json({ success: true, message: "Already running", ...existing });
+      }
 
+      const questions = await Question.find({ quiz_ids: quizId }).lean();
       if (questions.length === 0) {
         return res.status(404).json({ error: "No questions found for this quiz" });
       }
 
-      // ✅ Respond immediately so the UI doesn't hang
-      res.json({
-        success: true,
-        message: `Started generating explanations for ${questions.length} questions. Runs in background.`,
+      // ✅ Set initial progress
+      progressMap.set(quizId, {
+        status: "running",
         total: questions.length,
+        done: 0,
+        failed: 0,
       });
 
-      // ✅ Run in background AFTER responding
+      // ✅ Respond immediately
+      res.json({ success: true, total: questions.length, status: "running" });
+
+      // ✅ Run in background
       setImmediate(async () => {
         let done = 0, failed = 0;
-        console.log(`🧠 Starting explanation generation for quiz ${quizId} — ${questions.length} questions`);
+        console.log(`🧠 Generating explanations for quiz ${quizId} — ${questions.length} questions`);
 
         for (const q of questions) {
           try {
             const result = await runExplainQuestion(q);
-
             if (result.success && result.explanations_by_year) {
               await Question.updateOne(
                 { question_id: q.question_id },
                 { $set: { explanations_by_year: result.explanations_by_year } }
               );
               done++;
-              console.log(`  ✅ [${done}/${questions.length}] ${q.question_id}`);
             } else {
               failed++;
-              console.warn(`  ⚠️ [${q.question_id}] No explanations returned:`, result.error);
+              console.warn(`⚠️ [${q.question_id}]:`, result.error);
             }
           } catch (err) {
             failed++;
-            console.error(`  ❌ [${q.question_id}] Failed:`, err.message);
+            console.error(`❌ [${q.question_id}]:`, err.message);
           }
+
+          // ✅ Update progress after each question
+          progressMap.set(quizId, {
+            status: "running",
+            total: questions.length,
+            done: done + failed,
+            failed,
+          });
         }
 
+        // ✅ Mark complete
+        progressMap.set(quizId, {
+          status: "done",
+          total: questions.length,
+          done,
+          failed,
+        });
+
+        // ✅ Clear after 5 minutes
+        setTimeout(() => progressMap.delete(quizId), 5 * 60 * 1000);
         console.log(`🏁 Done. ${done} saved, ${failed} failed for quiz ${quizId}`);
       });
 
     } catch (err) {
       console.error("generate-explanations error:", err.message);
-      // Only send error if we haven't responded yet
-      if (!res.headersSent) {
-        res.status(500).json({ error: err.message });
-      }
+      if (!res.headersSent) res.status(500).json({ error: err.message });
     }
   }
 );
