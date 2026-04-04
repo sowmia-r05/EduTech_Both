@@ -225,7 +225,6 @@ const getInitialTab = () => {
     const p = parseInt(searchParams.get("page"),10);
     return p > 0 ? p:1
   });
-  const [subjectFilter,        setSubjectFilter]        = useState("All");
   const goToPage = (pg) => {
     setCurrentPage(pg);
     setSearchParams((prev) => {
@@ -237,8 +236,7 @@ const getInitialTab = () => {
   };
 
 
-  const [search,               setSearch]               = useState("");
-  const [sortConfig,           setSortConfig]           = useState({ key: "default", direction: "asc" });
+
   const [childInfo,            setChildInfo]            = useState(null);
   const [activeTab,            setActiveTab]            = useState(getInitialTab);
   const [activeQuiz,           setActiveQuiz]           = useState(null);
@@ -261,21 +259,49 @@ const getInitialTab = () => {
   const [availableQuizzes,     setAvailableQuizzes]     = useState([]);
   const [quizzesLoading,       setQuizzesLoading]       = useState(true);
   const isPageReady = !loading && !quizzesLoading;
-  const [historySubject, setHistorySubject] = useState("All");
-  const [historySearch,  setHistorySearch]  = useState("");
-  const [historyScore,   setHistoryScore]   = useState("All");
-  const [historyDate,    setHistoryDate]    = useState("All");
-  const [historySort,    setHistorySort]    = useState("newest");
-  const [historyPage, setHistoryPage] = useState(1);
+  const readFilter = (key, fallback) => {
+  try { const v = sessionStorage.getItem(key); return v !== null ? JSON.parse(v) : fallback; }
+  catch { return fallback; }
+};
+
+  const [subjectFilter,  setSubjectFilter]  = useState(() => readFilter("cd_subjectFilter", "All"));
+  const [historySubject, setHistorySubject] = useState(() => readFilter("cd_historySubject", "All"));
+  const [search,      setSearch]      = useState(() => readFilter("cd_search", ""));
+const [sortConfig,  setSortConfig]  = useState(() => readFilter("cd_sortConfig", { key: "default", direction: "asc" }));
+// ... rest unchanged
+  const [historySearch,  setHistorySearch]  = useState(() => readFilter("cd_historySearch", ""));
+  const [historyScore,   setHistoryScore]   = useState(() => readFilter("cd_historyScore", "All"));
+  const [historyDate,    setHistoryDate]    = useState(() => readFilter("cd_historyDate", "All"));
+  const [historySort,    setHistorySort]    = useState(() => readFilter("cd_historySort", "newest"));
+  const [historyPage,    setHistoryPage]    = useState(() => readFilter("cd_historyPage", 1));
   const HISTORY_PER_PAGE = 10;
+
+  
 
   const testsPerPage = 8;
   const isFirstRender = useRef(true);
 
+ useEffect(() => {
+  try {
+    sessionStorage.setItem("cd_subjectFilter",  JSON.stringify(subjectFilter));
+    sessionStorage.setItem("cd_search",          JSON.stringify(search));          // ✅ add
+    sessionStorage.setItem("cd_sortConfig",      JSON.stringify(sortConfig));      // ✅ add
+    sessionStorage.setItem("cd_historySubject", JSON.stringify(historySubject));
+    sessionStorage.setItem("cd_historySearch",  JSON.stringify(historySearch));
+    sessionStorage.setItem("cd_historyScore",   JSON.stringify(historyScore));
+    sessionStorage.setItem("cd_historyDate",    JSON.stringify(historyDate));
+    sessionStorage.setItem("cd_historySort",    JSON.stringify(historySort));
+    sessionStorage.setItem("cd_historyPage",    JSON.stringify(historyPage));
+  } catch {}
+}, [subjectFilter, search, sortConfig, historySubject, historySearch, historyScore, historyDate, historySort, historyPage]);
+
   const handleLogout = useCallback(() => {
-    if (childToken) logoutChild(); else logout();
-    navigate("/");
-  }, [childToken, logoutChild, logout, navigate]);
+  ["cd_subjectFilter","cd_search","cd_sortConfig","cd_historySubject","cd_historySearch",
+   "cd_historyScore","cd_historyDate","cd_historySort","cd_historyPage"]
+    .forEach(k => { try { sessionStorage.removeItem(k); } catch {} });
+  if (childToken) logoutChild(); else logout();
+  navigate("/");
+}, [childToken, logoutChild, logout, navigate]);
 
   useEffect(() => {
     assertAllowedParams(searchParams, navigate, isParentViewing);
