@@ -3,9 +3,9 @@
  * Calls Gemini API directly from Node.js — no Python spawn needed.
  */
 
-const connectDB  = require("../config/db");
-const Quiz       = require("../models/quiz");
-const Question   = require("../models/question");
+const connectDB = require("../config/db");
+const Quiz      = require("../models/quiz");
+const Question  = require("../models/question");
 
 const explanation_progress = {};
 
@@ -55,8 +55,6 @@ Return ONLY valid JSON, no markdown, no extra text:
 
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-  // Strip markdown fences if present
   const clean = text.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(clean);
   return parsed.explanations || [];
@@ -101,7 +99,8 @@ async function generateQuizExplanations(quizId, progressMap = explanation_progre
                 "ai_explanation.tip":          expl.tip || "",
                 "ai_explanation.generated_at": new Date(),
               },
-            }
+            },
+            { strict: false } 
           );
           done++;
         } catch (e) {
@@ -117,10 +116,11 @@ async function generateQuizExplanations(quizId, progressMap = explanation_progre
   } catch (err) {
     console.error("generateQuizExplanations error:", err.message);
     progressMap[quizId] = {
-      status: "done", done: 0,
+      status: "done",
+      done: 0,
       failed: questions.length,
       total: questions.length,
-      error: err.message,   // ← shows in the UI popup
+      error: err.message,
     };
   }
 }
