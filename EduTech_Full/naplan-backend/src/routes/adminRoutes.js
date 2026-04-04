@@ -24,7 +24,8 @@ const Purchase          = require("../models/purchase");
 const connectDB         = require("../config/db");
 const { uploadToS3 }    = require("../utils/s3Upload");
 const ExcelJS           = require("exceljs");
-const { generateQuizExplanations } = require("../utils/generateQuizExplanations"); // ✅ ADD
+const { generateQuizExplanations, explanation_progress } = require("../utils/generateQuizExplanations");
+ // ✅ ADD
 
 
 const router     = express.Router();
@@ -987,7 +988,7 @@ router.post("/quizzes/upload", async (req, res) => {
       question_ids:       questions.map((q) => q.question_id),
       question_count:     questions.length,
     });
-    generateQuizExplanations(quiz.quiz_id).catch(console.error);
+   
 
 
     return res.status(201).json({ ok: true, quiz_id: quiz.quiz_id, quiz_name: quiz.quiz_name, question_count: questions.length });
@@ -1140,6 +1141,7 @@ router.patch("/children/:childId/bundles", async (req, res) => {
   }
 });
 // ✅ NEW: Manually regenerate AI explanations for a quiz
+// ✅ Manually regenerate AI explanations for a quiz (admin button only)
 router.post("/quizzes/:quizId/generate-explanations", async (req, res) => {
   try {
     await connectDB();
@@ -1148,12 +1150,6 @@ router.post("/quizzes/:quizId/generate-explanations", async (req, res) => {
     const quiz = await Quiz.findOne({ quiz_id: quizId }).lean();
     if (!quiz) return res.status(404).json({ error: "Quiz not found" });
 
-    // Reset generated_at so all questions regenerate fresh
-    await Question.updateMany(
-      { quiz_ids: quizId },
-      { $unset: { ai_explanations_generated_at: "" } }
-    );
-
     // Fire in background
     generateQuizExplanations(quizId).catch(console.error);
 
@@ -1161,6 +1157,13 @@ router.post("/quizzes/:quizId/generate-explanations", async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+// ✅ Poll generation progress
+router.get("/quizzes/:quizId/generate-explanations/status", async (req, res) => {
+  const progress = explanation_progress[req.params.quizId];
+  if (!progress) return res.json({ status: "idle" });
+  return res.json(progress);
 });
 
 module.exports = router;
