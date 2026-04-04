@@ -1211,6 +1211,31 @@ export default function QuizDetailPage() {
     }
   };
 
+// ✅ Poll generation progress while running
+useEffect(() => {
+  if (!generatingExpl) return;
+
+  const interval = setInterval(async () => {
+    try {
+      const res = await adminFetch(
+        `/api/admin/quizzes/${quizId}/generate-explanations/status`
+      );
+      const data = await res.json();
+
+      if (data.status === "done") {
+        clearInterval(interval);
+        setGeneratingExpl(false);
+        fetchDetail(); // ✅ Reload questions to show new explanations
+        alert(`✅ Done! ${data.done} explanations generated${data.failed > 0 ? `, ${data.failed} failed` : ""}.`);
+      }
+    } catch {
+      // Silent fail — keep polling
+    }
+  }, 3000); // Poll every 3 seconds
+
+  return () => clearInterval(interval);
+}, [generatingExpl, quizId]);
+
   const handleSaveSettings = async () => {
     setSavingSettings(true);
     try {
@@ -1240,21 +1265,20 @@ export default function QuizDetailPage() {
 // ✅ ADD
 const handleGenerateExplanations = async () => {
   if (!confirm("Regenerate AI explanations for all questions in this quiz?")) return;
-  setGeneratingExpl(true);   // ✅ this already shows the loading button
+  setGeneratingExpl(true);
   try {
     const res = await adminFetch(
       `/api/admin/quizzes/${quizId}/generate-explanations`,
       { method: "POST" }
     );
-    const data = await res.json();
-    if (res.ok) {
-      alert(`✅ ${data.message}`);
-    } else {
-      alert("Failed: " + (data.error || "Unknown error"));
+    if (!res.ok) {
+      const d = await res.json();
+      alert("Failed: " + (d.error || "Unknown error"));
+      setGeneratingExpl(false);
     }
+    // ✅ Don't setGeneratingExpl(false) here — polling will do it when done
   } catch (err) {
     alert("Error: " + err.message);
-  } finally {
     setGeneratingExpl(false);
   }
 };
@@ -1302,7 +1326,15 @@ const handleGenerateExplanations = async () => {
               disabled={generatingExpl}
               className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-xs text-white rounded-lg border border-indigo-500 transition"
             >
-              {generatingExpl ? "Starting..." : "AI Explanations"}
+              {generatingExpl ? (
+                <span className="flex items-center gap-1.5">
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                  Generating...
+                </span>
+              ) : "AI Explanations"}
             </button>
 
             <button onClick={() => setShowSettings((v) => !v)}
