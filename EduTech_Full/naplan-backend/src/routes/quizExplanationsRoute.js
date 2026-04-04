@@ -91,7 +91,15 @@ router.post(
         return res.json({ success: true, message: "Already running", ...existing });
       }
 
-      const questions = await Question.find({ quiz_ids: quizId }).lean();
+      const questions = await Question.find({
+        $or: [
+            { quiz_ids: quizId },
+            { quiz_id: quizId },
+            { quiz_ids: { $in: [quizId] } },
+        ]
+        }).lean();
+
+        console.log(`🔍 Found ${questions.length} questions for quiz ${quizId}`);
       if (questions.length === 0) {
         return res.status(404).json({ error: "No questions found for this quiz" });
       }
