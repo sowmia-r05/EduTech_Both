@@ -28,24 +28,44 @@ import google.generativeai as genai
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
+# ✅ REPLACE WITH
 def get_tone_rules(year_level: int) -> dict:
-    if year_level <= 5:
+    y = int(year_level or 3)
+    if y <= 3:
         return {
-            "style": "fun, warm, encouraging",
-            "language": "very simple words, short sentences, like talking to a young child",
-            "emojis": "yes — use 1-2 relevant emojis per explanation",
-            "tone": "Start with a kind encouragement like 'Great try! 🌟' or 'Nice attempt! 💪'",
-            "depth": "Keep it simple: say what the right answer is and ONE easy reason why",
-            "tip_style": "A fun memory trick or simple rule they can remember",
+            "style": "warm, very simple, friendly",
+            "language": "very short sentences, simple words a Year 3 child (age 8) understands",
+            "emojis": "no emojis",
+            "tone": "Kind and simple — just explain the answer plainly",
+            "depth": "Say what the right answer is and ONE very simple reason why",
+            "tip_style": "A simple one-sentence rule they can remember easily",
+        }
+    elif y <= 5:
+        return {
+            "style": "friendly, clear, encouraging",
+            "language": "simple English, short sentences, suitable for a Year 5 student (age 10-11)",
+            "emojis": "no emojis",
+            "tone": "Encouraging but not babyish — explain the answer clearly",
+            "depth": "Explain the correct answer and the main reason why in 2-3 simple sentences",
+            "tip_style": "A short memorable trick or rule for next time",
+        }
+    elif y <= 7:
+        return {
+            "style": "clear, logical, accessible",
+            "language": "plain English suitable for a Year 7 student (age 12-13)",
+            "emojis": "no emojis",
+            "tone": "Direct and clear — no filler, explain the concept",
+            "depth": "Explain why the correct answer is right and what concept or rule applies",
+            "tip_style": "A concise study tip or rule they can apply next time",
         }
     else:
         return {
-            "style": "clear, academic, strategic",
-            "language": "precise English, appropriate for a high school student",
-            "emojis": "no emojis — keep it professional",
-            "tone": "Direct and constructive — skip the filler praise",
-            "depth": "Explain the reasoning/logic behind the correct answer, mention the strategy to use next time",
-            "tip_style": "An exam strategy or rule they can apply systematically",
+            "style": "academic, strategic, precise",
+            "language": "formal English appropriate for a Year 9 student (age 14-15)",
+            "emojis": "no emojis",
+            "tone": "Direct and analytical — focus on reasoning and exam strategy",
+            "depth": "Explain the logic behind the correct answer and name the concept or rule",
+            "tip_style": "An exam strategy or systematic rule they can apply under pressure",
         }
 
 
@@ -107,10 +127,11 @@ TONE RULES:
 - Tip style: {tone['tip_style']}
 
 TASK:
-For each question below where the child got the wrong answer, write:
-1. "explanation": Why their answer was wrong + what the correct answer is and why
-2. "tip": A memorable trick or strategy for next time
-3. "emoji": One relevant emoji (or "" if Year 7-9)
+For each question below, write a generic explanation that works for ANY student who got it wrong:
+1. "explanation": What the correct answer is and clearly why it is correct
+2. "tip": A short memorable trick or strategy for next time
+Do NOT mention any specific wrong answer the student picked — keep it generic.
+No emojis.
 
 QUESTIONS TO EXPLAIN:
 {questions_block}
@@ -122,8 +143,7 @@ OUTPUT: Return ONLY valid JSON — no markdown, no extra text.
     {{
       "question_id": "...",
       "explanation": "...",
-      "tip": "...",
-      "emoji": "..."
+      "tip": "..."
     }}
   ]
 }}
@@ -131,10 +151,81 @@ OUTPUT: Return ONLY valid JSON — no markdown, no extra text.
 RULES:
 - Keep each explanation under 60 words
 - Keep each tip under 30 words
-- Use the child's name ({child_name}) at least once across all explanations
 - Never say "you got this wrong" — reframe positively
 - Return ONLY explanations for the questions listed above
 """
+# ─────────────────────────────────────────────────────────────
+# Mode 3: Pre-generate explanation for a single question
+# across all year levels — called at quiz upload time
+# ─────────────────────────────────────────────────────────────
+
+def build_single_question_prompt(question: dict, year_level: int) -> str:
+    tone = get_tone_rules(year_level)
+    return f"""You are an AI tutor for Australian NAPLAN students (Year {year_level}).
+
+TONE RULES:
+- Style: {tone['style']}
+- Language: {tone['language']}
+- Emojis: {tone['emojis']}
+- Tone: {tone['tone']}
+- Depth: {tone['depth']}
+- Tip style: {tone['tip_style']}
+
+QUESTION: {question.get('question_text', '')}
+CORRECT ANSWER: {question.get('correct_answer', '')}
+TOPIC: {question.get('category', 'General')}
+
+Write a generic explanation for any student who got this question wrong.
+Do NOT mention any specific wrong answer — keep it generic.
+No emojis.
+
+Return ONLY valid JSON, no markdown:
+{{
+  "explanation": "...",
+  "tip": "..."
+}}
+
+RULES:
+- explanation under 60 words
+- tip under 25 words
+- Year {year_level} appropriate language
+- No emojis at all
+"""
+
+
+def run_explain_question(payload: dict, model) -> dict:
+    """
+    Pre-generates explanations for a single question across all year levels.
+    Called at quiz upload time, NOT per-student.
+    Returns { success, explanations_by_year: { "3": {...}, "5": {...}, "7": {...}, "9": {...} } }
+    """
+    question = payload.get("question") or {}
+    if not question.get("question_text"):
+        return {"success": False, "error": "No question_text provided"}
+
+    explanations_by_year = {}
+
+    for yr in [3, 5, 7, 9]:
+        prompt = build_single_question_prompt(question, yr)
+        try:
+            resp = model.generate_content(prompt)
+            text = getattr(resp, "text", "") or ""
+            if not text:
+                raise ValueError("Empty response")
+            result = extract_json(text)
+            explanations_by_year[str(yr)] = {
+                "explanation": result.get("explanation", ""),
+                "tip":         result.get("tip", ""),
+            }
+        except Exception as e:
+            # Don't fail entirely — store empty for this year level
+            explanations_by_year[str(yr)] = {
+                "explanation": "",
+                "tip":         "",
+                "error":       str(e),
+            }
+
+    return {"success": True, "explanations_by_year": explanations_by_year}
 
 
 def run_explain(payload: dict, model) -> dict:
@@ -262,8 +353,11 @@ def main():
 
     mode = payload.get("mode") or "explain"
 
+    # ✅ REPLACE WITH
     if mode == "explain":
         result = run_explain(payload, model)
+    elif mode == "explain_question":
+        result = run_explain_question(payload, model)
     elif mode == "chat":
         result = run_chat(payload, model)
     else:

@@ -24,6 +24,8 @@ const Purchase          = require("../models/purchase");
 const connectDB         = require("../config/db");
 const { uploadToS3 }    = require("../utils/s3Upload");
 const ExcelJS           = require("exceljs");
+const { generateQuizExplanations } = require("../utils/generateQuizExplanations"); // ✅ ADD
+
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
@@ -985,6 +987,8 @@ router.post("/quizzes/upload", async (req, res) => {
       question_ids:       questions.map((q) => q.question_id),
       question_count:     questions.length,
     });
+    generateQuizExplanations(quiz.quiz_id).catch(console.error);
+
 
     return res.status(201).json({ ok: true, quiz_id: quiz.quiz_id, quiz_name: quiz.quiz_name, question_count: questions.length });
   } catch (err) {
@@ -1131,6 +1135,29 @@ router.patch("/children/:childId/bundles", async (req, res) => {
     const child = await Child.findByIdAndUpdate(req.params.childId, { $set: { entitled_bundle_ids: bundle_ids } }, { new: true }).lean();
     if (!child) return res.status(404).json({ error: "Child not found" });
     return res.json({ ok: true, child });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+// ✅ NEW: Manually regenerate AI explanations for a quiz
+router.post("/quizzes/:quizId/generate-explanations", async (req, res) => {
+  try {
+    await connectDB();
+    const { quizId } = req.params;
+
+    const quiz = await Quiz.findOne({ quiz_id: quizId }).lean();
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    // Reset generated_at so all questions regenerate fresh
+    await Question.updateMany(
+      { quiz_ids: quizId },
+      { $unset: { ai_explanations_generated_at: "" } }
+    );
+
+    // Fire in background
+    generateQuizExplanations(quizId).catch(console.error);
+
+    return res.json({ success: true, message: "Generation started in background" });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

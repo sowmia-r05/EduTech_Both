@@ -1061,6 +1061,7 @@ export default function QuizDetailPage() {
   // ── Bulk move state ──
   const [selectedIds,  setSelectedIds]  = useState(new Set());
   const [showBulkMove, setShowBulkMove] = useState(false);
+  const [generatingExpl, setGeneratingExpl] = useState(false);
 
   const handleBulkDelete = async () => {
   if (!selectedIds.size) return;
@@ -1233,8 +1234,27 @@ export default function QuizDetailPage() {
   };
 
   const handleQuestionVerified = (updatedQ) => {
-    setQuestions((prev) => prev.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q));
-  };
+  setQuestions((prev) => prev.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q));
+};
+
+// ✅ ADD
+const handleGenerateExplanations = async () => {
+  if (!confirm("Regenerate AI explanations for all questions in this quiz?")) return;
+  setGeneratingExpl(true);
+  try {
+    const res = await adminFetch(
+      `/api/admin/quizzes/${quizId}/generate-explanations`,
+      { method: "POST" }
+    );
+    if (res.ok) {
+      alert("Started! Runs in background — may take a few minutes.");
+    } else {
+      alert("Failed to start generation.");
+    }
+  } finally {
+    setGeneratingExpl(false);
+  }
+};
 
   const verStats = questions.reduce(
     (acc, q) => { const s = q.tutor_verification?.status || "pending"; acc[s] = (acc[s] || 0) + 1; return acc; },
@@ -1273,6 +1293,15 @@ export default function QuizDetailPage() {
               </div>
             )}
             {quiz && <DownloadXlsxButton quizId={quiz.quiz_id || quiz._id} quizName={quiz.quiz_name} />}
+
+            <button
+              onClick={handleGenerateExplanations}
+              disabled={generatingExpl}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-xs text-white rounded-lg border border-indigo-500 transition"
+            >
+              {generatingExpl ? "Starting..." : "AI Explanations"}
+            </button>
+
             <button onClick={() => setShowSettings((v) => !v)}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded-lg border border-slate-700 transition">
               ⚙️ Settings

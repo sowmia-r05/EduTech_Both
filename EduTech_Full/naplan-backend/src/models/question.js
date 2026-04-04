@@ -106,6 +106,7 @@ const QuestionSchema = new mongoose.Schema(
       default: () => ({ status: "pending", verified_by: null, verified_at: null, rejection_reason: null }),
     },
     // ✅ NEW: Admin verification
+  // ✅ NEW: Admin verification
   admin_verification: {
     type: new mongoose.Schema({
       status:      { type: String, enum: ["approved", "rejected", "pending"], default: "pending" },
@@ -115,6 +116,18 @@ const QuestionSchema = new mongoose.Schema(
     }, { _id: false }),
     default: () => ({ status: "pending", verified_by: null, verified_at: null, message: null }),
   },
+
+  // ✅ NEW: Pre-generated AI explanations keyed by year level
+  // Shape: { "3": { explanation: "...", tip: "..." }, "5": {...}, "7": {...}, "9": {...} }
+  ai_explanations: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {},
+  },
+  ai_explanations_generated_at: {
+    type: Date,
+    default: null,
+  },
+
   },
   { timestamps: true, versionKey: false }
   
