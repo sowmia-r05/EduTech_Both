@@ -160,6 +160,7 @@ const sessionRoutes = require("./routes/sessionRoutes");
 const resultRoutes = require("./routes/resultRoutes");
 const regenerateAiRoute = require("./routes/regenerateAiRoute");
 const quizExplanationsRoute = require("./routes/quizExplanationsRoute");
+const quizChatRoute = require("./routes/quizChat");
 
 const {
   secureLegacyResults,
@@ -254,6 +255,7 @@ app.use("/api", quizRoutes);
 app.use("/api", availableQuizzesRoute);
 app.use("/api", flashcardsRoute);
 app.use("/api", explanationRoutes);  // ✅ ADD HERE
+app.use("/api/quizzes", quizChatRoute); 
 
 
 // ─── Payments ─────────────────────────────────────────────────────────────────

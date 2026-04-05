@@ -97,15 +97,15 @@ def _ensure_collection(qdrant: QdrantClient) -> None:
 
 # ── Embedding ─────────────────────────────────────────────────────────────────
 
-def _embed(gemini, text: str) -> list[float]:
-    """Embed normalised text using gemini-embedding-001 with retrieval_query task."""
+# AFTER
+def _embed(gemini, text: str, task_type: str = "retrieval_query") -> list[float]:
+    """Embed normalised text using gemini-embedding-001."""
     result = gemini.models.embed_content(
         model=EMBEDDING_MODEL,
         contents=_normalize(text),
-        config=types.EmbedContentConfig(task_type="retrieval_query"),
+        config=types.EmbedContentConfig(task_type=task_type),
     )
     return result.embeddings[0].values
-
 
 # ── Cache operations ──────────────────────────────────────────────────────────
 
@@ -123,7 +123,7 @@ def check_cache(
         { "hit": True,  "answer": "...", "score": 0.97, "cached_question": "..." }
         { "hit": False }
     """
-    embedding = _embed(gemini, message)
+    embedding = _embed(gemini, message, task_type="retrieval_query") # 
 
     # Filter to this quiz only — different quizzes can have the same question text
     # but need different scoped answers.
@@ -180,7 +180,7 @@ def store_cache(
     Uses a deterministic point ID so re-asking the exact same question
     overwrites the existing entry rather than creating a duplicate.
     """
-    embedding = _embed(gemini, message)
+    embedding = _embed(gemini, message, task_type="retrieval_document")
 
     qdrant.upsert(
         collection_name=COLLECTION,
