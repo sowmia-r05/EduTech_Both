@@ -1641,38 +1641,40 @@ const handleGenerateExplanations = async () => {
                       </div>
                     )}
 
-                   {(q.ai_explanation?.explanation || q.explanations_by_year || q.explanation) && (
+                 {(q.ai_explanation?.explanation || q.explanations_by_year || q.explanation) && (
                     <div className="mt-2 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
+  
                       <p className="text-[10px] text-amber-500 font-bold mb-0.5">
                         Explanation
                         {q.ai_explanation?.explanation && (
                           <span className="ml-2 text-emerald-400 font-normal normal-case">✅ AI generated</span>
                         )}
                       </p>
-                      {/* ✅ Show AI-generated explanation first */}
+
                       {q.ai_explanation?.explanation && (
                         <p className="text-xs text-emerald-400/80">{q.ai_explanation.explanation}</p>
                       )}
                       {q.ai_explanation?.tip && (
                         <p className="text-[10px] text-slate-400 mt-1 italic">💡 {q.ai_explanation.tip}</p>
                       )}
-                      {/* Fallback to manual explanation */}
                       {!q.ai_explanation?.explanation && q.explanation && (
                         <p className="text-xs text-amber-400/80">{q.explanation}</p>
                       )}
+
+                      {/* ✅ MOVED INSIDE */}
+                      {q.explanations_by_year && (
+                        <div className="mt-2 grid grid-cols-2 gap-1.5">
+                          {Object.entries(q.explanations_by_year).map(([yr, expl]) => (
+                            <div key={yr} className="px-2 py-1.5 bg-slate-800/80 rounded border border-slate-700/50">
+                              <p className="text-[10px] text-indigo-400 font-bold mb-0.5">Year {yr}</p>
+                              <p className="text-[11px] text-slate-300 leading-relaxed">{expl.explanation}</p>
+                              {expl.tip && <p className="text-[10px] text-slate-500 mt-1 italic">💡 {expl.tip}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
-            {q.explanations_by_year && (
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          {Object.entries(q.explanations_by_year).map(([yr, expl]) => (
-            <div key={yr} className="px-2 py-1.5 bg-slate-800/80 rounded border border-slate-700/50">
-              <p className="text-[10px] text-indigo-400 font-bold mb-0.5">Year {yr}</p>
-              <p className="text-[11px] text-slate-300 leading-relaxed">{expl.explanation}</p>
-              {expl.tip && <p className="text-[10px] text-slate-500 mt-1 italic">💡 {expl.tip}</p>}
-            </div>
-          ))}
-        </div>
-      )}
 
                     {canVerify && (
                       <div className="mt-3 pt-3 border-t border-slate-800 ml-10">

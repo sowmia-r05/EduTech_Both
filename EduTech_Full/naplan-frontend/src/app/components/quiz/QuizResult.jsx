@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth }     from "@/app/context/AuthContext";
 import ChildAvatarMenu from "@/app/components/ui/ChildAvatarMenu";
 import AITutorTab from "./Aitutortab";
-
+import QuizChatWidget from "./quizchatwidget";
 
 /* ═══════════════════════════════════════════
    SELF-CONTAINED HEADER
@@ -564,6 +564,15 @@ useEffect(() => {
     {/* ── TAB 1: AI FEEDBACK (non-writing — embedded iframe) ── */}
       
  
+   {/* AI Chat Widget — floats over results page */}
+      {attemptId && (
+        <QuizChatWidget
+          quizId={result?.quiz_id}
+          yearLevel={childProfile?.yearLevel || result?.year_level || 3}
+          apiFetch={apiFetch}
+        />
+      )}
+
     </div>
   );
 }

@@ -116,23 +116,29 @@ const QuestionSchema = new mongoose.Schema(
     }, { _id: false }),
     default: () => ({ status: "pending", verified_by: null, verified_at: null, message: null }),
   },
+  // ✅ ADD THIS — used by generateQuizExplanations.js
+ // ✅ Used by generateQuizExplanations.js — singular, structured
+    ai_explanation: {
+      type: new mongoose.Schema({
+        explanation:  { type: String, default: null },
+        tip:          { type: String, default: null },
+        generated_at: { type: Date,   default: null },
+      }, { _id: false }),
+      default: null,
+    },
 
-  // ✅ NEW: Pre-generated AI explanations keyed by year level
-  // Shape: { "3": { explanation: "...", tip: "..." }, "5": {...}, "7": {...}, "9": {...} }
-  ai_explanations: {
-    type: mongoose.Schema.Types.Mixed,
-    default: {},
-  },
-  ai_explanations_generated_at: {
-    type: Date,
-    default: null,
-  },
-
+    // ✅ Used by per-year-level pre-generation — plural, free-form
+    ai_explanations: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+    ai_explanations_generated_at: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true, versionKey: false }
-  
 );
-
 
 
 // Compound indexes for efficient queries

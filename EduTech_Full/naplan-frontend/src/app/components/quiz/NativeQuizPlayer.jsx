@@ -14,6 +14,7 @@ import QuestionRenderer from "./QuestionRenderer";
 import QuizNavigation from "./QuizNavigation";
 import QuizReview from "./QuizReview";
 import QuizResult from "./QuizResult";
+import QuizChatWidget from "./quizchatwidget";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -512,7 +513,8 @@ const preloadNextImage = useCallback(() => {
     return null;
   })();
 
-  return (
+ return (
+  <>
     <ExamProctor
       quiz={quiz} enabled={proctored}
       onCancel={() => onClose?.({ completed: false })}
@@ -523,5 +525,15 @@ const preloadNextImage = useCallback(() => {
     >
       {quizContent}
     </ExamProctor>
-  );
+
+    {/* AI Chat — only show when quiz is active */}
+    {(phase === "taking" || phase === "review") && (
+      <QuizChatWidget
+        quizId={quiz.quiz_id}
+        yearLevel={quiz?.year_level}
+        apiFetch={apiFetch}
+      />
+    )}
+  </>
+);
 }

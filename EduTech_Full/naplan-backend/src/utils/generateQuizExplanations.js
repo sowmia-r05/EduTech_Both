@@ -3,9 +3,9 @@
  * Calls Gemini API directly from Node.js — no Python spawn needed.
  */
 
-const connectDB  = require("../config/db");
-const Quiz       = require("../models/quiz");
-const Question   = require("../models/question");
+const connectDB = require("../config/db");
+const Quiz      = require("../models/quiz");
+const Question  = require("../models/question");
 
 const explanation_progress = {};
 
@@ -20,11 +20,11 @@ Question ${i + 1} (ID: ${q.question_id})
   Topic: ${q.category}
 `).join("");
 
-  const prompt = `You are an AI tutor for Australian NAPLAN students (Year ${yearLevel}, Subject: ${subject}).
+  const prompt = `You are an expert AI tutor for Australian NAPLAN students (Year ${yearLevel}, Subject: ${subject}).
 
-For each question below, write:
-1. "explanation": Why the correct answer is correct (under 60 words, no emojis)
-2. "tip": A short memorable trick for next time (under 30 words)
+For each question below, write detailed, helpful feedback:
+1. "explanation": Clearly explain WHY the correct answer is correct. Include the concept behind it, how to work it out step by step, and why the other options are wrong. (60-100 words)
+2. "tip": A memorable strategy or trick students can use next time they see a similar question. (under 40 words)
 
 QUESTIONS:
 ${questionsBlock}
@@ -34,7 +34,14 @@ Return ONLY valid JSON, no markdown, no extra text:
   "explanations": [
     { "question_id": "...", "explanation": "...", "tip": "..." }
   ]
-}`;
+}
+
+RULES:
+- explanation must be 60-100 words — detailed but clear
+- mention WHY wrong answers are incorrect if helpful
+- use simple Year ${yearLevel} language
+- no emojis
+- tip must be a concrete strategy, not just a restatement`;
 
   const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -44,7 +51,7 @@ Return ONLY valid JSON, no markdown, no extra text:
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
+      generationConfig: { temperature: 0.4, maxOutputTokens: 8000 },
     }),
   });
 
@@ -55,8 +62,6 @@ Return ONLY valid JSON, no markdown, no extra text:
 
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-  // Strip markdown fences if present
   const clean = text.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(clean);
   return parsed.explanations || [];
@@ -101,7 +106,8 @@ async function generateQuizExplanations(quizId, progressMap = explanation_progre
                 "ai_explanation.tip":          expl.tip || "",
                 "ai_explanation.generated_at": new Date(),
               },
-            }
+            },
+            { strict: false } 
           );
           done++;
         } catch (e) {
@@ -117,10 +123,11 @@ async function generateQuizExplanations(quizId, progressMap = explanation_progre
   } catch (err) {
     console.error("generateQuizExplanations error:", err.message);
     progressMap[quizId] = {
-      status: "done", done: 0,
+      status: "done",
+      done: 0,
       failed: questions.length,
       total: questions.length,
-      error: err.message,   // ← shows in the UI popup
+      error: err.message,
     };
   }
 }
