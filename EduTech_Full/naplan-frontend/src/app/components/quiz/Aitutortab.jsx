@@ -1,14 +1,11 @@
 /**
- * AITutorTab.jsx  (v3)
- * - Renders inline on Results tab (no tab switching)
- * - sessionStorage caching — explanations never regenerate for same attemptId
- * - Clean SVG icons only (no emoji icons)
- * - Chat per wrong question
+ * AITutorTab.jsx  (v4)
+ * - Old per-question chat removed
+ * - Hint banner on incorrect questions → opens floating QuizChatWidget
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 
-// ─── Helpers ───
 function isYoung(yearLevel) { return Number(yearLevel) <= 5; }
 
 function stripHtml(html) {
@@ -35,9 +32,6 @@ function getIsCorrect(card) {
   return false;
 }
 
-// ─── Cache helpers using sessionStorage ───
-
-// ─── SVG Icons ───
 const IcCheck = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="20 6 9 17 4 12"/>
@@ -53,16 +47,6 @@ const IcCircle = () => (
     <circle cx="12" cy="12" r="9"/>
   </svg>
 );
-const IcChat = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-  </svg>
-);
-const IcSend = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-  </svg>
-);
 const IcBulb = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/>
@@ -70,7 +54,6 @@ const IcBulb = () => (
   </svg>
 );
 
-// ─── Question image ───
 function QuestionImage({ card }) {
   const [failed, setFailed] = useState(false);
   const src = card.image_url || card.question_image || card.imageUrl || card.image || null;
@@ -82,108 +65,50 @@ function QuestionImage({ card }) {
   );
 }
 
-// ─── Chat panel (wrong answers only) ───
-function ChatPanel({ card, attemptId, apiFetch, young }) {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef(null);
-
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
-
-  const send = useCallback(async () => {
-    const msg = input.trim();
-    if (!msg || loading) return;
-    const newMessages = [...messages, { role: "child", content: msg }];
-    setMessages(newMessages);
-    setInput("");
-    setLoading(true);
-    try {
-      const res = await apiFetch(`/api/attempts/${attemptId}/chat`, {
-        method: "POST",
-        body: JSON.stringify({
-          question_id: card.question_id,
-          message: msg,
-          chat_history: newMessages.map((m) => ({ role: m.role === "child" ? "child" : "ai", content: m.content })),
-        }),
-      });
-      const data = await res.json();
-      setMessages((prev) => [...prev, { role: "ai", content: data.reply || "Sorry, I couldn't respond. Try again!" }]);
-    } catch {
-      setMessages((prev) => [...prev, { role: "ai", content: "Something went wrong. Please try again." }]);
-    } finally { setLoading(false); }
-  }, [input, loading, messages, attemptId, card.question_id, apiFetch]);
-
-  const accentColor = young ? "#F97316" : "#6366F1";
-
+// ── Hint banner — tapping opens the floating chat widget ──
+function ChatHint({ young }) {
+  const accent = young ? "#F97316" : "#7C3AED";
   return (
-    <div style={{ marginTop: "12px", border: "1px solid #E5E7EB", borderRadius: "10px", overflow: "hidden", background: "#fff" }}>
-      {/* Header */}
-      <div style={{ padding: "10px 14px", borderBottom: "1px solid #F3F4F6", background: "#F9FAFB", display: "flex", alignItems: "center", gap: "6px" }}>
-        <IcChat />
-        <span style={{ fontSize: "12px", fontWeight: 600, color: "#374151" }}>
-          {young ? "Ask your AI tutor a question" : "Ask a follow-up question"}
-        </span>
+    <button
+      onClick={() => window.__openQuizChat?.()}
+      style={{
+        marginTop: 12, width: "100%",
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "10px 14px", borderRadius: 10,
+        border: `1.5px dashed ${young ? "#FED7AA" : "#C4B5FD"}`,
+        background: young ? "#FFF7ED" : "#F5F3FF",
+        cursor: "pointer", textAlign: "left",
+        transition: "opacity 0.15s",
+      }}
+      onMouseOver={(e) => (e.currentTarget.style.opacity = "0.8")}
+      onMouseOut={(e)  => (e.currentTarget.style.opacity = "1")}
+    >
+      <div style={{ width: 32, height: 32, borderRadius: "50%", background: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3c-1 2.5-3.5 4-3.5 4S12 8.5 12 12c0-3.5 3.5-5 3.5-5S13 5.5 12 3z"/>
+          <path d="M5 14c-.5 1.5-2 2.5-2 2.5S5 18 5 20c0-2 2.5-3 2.5-3S5.5 15.5 5 14z"/>
+          <path d="M19 14c.5 1.5 2 2.5 2 2.5S19 18 19 20c0-2-2.5-3-2.5-3S18.5 15.5 19 14z"/>
+        </svg>
       </div>
-      {/* Messages */}
-      <div style={{ maxHeight: "200px", overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "8px", background: "#FAFAFA" }}>
-        {messages.length === 0 && (
-          <div style={{ textAlign: "center", color: "#9CA3AF", fontSize: "12px", padding: "8px 0" }}>
-            {young ? "What would you like to know about this question?" : "Ask anything about this question."}
-          </div>
-        )}
-        {messages.map((m, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: m.role === "child" ? "flex-end" : "flex-start" }}>
-            <div style={{
-              maxWidth: "82%", padding: "8px 12px",
-              borderRadius: m.role === "child" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-              background: m.role === "child" ? accentColor : "#fff",
-              color: m.role === "child" ? "#fff" : "#374151",
-              fontSize: "13px", lineHeight: 1.5,
-              border: m.role === "ai" ? "1px solid #E5E7EB" : "none",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-            }}>{m.content}</div>
-          </div>
-        ))}
-        {loading && (
-          <div style={{ display: "flex", justifyContent: "flex-start" }}>
-            <div style={{ padding: "8px 14px", borderRadius: "12px 12px 12px 2px", background: "#fff", border: "1px solid #E5E7EB", fontSize: "13px", color: "#9CA3AF" }}>
-              Thinking...
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: young ? "#C2410C" : "#6D28D9" }}>
+          {young ? "Still confused? Ask your AI tutor! 👇" : "Still have questions? Ask the AI tutor"}
+        </div>
+        <div style={{ fontSize: 11, color: young ? "#9A3412" : "#5B21B6", marginTop: 2, opacity: 0.75 }}>
+          Tap the ✨ button at the bottom-right corner
+        </div>
       </div>
-      {/* Input */}
-      <div style={{ display: "flex", gap: "8px", padding: "10px 12px", borderTop: "1px solid #F3F4F6", background: "#fff" }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={young ? "Type your question here..." : "Type a follow-up question..."}
-          disabled={loading}
-          style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #D1D5DB", fontSize: "13px", outline: "none", color: "#111827", background: loading ? "#F9FAFB" : "#fff" }}
-        />
-        <button
-          onClick={send}
-          disabled={!input.trim() || loading}
-          style={{ padding: "8px 14px", borderRadius: "8px", border: "none", background: !input.trim() || loading ? "#E5E7EB" : accentColor, color: "#fff", cursor: !input.trim() || loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: "5px", fontSize: "13px", fontWeight: 600 }}
-        >
-          <IcSend />
-          Send
-        </button>
-      </div>
-    </div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+        <path d="M5 12h14M12 5l7 7-7 7"/>
+      </svg>
+    </button>
   );
 }
 
-// ─── Single question card ───
-function QuestionCard({ card, questionNum, explanation, attemptId, yearLevel, apiFetch }) {
-  const young = isYoung(yearLevel);
+function QuestionCard({ card, questionNum, explanation, yearLevel }) {
+  const young     = isYoung(yearLevel);
   const isCorrect = getIsCorrect(card);
-  const [chatOpen, setChatOpen] = useState(false);
 
-  // Passage / reading block
   if (card.type === "free_text") {
     return (
       <div style={{ borderRadius: "12px", border: "1px solid #BFDBFE", background: "#EFF6FF", padding: "16px", marginBottom: "4px" }}>
@@ -199,53 +124,44 @@ function QuestionCard({ card, questionNum, explanation, attemptId, yearLevel, ap
     );
   }
 
-  const childAnswer = getChildAnswer(card);
+  const childAnswer   = getChildAnswer(card);
   const correctAnswer = getCorrectAnswer(card);
-  const options = card.options || [];
-  const accentColor = young ? "#F97316" : "#6366F1";
+  const options       = card.options || [];
 
   return (
     <div style={{ background: "#fff", border: `1.5px solid ${isCorrect ? "#A7F3D0" : "#FECACA"}`, borderRadius: "14px", overflow: "hidden", boxShadow: "0 1px 6px rgba(0,0,0,0.05)" }}>
-
-      {/* Header row */}
       <div style={{ background: isCorrect ? "#F0FDF4" : "#FFF5F5", borderBottom: `1px solid ${isCorrect ? "#A7F3D0" : "#FECACA"}`, padding: "10px 16px", display: "flex", alignItems: "center", gap: "10px" }}>
         <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: isCorrect ? "#059669" : "#EF4444", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", flexShrink: 0 }}>
           {isCorrect ? <IcCheck /> : <IcX />}
         </div>
-        <span style={{ fontSize: "12px", color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-          Question {questionNum}
-        </span>
+        <span style={{ fontSize: "12px", color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Question {questionNum}</span>
         <div style={{ marginLeft: "auto", fontSize: "11px", fontWeight: 700, padding: "2px 10px", borderRadius: "20px", background: isCorrect ? "#DCFCE7" : "#FEE2E2", color: isCorrect ? "#166534" : "#991B1B" }}>
           {isCorrect ? "Correct" : "Incorrect"}
         </div>
       </div>
 
       <div style={{ padding: "16px" }}>
-        {/* Question text */}
         <p style={{ fontSize: "14px", color: "#111827", lineHeight: 1.65, fontWeight: 500, marginBottom: "12px" }}>
           {stripHtml(card.question_text)}
         </p>
         <QuestionImage card={card} />
 
-        {/* Options */}
         {options.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "12px" }}>
             {options.map((opt, i) => {
-              const optText = typeof opt === "string" ? opt : (opt.text || opt.label || "");
-              const isChildPick = childAnswer === optText || (Array.isArray(card.child_option_ids) && card.child_option_ids.includes(opt.option_id));
+              const optText      = typeof opt === "string" ? opt : (opt.text || opt.label || "");
+              const isChildPick  = childAnswer === optText || (Array.isArray(card.child_option_ids) && card.child_option_ids.includes(opt.option_id));
               const isCorrectOpt = correctAnswer.includes(optText) || (Array.isArray(card.correct_answer_ids) && card.correct_answer_ids.includes(opt.option_id));
-
               let bg = "#F9FAFB", border = "#E5E7EB", color = "#374151";
-              if (isCorrectOpt) { bg = "#F0FDF4"; border = "#86EFAC"; color = "#166534"; }
+              if (isCorrectOpt)     { bg = "#F0FDF4"; border = "#86EFAC"; color = "#166534"; }
               else if (isChildPick) { bg = "#FFF5F5"; border = "#FCA5A5"; color = "#991B1B"; }
-
               return (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "9px 12px", borderRadius: "8px", background: bg, border: `1px solid ${border}`, color, fontSize: "13px", fontWeight: isChildPick || isCorrectOpt ? 600 : 400 }}>
                   <span style={{ flexShrink: 0, color: isCorrectOpt ? "#059669" : isChildPick ? "#EF4444" : "#9CA3AF" }}>
                     {isCorrectOpt ? <IcCheck /> : isChildPick ? <IcX /> : <IcCircle />}
                   </span>
                   <span style={{ flex: 1 }}>{optText}</span>
-                  {isChildPick && isCorrectOpt && <span style={{ fontSize: "10px", color: "#059669", fontWeight: 700, flexShrink: 0 }}>Your answer — Correct</span>}
+                  {isChildPick && isCorrectOpt  && <span style={{ fontSize: "10px", color: "#059669", fontWeight: 700, flexShrink: 0 }}>Your answer — Correct</span>}
                   {isChildPick && !isCorrectOpt && <span style={{ fontSize: "10px", color: "#EF4444", fontWeight: 700, flexShrink: 0 }}>Your answer</span>}
                   {!isChildPick && isCorrectOpt && <span style={{ fontSize: "10px", color: "#059669", fontWeight: 700, flexShrink: 0 }}>Correct answer</span>}
                 </div>
@@ -253,7 +169,6 @@ function QuestionCard({ card, questionNum, explanation, attemptId, yearLevel, ap
             })}
           </div>
         ) : (
-          // Short answer
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "12px" }}>
             <div style={{ padding: "9px 12px", borderRadius: "8px", background: isCorrect ? "#F0FDF4" : "#FFF5F5", border: `1px solid ${isCorrect ? "#86EFAC" : "#FCA5A5"}`, fontSize: "13px", color: isCorrect ? "#166534" : "#991B1B" }}>
               <div style={{ fontSize: "10px", fontWeight: 600, marginBottom: "2px", opacity: 0.65, textTransform: "uppercase" }}>Your answer</div>
@@ -268,7 +183,6 @@ function QuestionCard({ card, questionNum, explanation, attemptId, yearLevel, ap
           </div>
         )}
 
-        {/* AI Explanation */}
         {explanation ? (
           <div style={{ marginTop: "14px", background: isCorrect ? "#F0FDF4" : "#F5F3FF", border: `1px solid ${isCorrect ? "#86EFAC" : "#C4B5FD"}`, borderRadius: "10px", padding: "12px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
@@ -277,9 +191,7 @@ function QuestionCard({ card, questionNum, explanation, attemptId, yearLevel, ap
                 {isCorrect ? "Why this is correct" : "Explanation"}
               </span>
             </div>
-            <p style={{ fontSize: "13px", color: "#374151", lineHeight: 1.6, margin: 0 }}>
-              {explanation.explanation}
-            </p>
+            <p style={{ fontSize: "13px", color: "#374151", lineHeight: 1.6, margin: 0 }}>{explanation.explanation}</p>
             {explanation.tip && (
               <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: `1px dashed ${isCorrect ? "#86EFAC" : "#C4B5FD"}` }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: "6px" }}>
@@ -293,38 +205,21 @@ function QuestionCard({ card, questionNum, explanation, attemptId, yearLevel, ap
               </div>
             )}
           </div>
-       ) : null}
+        ) : null}
 
-        {/* Chat — wrong answers only */}
-        {!isCorrect && (
-          <div style={{ marginTop: "12px" }}>
-            <button
-              onClick={() => setChatOpen((v) => !v)}
-              style={{ display: "flex", alignItems: "center", gap: "6px", padding: "7px 14px", borderRadius: "8px", background: chatOpen ? (young ? "#FFF7ED" : "#EEF2FF") : "#F9FAFB", border: `1px solid ${chatOpen ? (young ? "#FED7AA" : "#C7D2FE") : "#E5E7EB"}`, cursor: "pointer", fontSize: "13px", fontWeight: 600, color: chatOpen ? (young ? "#C2410C" : "#4338CA") : "#6B7280", transition: "all 0.15s" }}
-            >
-              <IcChat />
-              {chatOpen ? "Close" : "Ask a question about this"}
-            </button>
-            {chatOpen && <ChatPanel card={card} attemptId={attemptId} yearLevel={yearLevel} apiFetch={apiFetch} young={young} />}
-          </div>
-        )}
+        {/* Hint banner on wrong answers → opens floating chat */}
+        {!isCorrect && <ChatHint young={young} />}
       </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// MAIN EXPORT
-// ─────────────────────────────────────────────────────────────
 export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
-  const young = isYoung(yearLevel);
+  const [flashcards,   setFlashcards]   = useState([]);
+  const [loadingCards, setLoadingCards] = useState(true);
+  const [error,        setError]        = useState(null);
+  const [filter,       setFilter]       = useState("all");
 
-  const [flashcards, setFlashcards] = useState([]);
-  const [loadingCards, setLoadingCards] = useState(true);  // ✅ ADD BACK
-  const [error, setError] = useState(null);
-  const [filter, setFilter] = useState("all");
-
-  // ── Load flashcards ──
   useEffect(() => {
     if (!attemptId) return;
     setLoadingCards(true);
@@ -334,7 +229,6 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
       .catch(() => { setError("Failed to load questions."); setLoadingCards(false); });
   }, [attemptId, apiFetch]);
 
-  // ── Load AI explanations — with sessionStorage cache ──
   if (loadingCards) {
     return (
       <div style={{ padding: "32px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
@@ -353,9 +247,9 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
     );
   }
 
-  const allQuestions = flashcards.filter((c) => c.type !== "free_text");
-  const totalCorrect = allQuestions.filter(getIsCorrect).length;
-  const totalWrong = allQuestions.length - totalCorrect;
+  const allQuestions  = flashcards.filter((c) => c.type !== "free_text");
+  const totalCorrect  = allQuestions.filter(getIsCorrect).length;
+  const totalWrong    = allQuestions.length - totalCorrect;
 
   const filteredCards = filter === "wrong"
     ? flashcards.filter((c) => c.type === "free_text" || !getIsCorrect(c))
@@ -367,24 +261,15 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
 
   return (
     <div style={{ padding: "24px 16px 32px" }}>
-
-
-      {/* Section header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "20px" }}>
         <div>
-          <h2 style={{ fontSize: "15px", fontWeight: 700, color: "#111827", margin: "0 0 2px" }}>
-            Answers &amp; Explanations
-          </h2>
-          <p style={{ fontSize: "12px", color: "#9CA3AF", margin: 0 }}>
-            {totalCorrect} correct · {totalWrong} incorrect
-          </p>
+          <h2 style={{ fontSize: "15px", fontWeight: 700, color: "#111827", margin: "0 0 2px" }}>Answers &amp; Explanations</h2>
+          <p style={{ fontSize: "12px", color: "#9CA3AF", margin: 0 }}>{totalCorrect} correct · {totalWrong} incorrect</p>
         </div>
-
-        {/* Filter */}
         <div style={{ display: "flex", gap: "6px", background: "#F1F5F9", padding: "4px", borderRadius: "10px" }}>
           {[
-            { key: "all", label: `All (${allQuestions.length})` },
-            { key: "wrong", label: `Incorrect (${totalWrong})` },
+            { key: "all",     label: `All (${allQuestions.length})` },
+            { key: "wrong",   label: `Incorrect (${totalWrong})` },
             { key: "correct", label: `Correct (${totalCorrect})` },
           ].map((f) => (
             <button key={f.key} onClick={() => setFilter(f.key)} style={{
@@ -394,14 +279,11 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
               color: filter === f.key ? "#111827" : "#64748B",
               boxShadow: filter === f.key ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
               transition: "all 0.15s",
-            }}>
-              {f.label}
-            </button>
+            }}>{f.label}</button>
           ))}
         </div>
       </div>
 
-      {/* Question cards */}
       <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
         {filteredCards.map((card, i) => {
           if (card.type !== "free_text") questionNum++;
@@ -411,10 +293,10 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
               card={card}
               questionNum={questionNum}
               explanation={
-  (card.explanation || card.tip)
-    ? { explanation: card.explanation || "", tip: card.tip || "" }
-    : null
-}
+                (card.explanation || card.tip)
+                  ? { explanation: card.explanation || "", tip: card.tip || "" }
+                  : null
+              }
               attemptId={attemptId}
               yearLevel={yearLevel}
               apiFetch={apiFetch}
