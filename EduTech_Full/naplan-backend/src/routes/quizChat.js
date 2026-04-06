@@ -19,8 +19,8 @@ const path      = require("path");
 const router = express.Router();
 
 // ── Config ─────────────────────────────────────────────────────────────────
-const GEMINI_SCRIPT    = path.join(__dirname, "../ai/gemini_explanation.py");
-const CACHE_SCRIPT     = path.join(__dirname, "../ai/chat_cache.py");
+const GEMINI_SCRIPT    = path.join(__dirname, "../../ai/gemini_explanation.py");
+const CACHE_SCRIPT     = path.join(__dirname, "../../ai/chat_cache.py");
 const PYTHON_BIN       = process.env.PYTHON_BIN || "python3";
 const CACHE_THRESHOLD  = parseFloat(process.env.CHAT_CACHE_THRESHOLD || "0.92");
 const MAX_CHAT_HISTORY = 6;
@@ -201,6 +201,18 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
     } catch (err) {
       console.error("[quizChat] Failed to load quiz questions:", err.message);
     }
+    // ── Off-topic guard ──────────────────────────────────────────────────
+    const offTopicPhrases = ["joke","weather","football","cricket","movie","youtube","tiktok","instagram","who made you","are you real","do you like"];
+    const isOffTopic = offTopicPhrases.some((p) => message.toLowerCase().includes(p));
+     if (isOffTopic) {
+      const youngKid = (req.yearLevel || 3) <= 5;
+      return res.json({
+        reply: youngKid
+          ? "I can only help with questions from this quiz! 😊 Try asking about one of the topics here."
+          : "I can only answer questions related to this quiz and its topics.",
+        cached: false,
+      });
+    }
 
     if (!questions.length) {
       console.warn(`[quizChat] No questions found for quiz ${quizId} — proceeding without context`);
@@ -227,7 +239,14 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
       message:      message.trim(),
       chat_history: (chatHistory || []).slice(-MAX_CHAT_HISTORY),
       question_context: {
-        question_text:  `[QUIZ CONTEXT — answer only from this material]\n\n${quizContext}`,
+        question_text:  `[STRICT RULES]
+- You are a tutor ONLY for this specific quiz
+- ONLY answer questions about the topics and questions in this quiz
+- If the child asks anything outside this quiz, say: "I can only help with questions from this quiz! Try asking about one of the topics here 😊"
+- Do NOT answer general knowledge, jokes, or unrelated topics
+
+[QUIZ CONTENT]
+${quizContext}`,
         correct_answer: "",
         child_answer:   "",
         category:       "NAPLAN quiz",

@@ -21,6 +21,8 @@ async function startServer() {
   try {
     // 1. Connect to MongoDB FIRST — fail fast if unreachable
     await connectDB();
+    const mongoose = require("mongoose");
+    app.locals.db = mongoose.connection.db;
     console.log("✅ MongoDB connected — ready to accept requests");
 
     // 2. THEN start Express

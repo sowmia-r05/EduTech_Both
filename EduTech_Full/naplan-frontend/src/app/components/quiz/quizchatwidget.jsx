@@ -42,7 +42,7 @@ function TypingDots() {
     <div style={{ display: "flex", gap: 4, padding: "6px 2px" }}>
       {[0, 1, 2].map((i) => (
         <div key={i} style={{
-          width: 7, height: 7, borderRadius: "50%", background: "#9CA3AF",
+          width: 10, height: 10, borderRadius: "50%", background: "#9CA3AF",
           animation: `chatDot 1.2s ease-in-out ${i * 0.2}s infinite`,
         }} />
       ))}
@@ -130,7 +130,7 @@ export default function QuizChatWidget({ quizId, yearLevel, apiFetch }) {
       {/* Panel */}
       <div style={{
         position: "fixed", bottom: 88, right: 20, zIndex: 9998,
-        width: 360, maxWidth: "calc(100vw - 40px)", maxHeight: 520,
+        width: 500, maxWidth: "calc(100vw - 40px)", maxHeight: 700,
         display: "flex", flexDirection: "column",
         background: "#fff", border: "1px solid #E5E7EB", borderRadius: 16,
         boxShadow: "0 8px 32px rgba(0,0,0,0.14)", overflow: "hidden",
@@ -142,8 +142,8 @@ export default function QuizChatWidget({ quizId, yearLevel, apiFetch }) {
         <div style={{ padding: "12px 16px", background: accent, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <IcSparkle size={20} />
           <div style={{ flex: 1 }}>
-            <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>{young ? "Your AI tutor ✨" : "AI Tutor"}</div>
-            <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 11 }}>Ask anything about this quiz</div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 17}}>{young ? "Your AI tutor ✨" : "AI Tutor"}</div>
+            <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 14 }}>Ask anything about this quiz</div>
           </div>
           <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.85)", padding: 4, borderRadius: 6, display: "flex", alignItems: "center" }}>
             <IcClose size={18} />
@@ -154,7 +154,7 @@ export default function QuizChatWidget({ quizId, yearLevel, apiFetch }) {
           {messages.length === 0 && (
             <div style={{ textAlign: "center", padding: "20px 8px 4px" }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>✨</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#374151" }}>
                 {young ? "Hi! I'm your AI helper." : "Hi! I'm your AI tutor."}
               </div>
               <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 4 }}>
@@ -169,7 +169,7 @@ export default function QuizChatWidget({ quizId, yearLevel, apiFetch }) {
                 borderRadius: m.role === "user" ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
                 background: m.role === "user" ? accent : "#fff",
                 color: m.role === "user" ? "#fff" : "#1F2937",
-                fontSize: 13, lineHeight: 1.55,
+                fontSize: 16, lineHeight: 1.7,
                 border: m.role === "ai" ? "1px solid #E5E7EB" : "none",
               }}>{m.content}</div>
               {m.role === "ai" && m.cached && (
@@ -199,7 +199,7 @@ export default function QuizChatWidget({ quizId, yearLevel, apiFetch }) {
             placeholder={young ? "Type your question here..." : "Ask about this quiz..."}
             disabled={loading}
             maxLength={500}
-            style={{ flex: 1, padding: "9px 12px", borderRadius: 10, border: "1px solid #D1D5DB", fontSize: 13, outline: "none", color: "#111827", background: loading ? "#F9FAFB" : "#fff" }}
+            style={{ flex: 1, border: "1px solid #D1D5DB", borderRadius: 10, padding: "10px 14px", fontSize: 16, outline: "none", color: "#111827", background: loading ? "#F9FAFB" : "#fff" }}
           />
           <button onClick={send} disabled={!canSend} style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: canSend ? accent : "#E5E7EB", color: "#fff", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
             <IcSend size={15} />
