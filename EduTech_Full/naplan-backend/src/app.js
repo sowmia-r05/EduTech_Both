@@ -255,7 +255,15 @@ app.use("/api", quizRoutes);
 app.use("/api", availableQuizzesRoute);
 app.use("/api", flashcardsRoute);
 app.use("/api", explanationRoutes);  // ✅ ADD HERE
-app.use("/api/quizzes", quizChatRoute); 
+const chatGlobalLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 100,
+  message: { error: "Chat is busy right now. Please try again in a moment." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api/quizzes", chatGlobalLimiter, quizChatRoute);
 
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
