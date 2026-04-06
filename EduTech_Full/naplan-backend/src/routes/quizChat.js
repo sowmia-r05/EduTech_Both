@@ -92,72 +92,69 @@ function extractChildId(req, _res, next) {
 
 // ── Load quiz questions from MongoDB ───────────────────────────────────────
 // Tries multiple strategies to find the quiz, since collection names vary.
+// ── Load quiz questions from MongoDB ──────────────────────────────────────
 async function loadQuizQuestions(quizId, req) {
   // 1. Check in-process cache
   const cached = _getCachedQuiz(quizId);
   if (cached) { console.log(`[quizChat] Quiz ${quizId} served from in-process cache`); return cached; }
 
-  // 2. Try mongoose model (most reliable if you have a Quiz model)
-  try {
-    const mongoose = require("mongoose");
+  // 2. Try req.app.locals.db
+  const db = req.app.locals.db;
+  if (db) {
+    try {
+      // Strategy A — questions embedded in quizzes collection
+      const quiz = await db.collection("quizzes").findOne(
+        { quiz_id: quizId },
+        { projection: { questions: 1, question_ids: 1 } }
+      );
 
-    // Try common model names — adjust if yours is different
-    let QuizModel = null;
-    for (const name of ["Quiz", "quiz", "Quizzes"]) {
-      try { QuizModel = mongoose.model(name); break; } catch { /* try next */ }
-    }
-
-    if (QuizModel) {
-      const quiz = await QuizModel.findOne({ quiz_id: quizId }).lean();
-      if (quiz && quiz.questions?.length) {
+      if (quiz?.questions?.length) {
         const questions = quiz.questions.map((q) => ({
           question_id:    q.question_id,
           question_text:  q.question_text,
-          options:        q.options || [],
+          options:        (q.options || []).map(o => o.text || o.label || String(o)),
           correct_answer: q.correct_answer,
           category:       q.category || q.topic || "",
         }));
         _setCachedQuiz(quizId, questions);
-        console.log(`[quizChat] Loaded ${questions.length} questions via mongoose model`);
+        console.log(`[quizChat] Loaded ${questions.length} questions from quizzes collection`);
         return questions;
       }
-    }
-  } catch (err) {
-    console.warn("[quizChat] Mongoose model lookup failed:", err.message);
-  }
 
-  // 3. Try req.app.locals.db (raw MongoDB driver)
-  const db = req.app.locals.db;
-  if (db) {
-    // Try common collection names
-    for (const collName of ["quizzes", "quiz", "Quizzes"]) {
-      try {
-        const quiz = await db.collection(collName).findOne(
-          { quiz_id: quizId },
-          { projection: { questions: 1, quiz_name: 1, year_level: 1 } }
-        );
-        if (quiz && quiz.questions?.length) {
-          const questions = quiz.questions.map((q) => ({
-            question_id:    q.question_id,
+      // Strategy B — question_ids array pointing to questions collection
+      if (quiz?.question_ids?.length) {
+        const { ObjectId } = require("mongodb");
+        const ids = quiz.question_ids.map(id => {
+          try { return new ObjectId(id); } catch { return id; }
+        });
+        const questions = await db.collection("questions")
+          .find({ _id: { $in: ids } })
+          .project({ question_text: 1, options: 1, correct_answer: 1, category: 1 })
+          .toArray();
+        if (questions.length) {
+          const mapped = questions.map((q) => ({
+            question_id:    q._id,
             question_text:  q.question_text,
-            options:        q.options || [],
+            options:        (q.options || []).map(o => o.text || o.label || String(o)),
             correct_answer: q.correct_answer,
             category:       q.category || q.topic || "",
           }));
-          _setCachedQuiz(quizId, questions);
-          console.log(`[quizChat] Loaded ${questions.length} questions from '${collName}' collection`);
-          return questions;
+          _setCachedQuiz(quizId, mapped);
+          console.log(`[quizChat] Loaded ${mapped.length} questions via question_ids`);
+          return mapped;
         }
-      } catch { /* try next */ }
+      }
+
+      console.warn(`[quizChat] Quiz ${quizId} not found`);
+    } catch (err) {
+      console.warn("[quizChat] DB lookup failed:", err.message);
     }
-    console.warn(`[quizChat] Quiz ${quizId} not found in any known collection`);
   } else {
-    console.warn("[quizChat] req.app.locals.db is not set — add: app.locals.db = mongoose.connection.db in server.js");
+    console.warn("[quizChat] req.app.locals.db is not set");
   }
 
   return null;
 }
-
 // ── Store in cache async (fire-and-forget) ─────────────────────────────────
 function storeInCacheAsync(quizId, message, answer) {
   runPython(CACHE_SCRIPT, { mode: "store_cache", quiz_id: quizId, message, answer })
