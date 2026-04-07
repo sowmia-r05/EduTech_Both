@@ -12,7 +12,7 @@
 "use strict";
 
 const express   = require("express");
-const rateLimit = require("express-rate-limit");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const { spawn } = require("child_process");
 const path      = require("path");
 
@@ -45,7 +45,7 @@ function _setCachedQuiz(quizId, questions) {
 const chatRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
-  keyGenerator: (req) => req.childId || req.ip,
+  keyGenerator: (req) => req.childId || ipKeyGenerator(req),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many messages. Please wait a little before asking again." },
