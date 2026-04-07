@@ -1120,6 +1120,7 @@ export default function QuizDetailPage() {
         is_trial:            data.is_trial            || false,
         randomize_questions: data.randomize_questions || false,
         randomize_options:   data.randomize_options   || false,
+        attempts_enabled:    data.attempts_enabled    ?? false,  // ✅ ADD
         max_attempts:        data.max_attempts        ?? "",
       });
     } catch (err) {
@@ -1249,6 +1250,7 @@ useEffect(() => {
           is_trial:            settingsForm.is_trial,
           randomize_questions: settingsForm.randomize_questions,
           randomize_options:   settingsForm.randomize_options,
+          attempts_enabled:    settingsForm.attempts_enabled,    // ✅ ADD
           max_attempts:        settingsForm.max_attempts === "" ? null : Number(settingsForm.max_attempts),
         }),
       });
@@ -1402,7 +1404,7 @@ const handleGenerateExplanations = async () => {
               </div>
             </div>
             <div className="flex items-center gap-4 flex-wrap">
-              {[["is_active","Active"],["is_trial","Trial (free)"],["randomize_questions","Randomize Questions"],["randomize_options","Randomize Options"]].map(([key, label]) => (
+              {[["is_active","Active"],["is_trial","Trial (free)"],["randomize_questions","Randomize Questions"],["randomize_options","Randomize Options"],["attempts_enabled","Allow Retakes"]].map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                   <input type="checkbox" checked={settingsForm[key] || false}
                     onChange={(e) => setSettingsForm((f) => ({ ...f, [key]: e.target.checked }))}
