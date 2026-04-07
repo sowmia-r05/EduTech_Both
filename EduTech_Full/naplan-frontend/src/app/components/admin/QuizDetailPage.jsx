@@ -657,7 +657,7 @@ const applyInlineStyle = (tag, style) => {
       video_url:           form.video_url    || null,
       correct_answer:      form.correct_answer || null,
       case_sensitive:      form.case_sensitive,
-      options:             form.options,
+      options: ["short_answer", "free_text", "writing"].includes(form.type) ? [] : form.options,
     });
     setSaving(false);
   };
@@ -778,7 +778,16 @@ const applyInlineStyle = (tag, style) => {
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="block text-xs text-slate-400 mb-1">Type</label>
-          <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+          <select value={form.type} onChange={(e) => {
+                const newType = e.target.value;
+                const isNonMcq = ["short_answer", "free_text", "writing", "matching"].includes(newType);
+                setForm((f) => ({
+                  ...f,
+                  type: newType,
+                  options: isNonMcq ? [] : f.options,
+                  correct_answer: newType === "short_answer" ? f.correct_answer : "",
+                }));
+              }}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
             <option value="radio_button">Single Choice</option>
             <option value="checkbox">Multiple Choice</option>
