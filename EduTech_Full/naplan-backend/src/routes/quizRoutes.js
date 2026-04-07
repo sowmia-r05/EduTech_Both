@@ -249,6 +249,7 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
         option_id: opt.option_id,
         text: opt.text,
         image_url: opt.image_url || null,
+        match: opt.match || null,
       })),
       points: q.points,
       categories: q.categories,
@@ -444,13 +445,27 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
           }
         }
         pointsScored = correctCount === correctOptions.length ? pointsAvailable : 0;
-      } else if (question.type !== "free_text") {
-        const correctIds = question.options.filter((o) => o.correct).map((o) => o.option_id).sort();
-        const selectedIds = (ans.selected_option_ids || []).sort();
-        const isCorrect = correctIds.length === selectedIds.length && correctIds.every((id, i) => id === selectedIds[i]);
-        pointsScored = isCorrect ? pointsAvailable : 0;
-      }
+      } else if (question.type === "short_answer") {
+  const studentAnswer = (ans.text_answer || "").trim();
+  const correctRaw = question.correct_answer || "";
+  const acceptedAnswers = correctRaw.split("|").map((a) => a.trim()).filter(Boolean);
 
+  if (!studentAnswer || acceptedAnswers.length === 0) {
+    pointsScored = 0;
+  } else if (question.case_sensitive) {
+    pointsScored = acceptedAnswers.includes(studentAnswer) ? pointsAvailable : 0;
+  } else {
+    pointsScored = acceptedAnswers.some(
+      (a) => a.toLowerCase() === studentAnswer.toLowerCase()
+    ) ? pointsAvailable : 0;
+  }
+
+} else if (question.type !== "free_text" && question.type !== "writing") {
+  const correctIds = question.options.filter((o) => o.correct).map((o) => o.option_id).sort();
+  const selectedIds = (ans.selected_option_ids || []).sort();
+  const isCorrect = correctIds.length === selectedIds.length && correctIds.every((id, i) => id === selectedIds[i]);
+  pointsScored = isCorrect ? pointsAvailable : 0;
+}
       totalPoints += pointsScored;
       totalAvailable += pointsAvailable;
 

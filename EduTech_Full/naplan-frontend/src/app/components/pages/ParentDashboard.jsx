@@ -781,8 +781,8 @@ function PaymentHistory({ payments: initialPayments = [], parentToken }) {
           </div>
         </div>
 
-        {payments.length > 0 && !collapsed && (
-          <div style={{ marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+        {payments.length > 0 && (
+            <div style={{ marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
             <span style={{ fontSize: "13px", color: "#9CA3AF" }}>{payments.length} payment{payments.length !== 1 ? "s" : ""}</span>
             {["Paid", "Pending", "Failed", "Refunded", "Free"].map((s) => {
               const count = payments.filter((p) => p.status === s).length;
