@@ -665,7 +665,7 @@ const applyInlineStyle = (tag, style) => {
   return (
     <div className="bg-slate-800/50 border-2 border-indigo-500/40 rounded-xl p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-indigo-400">✏️ Edit Question</h4>
+        <h4 className="text-sm font-semibold text-indigo-400">Edit Question</h4>
         <button onClick={onCancel} className="text-xs text-slate-400 hover:text-white">Cancel</button>
       </div>
 

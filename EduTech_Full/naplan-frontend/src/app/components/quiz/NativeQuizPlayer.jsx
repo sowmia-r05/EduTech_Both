@@ -84,6 +84,81 @@ function QuizMediaPanel({ voiceUrl, videoUrl }) {
 }
 
 /* ═══════════════════════════════════════
+   PassagePanel — left-side reading text
+   ═══════════════════════════════════════ */
+function PassagePanel({ passage }) {
+  if (!passage) return null;
+  const passageText = passage.text || passage.question_text || "";
+  return (
+    <div className="h-full flex flex-col bg-blue-50/40 border-r border-blue-100">
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-blue-100 bg-blue-50 flex-shrink-0">
+        <span className="text-base">📖</span>
+        <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">Reading Passage</span>
+      </div>
+      <div className="flex-1 overflow-y-auto px-5 py-5">
+        {passageText.includes("<") ? (
+          <div
+            className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none mb-4"
+            dangerouslySetInnerHTML={{ __html: passageText }}
+          />
+        ) : (
+          <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap mb-4">
+            {passageText}
+          </p>
+        )}
+        {passage.image_url && (
+          <img src={passage.image_url} alt="Passage" className="w-full rounded-lg border border-blue-100" />
+        )}
+      </div>
+    </div>
+  );
+}
+/* Returns the last free_text question before currentIdx (the active passage) */
+function getActivePassage(questions, currentIdx) {
+  for (let i = currentIdx - 1; i >= 0; i--) {
+    if (questions[i]?.type === "free_text") return questions[i];
+  }
+  return null;
+}
+/* ═══════════════════════════════════════
+   ReadingSplitLayout — desktop split / mobile tabs
+   ═══════════════════════════════════════ */
+function ReadingSplitLayout({ passage, voiceUrl, videoUrl, children }) {
+  const [mobileTab, setMobileTab] = useState("passage");
+  return (
+    <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Mobile tab switcher — hidden on desktop */}
+      <div className="flex md:hidden border-b border-slate-200 bg-white flex-shrink-0">
+        <button
+          onClick={() => setMobileTab("passage")}
+          className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${
+            mobileTab === "passage" ? "text-blue-600 border-b-2 border-blue-600" : "text-slate-400"
+          }`}
+        >
+          📖 Passage
+        </button>
+        <button
+          onClick={() => setMobileTab("question")}
+          className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${
+            mobileTab === "question" ? "text-indigo-600 border-b-2 border-indigo-600" : "text-slate-400"
+          }`}
+        >
+          ❓ Question
+        </button>
+      </div>
+      {/* Desktop: side by side | Mobile: one tab at a time */}
+      <div className="flex flex-1 overflow-hidden">
+        <div className={`w-full md:w-1/2 overflow-y-auto ${mobileTab === "question" ? "hidden md:block" : ""}`}>
+          <PassagePanel passage={passage} />
+        </div>
+        <div className={`w-full md:w-1/2 overflow-y-auto px-6 py-6 ${mobileTab === "passage" ? "hidden md:block" : ""}`}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+/* ═══════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════ */
 export default function NativeQuizPlayer({ quiz, onClose, proctored = true, childId, onViewAnalytics, onViewAIFeedback, childStatus }) {
@@ -219,6 +294,9 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
           if (limit) setTimeLeft(limit * 60);
         }
 
+        // Jump past any opening passage(s) before starting
+        const firstAnswerable = (qData.questions || []).findIndex(q => q.type !== "free_text");
+        if (firstAnswerable > 0) setCurrentIdx(firstAnswerable);
         setPhase("taking");
       } catch (err) {
         if (!cancelled) {
@@ -311,23 +389,21 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
   }, []);
 
   // ═══ NAVIGATION ═══
-  const goTo = useCallback(
-    (idx) => setCurrentIdx(Math.max(0, Math.min(idx, questions.length - 1))),
-    [questions.length]
-  );
-  const goNext = useCallback(() => goTo(currentIdx + 1), [currentIdx, goTo]);
-  const goPrev = useCallback(() => goTo(currentIdx - 1), [currentIdx, goTo]);
-  // ✅ ADD THIS — preload on hover so image is cached before click
-const preloadNextImage = useCallback(() => {
-  const nextQ = questions[currentIdx + 1];
-  if (!nextQ?.image_url) return;
-  const url = nextQ.image_url.startsWith("http")
-    ? nextQ.image_url
-    : `${import.meta.env.VITE_API_BASE_URL || ""}${nextQ.image_url}`;
-  const img = new window.Image();
-  img.src = url;
+ // NEW — skips free_text (passage) items during navigation
+const goTo = useCallback(
+  (idx) => setCurrentIdx(Math.max(0, Math.min(idx, questions.length - 1))),
+  [questions.length]
+);
+const goNext = useCallback(() => {
+  let next = currentIdx + 1;
+  while (next < questions.length && questions[next]?.type === "free_text") next++;
+  if (next < questions.length) setCurrentIdx(next);
 }, [currentIdx, questions]);
-
+const goPrev = useCallback(() => {
+  let prev = currentIdx - 1;
+  while (prev >= 0 && questions[prev]?.type === "free_text") prev--;
+  if (prev >= 0) setCurrentIdx(prev);
+}, [currentIdx, questions]);
   // ═══ SUBMIT ═══
   const handleSubmit = useCallback(async () => {
     if (submitCalledRef.current) return;
@@ -367,6 +443,7 @@ const preloadNextImage = useCallback(() => {
     exitFullscreen().catch(() => {});
     onClose?.(result);
   };
+  // ── Skip past any opening free_text passage when quiz starts ──
 
   // ─── Stats ───
   const answeredCount = questions.filter((q) => {
@@ -382,7 +459,15 @@ const preloadNextImage = useCallback(() => {
   }).length;
 
   const answerableQuestions = questions.filter((q) => q.type !== "free_text");
-
+  // Position of current question among answerable (passage-free) questions
+const currentAnswerableIdx = answerableQuestions.findIndex(
+  (q) => q.question_id === questions[currentIdx]?.question_id
+);
+// Is this quiz a Reading quiz with a passage available?
+const isReading = (quiz?.subject || "").toLowerCase().includes("reading");
+const activePassage = isReading
+  ? (getActivePassage(questions, currentIdx) || questions.find(q => q.type === "free_text") || null)
+  : null;
 
   // ═══ RENDER: ERROR ═══
   if (phase === "error") {
@@ -470,62 +555,93 @@ const preloadNextImage = useCallback(() => {
     }
 
     if (phase === "taking" && questions[currentIdx]) {
-      const currentQuestion = questions[currentIdx];
-      return (
-        <div className="flex flex-col min-h-full">
-        <QuizHeader
-          quizName={quizMeta?.quiz_name || quiz.quiz_name}
-          currentIdx={currentIdx} totalQuestions={questions.length}
-          answeredCount={answeredCount} timeLeft={timeLeft} onCancel={handleCancel}
-        />
-          <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-8 md:px-8">
-            {/* Quiz-level media (same for all questions) */}
-            <QuizMediaPanel voiceUrl={voiceUrl} videoUrl={videoUrl} />
-            {/* Per-question media */}
-            {(questions[currentIdx]?.voice_url || questions[currentIdx]?.video_url) && (
-              <QuizMediaPanel
-                voiceUrl={questions[currentIdx].voice_url}
-                videoUrl={questions[currentIdx].video_url}
-              />
-            )}
-            <QuestionRenderer
-              question={currentQuestion}
-              questionNumber={currentIdx + 1}
-              answer={answers[currentQuestion.question_id] || {}}
-              isFlagged={flagged.has(currentQuestion.question_id)}
-              onAnswer={(data) => setAnswer(currentQuestion.question_id, data)}
-              onToggleFlag={() => toggleFlag(currentQuestion.question_id)}
-              yearLevel={quiz?.year_level}
-              subject={quiz?.subject}
-              onUploadingChange={setIsUploading}
-            />
-          </main>
-          <QuizNavigation
-            currentIdx={currentIdx} totalQuestions={questions.length}
-            questions={questions} answers={answers} flagged={flagged}
-            onPrev={goPrev} onNext={goNext} onGoTo={goTo}
-            onReview={() => setPhase("review")} unansweredCount={unansweredCount}
-            
+  const currentQuestion = questions[currentIdx];
+  return (
+    <div className="flex flex-col h-screen overflow-hidden">
+      {/* Header — always shows answerable position, not raw index */}
+      <QuizHeader
+        quizName={quizMeta?.quiz_name || quiz.quiz_name}
+        currentIdx={currentAnswerableIdx >= 0 ? currentAnswerableIdx : 0}
+        totalQuestions={answerableQuestions.length}
+        answeredCount={answeredCount}
+        timeLeft={timeLeft}
+        onCancel={handleCancel}
+      />
+
+      {/* Main content area */}
+      {/* Main content area */}
+{isReading && activePassage ? (
+  <ReadingSplitLayout passage={activePassage}>
+          <QuizMediaPanel voiceUrl={voiceUrl} videoUrl={videoUrl} />
+          {(currentQuestion.voice_url || currentQuestion.video_url) && (
+            <QuizMediaPanel voiceUrl={currentQuestion.voice_url} videoUrl={currentQuestion.video_url} />
+          )}
+          <QuestionRenderer
+            question={currentQuestion}
+            questionNumber={currentAnswerableIdx + 1}
+            answer={answers[currentQuestion.question_id] || {}}
+            isFlagged={flagged.has(currentQuestion.question_id)}
+            onAnswer={(data) => setAnswer(currentQuestion.question_id, data)}
+            onToggleFlag={() => toggleFlag(currentQuestion.question_id)}
+            yearLevel={quiz?.year_level}
+            subject={quiz?.subject}
+            onUploadingChange={setIsUploading}
           />
-        </div>
-      );
-    }
+        </ReadingSplitLayout>
+      ) : (
+        <main className="flex-1 overflow-y-auto max-w-3xl mx-auto w-full px-4 py-8 md:px-8">
+          <QuizMediaPanel voiceUrl={voiceUrl} videoUrl={videoUrl} />
+          {(currentQuestion.voice_url || currentQuestion.video_url) && (
+            <QuizMediaPanel voiceUrl={currentQuestion.voice_url} videoUrl={currentQuestion.video_url} />
+          )}
+          <QuestionRenderer
+            question={currentQuestion}
+            questionNumber={currentAnswerableIdx + 1}
+            answer={answers[currentQuestion.question_id] || {}}
+            isFlagged={flagged.has(currentQuestion.question_id)}
+            onAnswer={(data) => setAnswer(currentQuestion.question_id, data)}
+            onToggleFlag={() => toggleFlag(currentQuestion.question_id)}
+            yearLevel={quiz?.year_level}
+            subject={quiz?.subject}
+            onUploadingChange={setIsUploading}
+          />
+        </main>
+      )}
+      {/* Nav */}
+      <QuizNavigation
+        currentIdx={currentAnswerableIdx >= 0 ? currentAnswerableIdx : 0}
+        totalQuestions={answerableQuestions.length}
+        questions={answerableQuestions}
+        answers={answers}
+        flagged={flagged}
+        onPrev={goPrev}
+        onNext={goNext}
+        onGoTo={(answerableIdx) => {
+          const target = answerableQuestions[answerableIdx];
+          const rawIdx = questions.findIndex(q => q.question_id === target?.question_id);
+          if (rawIdx >= 0) goTo(rawIdx);
+        }}
+        onReview={() => setPhase("review")}
+        unansweredCount={unansweredCount}
+      />
+    </div>
+  );
+}
     return null;
   })();
 
- return (
-  <>
-    <ExamProctor
-      quiz={quiz} enabled={proctored}
-      onCancel={() => onClose?.({ completed: false })}
-      onStart={handleProctoringStart}
-      onViolation={handleViolation}
-      submitting={phase === "submitting" || phase === "result"}
-      uploading={isUploading}
-    >
-      {quizContent}
-    </ExamProctor>
-   
-  </>
-);
+  return (
+    <>
+      <ExamProctor
+        quiz={quiz} enabled={proctored}
+        onCancel={() => onClose?.({ completed: false })}
+        onStart={handleProctoringStart}
+        onViolation={handleViolation}
+        submitting={phase === "submitting" || phase === "result"}
+        uploading={isUploading}
+      >
+        {quizContent}
+      </ExamProctor>
+    </>
+  );
 }

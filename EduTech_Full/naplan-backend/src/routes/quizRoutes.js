@@ -254,8 +254,8 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       points: q.points,
       categories: q.categories,
       image_url: q.image_url || null,
-      image_width: q.image_width || null, // ← ADD
-      image_height: q.image_height || null, // ← ADD
+     image_width: q.image_width ?? null,
+     image_height: q.image_height ?? null,
       image_size: q.image_size || "medium", // ← ADD
       order: q.order,
       voice_url: q.voice_url || null,
