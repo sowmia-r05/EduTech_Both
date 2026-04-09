@@ -1045,7 +1045,55 @@ const applyInlineStyle = (tag, style) => {
     </div>
   );
 }
-
+// ─── Move To Position Modal ───────────────────────────────────────────────────
+function MoveToPositionModal({ question, questions, onClose, onMove }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Move Question</h3>
+            <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+              "{question.text?.replace(/<[^>]+>/g, "").slice(0, 50)}..."
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white text-lg leading-none">✕</button>
+        </div>
+        <div className="overflow-y-auto max-h-[60vh]">
+          {questions.map((q, idx) => {
+            if (q.question_id === question.question_id) return null;
+            const preview = q.text?.replace(/<[^>]+>/g, "").slice(0, 45) || "—";
+            return (
+              <div key={q.question_id} className="border-b border-slate-800/50 last:border-0">
+                {/* Place ABOVE this question */}
+                <button
+                  onClick={() => onMove(question.question_id, idx, "before")}
+                  className="w-full flex items-center gap-3 px-5 py-2 hover:bg-indigo-600/10 transition group"
+                >
+                  <span className="text-[10px] font-bold text-indigo-400 w-16 flex-shrink-0 group-hover:text-indigo-300">↑ Before</span>
+                  <span className="text-xs text-slate-400 truncate">Q{idx + 1}: {preview}</span>
+                </button>
+                {/* Show "Place AFTER" only for last item or after each */}
+                {idx === questions.filter(q2 => q2.question_id !== question.question_id).length - 1 && (
+                  <button
+                    onClick={() => onMove(question.question_id, idx, "after")}
+                    className="w-full flex items-center gap-3 px-5 py-2 hover:bg-emerald-600/10 transition group border-t border-slate-800/30"
+                  >
+                    <span className="text-[10px] font-bold text-emerald-400 w-16 flex-shrink-0 group-hover:text-emerald-300">↓ After</span>
+                    <span className="text-xs text-slate-400 truncate">Q{idx + 1}: {preview}</span>
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="px-5 py-3 border-t border-slate-800">
+          <button onClick={onClose} className="text-xs text-slate-400 hover:text-white">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ═══════════════════════════════════════════════════════════
 // MAIN PAGE
 // ═══════════════════════════════════════════════════════════
@@ -1071,6 +1119,8 @@ export default function QuizDetailPage() {
   const [selectedIds,  setSelectedIds]  = useState(new Set());
   const [showBulkMove, setShowBulkMove] = useState(false);
   const [generatingExpl, setGeneratingExpl] = useState(false);
+  const [reorderQuestion, setReorderQuestion] = useState(null);
+
 
   const handleBulkDelete = async () => {
   if (!selectedIds.size) return;
@@ -1154,7 +1204,48 @@ export default function QuizDetailPage() {
     const res = await adminFetch(`/api/admin/questions/${questionId}?quiz_id=${quizId}`, { method: "DELETE" });
     if (res.ok) fetchDetail(); else alert("Delete failed");
   };
+ const handleSwapOrder = async (idxA, idxB) => {
+    const qA = questions[idxA];
+    const qB = questions[idxB];
+    if (!qA || !qB) return;
+    const orderA = qA.order ?? idxA * 1000;
+    const orderB = qB.order ?? idxB * 1000;
+    setQuestions((prev) => {
+      const next = [...prev];
+      next[idxA] = { ...qA, order: orderB };
+      next[idxB] = { ...qB, order: orderA };
+      return next.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    });
+    await Promise.all([
+      adminFetch(`/api/admin/questions/${qA.question_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ order: orderB }),
+      }),
+      adminFetch(`/api/admin/questions/${qB.question_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ order: orderA }),
+      }),
+    ]);
+  };
 
+  const handleMoveToPosition = async (movingId, targetIdx, placement) => {
+    const without = questions.filter(q => q.question_id !== movingId);
+    const insertAt = placement === "before" ? targetIdx : targetIdx + 1;
+    const moving = questions.find(q => q.question_id === movingId);
+    const reordered = [...without];
+    reordered.splice(insertAt, 0, moving);
+    const updates = reordered.map((q, idx) => ({ ...q, order: idx * 1000 }));
+    setQuestions(updates);
+    setReorderQuestion(null);
+    await Promise.all(
+      updates.map(q =>
+        adminFetch(`/api/admin/questions/${q.question_id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ order: q.order }),
+        })
+      )
+    );
+  };
   const handleAddQuestion = async (newQ) => {
     if (addingRef.current) return;
     addingRef.current = true;
@@ -1545,12 +1636,35 @@ const handleGenerateExplanations = async () => {
                           <VerificationBadge status={verStatus} />
                         </div>
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                          <button onClick={() => { setEditingId(q.question_id); setShowAddForm(false); setInsertAtIndex(null); }}
-                            className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
-                          <button onClick={() => handleDeleteQuestion(q.question_id)}
-                            className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
-                          <span className="text-[10px] text-slate-600 italic">right-click for more</span>
-                        </div>
+  {/* ── Reorder buttons ── */}
+  <div className="flex items-center gap-0.5 border border-slate-700 rounded-lg overflow-hidden">
+    <button
+      onClick={() => handleSwapOrder(i - 1, i)}
+      disabled={i === 0}
+      className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-20 disabled:cursor-not-allowed transition"
+      title="Move up"
+    >▲</button>
+    <div className="w-px h-4 bg-slate-700" />
+    <button
+      onClick={() => handleSwapOrder(i, i + 1)}
+      disabled={i === questions.length - 1}
+      className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-20 disabled:cursor-not-allowed transition"
+      title="Move down"
+    >▼</button>
+    <div className="w-px h-4 bg-slate-700" />
+    <button
+      onClick={() => setReorderQuestion(q)}
+      className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 transition"
+      title="Move to position"
+    >⇅</button>
+  </div>
+  
+  <button onClick={() => { setEditingId(q.question_id); setShowAddForm(false); setInsertAtIndex(null); }}
+    className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
+  <button onClick={() => handleDeleteQuestion(q.question_id)}
+    className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
+  <span className="text-[10px] text-slate-600 italic">right-click for more</span>
+</div>
                       </div>
                     </div>
 
@@ -1750,6 +1864,14 @@ const handleGenerateExplanations = async () => {
             setShowBulkMove(false);
             fetchDetail();
           }}
+        />
+      )}
+      {reorderQuestion && (
+        <MoveToPositionModal
+          question={reorderQuestion}
+          questions={questions}
+          onClose={() => setReorderQuestion(null)}
+          onMove={handleMoveToPosition}
         />
       )}
 
