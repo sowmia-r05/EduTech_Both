@@ -93,6 +93,7 @@ const QuestionSchema = new mongoose.Schema(
     max_length:          { type: Number, default: null },
     text_style_scope:    { type: String, default: "question" },
     // Short answer grading
+    display_style:    { type: String, default: null },   // ← ADD THIS
     correct_answer: { type: String, default: null },
     case_sensitive: { type: Boolean, default: false },
 

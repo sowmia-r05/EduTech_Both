@@ -548,6 +548,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     text_color:          question.text_color           || null,
     max_length:          question.max_length           ?? null,
     text_style_scope:    question.text_style_scope     || "question",
+    display_style:       question.display_style        || null,
     explanation:     question.explanation     || "",
     shuffle_options: question.shuffle_options ?? (quizRandomizeOptions || false),
     voice_url:       question.voice_url       || "",
@@ -651,6 +652,7 @@ const applyInlineStyle = (tag, style) => {
       text_color:          form.text_color,
       max_length:          form.max_length,
       text_style_scope:    form.text_style_scope,
+      display_style:       form.display_style || null,
       explanation:         form.explanation,
       shuffle_options:     form.shuffle_options,
       voice_url:           form.voice_url    || null,
@@ -798,18 +800,43 @@ const applyInlineStyle = (tag, style) => {
             <option value="matching">Match the Following</option>
           </select>
         </div>
-        <div>
+  <div>
           <label className="block text-xs text-slate-400 mb-1">Points</label>
           <input type="number" min="1" value={form.points}
             onChange={(e) => setForm((f) => ({ ...f, points: parseInt(e.target.value) || 1 }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
         </div>
-        <div>
+<div>
           <label className="block text-xs text-slate-400 mb-1">Category</label>
           <input type="text" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
         </div>
       </div>
+
+      {(form.type === "radio_button" || form.type === "matching") && (
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">
+            Display Style
+            <span className="text-slate-600 font-normal ml-1">(Language Convention only)</span>
+          </label>
+          <select
+            value={form.display_style || ""}
+            onChange={(e) => setForm((f) => ({ ...f, display_style: e.target.value || null }))}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+          >
+            <option value="">Default</option>
+            {form.type === "radio_button" && (
+              <>
+                <option value="word_tap">Word Tap — click the wrong word</option>
+                <option value="punctuation_placement">Punctuation Placement — A B C D markers</option>
+              </>
+            )}
+            {form.type === "matching" && (
+              <option value="category_drop">Category Drop — sort into boxes</option>
+            )}
+          </select>
+        </div>
+      )}
 
       <div>
         <label className="block text-xs text-slate-400 mb-1">Image URL</label>
