@@ -864,12 +864,15 @@ const optionsStyle = (
       {/* ── Answer inputs — textStyle passed to every type ── */}
       {/* ── Answer inputs — textStyle passed to every type ── */}
       {question.type === "radio_button" && (
-        subject === "Language conventions" && question.display_style === "word_tap"
-          ? <WordTapQuestion question={question} answer={answer} onAnswer={onAnswer} />
-          : subject === "Language conventions" && question.display_style === "punctuation_placement"
-          ? <PunctuationPlacementQuestion question={question} answer={answer} onAnswer={onAnswer} />
-          : <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
-      )}
+  question.display_style === "word_tap"
+    ? <WordTapQuestion question={question} answer={answer} onAnswer={onAnswer} />
+    : question.display_style === "punctuation_placement"
+    ? <PunctuationPlacementQuestion question={question} answer={answer} onAnswer={onAnswer} />
+    : question.display_style === "word_click"
+    ? <WordClickQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
+    : <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
+)}
+      
       {question.type === "picture_choice" && (
         <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
       )}
@@ -893,10 +896,13 @@ const optionsStyle = (
         
       )}
       {question.type === "matching" && (
-        subject === "Language conventions" && question.display_style === "category_drop"
-          ? <CategoryDropQuestion question={question} answer={answer} onAnswer={onAnswer} />
-          : <MatchingQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
-      )}
+  question.display_style === "category_drop"
+    ? <CategoryDropQuestion question={question} answer={answer} onAnswer={onAnswer} />
+    : question.display_style === "line_match"
+    ? <LineMatchQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
+    : <MatchingQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
+)}
+  
 
       {/* ── Image zoom modal ── */}
       {zoomImg && (

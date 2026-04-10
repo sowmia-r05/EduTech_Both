@@ -111,23 +111,27 @@ function HtmlContent({ html, className = "", style = {} }) {
 
 function TypeBadge({ type }) {
   const styles = {
-    radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
-    picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
-    writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
-    matching:       "bg-teal-500/10 text-teal-400 border-teal-500/20",
-  };
-  const labels = {
-    radio_button:   "Single Choice",
-    checkbox:       "Multiple Choice",
-    picture_choice: "Picture Choice",
-    free_text:      "Free Text",
-    short_answer:   "Short Answer",
-    writing:        "Writing",
-    matching:       "Match Following",
-  };
+  radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
+  matching:       "bg-teal-500/10 text-teal-400 border-teal-500/20",
+  word_click:     "bg-sky-500/10 text-sky-400 border-sky-500/20",
+  line_match:     "bg-amber-500/10 text-amber-400 border-amber-500/20",
+};
+const labels = {
+  radio_button:   "Single Choice",
+  checkbox:       "Multiple Choice",
+  picture_choice: "Picture Choice",
+  free_text:      "Free Text",
+  short_answer:   "Short Answer",
+  writing:        "Writing",
+  matching:       "Match Following",
+  word_click:     "Word Click",
+  line_match:     "Line Match",
+};
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>
       {labels[type] || type}
@@ -826,14 +830,18 @@ const applyInlineStyle = (tag, style) => {
           >
             <option value="">Default</option>
             {form.type === "radio_button" && (
-              <>
-                <option value="word_tap">Word Tap — click the wrong word</option>
-                <option value="punctuation_placement">Punctuation Placement — A B C D markers</option>
-              </>
-            )}
-            {form.type === "matching" && (
-              <option value="category_drop">Category Drop — sort into boxes</option>
-            )}
+  <>
+    <option value="word_tap">Word Tap — click the wrong word</option>
+    <option value="punctuation_placement">Punctuation Placement — A B C D markers</option>
+    <option value="word_click">Word Click — click a highlighted word</option>
+  </>
+)}
+{form.type === "matching" && (
+  <>
+    <option value="category_drop">Category Drop — sort into boxes</option>
+    <option value="line_match">Line Match — draw lines to connect</option>
+  </>
+)}
           </select>
         </div>
       )}
