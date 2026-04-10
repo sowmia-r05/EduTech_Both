@@ -520,6 +520,162 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
     </div>
   );
 }
+/* ═══════════════════════════════════════════════════════════
+   WORD TAP — Language Convention only
+   Click the word used incorrectly in the sentence
+   ═══════════════════════════════════════════════════════════ */
+function WordTapQuestion({ question, answer, onAnswer }) {
+  const selected = answer?.selected?.[0] || null;
+  return (
+    <div className="space-y-6">
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-lg leading-loose">
+        {(question.options || []).map((opt) => {
+          const isSelected = selected === opt.option_id;
+          return (
+            <button
+              key={opt.option_id}
+              onClick={() => onAnswer({ selected: [opt.option_id] })}
+              className={`inline-flex items-center mx-1 my-1 px-3 py-1 rounded-lg border-2 font-medium transition-all text-base ${
+                isSelected
+                  ? "bg-indigo-600 border-indigo-600 text-white shadow-md scale-105"
+                  : "bg-white border-slate-300 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50"
+              }`}
+            >
+              {opt.text}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-slate-400 text-center">Tap the word that is used incorrectly</p>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PUNCTUATION PLACEMENT — Language Convention only
+   Sentence uses [A] [B] [C] [D] as position markers
+   ═══════════════════════════════════════════════════════════ */
+function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
+  const selected = answer?.selected?.[0] || null;
+  const parts = (question.text || "").split(/(\[A\]|\[B\]|\[C\]|\[D\])/);
+  return (
+    <div className="space-y-8">
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-lg leading-loose font-medium text-slate-800">
+        {parts.map((part, i) => {
+          const isMarker = /^\[.\]$/.test(part);
+          const letter = part.replace(/[\[\]]/g, "");
+          const matchingOpt = (question.options || []).find(o => o.text === letter);
+          const isSelected = matchingOpt && selected === matchingOpt.option_id;
+          if (isMarker) {
+            return (
+              <button
+                key={i}
+                onClick={() => matchingOpt && onAnswer({ selected: [matchingOpt.option_id] })}
+                className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-white text-sm font-bold mx-1 transition-all border-2 ${
+                  isSelected
+                    ? "bg-indigo-600 border-indigo-600 scale-110 shadow-md"
+                    : "bg-emerald-500 border-emerald-500 hover:bg-indigo-500 hover:border-indigo-500"
+                }`}
+              >
+                {letter}
+              </button>
+            );
+          }
+          return <span key={i}>{part}</span>;
+        })}
+      </div>
+      <div className="grid grid-cols-4 gap-3">
+        {(question.options || []).map((opt) => {
+          const isSelected = selected === opt.option_id;
+          return (
+            <button
+              key={opt.option_id}
+              onClick={() => onAnswer({ selected: [opt.option_id] })}
+              className={`py-3 rounded-xl border-2 text-sm font-bold transition-all ${
+                isSelected
+                  ? "bg-indigo-600 border-indigo-600 text-white shadow-md"
+                  : "bg-white border-slate-200 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50"
+              }`}
+            >
+              {opt.text}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-slate-400 text-center">Tap a circle in the sentence or tap A B C D below</p>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CATEGORY DROP — Language Convention only
+   Tap words to sort into category boxes (Noun / Adjective / Adverb)
+   Uses matching type: option.text = word, option.match = category
+   ═══════════════════════════════════════════════════════════ */
+function CategoryDropQuestion({ question, answer, onAnswer }) {
+  const pairs = answer?.pairs || {};
+  const categories = [...new Set((question.options || []).map(o => o.match_text || o.match || "").filter(Boolean))];
+  const placed = Object.keys(pairs);
+  const unplaced = (question.options || []).filter(o => !placed.includes(o.option_id));
+
+  const handlePlace = (optionId, category) => {
+    const updated = { ...pairs };
+    if (updated[optionId] === category) delete updated[optionId];
+    else updated[optionId] = category;
+    onAnswer({ pairs: updated });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Options</p>
+        <div className="min-h-12 bg-sky-50 border-2 border-sky-200 rounded-xl p-3 flex flex-wrap gap-2">
+          {unplaced.map(opt => (
+            <span key={opt.option_id}
+              className="px-3 py-1.5 bg-indigo-700 text-white rounded-full text-sm font-medium">
+              {opt.text}
+            </span>
+          ))}
+          {unplaced.length === 0 && (
+            <span className="text-xs text-slate-400 italic">All words placed</span>
+          )}
+        </div>
+      </div>
+      <div className={`grid gap-4 ${categories.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+        {categories.map(cat => {
+          const wordsInCat = (question.options || []).filter(o => pairs[o.option_id] === cat);
+          return (
+            <div key={cat} className="space-y-2">
+              <p className="text-center text-sm font-bold text-indigo-700 uppercase tracking-wide">{cat}</p>
+              <div className="min-h-16 bg-sky-50 border-2 border-sky-300 rounded-xl p-3 flex flex-wrap gap-2 content-start">
+                {wordsInCat.map(opt => (
+                  <button key={opt.option_id}
+                    onClick={() => handlePlace(opt.option_id, cat)}
+                    className="px-3 py-1.5 bg-indigo-700 text-white rounded-full text-sm font-medium hover:bg-red-500 transition"
+                    title="Tap to remove">
+                    {opt.text}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {unplaced.map(opt => (
+                  <button key={opt.option_id}
+                    onClick={() => handlePlace(opt.option_id, cat)}
+                    className="px-2 py-1 text-xs border border-indigo-300 text-indigo-600 rounded-lg hover:bg-indigo-50 transition">
+                    + {opt.text}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-slate-400 text-center">
+        Tap a word to place it. Tap a placed word to remove it.
+      </p>
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════════
    FREE TEXT QUESTION  (display-only — NO student input)
@@ -706,8 +862,13 @@ const optionsStyle = (
       )}
 
       {/* ── Answer inputs — textStyle passed to every type ── */}
+      {/* ── Answer inputs — textStyle passed to every type ── */}
       {question.type === "radio_button" && (
-        <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
+        subject === "Language conventions" && question.display_style === "word_tap"
+          ? <WordTapQuestion question={question} answer={answer} onAnswer={onAnswer} />
+          : subject === "Language conventions" && question.display_style === "punctuation_placement"
+          ? <PunctuationPlacementQuestion question={question} answer={answer} onAnswer={onAnswer} />
+          : <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
       )}
       {question.type === "picture_choice" && (
         <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
@@ -731,8 +892,10 @@ const optionsStyle = (
         <ShortAnswerQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
         
       )}
-       {question.type === "matching" && (
-        <MatchingQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
+      {question.type === "matching" && (
+        subject === "Language conventions" && question.display_style === "category_drop"
+          ? <CategoryDropQuestion question={question} answer={answer} onAnswer={onAnswer} />
+          : <MatchingQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
       )}
 
       {/* ── Image zoom modal ── */}
