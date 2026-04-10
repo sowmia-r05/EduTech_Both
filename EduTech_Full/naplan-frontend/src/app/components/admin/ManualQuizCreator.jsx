@@ -214,9 +214,10 @@ function MatchingPairsEditor({ pairs, onChange }) {
    ═══════════════════════════════════════ */
 export function AddQuestionForm({ onAdd, onCancel }) {
   const [q, setQ] = useState({
-    question_text: "",
-    type: "radio_button",
-    options: [
+  question_text: "",
+  type: "radio_button",
+  display_style: null,
+  options: [
       { label: "A", text: "", image_url: "", correct: false },
       { label: "B", text: "", image_url: "", correct: false },
     ],
@@ -315,6 +316,7 @@ export function AddQuestionForm({ onAdd, onCancel }) {
     onAdd({
       question_text: q.question_text.trim(),
       type: q.type,
+      display_style: q.display_style || null,
       options: cleanedOptions,
 
       // correct_answer:
@@ -400,6 +402,7 @@ export function AddQuestionForm({ onAdd, onCancel }) {
             <option value="free_text">Free Text (display only)</option>
             <option value="short_answer">Short Answer</option>
             <option value="matching">Match the Following</option>
+ 
           </select>
 
         <div>
@@ -434,6 +437,34 @@ export function AddQuestionForm({ onAdd, onCancel }) {
         onChange={(url) => setQ((p) => ({ ...p, image_url: url }))}
         label="Question Image (paste URL or upload)"
       />
+      {(q.type === "radio_button" || q.type === "matching") && (
+  <div>
+    <label className="block text-xs text-slate-400 mb-1">
+      Display Style
+      <span className="text-slate-600 font-normal ml-1">(Language Conventions only)</span>
+    </label>
+    <select
+      value={q.display_style || ""}
+      onChange={(e) => setQ((p) => ({ ...p, display_style: e.target.value || null }))}
+      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+    >
+      <option value="">Default (standard buttons)</option>
+      {q.type === "radio_button" && (
+        <>
+          <option value="word_tap">Word Tap — click the wrong word</option>
+          <option value="punctuation_placement">Punctuation Placement — A B C D markers</option>
+          <option value="word_click">Word Click — click a highlighted word</option>
+        </>
+      )}
+      {q.type === "matching" && (
+        <>
+          <option value="category_drop">Category Drop — sort into boxes</option>
+          <option value="line_match">Line Match — draw lines to connect</option>
+        </>
+      )}
+    </select>
+  </div>
+)}
 
       <CollapsibleImageResize form={q} setForm={setQ} />
 

@@ -298,17 +298,18 @@ function parseCustomTemplate(workbook) {
   dataRows.forEach((row, idx) => {
     const rowNum = idx + 3;
     const q = {
-      _rowNum: rowNum,
-      question_text: String(row.question_text || "").trim(),
-      type: String(row.type || "").trim().toLowerCase(),
-      options: [],
-      correct_answer: String(row.correct_answer || "").trim(),
-      points: parseInt(row.points) || 1,
-      category: String(row.category || "").trim(),
-      image_url: String(row.image_url || "").trim(),
-      explanation: String(row.explanation || "").trim(),
-      voice_url:  String(row.voice_url      || "").trim(),
-    };
+  _rowNum: rowNum,
+  question_text: String(row.question_text || "").trim(),
+  type: String(row.type || "").trim().toLowerCase(),
+  display_style: String(row.display_style || "").trim().toLowerCase() || null,  // ← ADD
+  options: [],
+  correct_answer: String(row.correct_answer || "").trim(),
+  points: parseInt(row.points) || 1,
+  category: String(row.category || "").trim(),
+  image_url: String(row.image_url || "").trim(),
+  explanation: String(row.explanation || "").trim(),
+  voice_url:  String(row.voice_url || "").trim(),
+};
 
     if (!q.question_text) { errors.push(`Row ${rowNum}: Missing question text`); return; }
     if (!validTypes.includes(q.type)) {
@@ -430,17 +431,18 @@ function parseSimpleTemplate(workbook, fileName) {
   dataRows.forEach((row, idx) => {
     const rowNum = idx + 2; // row 1 = header, row 2 = first data row
     const q = {
-      _rowNum:        rowNum,
-      question_text:  String(row.question_text  || "").trim(),
-      type:           String(row.type           || "radio_button").trim().toLowerCase(),
-      options:        [],
-      correct_answer: String(row.correct_answer || "").trim(),
-      points:         parseInt(row.points)      || 1,
-      category:       String(row.category       || "").trim(),
-      image_url:      String(row.image_url      || "").trim(),
-      explanation:    String(row.explanation    || "").trim(),
-      voice_url:      String(row.voice_url      || "").trim(),
-    };
+  _rowNum:        rowNum,
+  question_text:  String(row.question_text  || "").trim(),
+  type:           String(row.type           || "radio_button").trim().toLowerCase(),
+  display_style:  String(row.display_style  || "").trim().toLowerCase() || null,  // ← ADD
+  options:        [],
+  correct_answer: String(row.correct_answer || "").trim(),
+  points:         parseInt(row.points)      || 1,
+  category:       String(row.category       || "").trim(),
+  image_url:      String(row.image_url      || "").trim(),
+  explanation:    String(row.explanation    || "").trim(),
+  voice_url:      String(row.voice_url      || "").trim(),
+};
 
     if (!q.question_text) { errors.push(`Row ${rowNum}: Missing question text`); return; }
     if (!validTypes.includes(q.type)) {
@@ -627,9 +629,10 @@ export default function QuizUploader({ onUploadSuccess }) {
               .map((s) => s.trim())
               .filter(Boolean);
             return {
-              question_text: q.question_text,
-              type:          q.type,
-              options: q.type === "matching"
+  question_text:  q.question_text,
+  type:           q.type,
+  display_style:  q.display_style || null,
+  options: q.type === "matching"
   ? (q.options || []).map((opt) => ({
       option_id: opt.option_id,
       text:      opt.text,
