@@ -109,7 +109,7 @@ function ImageWithLoader({ src, width, height, onClick }) {
         />
       )}
       {error && (
-        <p className="text-center text-sm text-slate-400 py-6">⚠️ Image could not be loaded</p>
+        <p className="text-center text-sm text-slate-400 py-6">Image could not be loaded</p>
       )}
     </div>
   );
@@ -431,7 +431,7 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
           ) : previewUrl && text ? (
             <div className="space-y-3">
               <img src={previewUrl} alt="Uploaded handwriting" className="max-h-48 mx-auto rounded-lg object-contain" />
-              <p className="text-xs text-emerald-600 font-medium">✅ Handwriting extracted successfully!</p>
+              <p className="text-xs text-emerald-600 font-medium">Handwriting extracted successfully!</p>
               <p className="text-xs text-slate-400">Tap to upload a different image</p>
             </div>
           ) : (
@@ -546,7 +546,7 @@ function WordTapQuestion({ question, answer, onAnswer }) {
           );
         })}
       </div>
-      <p className="text-base text-slate-500 text-center font-medium">👆 Tap the word that is used incorrectly</p>
+      <p className="text-base text-slate-500 text-center font-medium">Tap the word that is used incorrectly</p>
 
     </div>
   );
