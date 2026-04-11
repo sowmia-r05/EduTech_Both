@@ -357,7 +357,6 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
          Tap left → tap right to match. Tap a matched word to remove it.
       </p>
 
-      <p className="mt-3 text-sm text-slate-500 text-right font-medium"></p>
 
       <p className="mt-3 text-sm text-slate-500 text-right font-medium">
         {matchedCount}/{options.length} matched

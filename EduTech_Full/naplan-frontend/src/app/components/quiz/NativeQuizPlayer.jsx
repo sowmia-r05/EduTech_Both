@@ -135,7 +135,7 @@ function ReadingSplitLayout({ passage, voiceUrl, videoUrl, children }) {
             mobileTab === "passage" ? "text-blue-600 border-b-2 border-blue-600" : "text-slate-400"
           }`}
         >
-          📖 Passage
+          Passage
         </button>
         <button
           onClick={() => setMobileTab("question")}
@@ -143,7 +143,7 @@ function ReadingSplitLayout({ passage, voiceUrl, videoUrl, children }) {
             mobileTab === "question" ? "text-indigo-600 border-b-2 border-indigo-600" : "text-slate-400"
           }`}
         >
-          ❓ Question
+          Question
         </button>
       </div>
       {/* Desktop: side by side | Mobile: one tab at a time */}
@@ -261,7 +261,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
 
         // ✅ RESUME: restore saved answers if this is a resumed attempt
         if (startData.resumed) {
-          console.log("🔄 Resuming in-progress quiz attempt...");
+          console.log("Resuming in-progress quiz attempt...");
           try {
             const resumeRes = await apiFetch(
               `/api/quizzes/${quiz.quiz_id}/resume${childId ? `?childId=${childId}` : ""}`
@@ -277,7 +277,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
                   };
                 }
                 setAnswers(restoredAnswers);
-                console.log(`✅ Restored ${resumeData.saved_answers.length} saved answers`);
+                console.log(`Restored ${resumeData.saved_answers.length} saved answers`);
               }
               if (
                 resumeData.time_remaining_seconds !== null &&
@@ -523,7 +523,6 @@ const activePassage = isReading
   }
 
   // ═══ RENDER: RESULT ═══
-  // ═══ RENDER: RESULT ═══
   if (phase === "result") {
     onClose?.(result);
     return null;
@@ -570,8 +569,8 @@ const activePassage = isReading
 
       {/* Main content area */}
       {/* Main content area */}
-{isReading && activePassage ? (
-  <ReadingSplitLayout passage={activePassage}>
+      {isReading && activePassage ? (
+        <ReadingSplitLayout passage={activePassage}>
           <QuizMediaPanel voiceUrl={voiceUrl} videoUrl={videoUrl} />
           {(currentQuestion.voice_url || currentQuestion.video_url) && (
             <QuizMediaPanel voiceUrl={currentQuestion.voice_url} videoUrl={currentQuestion.video_url} />
