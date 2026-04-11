@@ -8,7 +8,7 @@
 
 import { useState, useRef , useMemo  } from "react";
 import { useAuth } from "@/app/context/AuthContext";
-
+import { LineMatchQuestion, WordClickQuestion } from "./InteractiveQuestionTypes";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 
@@ -528,14 +528,14 @@ function WordTapQuestion({ question, answer, onAnswer }) {
   const selected = answer?.selected?.[0] || null;
   return (
     <div className="space-y-6">
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-lg leading-loose">
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-xl leading-loose">
         {(question.options || []).map((opt) => {
           const isSelected = selected === opt.option_id;
           return (
             <button
               key={opt.option_id}
               onClick={() => onAnswer({ selected: [opt.option_id] })}
-              className={`inline-flex items-center mx-1 my-1 px-3 py-1 rounded-lg border-2 font-medium transition-all text-base ${
+              className={`inline-flex items-center mx-2 my-2 px-5 py-3 rounded-xl border-2 font-semibold transition-all text-xl ${
                 isSelected
                   ? "bg-indigo-600 border-indigo-600 text-white shadow-md scale-105"
                   : "bg-white border-slate-300 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50"
@@ -546,7 +546,8 @@ function WordTapQuestion({ question, answer, onAnswer }) {
           );
         })}
       </div>
-      <p className="text-xs text-slate-400 text-center">Tap the word that is used incorrectly</p>
+      <p className="text-base text-slate-500 text-center font-medium">👆 Tap the word that is used incorrectly</p>
+
     </div>
   );
 }
@@ -557,21 +558,34 @@ function WordTapQuestion({ question, answer, onAnswer }) {
    ═══════════════════════════════════════════════════════════ */
 function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
   const selected = answer?.selected?.[0] || null;
-  const parts = (question.text || "").split(/(\[A\]|\[B\]|\[C\]|\[D\])/);
+  
+  // Split question text into instruction + sentence
+  // Sentence is the part containing [A] [B] etc
+  const fullText = question.text || "";
+  const sentencePart = fullText.includes("[A]") ? fullText : fullText;
+  const parts = sentencePart.split(/(\[A\]|\[B\]|\[C\]|\[D\])/);
+
+  // Map letters to options by index — A=first option, B=second etc
+  const letterToOption = {};
+  (question.options || []).forEach((opt, idx) => {
+    const letter = String.fromCharCode(65 + idx); // A, B, C, D
+    letterToOption[letter] = opt;
+  });
+
   return (
-    <div className="space-y-8">
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-lg leading-loose font-medium text-slate-800">
+    <div className="space-y-6">
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-xl leading-[3rem] font-medium text-slate-800">
         {parts.map((part, i) => {
           const isMarker = /^\[.\]$/.test(part);
           const letter = part.replace(/[\[\]]/g, "");
-          const matchingOpt = (question.options || []).find(o => o.text === letter);
+          const matchingOpt = letterToOption[letter];
           const isSelected = matchingOpt && selected === matchingOpt.option_id;
           if (isMarker) {
             return (
               <button
                 key={i}
                 onClick={() => matchingOpt && onAnswer({ selected: [matchingOpt.option_id] })}
-                className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-white text-sm font-bold mx-1 transition-all border-2 ${
+                className={`inline-flex items-center justify-center w-11 h-11 rounded-full text-white text-base font-bold mx-2 transition-all border-2 shadow-md ${
                   isSelected
                     ? "bg-indigo-600 border-indigo-600 scale-110 shadow-md"
                     : "bg-emerald-500 border-emerald-500 hover:bg-indigo-500 hover:border-indigo-500"
@@ -584,25 +598,7 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
           return <span key={i}>{part}</span>;
         })}
       </div>
-      <div className="grid grid-cols-4 gap-3">
-        {(question.options || []).map((opt) => {
-          const isSelected = selected === opt.option_id;
-          return (
-            <button
-              key={opt.option_id}
-              onClick={() => onAnswer({ selected: [opt.option_id] })}
-              className={`py-3 rounded-xl border-2 text-sm font-bold transition-all ${
-                isSelected
-                  ? "bg-indigo-600 border-indigo-600 text-white shadow-md"
-                  : "bg-white border-slate-200 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50"
-              }`}
-            >
-              {opt.text}
-            </button>
-          );
-        })}
-      </div>
-      <p className="text-xs text-slate-400 text-center">Tap a circle in the sentence or tap A B C D below</p>
+      <p className="text-base text-slate-500 text-center font-medium">Tap the circle where the comma should go</p>
     </div>
   );
 }
@@ -614,69 +610,107 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
    ═══════════════════════════════════════════════════════════ */
 function CategoryDropQuestion({ question, answer, onAnswer }) {
   const pairs = answer?.pairs || {};
-  const categories = [...new Set((question.options || []).map(o => o.match_text || o.match || "").filter(Boolean))];
+  const categories = [...new Set(
+    (question.options || []).map(o => o.match || o.match_text || "").filter(Boolean)
+  )];
   const placed = Object.keys(pairs);
   const unplaced = (question.options || []).filter(o => !placed.includes(o.option_id));
 
-  const handlePlace = (optionId, category) => {
+  const handleDragStart = (e, optionId) => {
+    e.dataTransfer.setData("optionId", optionId);
+  };
+
+  const handleDrop = (e, category) => {
+    e.preventDefault();
+    const optionId = e.dataTransfer.getData("optionId");
+    if (!optionId) return;
+    onAnswer({ pairs: { ...pairs, [optionId]: category } });
+  };
+
+  const handleDragOver = (e) => e.preventDefault();
+
+  const handleRemove = (optionId) => {
     const updated = { ...pairs };
-    if (updated[optionId] === category) delete updated[optionId];
-    else updated[optionId] = category;
+    delete updated[optionId];
     onAnswer({ pairs: updated });
   };
 
   return (
     <div className="space-y-5">
+      {/* Word bank */}
       <div>
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Options</p>
-        <div className="min-h-12 bg-sky-50 border-2 border-sky-200 rounded-xl p-3 flex flex-wrap gap-2">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+          Drag words into the correct box
+        </p>
+        <div
+          className="min-h-14 bg-sky-50 border-2 border-dashed border-sky-300 rounded-xl p-3 flex flex-wrap gap-2"
+          onDragOver={handleDragOver}
+          onDrop={(e) => {
+            e.preventDefault();
+            const optionId = e.dataTransfer.getData("optionId");
+            if (!optionId) return;
+            const updated = { ...pairs };
+            delete updated[optionId];
+            onAnswer({ pairs: updated });
+          }}
+        >
           {unplaced.map(opt => (
-            <span key={opt.option_id}
-              className="px-3 py-1.5 bg-indigo-700 text-white rounded-full text-sm font-medium">
+            <div
+              key={opt.option_id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, opt.option_id)}
+              className="px-3 py-1.5 bg-indigo-600 text-white rounded-full text-sm font-medium cursor-grab active:cursor-grabbing select-none shadow-sm hover:bg-indigo-700 transition"
+            >
               {opt.text}
-            </span>
+            </div>
           ))}
           {unplaced.length === 0 && (
-            <span className="text-xs text-slate-400 italic">All words placed</span>
+            <span className="text-xs text-slate-400 italic">All words placed ✓</span>
           )}
         </div>
       </div>
+
+      {/* Category boxes */}
       <div className={`grid gap-4 ${categories.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
         {categories.map(cat => {
           const wordsInCat = (question.options || []).filter(o => pairs[o.option_id] === cat);
           return (
             <div key={cat} className="space-y-2">
-              <p className="text-center text-sm font-bold text-indigo-700 uppercase tracking-wide">{cat}</p>
-              <div className="min-h-16 bg-sky-50 border-2 border-sky-300 rounded-xl p-3 flex flex-wrap gap-2 content-start">
+              <p className="text-center text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg py-1.5">
+                {cat}
+              </p>
+              <div
+                className="min-h-20 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-3 flex flex-wrap gap-2 content-start transition-colors"
+                onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-indigo-400", "bg-indigo-50"); }}
+                onDragLeave={(e) => { e.currentTarget.classList.remove("border-indigo-400", "bg-indigo-50"); }}
+                onDrop={(e) => { e.currentTarget.classList.remove("border-indigo-400", "bg-indigo-50"); handleDrop(e, cat); }}
+              >
                 {wordsInCat.map(opt => (
-                  <button key={opt.option_id}
-                    onClick={() => handlePlace(opt.option_id, cat)}
-                    className="px-3 py-1.5 bg-indigo-700 text-white rounded-full text-sm font-medium hover:bg-red-500 transition"
-                    title="Tap to remove">
-                    {opt.text}
-                  </button>
+                  <div
+                    key={opt.option_id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, opt.option_id)}
+                    onClick={() => handleRemove(opt.option_id)}
+                    className="px-3 py-1.5 bg-indigo-600 text-white rounded-full text-sm font-medium cursor-grab select-none shadow-sm hover:bg-red-500 transition"
+                    title="Click to remove"
+                  >
+                    {opt.text} ×
+                  </div>
                 ))}
-              </div>
-              <div className="flex flex-wrap gap-1.5 justify-center">
-                {unplaced.map(opt => (
-                  <button key={opt.option_id}
-                    onClick={() => handlePlace(opt.option_id, cat)}
-                    className="px-2 py-1 text-xs border border-indigo-300 text-indigo-600 rounded-lg hover:bg-indigo-50 transition">
-                    + {opt.text}
-                  </button>
-                ))}
+                {wordsInCat.length === 0 && (
+                  <p className="text-xs text-slate-400 italic w-full text-center pt-2">Drop here</p>
+                )}
               </div>
             </div>
           );
         })}
       </div>
       <p className="text-xs text-slate-400 text-center">
-        Tap a word to place it. Tap a placed word to remove it.
+        Drag words into boxes • Click a placed word to remove it
       </p>
     </div>
   );
 }
-
 /* ═══════════════════════════════════════════════════════════
    FREE TEXT QUESTION  (display-only — NO student input)
    ═══════════════════════════════════════════════════════════ */
@@ -716,16 +750,16 @@ function MatchingQuestion({ question, answer, onAnswer, textStyle }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-[1fr_32px_1fr] gap-2">
-        <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wide text-center pb-1 border-b border-indigo-100">Column A</div>
+       <div className="text-base font-bold text-indigo-500 uppercase tracking-wide text-center pb-2 border-b border-indigo-100">Column A</div>
         <div />
-        <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wide text-center pb-1 border-b border-emerald-100">Column B</div>
+        <div className="text-base font-bold text-emerald-500 uppercase tracking-wide text-center pb-2 border-b border-emerald-100">Column B</div>
       </div>
       {(question.options || []).map((opt) => {
         const selected = pairs[opt.option_id];
         return (
           <div key={opt.option_id} className="grid grid-cols-[1fr_32px_1fr] gap-2 items-center">
             <div
-              className="px-4 py-3 rounded-xl border-2 border-slate-200 bg-white text-slate-700 text-sm font-medium text-center"
+              className="px-4 py-4 rounded-xl border-2 border-slate-200 bg-white text-slate-700 text-lg font-semibold text-center"
               style={textStyle}
             >
               {opt.text}
@@ -739,7 +773,7 @@ function MatchingQuestion({ question, answer, onAnswer, textStyle }) {
               <select
                 value={selected || ""}
                 onChange={(e) => handleSelect(opt.option_id, e.target.value)}
-                className={`w-full px-3 py-3 rounded-xl border-2 text-sm appearance-none outline-none transition-all cursor-pointer pr-8 ${
+                className={`w-full px-3 py-4 rounded-xl border-2 text-lg appearance-none outline-none transition-all cursor-pointer pr-8 ${
                   selected
                     ? "border-indigo-400 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100"
                     : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
@@ -762,7 +796,7 @@ function MatchingQuestion({ question, answer, onAnswer, textStyle }) {
           </div>
         );
       })}
-      <p className="text-xs text-slate-400 text-right">
+      <p className="text-sm text-slate-400 text-right font-medium">
         {Object.keys(pairs).length}/{(question.options || []).length} matched
       </p>
     </div>
@@ -839,17 +873,21 @@ const optionsStyle = (
 
 
       {/* ── Question text ── */}
-      <div className="leading-relaxed" style={textStyle}>
-        {question.text && question.text.includes("<") ? (
-          <div
-            dangerouslySetInnerHTML={{ __html: question.text }}
-            className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
-          />
-        ) : question.text ? (
-          <p>{question.text}</p>
-        ) : null}
-      </div>
-
+      {/* ── Question text ── */}
+{/* ── Question text ── */}
+{question.display_style !== "punctuation_placement" && 
+ question.display_style !== "word_click" &&(
+  <div className="leading-relaxed text-lg" style={textStyle}>
+    {question.text && question.text.includes("<") ? (
+      <div
+        dangerouslySetInnerHTML={{ __html: question.text }}
+        className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
+      />
+    ) : question.text ? (
+      <p>{question.text}</p>
+    ) : null}
+  </div>
+)}
       {/* ── Question image ── */}
       {question.image_url && (
         <ImageWithLoader

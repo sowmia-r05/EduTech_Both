@@ -105,8 +105,8 @@ export function WordTapQuestion({ question, answer, onAnswer, textStyle }) {
         })}
       </div>
       {selected && (
-        <p className="mt-3 text-xs text-slate-400">
-          Selected: <span className="font-medium text-indigo-600">"{selected}"</span>
+        <p className="mt-3 text-base text-slate-600 font-medium">
+          Selected: <span className="font-bold text-indigo-600">"{selected}"</span>
         </p>
       )}
     </div>
@@ -136,7 +136,7 @@ export function WordClickQuestion({ question, answer, onAnswer, textStyle }) {
   return (
     <div>
       <div
-        className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-base leading-loose"
+        className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-xl leading-loose"
         style={textStyle}
       >
         {parts.map((part, i) => {
@@ -152,7 +152,7 @@ export function WordClickQuestion({ question, answer, onAnswer, textStyle }) {
             <button
               key={i}
               onClick={() => onAnswer({ selected: [word.toLowerCase()] })}
-              className={`inline-flex items-center px-2.5 py-0.5 mx-0.5 rounded-lg border-2 font-medium transition-all
+              className={`inline-flex items-center px-4 py-2 mx-1 rounded-xl border-2 font-semibold transition-all text-lg
                 ${isSelected
                   ? "bg-indigo-600 text-white border-indigo-600 scale-105"
                   : "bg-blue-50 text-blue-800 border-blue-200 hover:border-indigo-400 hover:bg-indigo-50"
@@ -165,8 +165,8 @@ export function WordClickQuestion({ question, answer, onAnswer, textStyle }) {
         })}
       </div>
       {selected && (
-        <p className="mt-3 text-xs text-slate-400">
-          Selected: <span className="font-medium text-indigo-600">"{selected}"</span>
+        <p className="mt-3 text-base text-slate-600 font-medium">
+          Selected: <span className="font-bold text-indigo-600">"{selected}"</span>
         </p>
       )}
     </div>
@@ -281,13 +281,14 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
 
   return (
     <div>
+
       {selectedLeft && (
-        <p className="mb-3 text-xs font-medium text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
-          Now click a word on the right to match with <strong>"{selectedLeft}"</strong>
+        <p className="mb-3 text-base font-medium text-indigo-600 bg-indigo-50 px-4 py-2 rounded-lg border border-indigo-100">
+          Now tap a word on the right to match with <strong>"{selectedLeft}"</strong>
         </p>
       )}
 
-      <div className="relative" style={{ minHeight: `${options.length * 60 + 20}px` }}>
+      <div className="relative" style={{ minHeight: `${options.length * 80 + 20}px` }}>
         {/* SVG overlay for lines */}
         <svg
           ref={svgRef}
@@ -306,7 +307,7 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
                   key={opt.option_id || opt.text}
                   id={leftId(opt.text)}
                   onClick={() => isMatched ? removePair(opt.text) : handleSelectLeft(opt.text)}
-                  className={`px-4 py-2.5 rounded-2xl text-sm font-medium text-center transition-all
+                  className={`px-4 py-4 rounded-2xl text-lg font-semibold text-center transition-all
                     ${isMatched
                       ? "bg-emerald-600 text-white cursor-pointer hover:bg-emerald-700"
                       : isSel
@@ -335,7 +336,7 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
                   key={right}
                   id={rightId(right)}
                   onClick={() => !isMatched && handleSelectRight(right)}
-                  className={`px-4 py-2.5 rounded-2xl text-sm font-medium text-center transition-all
+                  className={`px-4 py-4 rounded-2xl text-lg font-semibold text-center transition-all
                     ${isMatched
                       ? "bg-emerald-600 text-white cursor-default"
                       : selectedLeft
@@ -352,8 +353,13 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
           </div>
         </div>
       </div>
+      <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mt-3">
+         Tap left → tap right to match. Tap a matched word to remove it.
+      </p>
 
-      <p className="mt-3 text-xs text-slate-400 text-right">
+      <p className="mt-3 text-sm text-slate-500 text-right font-medium"></p>
+
+      <p className="mt-3 text-sm text-slate-500 text-right font-medium">
         {matchedCount}/{options.length} matched
         {matchedCount > 0 && (
           <button

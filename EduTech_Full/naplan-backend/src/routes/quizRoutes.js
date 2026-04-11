@@ -269,6 +269,7 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       text_color:          q.text_color           || null,
       max_length:          q.max_length           || null,
       text_style_scope:    q.text_style_scope     || "question",
+      display_style:       q.display_style        || null,  // ← ADD THIS
     }));
 
     if (quiz.randomize_questions) {
