@@ -883,6 +883,7 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
       quiz_ids:        [quizId],
       text:            req.body.text || req.body.question_text || "",
       type:            req.body.type || "radio_button",
+      display_style:   req.body.display_style || null,
       options:         mappedOptions,
       correct_answer:  req.body.correct_answer || null,
       case_sensitive:  req.body.case_sensitive || false,
@@ -924,7 +925,7 @@ router.patch("/questions/:questionId", async (req, res) => {
       "video_url", "order", "sub_topic",
       "text_font_size", "text_font_family", "text_font_weight",
       "text_align", "text_line_height", "text_letter_spacing",
-      "text_color", "max_length", "text_style_scope",
+      "text_color", "max_length", "text_style_scope","display_style",
     ];
 
     for (const f of allowed) {
@@ -1006,6 +1007,7 @@ router.post("/quizzes/upload", async (req, res) => {
           quiz_ids: [quiz_id],
           text: q.question_text || q.text || "",
           type: q.type || "radio_button",
+          display_style: q.display_style || null, 
           options: mappedOptions,
           correct_answer: q.correct_answer || null,
           points: q.points || 1,
