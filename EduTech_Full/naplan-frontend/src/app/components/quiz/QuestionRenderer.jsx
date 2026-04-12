@@ -558,22 +558,47 @@ function WordTapQuestion({ question, answer, onAnswer }) {
    ═══════════════════════════════════════════════════════════ */
 function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
   const selected = answer?.selected?.[0] || null;
-  
-  // Split question text into instruction + sentence
-  // Sentence is the part containing [A] [B] etc
-  const fullText = question.text || "";
-  const sentencePart = fullText.includes("[A]") ? fullText : fullText;
-  const parts = sentencePart.split(/(\[A\]|\[B\]|\[C\]|\[D\])/);
 
-  // Map letters to options by index — A=first option, B=second etc
+  const rawText = question.text || "";
+  const stripHtml = (html) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+  // ── Split instruction from sentence ──
+  let instruction = "";
+  let sentenceText = rawText;
+
+  if (rawText.includes("<div><br></div>")) {
+    const idx = rawText.indexOf("<div><br></div>");
+    instruction = stripHtml(rawText.substring(0, idx));
+    sentenceText = stripHtml(rawText.substring(idx + "<div><br></div>".length));
+  } else if (rawText.includes("<div>")) {
+    const idx = rawText.indexOf("<div>");
+    instruction = stripHtml(rawText.substring(0, idx));
+    sentenceText = stripHtml(rawText.substring(idx));
+  } else if (rawText.includes("\n")) {
+    const [first, ...rest] = rawText.split("\n");
+    instruction = first.trim();
+    sentenceText = rest.join(" ").trim();
+  }
+
+  // Always strip remaining HTML from sentence
+  sentenceText = sentenceText.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+  const parts = sentenceText.split(/(\[A\]|\[B\]|\[C\]|\[D\])/);
+
   const letterToOption = {};
   (question.options || []).forEach((opt, idx) => {
-    const letter = String.fromCharCode(65 + idx); // A, B, C, D
+    const letter = String.fromCharCode(65 + idx);
     letterToOption[letter] = opt;
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
+      {/* ── Instruction shown cleanly above ── */}
+      {instruction && (
+        <p className="text-lg font-medium text-slate-800">{instruction}</p>
+      )}
+
+      {/* ── Sentence box — all inline ── */}
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-xl leading-[3rem] font-medium text-slate-800">
         {parts.map((part, i) => {
           const isMarker = /^\[.\]$/.test(part);
@@ -587,7 +612,7 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
                 onClick={() => matchingOpt && onAnswer({ selected: [matchingOpt.option_id] })}
                 className={`inline-flex items-center justify-center w-11 h-11 rounded-full text-white text-base font-bold mx-2 transition-all border-2 shadow-md ${
                   isSelected
-                    ? "bg-indigo-600 border-indigo-600 scale-110 shadow-md"
+                    ? "bg-indigo-600 border-indigo-600 scale-110"
                     : "bg-emerald-500 border-emerald-500 hover:bg-indigo-500 hover:border-indigo-500"
                 }`}
               >
@@ -595,10 +620,13 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
               </button>
             );
           }
+          // ✅ Plain text — no dangerouslySetInnerHTML
           return <span key={i}>{part}</span>;
         })}
       </div>
-      <p className="text-base text-slate-500 text-center font-medium">Tap the circle where the comma should go</p>
+      <p className="text-base text-slate-500 text-center font-medium">
+        Tap the circle where the comma should go
+      </p>
     </div>
   );
 }

@@ -127,14 +127,52 @@ export function WordTapQuestion({ question, answer, onAnswer, textStyle }) {
    ═══════════════════════════════════════════════════════════════ */
 export function WordClickQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
-
   const rawText = question.text || question.question_text || "";
 
-  // Split on [word] markers — produces alternating plain/bracketed segments
-  const parts = rawText.split(/(\[[^\]]+\])/);
+  const stripHtml = (html) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+  let instruction = "";
+  let sentenceText = rawText;
+
+  if (rawText.includes("<div><br></div>")) {
+    // Case 1: explicit line break between instruction and sentence
+    const idx = rawText.indexOf("<div><br></div>");
+    instruction = stripHtml(rawText.substring(0, idx)).trim();
+    sentenceText = stripHtml(rawText.substring(idx + "<div><br></div>".length)).trim();
+
+  } else if (rawText.includes("<div>")) {
+    // Case 2: sentence wrapped in <div> — instruction is BEFORE first <div>
+    const idx = rawText.indexOf("<div>");
+    instruction = stripHtml(rawText.substring(0, idx)).trim();
+    sentenceText = stripHtml(rawText.substring(idx)).trim(); // strips <div></div> wrappers
+
+  } else if (rawText.includes("\n")) {
+    // Case 3: plain newline separator
+    const [first, ...rest] = rawText.split("\n");
+    instruction = first.trim();
+    sentenceText = rest.join(" ").trim();
+
+  } else {
+    // Case 4: no separator at all — split on first [
+    const firstBracket = rawText.indexOf("[");
+    if (firstBracket > 0) {
+      instruction = rawText.substring(0, firstBracket).trim();
+      sentenceText = rawText.substring(firstBracket);
+    }
+  }
+
+  // Always clean any remaining HTML from sentenceText
+  sentenceText = sentenceText.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+  const parts = sentenceText.split(/(\[[^\]]+\])/);
 
   return (
-    <div>
+    <div className="space-y-3">
+      {instruction && (
+        <p className="text-lg font-medium text-slate-800" style={textStyle}>
+          {instruction}
+        </p>
+      )}
       <div
         className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-xl leading-loose"
         style={textStyle}
@@ -142,12 +180,10 @@ export function WordClickQuestion({ question, answer, onAnswer, textStyle }) {
         {parts.map((part, i) => {
           const match = part.match(/^\[(.+)\]$/);
           if (!match) {
-            // Plain text — render as-is
             return <span key={i} style={textStyle}>{part}</span>;
           }
           const word = match[1];
           const isSelected = word.toLowerCase() === selected;
-
           return (
             <button
               key={i}
@@ -325,7 +361,7 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
           </div>
 
           {/* Spacer for lines */}
-          <div style={{ width: 80, flexShrink: 0 }} />
+          <div style={{ width: 40, flexShrink: 0 }} />
 
           {/* Right column */}
           <div className="flex flex-col gap-3 flex-1">
