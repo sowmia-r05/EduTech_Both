@@ -527,7 +527,7 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
 function WordTapQuestion({ question, answer, onAnswer }) {
   const selected = answer?.selected?.[0] || null;
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-xl leading-loose">
         {(question.options || []).map((opt) => {
           const isSelected = selected === opt.option_id;
@@ -546,7 +546,6 @@ function WordTapQuestion({ question, answer, onAnswer }) {
           );
         })}
       </div>
-      <p className="text-base text-slate-500 text-center font-medium">Tap the word that is used incorrectly</p>
 
     </div>
   );
@@ -624,8 +623,8 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
           return <span key={i}>{part}</span>;
         })}
       </div>
-      <p className="text-base text-slate-500 text-center font-medium">
-        Tap the circle where the comma should go
+      <p className="text-sm text-slate-400 text-center">
+        Tap the correct circle
       </p>
     </div>
   );

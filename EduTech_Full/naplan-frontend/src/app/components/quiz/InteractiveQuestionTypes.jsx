@@ -389,9 +389,9 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
           </div>
         </div>
       </div>
-      <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mt-3">
-         Tap left → tap right to match. Tap a matched word to remove it.
-      </p>
+      <p className="text-sm text-slate-400 text-center mt-2">
+       Tap left then right to match
+        </p>
 
 
       <p className="mt-3 text-sm text-slate-500 text-right font-medium">
