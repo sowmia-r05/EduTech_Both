@@ -287,7 +287,8 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
   }, [pairs]);
 
   useEffect(() => {
-    drawLines();
+    const timer = setTimeout(drawLines, 50);
+    return () => clearTimeout(timer);
   }, [drawLines]);
 
   const handleSelectLeft = (text) => {
@@ -325,17 +326,18 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
         </p>
       )}
 
-      <div className="relative" style={{ minHeight: `${options.length * 80 + 20}px` }}>
+            <div className="relative" style={{ minHeight: `${options.length * 64 + 20}px` }}>
+
         {/* SVG overlay for lines */}
-        <svg
+       <svg
           ref={svgRef}
-          className="absolute inset-0 w-full h-full pointer-events-none"
-          style={{ zIndex: 1 }}
+          className="absolute pointer-events-none"
+          style={{ zIndex: 1, top: 0, left: 0, width: "100%", height: "100%" }}
         />
 
-        <div className="flex items-start gap-4" style={{ position: "relative", zIndex: 2 }}>
+         <div className="grid gap-2" style={{ position: "relative", zIndex: 2, gridTemplateColumns: "1fr 80px 1fr", alignItems: "start" }}>
           {/* Left column */}
-          <div className="flex flex-col gap-3 flex-1">
+          <div className="flex flex-col gap-3">
             {options.map((opt) => {
               const isMatched = !!pairs[opt.text];
               const isSel = selectedLeft === opt.text;
@@ -344,7 +346,7 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
                   key={opt.option_id || opt.text}
                   id={leftId(opt.text)}
                   onClick={() => isMatched ? removePair(opt.text) : handleSelectLeft(opt.text)}
-                  className={`px-4 py-4 rounded-2xl text-lg font-semibold text-center transition-all
+                  className={`px-3 py-3 rounded-xl text-sm font-semibold text-center transition-all min-h-[52px] flex items-center justify-center
                     ${isMatched
                       ? "bg-emerald-600 text-white cursor-pointer hover:bg-emerald-700"
                       : isSel
@@ -362,10 +364,10 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
           </div>
 
           {/* Spacer for lines */}
-          <div style={{ width: 40, flexShrink: 0 }} />
+          <div />
 
           {/* Right column */}
-          <div className="flex flex-col gap-3 flex-1">
+          <div className="flex flex-col gap-3">
             {rightItems.map((right) => {
               const isMatched = Object.values(pairs).includes(right);
               return (
@@ -373,7 +375,7 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
                   key={right}
                   id={rightId(right)}
                   onClick={() => !isMatched && handleSelectRight(right)}
-                  className={`px-4 py-4 rounded-2xl text-lg font-semibold text-center transition-all
+                  className={`px-3 py-3 rounded-xl text-sm font-semibold text-center transition-all min-h-[52px] flex items-center justify-center
                     ${isMatched
                       ? "bg-emerald-600 text-white cursor-default"
                       : selectedLeft
