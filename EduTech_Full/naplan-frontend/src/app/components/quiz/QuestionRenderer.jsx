@@ -598,7 +598,7 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
       )}
 
       {/* ── Sentence box — all inline ── */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-xl leading-[3rem] font-medium text-slate-800">
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-lg font-medium text-slate-800" style={{ lineHeight: "3.2rem", wordSpacing: "0.05em" }}>
         {parts.map((part, i) => {
           const isMarker = /^\[.\]$/.test(part);
           const letter = part.replace(/[\[\]]/g, "");
@@ -609,7 +609,7 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
               <button
                 key={i}
                 onClick={() => matchingOpt && onAnswer({ selected: [matchingOpt.option_id] })}
-                className={`inline-flex items-center justify-center w-11 h-11 rounded-full text-white text-base font-bold mx-2 transition-all border-2 shadow-md ${
+                className={`inline-flex items-center justify-center w-10 h-10 rounded-full text-white text-sm font-bold mx-1.5 transition-all border-2 shadow-sm align-middle ${
                   isSelected
                     ? "bg-indigo-600 border-indigo-600 scale-110"
                     : "bg-emerald-500 border-emerald-500 hover:bg-indigo-500 hover:border-indigo-500"
@@ -620,7 +620,7 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
             );
           }
           // ✅ Plain text — no dangerouslySetInnerHTML
-          return <span key={i}>{part}</span>;
+          return <span key={i} className="align-middle">{part}</span>;
         })}
       </div>
       <p className="text-sm text-slate-400 text-center">
