@@ -524,20 +524,21 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
    WORD TAP — Language Convention only
    Click the word used incorrectly in the sentence
    ═══════════════════════════════════════════════════════════ */
+// ✅ REPLACE — consistent with punctuation placement size
 function WordTapQuestion({ question, answer, onAnswer }) {
   const selected = answer?.selected?.[0] || null;
   return (
     <div className="space-y-3">
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-xl leading-loose">
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-lg font-medium text-slate-800" style={{ lineHeight: "3.2rem" }}>
         {(question.options || []).map((opt) => {
           const isSelected = selected === opt.option_id;
           return (
             <button
               key={opt.option_id}
               onClick={() => onAnswer({ selected: [opt.option_id] })}
-              className={`inline-flex items-center mx-2 my-2 px-5 py-3 rounded-xl border-2 font-semibold transition-all text-xl ${
+              className={`inline-flex items-center mx-1.5 my-1 px-4 py-2 rounded-xl border-2 font-semibold transition-all text-base align-middle ${
                 isSelected
-                  ? "bg-indigo-600 border-indigo-600 text-white shadow-md scale-105"
+                  ? "bg-indigo-600 border-indigo-600 text-white shadow-sm scale-105"
                   : "bg-white border-slate-300 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50"
               }`}
             >
@@ -546,7 +547,6 @@ function WordTapQuestion({ question, answer, onAnswer }) {
           );
         })}
       </div>
-
     </div>
   );
 }
