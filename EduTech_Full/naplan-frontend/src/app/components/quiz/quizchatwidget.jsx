@@ -50,7 +50,7 @@ function TypingDots() {
   );
 }
 
-export default function QuizChatWidget({ quizId, yearLevel, apiFetch }) {
+export default function QuizChatWidget({ quizId, attemptId, subject, yearLevel, apiFetch }) {
   const young  = isYoung(yearLevel);
   const accent = young ? "#F97316" : "#7C3AED";
 
@@ -108,7 +108,7 @@ export default function QuizChatWidget({ quizId, yearLevel, apiFetch }) {
     try {
       const res  = await apiFetch(`/api/quizzes/${quizId}/chat`, {
         method: "POST",
-        body: JSON.stringify({ message: msg, chat_history: history }),
+        body: JSON.stringify({ message: msg, chat_history: history, attempt_id: attemptId, subject }),
       });
       const data = await res.json();
       setMessages((prev) => [...prev, {
