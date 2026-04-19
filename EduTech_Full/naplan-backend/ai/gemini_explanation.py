@@ -12,7 +12,7 @@ Two modes (controlled by payload["mode"]):
                   Returns { success, reply }
 
 Year-level tone rules:
-  Year 3-5  → fun, simple words, emojis, encouraging ("Great try! 🌟")
+  Year 3-5  → fun, simple words, emojis, encouraging ("Great try!")
   Year 7-9  → logical, academic, strategy-focused, no baby talk
 """
 
@@ -20,6 +20,10 @@ import os
 import sys
 import json
 import re
+import importlib
+
+# ── Add backend root to Python path ──────────────────────────
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import google.generativeai as genai
 
@@ -303,6 +307,9 @@ INSTRUCTIONS:
 
 Your reply:"""
 
+# ─────────────────────────────────────────────────────────────
+# Mode 4: Agent chat — routes to subject-specific agent
+# ─────────────────────────────────────────────────────────────
 
 def run_chat(payload: dict, model) -> dict:
     question_context = payload.get("question_context") or {}
@@ -326,6 +333,58 @@ def run_chat(payload: dict, model) -> dict:
         return {"success": True, "reply": text}
     except Exception as e:
         return {"success": False, "error": f"Chat failed: {str(e)}"}
+
+
+def run_agent_chat(payload: dict, model) -> dict:
+    subject       = (payload.get("subject") or "").strip().lower()
+    message       = (payload.get("message") or "").strip()
+    chat_history  = payload.get("chat_history") or []
+    attempt_ctx   = payload.get("attempt_context") or {}
+    history_block = payload.get("history_context") or ""
+
+    if not message:
+        return {"success": False, "error": "No message provided"}
+
+    subject_map = {
+        "maths":                "ai.prompts.maths_agent",
+        "numeracy":             "ai.prompts.maths_agent",
+        "reading":              "ai.prompts.reading_agent",
+        "language conventions": "ai.prompts.language_agent",
+        "language":             "ai.prompts.language_agent",
+        "writing":              "ai.prompts.writing_agent",
+    }
+    module_path = subject_map.get(subject, "ai.prompts.generic_agent")
+
+    try:
+        agent_module = importlib.import_module(module_path)
+        prompt = agent_module.build_prompt(
+            attempt_ctx, history_block, chat_history, message
+        )
+    except Exception as e:
+        return {"success": False, "error": f"Prompt build failed: {str(e)}"}
+
+    # ── Call GPT-4o Mini ────────────────────────────
+# ── Call Gemini Flash ────────────────────────────
+    api_key    = (os.getenv("GEMINI_API_KEY") or "").strip()
+    model_name = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+
+    if not api_key:
+        return {"success": False, "error": "GEMINI_API_KEY not set"}
+
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        gemini_model = genai.GenerativeModel(
+            model_name,
+            generation_config={"temperature": 0.4, "max_output_tokens": 1024},
+        )
+        resp = gemini_model.generate_content(prompt)
+        text = (getattr(resp, "text", "") or "").strip()
+        if not text:
+            raise ValueError("Empty response from Gemini")
+        return {"success": True, "reply": text}
+    except Exception as e:
+        return {"success": False, "error": f"Agent chat failed: {str(e)}"}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -362,6 +421,8 @@ def main():
         result = run_explain_question(payload, model)
     elif mode == "chat":
         result = run_chat(payload, model)
+    elif mode == "agent_chat":
+        result = run_agent_chat(payload, model)
     else:
         result = {"success": False, "error": f"Unknown mode: {mode}"}
 

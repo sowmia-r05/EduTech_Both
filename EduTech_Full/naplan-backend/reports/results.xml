@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="110" failures="0" errors="0" time="2.233">
+  <testsuite name="JWT Token Validation" errors="0" failures="0" skipped="0" timestamp="2026-04-15T07:58:17" time="0.802" tests="17">
+    <testcase classname="JWT Token Validation valid parent token → 200 with user payload" name="JWT Token Validation valid parent token → 200 with user payload" time="0.045">
+    </testcase>
+    <testcase classname="JWT Token Validation expired token → 401 with &apos;Token expired&apos;" name="JWT Token Validation expired token → 401 with &apos;Token expired&apos;" time="0.012">
+    </testcase>
+    <testcase classname="JWT Token Validation wrong secret → 401 with &apos;Invalid token&apos;" name="JWT Token Validation wrong secret → 401 with &apos;Invalid token&apos;" time="0.011">
+    </testcase>
+    <testcase classname="JWT Token Validation missing token → 401" name="JWT Token Validation missing token → 401" time="0.015">
+    </testcase>
+    <testcase classname="JWT Token Validation child token on parent-only route → 403" name="JWT Token Validation child token on parent-only route → 403" time="0.011">
+    </testcase>
+    <testcase classname="JWT Token Validation valid child token on child route → 200" name="JWT Token Validation valid child token on child route → 200" time="0.02">
+    </testcase>
+    <testcase classname="JWT Token Validation parent token on child route → 403" name="JWT Token Validation parent token on child route → 403" time="0.026">
+    </testcase>
+    <testcase classname="JWT Token Structure parent token contains required claims" name="JWT Token Structure parent token contains required claims" time="0.006">
+    </testcase>
+    <testcase classname="JWT Token Structure child token contains required claims" name="JWT Token Structure child token contains required claims" time="0.003">
+    </testcase>
+    <testcase classname="JWT Token Structure token expiry is in the future" name="JWT Token Structure token expiry is in the future" time="0.002">
+    </testcase>
+    <testcase classname="JWT Token Structure token issued-at is in the past or now" name="JWT Token Structure token issued-at is in the past or now" time="0.003">
+    </testcase>
+    <testcase classname="OTP Authentication Flow send OTP → returns ok" name="OTP Authentication Flow send OTP → returns ok" time="0.031">
+    </testcase>
+    <testcase classname="OTP Authentication Flow send OTP without email → 400" name="OTP Authentication Flow send OTP without email → 400" time="0.012">
+    </testcase>
+    <testcase classname="OTP Authentication Flow verify correct OTP → returns JWT" name="OTP Authentication Flow verify correct OTP → returns JWT" time="0.022">
+    </testcase>
+    <testcase classname="OTP Authentication Flow verify wrong OTP → 400" name="OTP Authentication Flow verify wrong OTP → 400" time="0.018">
+    </testcase>
+    <testcase classname="OTP Authentication Flow OTP is single-use — second verify → 400" name="OTP Authentication Flow OTP is single-use — second verify → 400" time="0.03">
+    </testcase>
+    <testcase classname="OTP Authentication Flow verify OTP that was never sent → 400" name="OTP Authentication Flow verify OTP that was never sent → 400" time="0.013">
+    </testcase>
+  </testsuite>
+  <testsuite name="Security Headers (Helmet)" errors="0" failures="0" skipped="0" timestamp="2026-04-15T07:58:18" time="0.611" tests="21">
+    <testcase classname="Security Headers (Helmet) X-Content-Type-Options: nosniff is set" name="Security Headers (Helmet) X-Content-Type-Options: nosniff is set" time="0.016">
+    </testcase>
+    <testcase classname="Security Headers (Helmet) X-Frame-Options: SAMEORIGIN is set (clickjacking protection)" name="Security Headers (Helmet) X-Frame-Options: SAMEORIGIN is set (clickjacking protection)" time="0.013">
+    </testcase>
+    <testcase classname="Security Headers (Helmet) X-Powered-By header is hidden" name="Security Headers (Helmet) X-Powered-By header is hidden" time="0.014">
+    </testcase>
+    <testcase classname="Security Headers (Helmet) Strict-Transport-Security header is present" name="Security Headers (Helmet) Strict-Transport-Security header is present" time="0.01">
+    </testcase>
+    <testcase classname="Security Headers (Helmet) Content-Security-Policy header is set" name="Security Headers (Helmet) Content-Security-Policy header is set" time="0.009">
+    </testcase>
+    <testcase classname="CORS Policy allowed origin → CORS headers present" name="CORS Policy allowed origin → CORS headers present" time="0.013">
+    </testcase>
+    <testcase classname="CORS Policy disallowed origin → no CORS allow-origin header" name="CORS Policy disallowed origin → no CORS allow-origin header" time="0.009">
+    </testcase>
+    <testcase classname="CORS Policy no origin header → request allowed (same-origin)" name="CORS Policy no origin header → request allowed (same-origin)" time="0.011">
+    </testcase>
+    <testcase classname="CORS Policy OPTIONS preflight for allowed origin → 204" name="CORS Policy OPTIONS preflight for allowed origin → 204" time="0.011">
+    </testcase>
+    <testcase classname="API Rate Limiting requests within limit → 200" name="API Rate Limiting requests within limit → 200" time="0.031">
+    </testcase>
+    <testcase classname="API Rate Limiting RateLimit-Limit header present on response" name="API Rate Limiting RateLimit-Limit header present on response" time="0.013">
+    </testcase>
+    <testcase classname="API Rate Limiting RateLimit-Remaining decrements with each request" name="API Rate Limiting RateLimit-Remaining decrements with each request" time="0.018">
+    </testcase>
+    <testcase classname="API Rate Limiting exceeding rate limit → 429 Too Many Requests" name="API Rate Limiting exceeding rate limit → 429 Too Many Requests" time="0.037">
+    </testcase>
+    <testcase classname="API Rate Limiting 429 response includes Retry-After or RateLimit-Reset header" name="API Rate Limiting 429 response includes Retry-After or RateLimit-Reset header" time="0.017">
+    </testcase>
+    <testcase classname="Auth Route Rate Limits OTP limiter: first 5 requests pass (skipSuccessful counts errors only)" name="Auth Route Rate Limits OTP limiter: first 5 requests pass (skipSuccessful counts errors only)" time="0.015">
+    </testcase>
+    <testcase classname="Auth Route Rate Limits auth login rate limit allows 10 requests" name="Auth Route Rate Limits auth login rate limit allows 10 requests" time="0.089">
+    </testcase>
+    <testcase classname="Auth Route Rate Limits auth login rate limit blocks 11th request" name="Auth Route Rate Limits auth login rate limit blocks 11th request" time="0.099">
+    </testcase>
+    <testcase classname="Input Sanitization normal email passes through" name="Input Sanitization normal email passes through" time="0.011">
+    </testcase>
+    <testcase classname="Input Sanitization excessively long email → 400" name="Input Sanitization excessively long email → 400" time="0.012">
+    </testcase>
+    <testcase classname="Input Sanitization non-string email type → 400" name="Input Sanitization non-string email type → 400" time="0.01">
+    </testcase>
+    <testcase classname="Input Sanitization payload over 1mb limit → 413" name="Input Sanitization payload over 1mb limit → 413" time="0.038">
+    </testcase>
+  </testsuite>
+  <testsuite name="Health Check Endpoints" errors="0" failures="0" skipped="0" timestamp="2026-04-15T07:58:19" time="0.471" tests="32">
+    <testcase classname="Health Check Endpoints GET /api/health (lightweight ping) returns 200 with {status: ok}" name="Health Check Endpoints GET /api/health (lightweight ping) returns 200 with {status: ok}" time="0.02">
+    </testcase>
+    <testcase classname="Health Check Endpoints GET /api/health (lightweight ping) responds quickly (&lt; 200ms)" name="Health Check Endpoints GET /api/health (lightweight ping) responds quickly (&lt; 200ms)" time="0.013">
+    </testcase>
+    <testcase classname="Health Check Endpoints GET /api/health (lightweight ping) returns JSON content-type" name="Health Check Endpoints GET /api/health (lightweight ping) returns JSON content-type" time="0.017">
+    </testcase>
+    <testcase classname="Health Check Endpoints GET /api/health (lightweight ping) does NOT include database fields (no DB query)" name="Health Check Endpoints GET /api/health (lightweight ping) does NOT include database fields (no DB query)" time="0.014">
+    </testcase>
+    <testcase classname="Health Check Endpoints GET /api/health/ready (deep check) DB connected → 200 with ready status" name="Health Check Endpoints GET /api/health/ready (deep check) DB connected → 200 with ready status" time="0.014">
+    </testcase>
+    <testcase classname="Health Check Endpoints GET /api/health/ready (deep check) DB connected → includes uptime" name="Health Check Endpoints GET /api/health/ready (deep check) DB connected → includes uptime" time="0.013">
+    </testcase>
+    <testcase classname="Health Check Endpoints GET /api/health/ready (deep check) DB disconnected → 503 with degraded status" name="Health Check Endpoints GET /api/health/ready (deep check) DB disconnected → 503 with degraded status" time="0.014">
+    </testcase>
+    <testcase classname="Payment Validation POST /api/payments/checkout — input validation missing bundle_id → 400" name="Payment Validation POST /api/payments/checkout — input validation missing bundle_id → 400" time="0.021">
+    </testcase>
+    <testcase classname="Payment Validation POST /api/payments/checkout — input validation missing child_ids → 400" name="Payment Validation POST /api/payments/checkout — input validation missing child_ids → 400" time="0.015">
+    </testcase>
+    <testcase classname="Payment Validation POST /api/payments/checkout — input validation empty child_ids array → 400" name="Payment Validation POST /api/payments/checkout — input validation empty child_ids array → 400" time="0.015">
+    </testcase>
+    <testcase classname="Payment Validation POST /api/payments/checkout — input validation valid request → 200 with checkout_url" name="Payment Validation POST /api/payments/checkout — input validation valid request → 200 with checkout_url" time="0.013">
+    </testcase>
+    <testcase classname="Payment Validation POST /api/payments/checkout — input validation children from another parent → 403" name="Payment Validation POST /api/payments/checkout — input validation children from another parent → 403" time="0.014">
+    </testcase>
+    <testcase classname="Payment Validation POST /api/payments/checkout — input validation mixed own + other parent children → 403" name="Payment Validation POST /api/payments/checkout — input validation mixed own + other parent children → 403" time="0.016">
+    </testcase>
+    <testcase classname="Payment Validation POST /api/payments/webhook — signature verification missing stripe-signature → 400" name="Payment Validation POST /api/payments/webhook — signature verification missing stripe-signature → 400" time="0.023">
+    </testcase>
+    <testcase classname="Payment Validation POST /api/payments/webhook — signature verification invalid stripe-signature → 400" name="Payment Validation POST /api/payments/webhook — signature verification invalid stripe-signature → 400" time="0.022">
+    </testcase>
+    <testcase classname="Payment Validation POST /api/payments/webhook — signature verification valid stripe-signature → 200 with received: true" name="Payment Validation POST /api/payments/webhook — signature verification valid stripe-signature → 200 with received: true" time="0.018">
+    </testcase>
+    <testcase classname="Payment Validation GET /api/payments/verify/:sessionId valid session → 200 with purchase details" name="Payment Validation GET /api/payments/verify/:sessionId valid session → 200 with purchase details" time="0.021">
+    </testcase>
+    <testcase classname="Payment Validation GET /api/payments/verify/:sessionId invalid session → 404" name="Payment Validation GET /api/payments/verify/:sessionId invalid session → 404" time="0.016">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 3 is valid" name="Catalog Bundle Validation year level 3 is valid" time="0.001">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 5 is valid" name="Catalog Bundle Validation year level 5 is valid" time="0.001">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 7 is valid" name="Catalog Bundle Validation year level 7 is valid" time="0.001">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 9 is valid" name="Catalog Bundle Validation year level 9 is valid" time="0.002">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 1 is NOT valid for NAPLAN" name="Catalog Bundle Validation year level 1 is NOT valid for NAPLAN" time="0.001">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 2 is NOT valid for NAPLAN" name="Catalog Bundle Validation year level 2 is NOT valid for NAPLAN" time="0.001">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 4 is NOT valid for NAPLAN" name="Catalog Bundle Validation year level 4 is NOT valid for NAPLAN" time="0.001">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 6 is NOT valid for NAPLAN" name="Catalog Bundle Validation year level 6 is NOT valid for NAPLAN" time="0.002">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 8 is NOT valid for NAPLAN" name="Catalog Bundle Validation year level 8 is NOT valid for NAPLAN" time="0.001">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 10 is NOT valid for NAPLAN" name="Catalog Bundle Validation year level 10 is NOT valid for NAPLAN" time="0.001">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 11 is NOT valid for NAPLAN" name="Catalog Bundle Validation year level 11 is NOT valid for NAPLAN" time="0.002">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation year level 12 is NOT valid for NAPLAN" name="Catalog Bundle Validation year level 12 is NOT valid for NAPLAN" time="0.001">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation bundle enrichment adds included_tests from quiz_count_with_lower" name="Catalog Bundle Validation bundle enrichment adds included_tests from quiz_count_with_lower" time="0.002">
+    </testcase>
+    <testcase classname="Catalog Bundle Validation bundle fallback uses quiz_count when quiz_count_with_lower is 0" name="Catalog Bundle Validation bundle fallback uses quiz_count when quiz_count_with_lower is 0" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="inferSubjectFromQuizName" errors="0" failures="0" skipped="0" timestamp="2026-04-15T07:58:19" time="0.177" tests="40">
+    <testcase classname="inferSubjectFromQuizName Numeracy with Calculator variants exact string &apos;numeracy with calculator&apos;" name="inferSubjectFromQuizName Numeracy with Calculator variants exact string &apos;numeracy with calculator&apos;" time="0.002">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Numeracy with Calculator variants underscore variant &apos;Numeracy_with_calculator&apos;" name="inferSubjectFromQuizName Numeracy with Calculator variants underscore variant &apos;Numeracy_with_calculator&apos;" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Numeracy with Calculator variants just &apos;calculator&apos; in name" name="inferSubjectFromQuizName Numeracy with Calculator variants just &apos;calculator&apos; in name" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Numeracy with Calculator variants &apos;with calculator&apos; phrase" name="inferSubjectFromQuizName Numeracy with Calculator variants &apos;with calculator&apos; phrase" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Language Conventions variants &apos;language convention&apos; (singular)" name="inferSubjectFromQuizName Language Conventions variants &apos;language convention&apos; (singular)" time="0.002">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Language Conventions variants &apos;language conventions&apos; (plural)" name="inferSubjectFromQuizName Language Conventions variants &apos;language conventions&apos; (plural)" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Language Conventions variants just &apos;conventions&apos;" name="inferSubjectFromQuizName Language Conventions variants just &apos;conventions&apos;" time="0.002">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Language Conventions variants underscore variant" name="inferSubjectFromQuizName Language Conventions variants underscore variant" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Numeracy (without calculator) simple &apos;Numeracy&apos;" name="inferSubjectFromQuizName Numeracy (without calculator) simple &apos;Numeracy&apos;" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Numeracy (without calculator) numeracy is NOT matched when calculator present" name="inferSubjectFromQuizName Numeracy (without calculator) numeracy is NOT matched when calculator present" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Reading &apos;Reading Year 5&apos;" name="inferSubjectFromQuizName Reading &apos;Reading Year 5&apos;" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Reading &apos;reading_test_9&apos;" name="inferSubjectFromQuizName Reading &apos;reading_test_9&apos;" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Writing &apos;Writing Year 7&apos;" name="inferSubjectFromQuizName Writing &apos;Writing Year 7&apos;" time="0.002">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Unknown / edge cases empty string → empty string" name="inferSubjectFromQuizName Unknown / edge cases empty string → empty string" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Unknown / edge cases null → empty string" name="inferSubjectFromQuizName Unknown / edge cases null → empty string" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Unknown / edge cases undefined → empty string" name="inferSubjectFromQuizName Unknown / edge cases undefined → empty string" time="0.002">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Unknown / edge cases unrecognized name → empty string" name="inferSubjectFromQuizName Unknown / edge cases unrecognized name → empty string" time="0.001">
+    </testcase>
+    <testcase classname="inferSubjectFromQuizName Unknown / edge cases numeric → empty string" name="inferSubjectFromQuizName Unknown / edge cases numeric → empty string" time="0.002">
+    </testcase>
+    <testcase classname="normalizeQuizName converts to lowercase" name="normalizeQuizName converts to lowercase" time="0.001">
+    </testcase>
+    <testcase classname="normalizeQuizName replaces underscores with spaces" name="normalizeQuizName replaces underscores with spaces" time="0.002">
+    </testcase>
+    <testcase classname="normalizeQuizName replaces hyphens with spaces" name="normalizeQuizName replaces hyphens with spaces" time="0.002">
+    </testcase>
+    <testcase classname="normalizeQuizName collapses multiple spaces" name="normalizeQuizName collapses multiple spaces" time="0.001">
+    </testcase>
+    <testcase classname="normalizeQuizName trims leading/trailing whitespace" name="normalizeQuizName trims leading/trailing whitespace" time="0.001">
+    </testcase>
+    <testcase classname="normalizeQuizName handles null → empty string" name="normalizeQuizName handles null → empty string" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Entitlement Check child with matching bundle can access quiz" name="Quiz Entitlement Check child with matching bundle can access quiz" time="0.005">
+    </testcase>
+    <testcase classname="Quiz Entitlement Check child without any bundles cannot access non-trial quiz" name="Quiz Entitlement Check child without any bundles cannot access non-trial quiz" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Entitlement Check child with bundle but quiz not in bundle → no access" name="Quiz Entitlement Check child with bundle but quiz not in bundle → no access" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Entitlement Check child with multiple bundles — one matches" name="Quiz Entitlement Check child with multiple bundles — one matches" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Attempt Limits no previous attempts → can attempt" name="Quiz Attempt Limits no previous attempts → can attempt" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Attempt Limits 4 completed attempts → can still attempt (under limit of 5)" name="Quiz Attempt Limits 4 completed attempts → can still attempt (under limit of 5)" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Attempt Limits 5 completed attempts → cannot attempt (at limit)" name="Quiz Attempt Limits 5 completed attempts → cannot attempt (at limit)" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Attempt Limits in_progress attempt is NOT counted toward limit" name="Quiz Attempt Limits in_progress attempt is NOT counted toward limit" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Attempt Limits ai_done status counts toward limit" name="Quiz Attempt Limits ai_done status counts toward limit" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Attempt Limits scored status counts toward limit" name="Quiz Attempt Limits scored status counts toward limit" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Timer Calculation deadline is in the future" name="Quiz Timer Calculation deadline is in the future" time="0.001">
+    </testcase>
+    <testcase classname="Quiz Timer Calculation deadline includes grace period (60s added to limit)" name="Quiz Timer Calculation deadline includes grace period (60s added to limit)" time="0.002">
+    </testcase>
+    <testcase classname="Quiz Timer Calculation 30-min quiz + 60s grace = approx 31 minutes from now" name="Quiz Timer Calculation 30-min quiz + 60s grace = approx 31 minutes from now" time="0.002">
+    </testcase>
+    <testcase classname="Topic Breakdown Map Handling Map tracks topic scores correctly" name="Topic Breakdown Map Handling Map tracks topic scores correctly" time="0.001">
+    </testcase>
+    <testcase classname="Topic Breakdown Map Handling assigning plain object to Map requires explicit set()" name="Topic Breakdown Map Handling assigning plain object to Map requires explicit set()" time="0.001">
+    </testcase>
+    <testcase classname="Topic Breakdown Map Handling empty Map → no topics tracked" name="Topic Breakdown Map Handling empty Map → no topics tracked" time="0.002">
+    </testcase>
+  </testsuite>
+</testsuites>

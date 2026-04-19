@@ -459,55 +459,70 @@ useEffect(() => {
       {/* ── TAB 1: RESULTS ── */}
       {activeTab === 0 && (
         <div className="px-4 py-8">
-          <div className="max-w-xl mx-auto space-y-4">
+          <div className="max-w-7xl mx-auto space-y-4">
 
-            <div className="rounded-2xl overflow-hidden shadow-md border border-slate-200">
-              {/* Gradient header strip */}
-              <div style={{ background:"linear-gradient(135deg,#1E293B 0%,#334155 100%)" }} className="px-6 py-4 text-center">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-widest"
-                  style={{ background:"rgba(255,255,255,0.12)", color:"rgba(255,255,255,0.75)" }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                  </svg>
-                  QUIZ COMPLETE
-                </div>
-                <h1 className="text-white font-bold text-lg mt-2 leading-snug">{quizName}</h1>
-              </div>
+   <div className="rounded-2xl overflow-hidden shadow-md border border-slate-200 max-w-3xl mx-auto w-full">
+  {/* Compact dark header — inline badge + quiz name on one row */}
+  <div
+    style={{ background:"linear-gradient(135deg,#1E293B 0%,#334155 100%)" }}
+    className="px-6 py-3 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3"
+  >
+    <div
+      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-widest flex-shrink-0"
+      style={{ background:"rgba(255,255,255,0.12)", color:"rgba(255,255,255,0.75)" }}
+    >
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      QUIZ COMPLETE
+    </div>
+    <h1 className="text-white font-bold text-base sm:text-lg leading-snug text-center sm:text-left">
+      {quizName}
+    </h1>
+  </div>
 
-              {/* Score section */}
-              <div className="bg-white px-8 py-6 text-center space-y-3">
-                <div className="flex justify-center">
-                {isWriting && percentage === 0 ? (
-                  <div className="w-32 h-32 rounded-full border-8 border-indigo-100 flex items-center justify-center bg-indigo-50">
-                    <span className="text-indigo-500 text-xs font-semibold text-center leading-tight px-2">AI<br/>Evaluating</span>
-                  </div>
-                ) : (
-                  <ScoreRing percentage={percentage}/>
-                )}
-              </div>
-                <div>
-                  <p className="text-base font-bold text-slate-800">
-                    {isWriting && percentage === 0 ? "Writing Submitted ✓" : gradeLabel}
-                  </p>
-                  <div className="flex items-center justify-center gap-3 mt-2">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
-                    {isWriting 
-                      ? (percentage === 0 ? "AI scoring..." : "See AI Feedback tab") 
-                      : (score.available > 0 
-                          ? `${score.points||0} / ${score.available} pts` 
-                          : `${percentage}%`)}
-                  </span>
+  {/* Score section — horizontal on desktop, stacked on mobile */}
+  <div className="bg-white px-6 py-5">
+    <div className="flex flex-col sm:flex-row items-center justify-center gap-5 sm:gap-8">
 
-                  {!isWriting && (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-                      Grade {score.grade||"—"}
-                    </span>
-                  )}
-                  </div>
-                </div>
-              </div>
-            </div>
+      {/* Ring / AI evaluating */}
+      <div className="flex-shrink-0">
+        {isWriting && percentage === 0 ? (
+          <div className="w-24 h-24 rounded-full border-8 border-indigo-100 flex items-center justify-center bg-indigo-50">
+            <span className="text-indigo-500 text-[11px] font-semibold text-center leading-tight px-2">AI<br/>Evaluating</span>
+          </div>
+        ) : (
+          <ScoreRing percentage={percentage}/>
+        )}
+      </div>
+
+      {/* Label + metadata pills */}
+      <div className="text-center sm:text-left min-w-0">
+        <p className="text-lg font-bold text-slate-800 leading-tight">
+          {isWriting && percentage === 0 ? "Writing Submitted ✓" : gradeLabel}
+        </p>
+        <div className="flex items-center justify-center sm:justify-start gap-2 mt-2 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/>
+            </svg>
+            {isWriting
+              ? (percentage === 0 ? "AI scoring..." : "See AI Feedback tab")
+              : (score.available > 0
+                  ? `${score.points||0} / ${score.available} pts`
+                  : `${percentage}%`)}
+          </span>
+
+          {!isWriting && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+              Grade {score.grade||"—"}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
             <TopicBreakdown entries={topicEntries}/>
         
@@ -565,13 +580,16 @@ useEffect(() => {
       
  
    {/* AI Chat Widget — floats over results page */}
-      {attemptId && (
-        <QuizChatWidget
-          quizId={result?.quiz_id}
-          yearLevel={childProfile?.yearLevel || result?.year_level || 3}
-          apiFetch={apiFetch}
-        />
-      )}
+      {/* AI Chat Widget — floats over results page */}
+{attemptId && result?.quiz_id && (
+  <QuizChatWidget
+    quizId={result.quiz_id}
+    attemptId={attemptId}
+    subject={result?.subject || ""}
+    yearLevel={childProfile?.yearLevel || result?.year_level || 3}
+    apiFetch={apiFetch}
+  />
+)}
 
     </div>
   );

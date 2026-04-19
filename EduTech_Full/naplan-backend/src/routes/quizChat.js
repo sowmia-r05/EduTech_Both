@@ -16,6 +16,9 @@ const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const { spawn } = require("child_process");
 const path      = require("path");
 
+const { getAttemptContext } = require("../chat/getAttemptContext");
+const { getChildHistory }   = require("../chat/getChildHistory");
+
 const router = express.Router();
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -164,7 +167,7 @@ function storeInCacheAsync(quizId, message, answer) {
 // ── Route ──────────────────────────────────────────────────────────────────
 router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => {
   const { quizId } = req.params;
-  const { message, chat_history: chatHistory = [] } = req.body;
+  const { message, chat_history: chatHistory = [], attempt_id, subject } = req.body;
 
   if (!message?.trim()) return res.status(400).json({ error: "message is required" });
 
@@ -229,37 +232,31 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
         ).join("\n")
       : "No specific quiz context available.";
 
-    const geminiPayload = {
-      mode:         "chat",
-      year_level:   yearLevel,
-      child_name:   childName,
-      message:      message.trim(),
-      chat_history: (chatHistory || []).slice(-MAX_CHAT_HISTORY),
-      question_context: {
-        question_text:  `[STRICT RULES]
-- You are a tutor ONLY for this specific quiz
-- ONLY answer questions about the topics and questions in this quiz
-- If the child asks anything outside this quiz, say: "I can only help with questions from this quiz! Try asking about one of the topics here 😊"
-- Do NOT answer general knowledge, jokes, or unrelated topics
+   // ── Fetch attempt context + child history in parallel ──
+    const [attemptCtx, historyCtx] = await Promise.all([
+      attempt_id ? getAttemptContext(attempt_id) : Promise.resolve(null),
+      req.childId ? getChildHistory(req.childId) : Promise.resolve(null),
+    ]);
 
-[QUIZ CONTENT]
-${quizContext}`,
-        correct_answer: "",
-        child_answer:   "",
-        category:       "NAPLAN quiz",
-      },
+    const agentPayload = {
+      mode:            "agent_chat",
+      subject:         subject || attemptCtx?.subject || "",
+      message:         message.trim().slice(0, 500),
+      chat_history:    (chatHistory || []).slice(-MAX_CHAT_HISTORY),
+      attempt_context: attemptCtx || {},
+      history_context: historyCtx  || "",
     };
 
     let geminiResult;
     try {
-      geminiResult = await runPython(GEMINI_SCRIPT, geminiPayload);
+      geminiResult = await runPython(GEMINI_SCRIPT, agentPayload);
     } catch (err) {
-      console.error("[quizChat] Gemini call failed:", err.message);
+      console.error("[quizChat] Agent call failed:", err.message);
       return res.status(500).json({ error: "AI tutor is temporarily unavailable. Please try again." });
     }
 
     if (!geminiResult?.success) {
-      console.error("[quizChat] Gemini returned error:", geminiResult?.error);
+      console.error("[quizChat] Agent returned error:", geminiResult?.error);
       return res.status(500).json({ error: geminiResult?.error || "AI response failed." });
     }
 
