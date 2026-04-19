@@ -71,14 +71,15 @@ router.get("/attempts/:attemptId/flashcards", verifyToken, requireAuth, async (r
        }
       }
 
-     return {
-        question_id:       q.question_id,
-        question_text:     q.question_text || q.text || "",
-        passage:           q.passage || null,
-        correct_answers:   correctOptionTexts,
-        correct_answer:    q.correct_answer || null,
-        child_answer:      childAnswerText,
-        is_correct:        answer?.is_correct ?? (answer ? (answer.points_scored ?? 0) > 0 : false),
+        return {
+      question_id:       q.question_id,
+      question_text:     q.question_text || q.text || "",
+      passage:           q.passage || null,
+      correct_answers:   correctOptionTexts,
+      correct_answer:    q.correct_answer || null,
+      child_answer:      childAnswerText,
+      child_option_ids:  answer?.selected_option_ids || [],   // ✅ NEW — for picture_choice display
+      is_correct:        answer?.is_correct ?? (answer ? (answer.points_scored ?? 0) > 0 : false),
         explanation: ((q.explanations_by_year || {})[String(attempt.year_level || "3")] || {}).explanation
              || q.explanation || null,
         tip:         ((q.explanations_by_year || {})[String(attempt.year_level || "3")] || {}).tip
@@ -205,12 +206,13 @@ router.get("/children/:childId/flashcards", verifyToken, requireAuth, async (req
         }
 
        allFlashcards.push({
-          question_id:    q.question_id,
-          question_text:  q.question_text || q.text || "",
-          passage:        q.passage || null,
-          correct_answers: correctOptions.map((o) => o.text),
-          child_answer:   childAnswerText,
-          is_correct:     false,
+        question_id:    q.question_id,
+        question_text:  q.question_text || q.text || "",
+        passage:        q.passage || null,
+        correct_answers: correctOptions.map((o) => o.text),
+        child_answer:   childAnswerText,
+        child_option_ids: answer.selected_option_ids || [],   // ✅ NEW — for picture_choice display
+        is_correct:     false,
           explanation: ((q.explanations_by_year || {})[String(attempt.year_level || "3")] || {}).explanation
              || q.explanation || null,
 tip:         ((q.explanations_by_year || {})[String(attempt.year_level || "3")] || {}).tip

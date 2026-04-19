@@ -15,6 +15,53 @@ function stripHtml(html) {
     .replace(/\s+/g, " ").trim();
 }
 
+// ✅ NEW — For reading passages: preserves paragraph breaks instead of collapsing to one line
+// ✅ IMPROVED — Auto-splits plain text into paragraphs (every ~3 sentences)
+function formatPassageText(html) {
+  if (!html) return [];
+  const text = String(html)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
+    .replace(/<p[^>]*>/gi, "")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+
+  // If already has paragraph breaks, use them
+  const existing = text.split(/\n\s*\n/)
+    .map(p => p.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean);
+  if (existing.length > 1) return existing;
+
+  // Otherwise auto-split: every ~3 sentences becomes a paragraph
+  const flat = (existing[0] || "").replace(/\s+/g, " ").trim();
+  const sentences = flat.match(/[^.!?]+[.!?]+["']?\s*/g) || [flat];
+  if (sentences.length <= 3) return [flat];
+
+  const paragraphs = [];
+  const chunkSize = 3;
+  for (let i = 0; i < sentences.length; i += chunkSize) {
+    const chunk = sentences.slice(i, i + chunkSize).join("").trim();
+    if (chunk) paragraphs.push(chunk);
+  }
+  return paragraphs;
+}
+
+// ✅ NEW — Extract a short title/label for a passage (for the passage chips)
+function getPassageTitle(card) {
+  if (!card || card.type !== "free_text") return "Passage";
+  const text = stripHtml(card.question_text || "");
+  // Try to find a title in quotes: "Max the Puppy"
+  const quoted = text.match(/[""']([^""']{3,40})[""']/);
+  if (quoted) return quoted[1];
+  // Or first line if short
+  const firstLine = text.split(/[.!?\n]/)[0]?.trim();
+  if (firstLine && firstLine.length <= 40) return firstLine;
+  // Fallback to first 30 chars
+  return text.substring(0, 30).trim() + (text.length > 30 ? "…" : "");
+}
+
 function getChildAnswer(card) { return card.child_answer || card.child_answer_text || "No answer given"; }
 
 function getCorrectAnswer(card) {
@@ -68,7 +115,7 @@ function QuestionImage({ card }) {
   if (!src || failed) return null;
   return (
     <div className="mt-3 rounded-xl overflow-hidden border border-slate-200">
-      <img src={src} alt="" className="w-full max-h-48 object-contain block" onError={() => setFailed(true)} />
+      <img src={src} alt="" className="w-full max-h-96 object-contain block" onError={() => setFailed(true)} />
     </div>
   );
 }
@@ -100,14 +147,40 @@ function QuestionCard({ card, questionNum, explanation, yearLevel }) {
   const isCorrect = getIsCorrect(card);
 
   if (card.type === "free_text") {
+    const passageText = card.text || card.question_text || "";
+    const passageImage = card.image_url || card.question_image || card.imageUrl || card.image || null;
+    const hasHtml = passageText.includes("<");
+
     return (
-      <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-blue-600"><BookIcon /></span>
-          <span className="text-xs font-bold text-blue-600 uppercase tracking-wide">Reading Passage</span>
+      <div className="rounded-xl border border-blue-100 bg-blue-50/40 overflow-hidden my-4">
+        {/* Header — matches quiz PassagePanel exactly */}
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-blue-100 bg-blue-50">
+          <span className="text-base">📖</span>
+          <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">Reading Passage</span>
         </div>
-        {card.question_text && <p className="text-sm text-slate-700 leading-relaxed">{stripHtml(card.question_text)}</p>}
-        <QuestionImage card={card} />
+
+        {/* Content — matches quiz PassagePanel exactly */}
+        <div className="px-5 py-5">
+          {hasHtml ? (
+            <div
+              className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none mb-4"
+              dangerouslySetInnerHTML={{ __html: passageText }}
+            />
+          ) : (
+            <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap mb-4">
+              {passageText}
+            </p>
+          )}
+          {passageImage && (
+  <div className="mt-4">
+    <img
+      src={passageImage}
+      alt="Passage"
+      className="w-full max-w-lg max-h-72 object-contain rounded-lg border border-blue-100 mx-auto block"
+    />
+  </div>
+)}
+        </div>
       </div>
     );
   }
@@ -158,29 +231,58 @@ function QuestionCard({ card, questionNum, explanation, yearLevel }) {
           <QuestionImage card={card} />
 
           {options.length > 0 ? (
-            <div className="space-y-2">
-              {options.map((opt, i) => {
-                const optText      = typeof opt === "string" ? opt : (opt.text || opt.label || "");
-                const isChildPick  = childAnswer === optText || (Array.isArray(card.child_option_ids) && card.child_option_ids.includes(opt.option_id));
-                const isCorrectOpt = correctAnswer.includes(optText) || (Array.isArray(card.correct_answer_ids) && card.correct_answer_ids.includes(opt.option_id));
-                return (
-                  <div key={i} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm ${
-                    isCorrectOpt ? "bg-emerald-50 border-emerald-200 text-emerald-800 font-medium"
-                    : isChildPick ? "bg-red-50 border-red-200 text-red-800 font-medium"
-                    : "bg-slate-50 border-slate-200 text-slate-600"
-                  }`}>
-                    <span className={`flex-shrink-0 ${isCorrectOpt ? "text-emerald-600" : isChildPick ? "text-red-500" : "text-slate-400"}`}>
-                      {isCorrectOpt ? <CheckIcon /> : isChildPick ? <XIcon /> : <CircleIcon />}
-                    </span>
-                    <span className="flex-1">{optText}</span>
-                    {isChildPick && isCorrectOpt  && <span className="text-xs font-bold text-emerald-600 flex-shrink-0">Your answer ✓</span>}
-                    {isChildPick && !isCorrectOpt && <span className="text-xs font-bold text-red-500 flex-shrink-0">Your answer</span>}
-                    {!isChildPick && isCorrectOpt && <span className="text-xs font-bold text-emerald-600 flex-shrink-0">Correct answer</span>}
-                  </div>
-                );
-              })}
+  <div className="space-y-2">
+    {options.map((opt, i) => {
+      const optText     = typeof opt === "string" ? opt : (opt.text || opt.label || "");
+      const optImage    = typeof opt === "object" ? (opt.image_url || opt.imageUrl || null) : null;
+      const hasImage    = !!optImage;
+      const isTextPlaceholder = optText === "[Image]" || optText === "" || !optText;
+
+      // ✅ Correctness: trust opt.correct flag first (reliable), fall back to text match only for text options
+      const isCorrectOpt =
+        opt.correct === true ||
+        (Array.isArray(card.correct_answer_ids) && opt.option_id && card.correct_answer_ids.includes(opt.option_id)) ||
+        (!hasImage && !isTextPlaceholder && correctAnswer && correctAnswer.includes(optText));
+
+      // ✅ Child's pick: prefer option_id match, fall back to text only for real text options
+      const isChildPick =
+        (Array.isArray(card.child_option_ids) && opt.option_id && card.child_option_ids.includes(opt.option_id)) ||
+        (!hasImage && !isTextPlaceholder && childAnswer === optText);
+
+      return (
+        <div key={i} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm ${
+          isCorrectOpt ? "bg-emerald-50 border-emerald-200 text-emerald-800 font-medium"
+          : isChildPick ? "bg-red-50 border-red-200 text-red-800 font-medium"
+          : "bg-slate-50 border-slate-200 text-slate-600"
+        }`}>
+          <span className={`flex-shrink-0 ${isCorrectOpt ? "text-emerald-600" : isChildPick ? "text-red-500" : "text-slate-400"}`}>
+            {isCorrectOpt ? <CheckIcon /> : isChildPick ? <XIcon /> : <CircleIcon />}
+          </span>
+
+          {/* ✅ Render image if present, otherwise text */}
+          {hasImage ? (
+            <div className="flex-1 flex items-center gap-3">
+              <img
+                src={optImage}
+                alt={opt.label ? `Option ${opt.label}` : `Option ${i + 1}`}
+                className="max-h-32 max-w-[200px] object-contain rounded bg-white border border-slate-200"
+              />
+              {opt.label && (
+                <span className="text-xs font-bold text-slate-500 uppercase">Option {opt.label}</span>
+              )}
             </div>
           ) : (
+            <span className="flex-1">{optText}</span>
+          )}
+
+          {isChildPick && isCorrectOpt  && <span className="text-xs font-bold text-emerald-600 flex-shrink-0">Your answer ✓</span>}
+          {isChildPick && !isCorrectOpt && <span className="text-xs font-bold text-red-500 flex-shrink-0">Your answer</span>}
+          {!isChildPick && isCorrectOpt && <span className="text-xs font-bold text-emerald-600 flex-shrink-0">Correct answer</span>}
+        </div>
+      );
+    })}
+  </div>
+) : (
             <div className="space-y-2">
               <div className={`px-3 py-2.5 rounded-lg border text-sm ${
                 isCorrect ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"
@@ -227,6 +329,7 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
   const [error,          setError]          = useState(null);
   const [filter,         setFilter]         = useState("all");
   const [activeQuestion, setActiveQuestion] = useState(null);
+  const [activePassage,   setActivePassage]  = useState(null);   
 
   useEffect(() => {
     if (!attemptId) return;
@@ -264,13 +367,46 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
     }
   });
 
-  const filteredCards = filter === "wrong"
+ // ✅ Build passage groups: each free_text starts a new group with its follow-up questions
+  const hasPassages = flashcards.some(c => c.type === "free_text");
+  const passageGroups = [];
+  {
+    let currentGroup = null;
+    flashcards.forEach(card => {
+      if (card.type === "free_text") {
+        currentGroup = { passage: card, title: getPassageTitle(card), cards: [card] };
+        passageGroups.push(currentGroup);
+      } else {
+        if (!currentGroup) {
+          currentGroup = { passage: null, title: "General", cards: [] };
+          passageGroups.push(currentGroup);
+        }
+        currentGroup.cards.push(card);
+      }
+    });
+  }
+  // Add correct/total counts per group (excluding the passage card itself)
+  passageGroups.forEach(g => {
+    const qs = g.cards.filter(c => c.type !== "free_text");
+    g.totalCount   = qs.length;
+    g.correctCount = qs.filter(getIsCorrect).length;
+  });
+
+  // Filter by correctness
+  let filteredCards = filter === "wrong"
     ? flashcards.filter(c => c.type === "free_text" || !getIsCorrect(c))
     : filter === "correct"
     ? flashcards.filter(c => c.type === "free_text" || getIsCorrect(c))
     : flashcards;
 
-  const finalCards = activeQuestion !== null
+  // Filter by active passage (if a passage is selected)
+  if (hasPassages && activePassage !== null && passageGroups[activePassage]) {
+    const groupCardSet = new Set(passageGroups[activePassage].cards);
+    filteredCards = filteredCards.filter(c => groupCardSet.has(c));
+  }
+
+  // Filter by active question number (only for non-passage quizzes)
+  const finalCards = (!hasPassages && activeQuestion !== null)
     ? (() => {
         let num = 0;
         return flashcards.filter(c => {
@@ -284,7 +420,7 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
   let questionNum = 0;
 
   return (
-    <div className="px-4 py-5 space-y-4 max-w-2xl mx-auto pb-10">
+   <div className="px-4 py-5 space-y-4 max-w-7xl mx-auto pb-10">
 
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-3">
@@ -293,16 +429,16 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
           { label: "Correct",   value: totalCorrect,        cls: "bg-emerald-50 border border-emerald-100", val: "text-emerald-700" },
           { label: "Incorrect", value: totalWrong,          cls: "bg-red-50 border border-red-100",         val: "text-red-700" },
         ].map(s => (
-          <div key={s.label} className={`rounded-xl p-3 text-center ${s.cls}`}>
-            <p className={`text-2xl font-bold ${s.val}`}>{s.value}</p>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">{s.label}</p>
-          </div>
+         <div key={s.label} className={`rounded-xl p-4 text-center ${s.cls}`}>
+        <p className={`text-3xl font-bold ${s.val}`}>{s.value}</p>
+        <p className="text-xs text-slate-500 font-medium mt-1 uppercase tracking-wide">{s.label}</p>
+      </div>
         ))}
       </div>
 
       {/* Accuracy bar */}
       <div className="bg-slate-50 rounded-xl border border-slate-200 px-4 py-3 flex items-center gap-3">
-        <span className="text-xs font-semibold text-slate-600 flex-shrink-0">Accuracy</span>
+        <span className="text-xs font-semibold text-slate-700 flex-shrink-0">Accuracy</span>
         <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-700 ${
@@ -336,27 +472,71 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
       </div>
 
       {/* Number chips */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
-        <button onClick={() => setActiveQuestion(null)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold flex-shrink-0 transition-all ${
-            activeQuestion === null ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-          }`}>All</button>
-        {allQuestions.map((q, idx) => {
-          const qNum = idx + 1;
-          const correct = getIsCorrect(q);
-          const isActive = activeQuestion === qNum;
-          return (
-            <button key={qNum} onClick={() => setActiveQuestion(isActive ? null : qNum)}
-              className={`w-8 h-8 rounded-lg text-xs font-bold flex-shrink-0 transition-all ${
-                isActive ? "bg-indigo-600 text-white"
-                : correct ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                :           "bg-red-100 text-red-700 hover:bg-red-200"
-              }`}>{qNum}</button>
-          );
-        })}
-      </div>
+      {/* ✅ Passage chips (reading quizzes) OR number chips (other quizzes) */}
+      {hasPassages ? (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filter by passage</p>
+          <div className="flex gap-2 flex-wrap pb-1">
+            <button onClick={() => setActivePassage(null)}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                activePassage === null
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}>
+              All Passages ({allQuestions.length})
+            </button>
+            {passageGroups.map((group, idx) => {
+              const isActive = activePassage === idx;
+              const pct = group.totalCount > 0 ? Math.round((group.correctCount / group.totalCount) * 100) : 0;
+              const tone = pct >= 70 ? "emerald" : pct >= 40 ? "amber" : "red";
+              const inactiveClass =
+                tone === "emerald" ? "bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                : tone === "amber" ? "bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100"
+                :                    "bg-red-50 border border-red-200 text-red-700 hover:bg-red-100";
+              return (
+                <button
+                  key={idx}
+                  onClick={() => setActivePassage(isActive ? null : idx)}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
+                    isActive ? "bg-indigo-600 text-white" : inactiveClass
+                  }`}
+                >
+                  <span>{group.title}</span>
+                  <span className={`text-xs font-semibold ${isActive ? "opacity-80" : "opacity-70"}`}>
+                    {group.correctCount}/{group.totalCount}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-1.5 flex-wrap pb-1">
+          <button onClick={() => setActiveQuestion(null)}
+  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex-shrink-0 transition-all ${
+              activeQuestion === null ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}>All</button>
+          {allQuestions.map((q, idx) => {
+            const qNum = idx + 1;
+            const correct = getIsCorrect(q);
+            const isActive = activeQuestion === qNum;
+            return (
+              <button key={qNum} onClick={() => setActiveQuestion(isActive ? null : qNum)}
+  className={`w-8 h-8 rounded-lg text-xs font-bold flex-shrink-0 transition-all ${
+                  isActive ? "bg-indigo-600 text-white"
+                  : correct ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                  :           "bg-red-100 text-red-700 hover:bg-red-200"
+                }`}>{qNum}</button>
+            );
+          })}
+        </div>
+      )}
 
-      <p className="text-xs text-slate-400">Tap any question to expand and see your answer + explanation.</p>
+      <p className="text-xs text-slate-400">
+  {hasPassages
+    ? "Tap a passage above to see only its questions, or tap any question below to expand."
+    : "Tap any question to expand and see your answer + explanation."}
+</p>
 
       {/* Question Cards */}
       <div className="space-y-2">
