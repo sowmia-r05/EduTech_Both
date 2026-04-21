@@ -439,6 +439,7 @@ export default function AdminDashboard() {
   const [tab,                  setTab]                  = useState("quizzes");
   const [quizzes,              setQuizzes]              = useState([]);
   const [bundles,              setBundles]              = useState([]);
+  const [tutors,               setTutors]               = useState([]);
   const [loading,              setLoading]              = useState(true);
   const [bundlesLoading,       setBundlesLoading]       = useState(true);
   const [error,                setError]                = useState("");
@@ -502,6 +503,7 @@ export default function AdminDashboard() {
   }, [navigate]);
 
   // ✅ NEW: fetch verification summary
+// ✅ fetch verification summary
   const fetchVerificationSummary = useCallback(async () => {
     try {
       const res = await adminFetch("/api/admin/verification-summary");
@@ -514,12 +516,26 @@ export default function AdminDashboard() {
     }
   }, []);
 
+  // ✅ fetch tutors (for showing assignment count per quiz)
+  const fetchTutors = useCallback(async () => {
+    try {
+      const res = await adminFetch("/api/admin/tutors");
+      if (res.ok) {
+        const data = await res.json();
+        setTutors(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error("Tutors:", err);
+    }
+  }, []);
+
   // ✅ All three fetched on mount
   useEffect(() => {
     fetchQuizzes();
     fetchBundles();
     fetchVerificationSummary();
-  }, [fetchQuizzes, fetchBundles, fetchVerificationSummary]);
+    fetchTutors();
+  }, [fetchQuizzes, fetchBundles, fetchVerificationSummary, fetchTutors]);
   useEffect(() => {
   const interval = setInterval(() => {
     fetchQuizzes();
@@ -602,8 +618,9 @@ export default function AdminDashboard() {
   const activeQuizzes  = quizzes.filter((q) => q.is_active === true).length;
   const totalQuestions = quizzes.reduce((s, q) => s + (q.question_count || 0), 0);
   const trialQuizzes   = quizzes.filter((q) => q.is_trial).length;
-  const activeBundles  = bundles.filter((b) => b.is_active).length;
-  const getBundlesForQuiz = (quizId) => bundles.filter((b) => (b.quiz_ids || []).includes(quizId));
+  const activeBundles  = bundles.filter((b) => b.is_active).length;  const getBundlesForQuiz = (quizId) => bundles.filter((b) => (b.quiz_ids || []).includes(quizId));
+  const getTutorsForQuiz  = (quizId) => tutors.filter((t) => (t.assigned_quiz_ids || []).includes(quizId));
+
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -869,12 +886,27 @@ export default function AdminDashboard() {
                                 title="Settings">
                                 ⚙
                               </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setAssignTutorsQuiz(quiz); }}
-                                className="px-2.5 py-1.5 text-xs font-medium text-purple-400 hover:text-white hover:bg-purple-600/20 rounded-lg transition-colors"
-                                title="Assign to tutors">
-                                👤
-                              </button>
+                              {/* ✅ Assign to tutors — shows count + names on hover */}
+                              {(() => {
+                                const qTutors = getTutorsForQuiz(quizId);
+                                const hasTutors = qTutors.length > 0;
+                                const names = qTutors.map((t) => t.name || t.email).join(", ");
+                                return (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setAssignTutorsQuiz(quiz); }}
+                                    className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center gap-1 ${
+                                      hasTutors
+                                        ? "text-purple-400 hover:text-white hover:bg-purple-600/20"
+                                        : "text-slate-500 hover:text-white hover:bg-slate-700"
+                                    }`}
+                                    title={hasTutors
+                                      ? `Assigned to ${qTutors.length} tutor${qTutors.length !== 1 ? "s" : ""}: ${names}`
+                                      : "Not assigned to any tutor — click to assign"}>
+                                    <span>👤</span>
+                                    {hasTutors && <span className="font-semibold">{qTutors.length}</span>}
+                                  </button>
+                                );
+                              })()}
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDelete(quizId, quiz.quiz_name); }}
                                 disabled={deletingId === quizId}
@@ -905,9 +937,11 @@ export default function AdminDashboard() {
     onRefresh={async () => { await fetchBundles(); await fetchQuizzes(); }}
   />
 )}
-{assignTutorsQuiz && (
+{/* ✅ NEW: Assign to tutors modal */}
+      {assignTutorsQuiz && (
         <AssignTutorsModal
           quiz={assignTutorsQuiz}
+          onSaved={() => { fetchTutors(); }}
           onClose={() => setAssignTutorsQuiz(null)}
         />
       )}
