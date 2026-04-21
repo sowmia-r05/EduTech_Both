@@ -2,7 +2,6 @@
 ai/gemini_explanation.py
 
 Two modes (controlled by payload["mode"]):
-
   1. "explain"  → Given wrong answers + question context, generate
                   age-appropriate explanations for each wrong question.
                   Returns { success, explanations: [ { question_id, explanation,

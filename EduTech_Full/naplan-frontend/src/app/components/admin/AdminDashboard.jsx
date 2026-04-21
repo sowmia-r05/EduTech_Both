@@ -13,6 +13,7 @@ import BundlesTab         from "./BundlesTab";
 import TutorsTab          from "./Tutorstab";
 import QuizSettingsExtras from "./QuizSettingsExtras";
 import ManualQuizCreator  from "./ManualQuizCreator";
+import AssignTutorsModal  from "./AssignTutorsModal";
 import { ADMIN_PATH }     from "@/app/App";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
@@ -447,6 +448,7 @@ export default function AdminDashboard() {
   const [deletingId,           setDeletingId]           = useState(null);
   const [settingsQuiz,         setSettingsQuiz]         = useState(null);
   const [bundleMapQuiz,        setBundleMapQuiz]        = useState(null);
+  const [assignTutorsQuiz,     setAssignTutorsQuiz]     = useState(null);
   const [showInvite,           setShowInvite]           = useState(false);
   // ✅ NEW: verification summary map { [quiz_id]: { approved, rejected, pending, total } }
   const [verificationSummary,  setVerificationSummary]  = useState({});
@@ -868,6 +870,12 @@ export default function AdminDashboard() {
                                 ⚙
                               </button>
                               <button
+                                onClick={(e) => { e.stopPropagation(); setAssignTutorsQuiz(quiz); }}
+                                className="px-2.5 py-1.5 text-xs font-medium text-purple-400 hover:text-white hover:bg-purple-600/20 rounded-lg transition-colors"
+                                title="Assign to tutors">
+                                👤
+                              </button>
+                              <button
                                 onClick={(e) => { e.stopPropagation(); handleDelete(quizId, quiz.quiz_name); }}
                                 disabled={deletingId === quizId}
                                 className="px-2.5 py-1.5 text-xs font-medium text-red-400 hover:text-white hover:bg-red-600/20 rounded-lg transition-colors disabled:opacity-40">
@@ -897,6 +905,12 @@ export default function AdminDashboard() {
     onRefresh={async () => { await fetchBundles(); await fetchQuizzes(); }}
   />
 )}
+{assignTutorsQuiz && (
+        <AssignTutorsModal
+          quiz={assignTutorsQuiz}
+          onClose={() => setAssignTutorsQuiz(null)}
+        />
+      )}
     </div>
   );
 }

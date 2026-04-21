@@ -536,6 +536,8 @@ export default function TutorDashboard() {
   const [filter,         setFilter]         = useState("all");
   const [zoomedImage,    setZoomedImage]    = useState(null);
   const [editQuestion,   setEditQuestion]   = useState(null);
+  const [quizSearch,     setQuizSearch]     = useState("");
+  const [statusFilter,   setStatusFilter]   = useState("all");
   const [subTopicOptions, setSubTopicOptions] = useState([]);
 
   const tutorData = (() => {
@@ -681,6 +683,49 @@ export default function TutorDashboard() {
         {/* Sidebar */}
         <aside className="w-72 flex-shrink-0 border-r border-slate-800 overflow-y-auto py-4 px-3">
           <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest px-2 mb-3">Assigned Quizzes</p>
+          <input
+            type="text"
+            value={quizSearch}
+            onChange={(e) => setQuizSearch(e.target.value)}
+            placeholder="Search quizzes…"
+            className="w-full bg-slate-900 border border-slate-800 text-white text-sm rounded-lg px-3 py-2 mb-3 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+         <div className="flex items-stretch gap-1 mb-3 bg-slate-900 border border-slate-800 rounded-lg p-1">
+            {[
+              { id: "all",        label: "All"         },
+              { id: "inprogress", label: "In Progress" },
+              { id: "completed",  label: "Completed"   },
+            ].map((t) => {
+              const count = quizzes.filter((qz) => {
+                const v = qz.verification || {};
+                const total   = v.total   || 0;
+                const pending = v.pending ?? total;
+                if (t.id === "completed")  return total > 0 && pending === 0;
+                if (t.id === "inprogress") return total === 0 || pending > 0;
+                return true;
+              }).length;
+              const active = statusFilter === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setStatusFilter(t.id)}
+                  className={`flex-1 flex flex-col items-center justify-center px-1 py-1.5 rounded-md transition ${
+                    active
+                      ? "bg-indigo-600 text-white"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  }`}>
+                  <span className="text-[10px] font-medium leading-tight whitespace-nowrap">
+                    {t.label}
+                  </span>
+                  <span className={`text-sm font-bold leading-tight mt-0.5 ${
+                    active ? "text-white" : "text-slate-300"
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           {loadingQuizzes ? (
             <div className="flex items-center justify-center py-10">
               <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -688,7 +733,25 @@ export default function TutorDashboard() {
           ) : quizzes.length === 0 ? (
             <p className="text-sm text-slate-500 text-center py-10">No quizzes assigned yet.</p>
           ) : (
-            quizzes.map((qz) => {
+            quizzes
+              .filter((qz) => {
+                const v = qz.verification || {};
+                const total   = v.total   || 0;
+                const pending = v.pending ?? total;
+                if (statusFilter === "completed")  return total > 0 && pending === 0;
+                if (statusFilter === "inprogress") return total === 0 || pending > 0;
+                return true;
+              })
+              .filter((qz) => {
+                const s = quizSearch.toLowerCase().trim();
+                if (!s) return true;
+                return (
+                  (qz.quiz_name || "").toLowerCase().includes(s) ||
+                  (qz.subject   || "").toLowerCase().includes(s) ||
+                  String(qz.year_level || "").includes(s)
+                );
+              })
+              .map((qz) => {
               const isSelected = selectedQuiz?.quiz_id === qz.quiz_id;
               return (
                <button key={qz.quiz_id} onClick={() => fetchQuizDetail(qz.quiz_id)}
