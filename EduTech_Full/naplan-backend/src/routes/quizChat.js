@@ -161,6 +161,13 @@ async function loadQuizQuestions(quizId, req) {
 // ── Store in cache async (fire-and-forget) ─────────────────────────────────
 function storeInCacheAsync(quizId, message, answer) {
   runPython(CACHE_SCRIPT, { mode: "store_cache", quiz_id: quizId, message, answer })
+    .then((result) => {
+      if (result.stored) {
+        console.log(`[quizChat] Cache STORED for quiz ${quizId}`);
+      } else if (result.error) {
+        console.warn(`[quizChat] Cache store returned error: ${result.error}`);
+      }
+    })
     .catch((err) => console.warn("[quizChat] Cache store failed (non-fatal):", err.message));
 }
 
@@ -180,7 +187,11 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
     const cacheResult = await runPython(CACHE_SCRIPT, {
       mode: "check_cache", quiz_id: quizId, message: message.trim(), threshold: CACHE_THRESHOLD,
     });
-    if (cacheResult.hit) {
+    if (cacheResult.error) {
+      console.error(`[quizChat] Cache ERROR: ${cacheResult.error}`);
+    } else if (cacheResult._qdrant_error) {
+      console.error(`[quizChat] Qdrant ERROR: ${cacheResult._qdrant_error}`);
+    } else if (cacheResult.hit) {
       cacheHit   = true;
       reply      = cacheResult.answer;
       cacheScore = cacheResult.score;

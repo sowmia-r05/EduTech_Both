@@ -86,13 +86,25 @@ def _build_clients():
 
 
 def _ensure_collection(qdrant: QdrantClient) -> None:
-    """Create the chat_cache collection if it does not exist yet."""
+    """Create the chat_cache collection if it does not exist yet, and ensure quiz_id is indexed."""
     existing = {c.name for c in qdrant.get_collections().collections}
     if COLLECTION not in existing:
         qdrant.create_collection(
             collection_name=COLLECTION,
             vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
         )
+
+    # Ensure payload index exists on quiz_id (required for filtering)
+    try:
+        from qdrant_client.models import PayloadSchemaType
+        qdrant.create_payload_index(
+            collection_name=COLLECTION,
+            field_name="quiz_id",
+            field_schema=PayloadSchemaType.KEYWORD,
+        )
+    except Exception:
+        # Index already exists — safe to ignore
+        pass
 
 
 # ── Embedding ─────────────────────────────────────────────────────────────────
