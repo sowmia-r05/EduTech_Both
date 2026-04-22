@@ -1768,28 +1768,29 @@ const handleGenerateExplanations = async () => {
                     )}
 
                     {/* Matching pairs display — for tutor/admin review */}
-                    {q.type === "matching" && q.options?.length > 0 && (
-                      <div className="mt-3 ml-10 space-y-1.5">
-                        <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider mb-1.5">
-                          🔗 Match Pairs
-                        </p>
-                       {q.options.slice(0, 4).map((opt, oi) => ( 
-                          <div key={oi} className="flex items-center gap-2 text-xs">
-                            <span className="px-2 py-1 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-md font-medium">
-                              {opt.text}
-                            </span>
-                            <span className="text-slate-500">→</span>
-                            <span className="px-2 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded-md font-medium">
-                              {opt.match}
-                            </span>
-                          </div>
-                        ))}
-                      {q.options.length > 4 && (
-                   <p className="text-[10px] text-slate-600">+{q.options.length - 4} more pairs</p>
-                  )}
-                      </div>
-                    )}
-
+                    {/* Matching pairs display — for tutor/admin review */}
+{q.type === "matching" && q.options?.length > 0 && (
+  <div className="mt-3 ml-10 space-y-2">
+    <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider">
+      🔗 Match Pairs
+      <span className="text-slate-500 font-normal normal-case tracking-normal ml-1.5">— all pairs are correct by design</span>
+    </p>
+    <div className="space-y-1.5">
+      {q.options.map((opt, oi) => ( 
+        <div key={opt.option_id || oi}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 text-sm">
+          <span className="flex-1 px-3 py-1.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-medium">
+            {opt.text || <span className="italic text-slate-500">(empty)</span>}
+          </span>
+          <span className="text-slate-500 text-base flex-shrink-0">→</span>
+          <span className="flex-1 px-3 py-1.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium">
+            {opt.match || <span className="italic text-slate-500">(empty)</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
                     {q.type === "short_answer" && q.correct_answer && (
                       <div className="mt-2 ml-10 px-3 py-2 bg-orange-500/5 border border-orange-500/10 rounded-lg">
                         <p className="text-[10px] text-orange-500 font-bold mb-0.5">✍️ Answer</p>
