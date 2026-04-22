@@ -56,13 +56,12 @@ function WelcomeStep({ onNext, onSkip }) {
           Your free trial includes
         </p>
         {[
-          { icon: "📝", text: "One full-length NAPLAN-style practice test" },
-          { icon: "📊", text: "Instant scoring with detailed breakdown" },
-          { icon: "🤖", text: "AI-powered performance insights" },
-        ].map((item, i) => (
-          <div key={i} className="flex items-center gap-2.5">
-            <span className="text-base flex-shrink-0">{item.icon}</span>
-            <span className="text-sm text-slate-700">{item.text}</span>
+          "One full-length NAPLAN-style practice test",
+          "Instant scoring with detailed breakdown",
+          "AI-powered performance insights",
+        ].map((text, i) => (
+          <div key={i} className="flex items-center">
+            <span className="text-sm text-slate-700">{text}</span>
           </div>
         ))}
       </div>

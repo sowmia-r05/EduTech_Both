@@ -20,7 +20,7 @@ import { AlertCircle, Loader2, ArrowLeft, LogIn, X, Mail } from "lucide-react";
 
 import TermsAndConditions from "@/app/components/TermsAndConditions";
 import PrivacyPolicy from "@/app/components/PrivacyPolicy";
-import { createParentAccount, normalizeEmail } from "@/app/utils/api";
+import { createParentAccount, normalizeEmail, verifyParentOtp } from "@/app/utils/api";
 import { useAuth } from "@/app/context/AuthContext";
 import GoogleSignInButton from "@/app/components/auth/GoogleSignInButton";
 
