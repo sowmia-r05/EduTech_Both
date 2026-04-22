@@ -940,28 +940,53 @@ export default function TutorDashboard() {
                         )}
 
                         {/* Options */}
-                        {q.options && q.options.length > 0 && (
-                          <div className="space-y-1.5 mb-3">
-                            {q.options.map((opt, oi) => (
-                              <div key={opt.option_id || oi}
-                                className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm border ${
-                                  opt.correct ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300" : "bg-slate-800/50 border-slate-700/50 text-slate-400"
-                                }`}>
-                                <span className="text-[10px] font-bold mt-0.5 flex-shrink-0">{String.fromCharCode(65 + oi)}</span>
-                                {opt.image_url && (
-                                  <img src={opt.image_url} alt="" className="h-10 rounded cursor-zoom-in object-contain"
-                                    onClick={() => setZoomedImage(opt.image_url)} />
-                                )}
-                                {opt.text && <span className="leading-relaxed">{opt.text}</span>}
-                                {opt.correct && (
-                                  <svg className="w-3.5 h-3.5 text-emerald-400 ml-auto flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                  </svg>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                       {/* Options — skip for matching (matching gets its own renderer below) */}
+{q.options && q.options.length > 0 && q.type !== "matching" && (
+  <div className="space-y-1.5 mb-3">
+    {q.options.map((opt, oi) => (
+      <div key={opt.option_id || oi}
+        className={`flex items-start gap-2 px-3 py-2 rounded-lg text-sm border ${
+          opt.correct ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300" : "bg-slate-800/50 border-slate-700/50 text-slate-400"
+        }`}>
+        <span className="text-[10px] font-bold mt-0.5 flex-shrink-0">{String.fromCharCode(65 + oi)}</span>
+        {opt.image_url && (
+          <img src={opt.image_url} alt="" className="h-10 rounded cursor-zoom-in object-contain"
+            onClick={() => setZoomedImage(opt.image_url)} />
+        )}
+        {opt.text && <span className="leading-relaxed">{opt.text}</span>}
+        {opt.correct && (
+          <svg className="w-3.5 h-3.5 text-emerald-400 ml-auto flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        )}
+      </div>
+    ))}
+  </div>
+)}
+
+{/* Matching pairs (tutor review) — shows both sides side-by-side */}
+{q.type === "matching" && q.options?.length > 0 && (
+  <div className="mb-3 space-y-2">
+    <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider">
+      🔗 Match Pairs
+      <span className="text-slate-500 font-normal normal-case tracking-normal ml-1.5">— all pairs are correct by design</span>
+    </p>
+    <div className="space-y-1.5">
+      {q.options.map((opt, oi) => (
+        <div key={opt.option_id || oi}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 text-sm">
+          <span className="flex-1 px-3 py-1.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-medium">
+            {opt.text || <span className="italic text-slate-500">(empty)</span>}
+          </span>
+          <span className="text-slate-500 text-base flex-shrink-0">→</span>
+          <span className="flex-1 px-3 py-1.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium">
+            {opt.match || <span className="italic text-slate-500">(empty)</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
 
                         {/* Explanation */}
                         {q.explanation && (
