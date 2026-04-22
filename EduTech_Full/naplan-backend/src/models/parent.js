@@ -11,13 +11,11 @@ const ParentSchema = new mongoose.Schema(
     },
     firstName: {
       type: String,
-      required: true,
       trim: true,
       default: "",
     },
     lastName: {
       type: String,
-      required: true,
       trim: true,
       default: "",
     },

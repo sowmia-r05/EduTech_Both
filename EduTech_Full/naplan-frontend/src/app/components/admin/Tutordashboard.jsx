@@ -900,16 +900,43 @@ export default function TutorDashboard() {
                         </div>
 
                         {/* Question text */}
-                      <div
-                        className="text-sm text-white leading-relaxed mb-3 prose prose-invert prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: q.text }}
-                      />
-                        {/* Question image */}
-                        {q.image_url && (
-                          <div className="mb-3">
-                            <img src={q.image_url} alt="Question" onClick={() => setZoomedImage(q.image_url)}
-                              className="max-h-48 rounded-lg border border-slate-700 cursor-zoom-in object-contain" />
+                      {/* Question text — Reading Passage card for free_text, else plain */}
+                        {q.type === "free_text" ? (
+                          <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 overflow-hidden mb-3">
+                            <div className="flex items-center gap-2 px-4 py-2 border-b border-blue-500/20 bg-blue-500/10">
+                              <span className="text-base">📖</span>
+                              <span className="text-[11px] font-bold text-blue-300 uppercase tracking-wide">Reading Passage</span>
+                            </div>
+                            <div className="px-4 py-4">
+                              <div
+                                className="text-sm text-slate-200 leading-relaxed prose prose-invert prose-sm max-w-none"
+                                dangerouslySetInnerHTML={{ __html: q.text || "" }}
+                              />
+                              {q.image_url && (
+                                <div className="mt-4">
+                                  <img
+                                    src={q.image_url}
+                                    alt="Passage"
+                                    onClick={() => setZoomedImage(q.image_url)}
+                                    className="w-full max-w-lg max-h-96 object-contain rounded-lg border border-blue-500/20 cursor-zoom-in mx-auto block"
+                                  />
+                                </div>
+                              )}
+                            </div>
                           </div>
+                        ) : (
+                          <>
+                            <div
+                              className="text-sm text-white leading-relaxed mb-3 prose prose-invert prose-sm max-w-none"
+                              dangerouslySetInnerHTML={{ __html: q.text }}
+                            />
+                            {q.image_url && (
+                              <div className="mb-3">
+                                <img src={q.image_url} alt="Question" onClick={() => setZoomedImage(q.image_url)}
+                                  className="max-h-48 rounded-lg border border-slate-700 cursor-zoom-in object-contain" />
+                              </div>
+                            )}
+                          </>
                         )}
 
                         {/* Options */}
