@@ -30,6 +30,7 @@ import { AddQuestionForm } from "./ManualQuizCreator";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import CollapsibleTextStyle, { buildTextStyle } from "./Collapsibletextstyle";
 
+
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
 function adminFetch(url, opts = {}) {
@@ -1154,6 +1155,7 @@ export default function QuizDetailPage() {
   const [selectedIds,  setSelectedIds]  = useState(new Set());
   const [showBulkMove, setShowBulkMove] = useState(false);
   const [generatingExpl, setGeneratingExpl] = useState(false);
+  const [generatingSubTopics, setGeneratingSubTopics] = useState(false);   
   const [reorderQuestion, setReorderQuestion] = useState(null);
 
 
@@ -1362,7 +1364,11 @@ useEffect(() => {
         clearInterval(interval);
         setGeneratingExpl(false);
         fetchDetail(); // ✅ Reload questions to show new explanations
-        alert(`✅ Done! ${data.done} explanations generated${data.failed > 0 ? `, ${data.failed} failed` : ""}.`);
+       alert(
+          `✅ Done! ${data.done} explanations generated` +
+          (data.failed > 0 ? `, ${data.failed} failed` : "") +
+          (data.scope === "selected" ? " (selected questions)" : "")
+        );
       }
     } catch {
       // Silent fail — keep polling
@@ -1371,6 +1377,38 @@ useEffect(() => {
 
   return () => clearInterval(interval);
 }, [generatingExpl, quizId]);
+useEffect(() => {
+  if (!generatingSubTopics) return;
+
+  const interval = setInterval(async () => {
+    try {
+      const res = await adminFetch(
+        `/api/admin/quizzes/${quizId}/generate-subtopics/status`
+      );
+      const data = await res.json();
+
+      if (data.status === "done") {
+        clearInterval(interval);
+        setGeneratingSubTopics(false);
+        fetchDetail();
+        alert(
+        `✅ Done! ${data.done} sub-topics assigned` +
+        (data.failed > 0 ? `, ${data.failed} failed` : "") +
+        (data.scope === "selected" ? " (selected questions)" : "") +
+        (data.provider ? ` (via ${data.provider})` : "")
+      );
+      } else if (data.status === "error") {
+        clearInterval(interval);
+        setGeneratingSubTopics(false);
+        alert(`❌ Generation failed: ${data.error || "Unknown error"}`);
+      }
+    } catch {
+      // Silent fail — keep polling
+    }
+  }, 3000);
+
+  return () => clearInterval(interval);
+}, [generatingSubTopics, quizId]);
 
   const handleSaveSettings = async () => {
     setSavingSettings(true);
@@ -1399,21 +1437,61 @@ useEffect(() => {
   setQuestions((prev) => prev.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q));
 };
 
-// ✅ ADD
+
+const handleGenerateSubTopics = async () => {
+  const count = selectedIds.size;
+  const topic = quiz?.sub_topic || quiz?.subject || "the current topic";
+  const scope = count > 0 ? `${count} selected question${count !== 1 ? "s" : ""}` : "all questions";
+
+  if (!confirm(
+    `Auto-generate fine-grained sub-topics for ${scope}?\n\n` +
+    `Parent topic: "${topic}"\n\n` +
+    `Example: "Spelling" → "Silent letters", "Homophones", "Double consonants"\n\n` +
+    `This will REPLACE existing sub-topics on the ${count > 0 ? "selected" : "affected"} questions.`
+  )) return;
+
+  setGeneratingSubTopics(true);
+  try {
+    const body = count > 0
+      ? JSON.stringify({ question_ids: [...selectedIds] })
+      : JSON.stringify({});
+
+    const res = await adminFetch(
+      `/api/admin/quizzes/${quizId}/generate-subtopics`,
+      { method: "POST", body, headers: { "Content-Type": "application/json" } }
+    );
+    if (!res.ok) {
+      const d = await res.json();
+      alert("Failed: " + (d.error || "Unknown error"));
+      setGeneratingSubTopics(false);
+    }
+  } catch (err) {
+    alert("Error: " + err.message);
+    setGeneratingSubTopics(false);
+  }
+};
+
 const handleGenerateExplanations = async () => {
-  if (!confirm("Regenerate AI explanations for all questions in this quiz?")) return;
+  const count = selectedIds.size;
+  const scope = count > 0 ? `${count} selected question${count !== 1 ? "s" : ""}` : "all questions";
+
+  if (!confirm(`Regenerate AI explanations for ${scope}?`)) return;
+
   setGeneratingExpl(true);
   try {
+    const body = count > 0
+      ? JSON.stringify({ question_ids: [...selectedIds] })
+      : JSON.stringify({});
+
     const res = await adminFetch(
       `/api/admin/quizzes/${quizId}/generate-explanations`,
-      { method: "POST" }
+      { method: "POST", body, headers: { "Content-Type": "application/json" } }
     );
     if (!res.ok) {
       const d = await res.json();
       alert("Failed: " + (d.error || "Unknown error"));
       setGeneratingExpl(false);
     }
-    // ✅ Don't setGeneratingExpl(false) here — polling will do it when done
   } catch (err) {
     alert("Error: " + err.message);
     setGeneratingExpl(false);
@@ -1471,7 +1549,26 @@ const handleGenerateExplanations = async () => {
                   </svg>
                   Generating...
                 </span>
-              ) : "AI Explanations"}
+              ) : (
+                <>AI Explanations{selectedIds.size > 0 && ` (${selectedIds.size})`}</>
+              )}
+            </button>
+            <button
+              onClick={handleGenerateSubTopics}
+              disabled={generatingSubTopics}
+              className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-xs text-white rounded-lg border border-teal-500 transition"
+            >
+              {generatingSubTopics ? (
+                <span className="flex items-center gap-1.5">
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Generating...
+                </span>
+              ) : (
+                <>AI Sub-topics{selectedIds.size > 0 && ` (${selectedIds.size})`}</>
+              )}
             </button>
 
             <button onClick={() => setShowSettings((v) => !v)}
