@@ -30,6 +30,23 @@ import { AddQuestionForm } from "./ManualQuizCreator";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import CollapsibleTextStyle, { buildTextStyle } from "./Collapsibletextstyle";
 
+// ─── formatTimestamp ──────────────────────────────────────────────────────────
+// "just now" / "5m ago" / "3h ago" / "2d ago" / "Apr 23, 2026, 2:45 PM"
+function formatTimestamp(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const diffMs  = Date.now() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr  = Math.floor(diffMs / 3600000);
+  const diffDay = Math.floor(diffMs / 86400000);
+  if (diffMin < 1)  return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr  < 24) return `${diffHr}h ago`;
+  if (diffDay < 7)  return `${diffDay}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+       + ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -201,10 +218,21 @@ function AdminVerifyControls({ question, onVerified }) {
             ) : (
               <svg className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             )}
-            <div className="min-w-0">
-              <p className={`text-[10px] font-bold uppercase tracking-wider ${question.tutor_verification.status === "approved" ? "text-emerald-400" : "text-red-400"}`}>
-                Tutor {question.tutor_verification.status === "approved" ? "Approved" : "Rejected"}
-              </p>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className={`text-[10px] font-bold uppercase tracking-wider ${question.tutor_verification.status === "approved" ? "text-emerald-400" : "text-red-400"}`}>
+                  Tutor {question.tutor_verification.status === "approved" ? "Approved" : "Rejected"}
+                  {question.tutor_verification?.verified_by && (
+                    <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">by {question.tutor_verification.verified_by}</span>
+                  )}
+                </p>
+                {question.tutor_verification?.verified_at && (
+                  <span className="text-[10px] text-slate-500 font-normal"
+                        title={new Date(question.tutor_verification.verified_at).toLocaleString()}>
+                    {formatTimestamp(question.tutor_verification.verified_at)}
+                  </span>
+                )}
+              </div>
               {question.tutor_verification.rejection_reason && (
                 <p className="text-xs text-red-400/70 mt-0.5 break-words">{question.tutor_verification.rejection_reason}</p>
               )}
@@ -223,13 +251,21 @@ function AdminVerifyControls({ question, onVerified }) {
         {adminStatus !== "pending" && (
           <div className={`px-3 py-2 rounded-lg border ${adminStatus === "approved" ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}>
             <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className={`text-[10px] font-bold uppercase tracking-wider ${adminStatus === "approved" ? "text-emerald-400" : "text-red-400"}`}>
-                  {adminStatus === "approved" ? "✓ Admin Approved" : "✗ Admin Rejected"}
-                  {question.admin_verification?.verified_by && (
-                    <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">by {question.admin_verification.verified_by}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className={`text-[10px] font-bold uppercase tracking-wider ${adminStatus === "approved" ? "text-emerald-400" : "text-red-400"}`}>
+                    {adminStatus === "approved" ? "✓ Admin Approved" : "✗ Admin Rejected"}
+                    {question.admin_verification?.verified_by && (
+                      <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">by {question.admin_verification.verified_by}</span>
+                    )}
+                  </p>
+                  {question.admin_verification?.verified_at && (
+                    <span className="text-[10px] text-slate-500 font-normal"
+                          title={new Date(question.admin_verification.verified_at).toLocaleString()}>
+                      {formatTimestamp(question.admin_verification.verified_at)}
+                    </span>
                   )}
-                </p>
+                </div>
                 {question.admin_verification?.message && (
                   <p className={`text-xs mt-0.5 break-words ${adminStatus === "approved" ? "text-emerald-400/70" : "text-red-400/70"}`}>
                     {question.admin_verification.message}
