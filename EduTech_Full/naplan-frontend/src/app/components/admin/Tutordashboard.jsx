@@ -1,7 +1,22 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ADMIN_PATH } from "@/app/App";
-
+// ─── formatTimestamp ──────────────────────────────────────────────────────────
+// "just now" / "5m ago" / "3h ago" / "2d ago" / "Apr 23, 2026, 2:45 PM"
+function formatTimestamp(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const diffMs  = Date.now() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr  = Math.floor(diffMs / 3600000);
+  const diffDay = Math.floor(diffMs / 86400000);
+  if (diffMin < 1)  return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr  < 24) return `${diffHr}h ago`;
+  if (diffDay < 7)  return `${diffDay}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+       + ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -77,12 +92,23 @@ function AdminReviewBanner({ question }) {
           </svg>
         )}
       </div>
-      <div className="min-w-0">
-        <p className={`text-[10px] font-bold uppercase tracking-wider ${
-          isApproved ? "text-emerald-400" : "text-red-400"
-        }`}>
-          Admin {isApproved ? "Approved" : "Rejected"}
-        </p>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className={`text-[10px] font-bold uppercase tracking-wider ${
+            isApproved ? "text-emerald-400" : "text-red-400"
+          }`}>
+            Admin {isApproved ? "Approved" : "Rejected"}
+            {question.admin_verification?.verified_by && (
+              <span className="font-normal normal-case tracking-normal ml-1.5 opacity-60">by {question.admin_verification.verified_by}</span>
+            )}
+          </p>
+          {question.admin_verification?.verified_at && (
+            <span className="text-[10px] text-slate-500 font-normal"
+                  title={new Date(question.admin_verification.verified_at).toLocaleString()}>
+              {formatTimestamp(question.admin_verification.verified_at)}
+            </span>
+          )}
+        </div>
         {adminMessage && (
           <p className={`text-xs mt-0.5 ${isApproved ? "text-emerald-400/70" : "text-red-400/70"}`}>
             {adminMessage}
@@ -122,6 +148,12 @@ function VerifyControls({ question, onVerified }) {
       {question.tutor_verification?.verified_by && (
         <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
       )}
+      {question.tutor_verification?.verified_at && (
+        <span className="text-[10px] text-slate-600"
+              title={new Date(question.tutor_verification.verified_at).toLocaleString()}>
+          · {formatTimestamp(question.tutor_verification.verified_at)}
+        </span>
+      )}
     </div>
   );
 
@@ -133,6 +165,12 @@ function VerifyControls({ question, onVerified }) {
           className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-40">Reset to Pending</button>
         {question.tutor_verification?.verified_by && (
           <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
+        )}
+        {question.tutor_verification?.verified_at && (
+          <span className="text-[10px] text-slate-600"
+                title={new Date(question.tutor_verification.verified_at).toLocaleString()}>
+            · {formatTimestamp(question.tutor_verification.verified_at)}
+          </span>
         )}
       </div>
       {question.tutor_verification?.rejection_reason && (
@@ -157,6 +195,12 @@ function VerifyControls({ question, onVerified }) {
         </button>
         {question.tutor_verification?.verified_by && (
           <span className="text-[10px] text-slate-600">by {question.tutor_verification.verified_by}</span>
+        )}
+        {question.tutor_verification?.verified_at && (
+          <span className="text-[10px] text-slate-600"
+                title={new Date(question.tutor_verification.verified_at).toLocaleString()}>
+            · {formatTimestamp(question.tutor_verification.verified_at)}
+          </span>
         )}
       </div>
       {showReject && (
@@ -641,10 +685,18 @@ export default function TutorDashboard() {
     navigate(`${ADMIN_PATH}/tutor`);
   };
 
-  const filteredQuestions = questions.filter((q) => {
-    const s = q.tutor_verification?.status || "pending";
-    return filter === "all" ? true : s === filter;
-  });
+  const filteredQuestions = questions
+    .slice()
+    .sort((a, b) => {
+      const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+      const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+      if (ao !== bo) return ao - bo;
+      return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+    })
+    .filter((q) => {
+      const s = q.tutor_verification?.status || "pending";
+      return filter === "all" ? true : s === filter;
+    });
 
   const verStats = questions.reduce(
     (acc, q) => { const s = q.tutor_verification?.status || "pending"; acc[s] = (acc[s] || 0) + 1; return acc; },
@@ -939,7 +991,30 @@ export default function TutorDashboard() {
                           </>
                         )}
 
-                        {/* Options */}
+                        {/* Audio / Video */}
+                        {(q.voice_url || q.video_url) && (
+                          <div className="mb-3 space-y-2">
+                            {q.voice_url && (
+                              <div className="flex items-center gap-3 bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/50">
+                                <span className="text-sm">🔊</span>
+                                <audio src={q.voice_url} controls preload="metadata" className="h-8 flex-1" />
+                              </div>
+                            )}
+                            {q.video_url && (
+                              <div className="bg-slate-800/60 rounded-lg border border-slate-700/50 overflow-hidden">
+                                {q.video_url.match(/youtube\.com|youtu\.be/) ? (
+                                  <iframe
+                                    src={`https://www.youtube.com/embed/${q.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)?.[1]}`}
+                                    className="w-full aspect-video max-h-64 rounded-lg"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allowFullScreen title="Quiz Video" />
+                                ) : (
+                                  <video src={q.video_url} controls preload="metadata" className="w-full max-h-64 rounded-lg" />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                        {/* Options — skip for matching (matching gets its own renderer below) */}
 {q.options && q.options.length > 0 && q.type !== "matching" && (
   <div className="space-y-1.5 mb-3">

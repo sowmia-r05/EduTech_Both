@@ -154,7 +154,7 @@ router.get("/quizzes/:quizId", async (req, res) => {
         { quiz_ids: req.params.quizId },
         { quiz_ids: quiz.quiz_id },
       ],
-    }).sort({ createdAt: 1 }).lean();
+    }).sort({ order: 1, createdAt: 1 }).lean();
 
     return res.json({
       ...quiz,
