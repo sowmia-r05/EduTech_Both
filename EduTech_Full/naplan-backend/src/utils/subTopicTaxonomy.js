@@ -4,6 +4,29 @@
  * Fixed vocabulary of allowed sub-topics per subject.
  * Using standard NAPLAN / Australian Curriculum terminology so that
  * analytics aggregate correctly across quizzes.
+ *
+ * Structure
+ * ─────────
+ * LANGUAGE CONVENTIONS (flat — single list per topic):
+ *   - Spelling     → 10 sub-topics
+ *   - Grammar      → 10 sub-topics
+ *   - Punctuation  → 10 sub-topics
+ *
+ * NUMERACY (hierarchical — 3 strands × 10 sub-topics):
+ *   - Number & Algebra
+ *   - Measurement & Geometry
+ *   - Statistics & Probability
+ *   Each question gets BOTH a strand tag AND a fine-grained sub-topic.
+ *
+ * SKIPPED subjects:
+ *   - Reading (no taxonomy)
+ *   - Writing (uses its own marking criteria via the writing evaluator)
+ *
+ * Why fixed lists?
+ * ────────────────
+ * If the AI generates labels freely, it produces "Silent letters" for
+ * one quiz and "Silent consonants" for another — they never group
+ * together on the dashboard. A fixed list forces consistent labels.
  */
 
 // ─── LANGUAGE CONVENTIONS taxonomies ─────────────────────────
@@ -90,10 +113,10 @@ const NUMERACY_STRANDS = {
   ],
 };
 
-// Flat list of all numeracy sub-topics (for validation)
+// Flat list of all numeracy sub-topics (for validation + reverse lookup)
 const NUMERACY_ALL_LABELS = Object.values(NUMERACY_STRANDS).flat();
 
-// Reverse map: sub-topic → strand
+// Reverse map: sub-topic → strand (for looking up which strand a label belongs to)
 const NUMERACY_LABEL_TO_STRAND = {};
 for (const [strand, labels] of Object.entries(NUMERACY_STRANDS)) {
   for (const label of labels) {
@@ -109,22 +132,29 @@ function normalise(s) {
 
 /**
  * Resolve which taxonomy applies to a quiz.
+ *
+ * Returns one of:
+ *   { mode: "language", key: "spelling", labels: [...] }
+ *   { mode: "numeracy", strands: {...}, allLabels: [...], labelToStrand: {...} }
+ *   { mode: "skip", reason: "Reading — no taxonomy defined" }
+ *   { mode: "skip", reason: "Writing — uses its own marking criteria" }
+ *   { mode: "unknown" }   — quiz doesn't match anything we know about
  */
 function resolveTaxonomy(quiz) {
   const subTopic = normalise(quiz?.sub_topic);
   const subject = normalise(quiz?.subject);
 
-  // Skip Reading
+  // ── Explicit skip: Reading ──
   if (subTopic.includes("reading") || subject.includes("reading")) {
     return { mode: "skip", reason: "Reading — no taxonomy defined for this subject" };
   }
 
-  // Skip Writing
+  // ── Explicit skip: Writing ──
   if (subTopic.includes("writing") || subject.includes("writing")) {
     return { mode: "skip", reason: "Writing — uses its own marking criteria" };
   }
 
-  // Numeracy
+  // ── Numeracy ──
   if (
     subject.includes("numeracy") ||
     subject.includes("math") ||
@@ -140,7 +170,7 @@ function resolveTaxonomy(quiz) {
     };
   }
 
-  // Language Conventions: specific topic match
+  // ── Language Conventions: specific topic match ──
   const languageMatchers = [
     { keys: ["spelling"], taxonomy: "spelling" },
     { keys: ["punctuation"], taxonomy: "punctuation" },
@@ -159,7 +189,7 @@ function resolveTaxonomy(quiz) {
     }
   }
 
-  // Fallback — unknown
+  // ── Fallback ──
   return { mode: "unknown" };
 }
 

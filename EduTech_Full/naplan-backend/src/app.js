@@ -161,6 +161,7 @@ const resultRoutes = require("./routes/resultRoutes");
 const regenerateAiRoute = require("./routes/regenerateAiRoute");
 const quizExplanationsRoute = require("./routes/quizExplanationsRoute");
 const quizChatRoute = require("./routes/quizChat");
+const quizAiRoutes = require("./routes/quizAiRoutes");
 
 const {
   secureLegacyResults,
@@ -246,7 +247,7 @@ app.get("/", (req, res) => {
 // ─── Admin ────────────────────────────────────────────────────────────────────
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
-app.use("/api/admin", quizExplanationsRoute);
+app.use("/api/admin", quizAiRoutes);
 // add right below it:
 app.use("/api/tutor", tutorRoutes);
 
@@ -323,7 +324,6 @@ app.use((err, req, res, next) => {
     ...(IS_DEV ? { detail: err.message } : {}),
   });
 });
-
 
 
 module.exports = app;
