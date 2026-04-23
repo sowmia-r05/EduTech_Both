@@ -582,6 +582,7 @@ export default function TutorDashboard() {
   const [editQuestion,   setEditQuestion]   = useState(null);
   const [quizSearch,     setQuizSearch]     = useState("");
   const [statusFilter,   setStatusFilter]   = useState("all");
+  const [subjectFilter,  setSubjectFilter]  = useState("all");
   const [subTopicOptions, setSubTopicOptions] = useState([]);
 
   const tutorData = (() => {
@@ -703,6 +704,11 @@ export default function TutorDashboard() {
     { approved: 0, rejected: 0, pending: 0 }
   );
 
+  // Unique subjects across assigned quizzes, for the sidebar filter
+  const subjectOptions = [...new Set(
+    quizzes.map((qz) => (qz.subject || "").trim()).filter(Boolean)
+  )].sort();
+
   return (
     <div className="min-h-screen w-full bg-slate-950 text-white flex flex-col overflow-hidden">
 
@@ -735,27 +741,51 @@ export default function TutorDashboard() {
         {/* Sidebar */}
         <aside className="w-72 flex-shrink-0 border-r border-slate-800 overflow-y-auto py-4 px-3">
           <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest px-2 mb-3">Assigned Quizzes</p>
-          <input
+         <input
             type="text"
             value={quizSearch}
             onChange={(e) => setQuizSearch(e.target.value)}
             placeholder="Search quizzes…"
             className="w-full bg-slate-900 border border-slate-800 text-white text-sm rounded-lg px-3 py-2 mb-3 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
+
+          {/* Subject filter */}
+          {subjectOptions.length > 0 && (
+            <div className="relative mb-3">
+              <select
+                value={subjectFilter}
+                onChange={(e) => setSubjectFilter(e.target.value)}
+                className="w-full appearance-none bg-slate-900 border border-slate-800 text-white text-sm rounded-lg pl-3 pr-9 py-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">All subjects</option>
+                {subjectOptions.map((s) => {
+                  const count = quizzes.filter((qz) => (qz.subject || "").trim() === s).length;
+                  return <option key={s} value={s}>{s} ({count})</option>;
+                })}
+              </select>
+              <svg className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                   fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+          )}
+
          <div className="flex items-stretch gap-1 mb-3 bg-slate-900 border border-slate-800 rounded-lg p-1">
             {[
               { id: "all",        label: "All"         },
               { id: "inprogress", label: "In Progress" },
               { id: "completed",  label: "Completed"   },
             ].map((t) => {
-              const count = quizzes.filter((qz) => {
-                const v = qz.verification || {};
-                const total   = v.total   || 0;
-                const pending = v.pending ?? total;
-                if (t.id === "completed")  return total > 0 && pending === 0;
-                if (t.id === "inprogress") return total === 0 || pending > 0;
-                return true;
-              }).length;
+              const count = quizzes
+                .filter((qz) => subjectFilter === "all" || (qz.subject || "").trim() === subjectFilter)
+                .filter((qz) => {
+                  const v = qz.verification || {};
+                  const total   = v.total   || 0;
+                  const pending = v.pending ?? total;
+                  if (t.id === "completed")  return total > 0 && pending === 0;
+                  if (t.id === "inprogress") return total === 0 || pending > 0;
+                  return true;
+                }).length;
               const active = statusFilter === t.id;
               return (
                 <button
@@ -793,6 +823,10 @@ export default function TutorDashboard() {
                 if (statusFilter === "completed")  return total > 0 && pending === 0;
                 if (statusFilter === "inprogress") return total === 0 || pending > 0;
                 return true;
+              })
+              .filter((qz) => {
+                if (subjectFilter === "all") return true;
+                return (qz.subject || "").trim() === subjectFilter;
               })
               .filter((qz) => {
                 const s = quizSearch.toLowerCase().trim();
