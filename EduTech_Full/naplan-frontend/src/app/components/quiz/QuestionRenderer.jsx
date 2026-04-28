@@ -117,11 +117,32 @@ function ImageWithLoader({ src, width, height, onClick }) {
 /* ═══════════════════════════════════════
    RADIO BUTTON QUESTION
    ═══════════════════════════════════════ */
+/* ═══════════════════════════════════════
+   RADIO BUTTON QUESTION
+   ═══════════════════════════════════════ */
+/* ═══════════════════════════════════════
+   RADIO BUTTON QUESTION
+   ═══════════════════════════════════════ */
 function RadioQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
+  const allOptions = question.options || [];
+
+  // Step 1: Check each option — is it a "bare letter only" option (A, B, C, D, etc.)?
+  // We strip whitespace, brackets, dots, and check if what remains is just A-D
+  const isBareLetterOnly = (opt) => {
+    const t = (opt.text || "").trim().replace(/[\(\)\[\]\.\s]/g, "");
+    return /^[A-Da-d]$/.test(t) && !opt.image_url;
+  };
+
+  // Step 2: Check if there are any "real" options (text that's NOT just a bare letter, or has an image)
+  const realOptions = allOptions.filter((opt) => !isBareLetterOnly(opt));
+
+  // Step 3: If we found real options, show only those. Otherwise, show all (safety fallback).
+  const visibleOptions = realOptions.length > 0 ? realOptions : allOptions;
+
   return (
     <div className="space-y-3">
-      {question.options.map((opt) => {
+      {visibleOptions.map((opt) => {
         const isSelected = selected === opt.option_id;
         return (
           <button
@@ -147,12 +168,14 @@ function RadioQuestion({ question, answer, onAnswer, textStyle }) {
                 className="h-16 object-contain rounded"
               />
             )}
-            <span
-              className={isSelected ? "text-indigo-700" : "text-slate-700"}
-              style={textStyle}
-            >
-              {opt.text}
-            </span>
+            {opt.text && opt.text.trim() !== "" && (
+              <span
+                className={isSelected ? "text-indigo-700" : "text-slate-700"}
+                style={textStyle}
+              >
+                {opt.text}
+              </span>
+            )}
           </button>
         );
       })}
@@ -163,39 +186,49 @@ function RadioQuestion({ question, answer, onAnswer, textStyle }) {
 /* ═══════════════════════════════════════
    PICTURE CHOICE QUESTION
    ═══════════════════════════════════════ */
+/* ═══════════════════════════════════════
+   PICTURE CHOICE QUESTION
+   ═══════════════════════════════════════ */
 function PictureChoiceQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+    <div className="grid grid-cols-2 gap-4">
       {question.options.map((opt) => {
         const isSelected = selected === opt.option_id;
+        const hasLabel = opt.text && opt.text.trim() !== "";
         return (
           <button
             key={opt.option_id}
             onClick={() => onAnswer({ selected: [opt.option_id] })}
-            className={`relative rounded-xl border-2 overflow-hidden transition-all ${
+            className={`relative rounded-xl border-2 overflow-hidden transition-all bg-white ${
               isSelected
                 ? "border-indigo-500 ring-2 ring-indigo-200"
                 : "border-slate-200 hover:border-slate-300"
             }`}
           >
             {opt.image_url && (
-              <img
-                src={resolveImgSrc(opt.image_url)}
-                alt={opt.text}
-                className="w-full h-32 object-cover"
-              />
+              <div className="w-full aspect-square flex items-center justify-center bg-white p-4">
+                <img
+                  src={resolveImgSrc(opt.image_url)}
+                  alt={opt.text || "Option"}
+                  className="max-w-full max-h-full object-contain"
+                />
+              </div>
             )}
-            <div
-              className={`px-3 py-2 text-center ${
-                isSelected ? "bg-indigo-50 text-indigo-700" : "bg-white text-slate-600"
-              }`}
-              style={textStyle}
-            >
-              {opt.text}
-            </div>
+            {hasLabel && (
+              <div
+                className={`px-3 py-2 text-center border-t ${
+                  isSelected
+                    ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                    : "bg-slate-50 text-slate-600 border-slate-100"
+                }`}
+                style={textStyle}
+              >
+                {opt.text}
+              </div>
+            )}
             {isSelected && (
-              <div className="absolute top-2 right-2 w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center">
+              <div className="absolute top-2 right-2 w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center shadow-md">
                 <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
