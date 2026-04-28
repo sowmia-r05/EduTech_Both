@@ -206,6 +206,7 @@ function PictureChoiceQuestion({ question, answer, onAnswer, textStyle }) {
                 : "border-slate-200 hover:border-slate-300"
             }`}
           >
+            {/* Image — forced to fixed size, centered */}
             {opt.image_url && (
               <div className="w-full aspect-square flex items-center justify-center bg-white p-4">
                 <img
@@ -254,7 +255,20 @@ function CheckboxQuestion({ question, answer, onAnswer, textStyle }) {
   };
   return (
     <div className="space-y-3">
-      {question.options.map((opt) => {
+      {(() => {
+          const seen = new Set();
+          return question.options.filter(opt => {
+            if (!opt || !opt.text) return false;
+            const t = opt.text.trim();
+            if (t === "") return false;
+            // For single-letter labels (A, B, C, D), dedupe — only keep first occurrence
+            if (/^[A-D]$/.test(t)) {
+              if (seen.has(t)) return false;
+              seen.add(t);
+            }
+            return true;
+          });
+        })().map((opt) => {
         const isSelected = selected.includes(opt.option_id);
         return (
           <button
