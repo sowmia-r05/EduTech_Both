@@ -177,44 +177,42 @@ function PictureChoiceQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
   return (
     <div className="grid grid-cols-2 gap-3">
-      {question.options.map((opt) => {
+      {question.options.map((opt, idx) => {
         const isSelected = selected === opt.option_id;
         return (
           <button
             key={opt.option_id}
             onClick={() => onAnswer({ selected: [opt.option_id] })}
-            className={`relative rounded-xl border-2 overflow-hidden transition-all ${
+            style={{ height: "240px" }}
+            className={`relative rounded-xl border-2 overflow-hidden transition-all bg-white ${
               isSelected
                 ? "border-indigo-500 ring-2 ring-indigo-200"
                 : "border-slate-200 hover:border-slate-300"
             }`}
           >
+            {/* Image — forced to fixed size, centered */}
             {opt.image_url && (
               <img
                 src={resolveImgSrc(opt.image_url)}
-                alt={opt.text}
-               className="w-full h-32 object-contain bg-white p-2"
+                alt=""
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  width: "170px",
+                  height: "170px",
+                  objectFit: "contain",
+                }}
               />
             )}
-            {(() => {
-              const cleanText = (opt.text || "")
-                .replace(/^[\(\[]?\s*[A-Da-d]\s*[\)\]\.\:\-]?\s*/, "")  // strip leading "A)" "(B)" "C." etc.
-                .replace(/[\(\[\)\]=]/g, "")                            // strip lone brackets/equals
-                .trim();
-              if (!cleanText) return null;
-              return (
-                <div
-                  className={`px-3 py-2 text-center ${
-                    isSelected ? "bg-indigo-50 text-indigo-700" : "bg-white text-slate-600"
-                  }`}
-                  style={textStyle}
-                >
-                  {cleanText}
-                </div>
-              );
-            })()}
+
+            {/* Selected check — top-right */}
             {isSelected && (
-              <div className="absolute top-2 right-2 w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center">
+              <div
+                style={{ position: "absolute", top: "8px", right: "8px" }}
+                className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center"
+              >
                 <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
