@@ -121,7 +121,17 @@ function RadioQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
   return (
     <div className="space-y-3">
-      {question.options.map((opt) => {
+      {(() => {
+          const seen = new Set();
+          return question.options.filter(opt => {
+            if (!opt || !opt.text) return false;
+            const key = opt.text.trim();
+            if (key === "") return false;
+            if (seen.has(key)) return false;  // dedupe by text
+            seen.add(key);
+            return true;
+          });
+        })().map((opt) => {
         const isSelected = selected === opt.option_id;
         return (
           <button
@@ -166,7 +176,7 @@ function RadioQuestion({ question, answer, onAnswer, textStyle }) {
 function PictureChoiceQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+    <div className="grid grid-cols-2 gap-3">
       {question.options.map((opt) => {
         const isSelected = selected === opt.option_id;
         return (
@@ -183,17 +193,26 @@ function PictureChoiceQuestion({ question, answer, onAnswer, textStyle }) {
               <img
                 src={resolveImgSrc(opt.image_url)}
                 alt={opt.text}
-                className="w-full h-32 object-cover"
+               className="w-full h-32 object-contain bg-white p-2"
               />
             )}
-            <div
-              className={`px-3 py-2 text-center ${
-                isSelected ? "bg-indigo-50 text-indigo-700" : "bg-white text-slate-600"
-              }`}
-              style={textStyle}
-            >
-              {opt.text}
-            </div>
+            {(() => {
+              const cleanText = (opt.text || "")
+                .replace(/^[\(\[]?\s*[A-Da-d]\s*[\)\]\.\:\-]?\s*/, "")  // strip leading "A)" "(B)" "C." etc.
+                .replace(/[\(\[\)\]=]/g, "")                            // strip lone brackets/equals
+                .trim();
+              if (!cleanText) return null;
+              return (
+                <div
+                  className={`px-3 py-2 text-center ${
+                    isSelected ? "bg-indigo-50 text-indigo-700" : "bg-white text-slate-600"
+                  }`}
+                  style={textStyle}
+                >
+                  {cleanText}
+                </div>
+              );
+            })()}
             {isSelected && (
               <div className="absolute top-2 right-2 w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center">
                 <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -221,7 +240,20 @@ function CheckboxQuestion({ question, answer, onAnswer, textStyle }) {
   };
   return (
     <div className="space-y-3">
-      {question.options.map((opt) => {
+      {(() => {
+          const seen = new Set();
+          return question.options.filter(opt => {
+            if (!opt || !opt.text) return false;
+            const t = opt.text.trim();
+            if (t === "") return false;
+            // For single-letter labels (A, B, C, D), dedupe — only keep first occurrence
+            if (/^[A-D]$/.test(t)) {
+              if (seen.has(t)) return false;
+              seen.add(t);
+            }
+            return true;
+          });
+        })().map((opt) => {
         const isSelected = selected.includes(opt.option_id);
         return (
           <button
