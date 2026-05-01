@@ -854,34 +854,62 @@ const applyInlineStyle = (tag, style) => {
         </div>
       </div>
 
-      {(form.type === "radio_button" || form.type === "matching") && (
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">
-            Display Style
-            <span className="text-slate-600 font-normal ml-1">(Language Convention only)</span>
-          </label>
-          <select
-            value={form.display_style || ""}
-            onChange={(e) => setForm((f) => ({ ...f, display_style: e.target.value || null }))}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
-          >
-            <option value="">Default</option>
-            {form.type === "radio_button" && (
-  <>
-    <option value="word_tap">Word Tap — click the wrong word</option>
-    <option value="punctuation_placement">Punctuation Placement — A B C D markers</option>
-    <option value="word_click">Word Click — click a highlighted word</option>
-  </>
-)}
-{form.type === "matching" && (
-  <>
-    <option value="category_drop">Category Drop — sort into boxes</option>
-    <option value="line_match">Line Match — draw lines to connect</option>
-  </>
-)}
-          </select>
-        </div>
+      {["radio_button", "checkbox", "matching", "short_answer"].includes(form.type) && (
+  <div>
+    <label className="block text-xs text-slate-400 mb-1">
+      Display Style
+      <span className="text-slate-600 font-normal ml-1">(controls how this question renders)</span>
+    </label>
+    <select
+      value={form.display_style || ""}
+      onChange={(e) => setForm((f) => ({ ...f, display_style: e.target.value || null }))}
+      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+    >
+      <option value="">Default (standard buttons)</option>
+
+      {form.type === "radio_button" && (
+        <>
+          <option value="word_tap">Word Tap — click the wrong word</option>
+          <option value="punctuation_placement">Punctuation Placement — A B C D inline circles</option>
+          <option value="word_click">Word Click — click a highlighted word</option>
+          <option value="inline_underline">Inline Underline — click an underlined word</option>
+          <option value="cloze_dropdown">Cloze Dropdown — fill the gap from a list</option>
+        </>
       )}
+
+      {form.type === "checkbox" && (
+        <>
+          <option value="highlight_text">Highlight Text — tap multiple words</option>
+          <option value="inline_circle_multi">Inline Circle Multi — tap multiple positions</option>
+        </>
+      )}
+
+      {form.type === "matching" && (
+        <>
+          <option value="category_drop">Category Drop — sort into boxes</option>
+          <option value="line_match">Line Match — draw lines to connect</option>
+          <option value="drag_drop_cards">Drag & Drop Cards — modern card style</option>
+          <option value="tap_to_pair">Tap to Pair — tap left then right</option>
+        </>
+      )}
+
+      {form.type === "short_answer" && (
+        <>
+          <option value="cloze_fill">Cloze Fill — inline blank inside the sentence</option>
+          <option value="multi_blank">Multi Blank — multiple blanks in one sentence</option>
+        </>
+      )}
+    </select>
+
+    {/* Helper hint that explains the chosen style */}
+{/* Helper hint that explains the chosen style */}
+    {form.display_style && (
+      <p className="mt-1 text-[10px] text-indigo-400">
+        ℹ️ This question will render using the <strong>{form.display_style}</strong> widget.
+      </p>
+    )}
+  </div>
+)}
 
       <div>
         <label className="block text-xs text-slate-400 mb-1">Image URL</label>
