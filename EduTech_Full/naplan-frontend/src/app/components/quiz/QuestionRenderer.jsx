@@ -935,7 +935,8 @@ export default function QuestionRenderer({
               className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
             />
           ) : question.text ? (
-            <p>{question.text}</p>
+        <p className="whitespace-pre-line">{question.text}</p>
+
           ) : null}
         </div>
       )}
