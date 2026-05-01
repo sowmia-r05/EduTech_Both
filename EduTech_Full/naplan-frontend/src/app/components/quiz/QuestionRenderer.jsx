@@ -1,16 +1,18 @@
 /**
- * QuestionRenderer.jsx  (v10 — text display settings toolbar)
+ * QuestionRenderer.jsx  (v11 — clean rebuild)
  *
- * Changes from v9:
- *  ✅ textSettings state applied to question text + all answer option labels
- *  ✅ Full OCR / Year 3 handwriting upload preserved from v9
+ *  ✅ display_style dispatch for radio_button + matching
+ *  ✅ Single render path per question type (no duplicates)
+ *  ✅ Only references components that actually exist
+ *  ✅ Full OCR / Year 3 handwriting upload preserved
+ *  ✅ textStyle / optionsStyle applied where relevant
  */
 
-import { useState, useRef , useMemo  } from "react";
+import { useState, useRef, useMemo } from "react";
 import { useAuth } from "@/app/context/AuthContext";
 import { LineMatchQuestion, WordClickQuestion } from "./InteractiveQuestionTypes";
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 /* ─── Helpers ─────────────────────────────────────────────── */
 function resolveImgSrc(url) {
@@ -32,7 +34,7 @@ function reEnterFullscreen() {
     if (fn) fn.call(el).catch(() => {});
   }
 }
-// Add this after the reEnterFullscreen function
+
 function buildTextStyle(q) {
   return {
     fontSize:      q.text_font_size      ? `${q.text_font_size}px`      : undefined,
@@ -44,8 +46,6 @@ function buildTextStyle(q) {
     color:         q.text_color          || undefined,
   };
 }
-
-
 
 /* ═══════════════════════════════════════
    IMAGE ZOOM MODAL
@@ -114,12 +114,7 @@ function ImageWithLoader({ src, width, height, onClick }) {
     </div>
   );
 }
-/* ═══════════════════════════════════════
-   RADIO BUTTON QUESTION
-   ═══════════════════════════════════════ */
-/* ═══════════════════════════════════════
-   RADIO BUTTON QUESTION
-   ═══════════════════════════════════════ */
+
 /* ═══════════════════════════════════════
    RADIO BUTTON QUESTION
    ═══════════════════════════════════════ */
@@ -127,18 +122,22 @@ function RadioQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
   const allOptions = question.options || [];
 
-  // Step 1: Check each option — is it a "bare letter only" option (A, B, C, D, etc.)?
-  // We strip whitespace, brackets, dots, and check if what remains is just A-D
   const isBareLetterOnly = (opt) => {
     const t = (opt.text || "").trim().replace(/[\(\)\[\]\.\s]/g, "");
     return /^[A-Da-d]$/.test(t) && !opt.image_url;
   };
 
-  // Step 2: Check if there are any "real" options (text that's NOT just a bare letter, or has an image)
-  const realOptions = allOptions.filter((opt) => !isBareLetterOnly(opt));
+  const seen = new Set();
+  const cleaned = [];
+  for (const opt of allOptions) {
+    if (isBareLetterOnly(opt)) continue;
+    const key = (opt.text || "").trim().toLowerCase() + "|" + (opt.image_url || "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(opt);
+  }
 
-  // Step 3: If we found real options, show only those. Otherwise, show all (safety fallback).
-  const visibleOptions = realOptions.length > 0 ? realOptions : allOptions;
+  const visibleOptions = cleaned.length > 0 ? cleaned : allOptions;
 
   return (
     <div className="space-y-3">
@@ -183,9 +182,6 @@ function RadioQuestion({ question, answer, onAnswer, textStyle }) {
   );
 }
 
-/* ═══════════════════════════════════════
-   PICTURE CHOICE QUESTION
-   ═══════════════════════════════════════ */
 /* ═══════════════════════════════════════
    PICTURE CHOICE QUESTION
    ═══════════════════════════════════════ */
@@ -328,9 +324,7 @@ function ShortAnswerQuestion({ question, answer, onAnswer, textStyle }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   WRITING QUESTION
-   ✅ Full OCR / Year 3 handwriting upload preserved from v9
-   ✅ textStyle applied to all textareas
+   WRITING QUESTION (with Year 3 OCR upload mode)
    ═══════════════════════════════════════════════════════════ */
 function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUploadingChange, textStyle }) {
   const { activeToken } = useAuth();
@@ -409,7 +403,6 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
     }
   };
 
-  // ── Year 3 Writing: mode picker ──
   if (isYear3Writing && mode === null) {
     return (
       <div className="space-y-4">
@@ -449,7 +442,6 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
     );
   }
 
-  // ── Year 3 Writing: upload mode ──
   if (isYear3Writing && mode === "upload") {
     return (
       <div className="space-y-4">
@@ -528,7 +520,6 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
     );
   }
 
-  // ── Default: plain textarea (also used for Year 3 "type" mode) ──
   return (
     <div className="space-y-3">
       {isYear3Writing && mode === "type" && (
@@ -567,11 +558,10 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
     </div>
   );
 }
+
 /* ═══════════════════════════════════════════════════════════
    WORD TAP — Language Convention only
-   Click the word used incorrectly in the sentence
    ═══════════════════════════════════════════════════════════ */
-// ✅ REPLACE — consistent with punctuation placement size
 function WordTapQuestion({ question, answer, onAnswer }) {
   const selected = answer?.selected?.[0] || null;
   return (
@@ -608,7 +598,6 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
   const rawText = question.text || "";
   const stripHtml = (html) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
-  // ── Split instruction from sentence ──
   let instruction = "";
   let sentenceText = rawText;
 
@@ -626,7 +615,6 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
     sentenceText = rest.join(" ").trim();
   }
 
-  // Always strip remaining HTML from sentence
   sentenceText = sentenceText.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
   const parts = sentenceText.split(/(\[A\]|\[B\]|\[C\]|\[D\])/);
@@ -639,12 +627,9 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
 
   return (
     <div className="space-y-3">
-      {/* ── Instruction shown cleanly above ── */}
       {instruction && (
         <p className="text-lg font-medium text-slate-800">{instruction}</p>
       )}
-
-      {/* ── Sentence box — all inline ── */}
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-lg font-medium text-slate-800" style={{ lineHeight: "3.2rem", wordSpacing: "0.05em" }}>
         {parts.map((part, i) => {
           const isMarker = /^\[.\]$/.test(part);
@@ -666,7 +651,6 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
               </button>
             );
           }
-          // ✅ Plain text — no dangerouslySetInnerHTML
           return <span key={i} className="align-middle">{part}</span>;
         })}
       </div>
@@ -679,8 +663,6 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
 
 /* ═══════════════════════════════════════════════════════════
    CATEGORY DROP — Language Convention only
-   Tap words to sort into category boxes (Noun / Adjective / Adverb)
-   Uses matching type: option.text = word, option.match = category
    ═══════════════════════════════════════════════════════════ */
 function CategoryDropQuestion({ question, answer, onAnswer }) {
   const pairs = answer?.pairs || {};
@@ -711,7 +693,6 @@ function CategoryDropQuestion({ question, answer, onAnswer }) {
 
   return (
     <div className="space-y-5">
-      {/* Word bank */}
       <div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
           Drag words into the correct box
@@ -744,7 +725,6 @@ function CategoryDropQuestion({ question, answer, onAnswer }) {
         </div>
       </div>
 
-      {/* Category boxes */}
       <div className={`grid gap-4 ${categories.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
         {categories.map(cat => {
           const wordsInCat = (question.options || []).filter(o => pairs[o.option_id] === cat);
@@ -785,12 +765,17 @@ function CategoryDropQuestion({ question, answer, onAnswer }) {
     </div>
   );
 }
+
 /* ═══════════════════════════════════════════════════════════
-   FREE TEXT QUESTION  (display-only — NO student input)
+   FREE TEXT QUESTION (display-only — NO student input)
    ═══════════════════════════════════════════════════════════ */
 function FreeTextQuestion() {
   return null;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   MATCHING QUESTION — default dropdown style
+   ═══════════════════════════════════════════════════════════ */
 function MatchingQuestion({ question, answer, onAnswer, textStyle }) {
   const rightItems = useMemo(() => {
     const items = (question.options || []).map((o) => o.match_text || o.match || o.right || "").filter(Boolean);
@@ -824,7 +809,7 @@ function MatchingQuestion({ question, answer, onAnswer, textStyle }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-[1fr_32px_1fr] gap-2">
-       <div className="text-base font-bold text-indigo-500 uppercase tracking-wide text-center pb-2 border-b border-indigo-100">Column A</div>
+        <div className="text-base font-bold text-indigo-500 uppercase tracking-wide text-center pb-2 border-b border-indigo-100">Column A</div>
         <div />
         <div className="text-base font-bold text-emerald-500 uppercase tracking-wide text-center pb-2 border-b border-emerald-100">Column B</div>
       </div>
@@ -876,6 +861,7 @@ function MatchingQuestion({ question, answer, onAnswer, textStyle }) {
     </div>
   );
 }
+
 /* ═══════════════════════════════════════
    MAIN: QuestionRenderer
    ═══════════════════════════════════════ */
@@ -892,18 +878,12 @@ export default function QuestionRenderer({
 }) {
   const [zoomImg, setZoomImg] = useState(null);
 
- 
-const savedStyle = buildTextStyle(question);
-
-
-
-// DB saved styles are the base — student toolbar only overrides if they changed something
-const textStyle = { ...savedStyle };
-const optionsStyle = (
-  question.text_style_scope === "options" ||
-  question.text_style_scope === "all"
-) ? { ...savedStyle } : {};
-
+  const savedStyle = buildTextStyle(question);
+  const textStyle = { ...savedStyle };
+  const optionsStyle = (
+    question.text_style_scope === "options" ||
+    question.text_style_scope === "all"
+  ) ? { ...savedStyle } : {};
 
   return (
     <div className="space-y-4">
@@ -911,11 +891,11 @@ const optionsStyle = (
       {/* ── Question number + flag row ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-        {question.type !== "free_text" && (
-          <span className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-bold">
-            {questionNumber}
-          </span>
-           )}  
+          {question.type !== "free_text" && (
+            <span className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-bold">
+              {questionNumber}
+            </span>
+          )}
           {question.points > 0 && (
             <span className="text-xs text-slate-400">
               {question.points} {question.points === 1 ? "pt" : "pts"}
@@ -923,45 +903,43 @@ const optionsStyle = (
           )}
         </div>
         {question.type !== "free_text" && (
-        <button
-          onClick={onToggleFlag}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-            isFlagged
-              ? "bg-amber-100 text-amber-700 border border-amber-200"
-              : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-          }`}
-        >
-          <svg
-            className="w-3.5 h-3.5"
-            fill={isFlagged ? "currentColor" : "none"}
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
+          <button
+            onClick={onToggleFlag}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              isFlagged
+                ? "bg-amber-100 text-amber-700 border border-amber-200"
+                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+            }`}
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
-          </svg>
-          {isFlagged ? "Flagged" : "Flag"}
-        </button>
-          )}
+            <svg
+              className="w-3.5 h-3.5"
+              fill={isFlagged ? "currentColor" : "none"}
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
+            </svg>
+            {isFlagged ? "Flagged" : "Flag"}
+          </button>
+        )}
       </div>
 
+      {/* ── Question text ── */}
+      {question.display_style !== "punctuation_placement" &&
+       question.display_style !== "word_click" && (
+        <div className="leading-relaxed text-lg" style={textStyle}>
+          {question.text && question.text.includes("<") ? (
+            <div
+              dangerouslySetInnerHTML={{ __html: question.text }}
+              className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
+            />
+          ) : question.text ? (
+            <p>{question.text}</p>
+          ) : null}
+        </div>
+      )}
 
-      {/* ── Question text ── */}
-      {/* ── Question text ── */}
-{/* ── Question text ── */}
-{question.display_style !== "punctuation_placement" && 
- question.display_style !== "word_click" &&(
-  <div className="leading-relaxed text-lg" style={textStyle}>
-    {question.text && question.text.includes("<") ? (
-      <div
-        dangerouslySetInnerHTML={{ __html: question.text }}
-        className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
-      />
-    ) : question.text ? (
-      <p>{question.text}</p>
-    ) : null}
-  </div>
-)}
       {/* ── Question image ── */}
       {question.image_url && (
         <ImageWithLoader
@@ -973,24 +951,25 @@ const optionsStyle = (
         />
       )}
 
-      {/* ── Answer inputs — textStyle passed to every type ── */}
-      {/* ── Answer inputs — textStyle passed to every type ── */}
+      {/* ── Answer inputs ── */}
       {question.type === "radio_button" && (
-  question.display_style === "word_tap"
-    ? <WordTapQuestion question={question} answer={answer} onAnswer={onAnswer} />
-    : question.display_style === "punctuation_placement"
-    ? <PunctuationPlacementQuestion question={question} answer={answer} onAnswer={onAnswer} />
-    : question.display_style === "word_click"
-    ? <WordClickQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
-    : <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
-)}
-      
+        question.display_style === "word_tap"
+          ? <WordTapQuestion question={question} answer={answer} onAnswer={onAnswer} />
+          : question.display_style === "punctuation_placement"
+          ? <PunctuationPlacementQuestion question={question} answer={answer} onAnswer={onAnswer} />
+          : question.display_style === "word_click"
+          ? <WordClickQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
+          : <RadioQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
+      )}
+
       {question.type === "picture_choice" && (
         <PictureChoiceQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
       )}
+
       {question.type === "checkbox" && (
         <CheckboxQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
       )}
+
       {question.type === "writing" && (
         <WritingQuestion
           question={question}
@@ -1002,19 +981,20 @@ const optionsStyle = (
           textStyle={textStyle}
         />
       )}
+
       {question.type === "free_text" && <FreeTextQuestion />}
+
       {question.type === "short_answer" && (
         <ShortAnswerQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
-        
       )}
+
       {question.type === "matching" && (
-  question.display_style === "category_drop"
-    ? <CategoryDropQuestion question={question} answer={answer} onAnswer={onAnswer} />
-    : question.display_style === "line_match"
-    ? <LineMatchQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
-    : <MatchingQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
-)}
-  
+        question.display_style === "category_drop"
+          ? <CategoryDropQuestion question={question} answer={answer} onAnswer={onAnswer} />
+          : question.display_style === "line_match"
+          ? <LineMatchQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
+          : <MatchingQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
+      )}
 
       {/* ── Image zoom modal ── */}
       {zoomImg && (

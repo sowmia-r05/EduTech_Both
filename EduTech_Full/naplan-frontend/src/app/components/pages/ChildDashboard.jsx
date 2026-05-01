@@ -787,6 +787,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
 
 
   /* ─── handleQuizClose (original) ─── */
+  /* ─── handleQuizClose (original) ─── */
   const handleQuizClose = useCallback((result) => {
     setActiveQuiz(null);
     refreshData();
@@ -808,6 +809,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
           ai_status:       result.ai_status || "queued",
           attempt_id:      result.attempt_id,
           response_id:     result.attempt_id || result.response_id,
+          quiz_id:         result.quiz_id || activeQuiz?.quiz_id || activeQuiz?.id,  // ← ADD THIS LINE
           subject:         result.subject || (isWritingSubject ? "Writing" : ""),
         },
         quizName: result.quiz_name || activeQuiz?.name || activeQuiz?.quiz_name || "Quiz",
@@ -816,7 +818,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
       try { sessionStorage.setItem("quizResultState", JSON.stringify(quizResultToSave)); } catch {}
 
     }
-  }, [refreshData, activeQuiz]);  // ✅ add activeQuiz to deps
+  }, [refreshData, activeQuiz]); // ✅ add activeQuiz to deps
 
 
   /* ─── Derived display values ─── */
