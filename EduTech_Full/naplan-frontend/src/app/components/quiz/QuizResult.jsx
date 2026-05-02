@@ -273,6 +273,8 @@ export default function QuizResult({
   const [showExplanations, setShowExplanations] = useState(false);
   const [aiPollStatus,     setAiPollStatus]      = useState(null);  // "done"|"error"|null
   const [subscriptionStatus, setSubscriptionStatus] = useState(childStatusProp || null); // "trial"|"active"|null
+  const [chatOpen,         setChatOpen]         = useState(false);  // ✅ NEW: controls QuizChatWidget
+
 
 
   const score      = result.score           || {};
@@ -281,6 +283,12 @@ export default function QuizResult({
   const aiStatus   = result.ai_status       || null;
   const attemptId  = result.attempt_id || result.response_id || null;
   const percentage = score.percentage || 0;
+   const resolvedQuizId =
+    result?.quiz_id ||
+    result?.quizId ||
+    result?.quiz?.quiz_id ||
+    result?.quiz?._id ||
+    null;
 
   const resolvedName = displayName || childProfile?.displayName || "Student";
 
@@ -552,6 +560,7 @@ useEffect(() => {
                         attemptId={attemptId}
                         yearLevel={childProfile?.yearLevel || result?.year_level || 3}
                         apiFetch={apiFetch}
+                        onOpenChat={resolvedQuizId ? () => setChatOpen(true) : null}
                       />
                     </div>
                   )}
@@ -581,13 +590,15 @@ useEffect(() => {
  
    {/* AI Chat Widget — floats over results page */}
       {/* AI Chat Widget — floats over results page */}
-{attemptId && result?.quiz_id && (
+{attemptId && resolvedQuizId && (
   <QuizChatWidget
-    quizId={result.quiz_id}
+    quizId={resolvedQuizId}
     attemptId={attemptId}
     subject={result?.subject || ""}
     yearLevel={childProfile?.yearLevel || result?.year_level || 3}
     apiFetch={apiFetch}
+    open={chatOpen}
+    onOpenChange={setChatOpen}
   />
 )}
 

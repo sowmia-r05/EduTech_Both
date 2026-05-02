@@ -50,11 +50,21 @@ function TypingDots() {
   );
 }
 
-export default function QuizChatWidget({ quizId, attemptId, subject, yearLevel, apiFetch }) {
+export default function QuizChatWidget({
+  quizId, attemptId, subject, yearLevel, apiFetch,
+  open: controlledOpen,
+  onOpenChange,
+}) {
   const young  = isYoung(yearLevel);
   const accent = young ? "#F97316" : "#7C3AED";
 
-  const [open,      setOpen]      = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (val) => {
+    const next = typeof val === "function" ? val(open) : val;
+    if (onOpenChange) onOpenChange(next);
+    else setInternalOpen(next);
+  };
   const [messages,  setMessages]  = useState([]);
   const [input,     setInput]     = useState("");
   const [loading,   setLoading]   = useState(false);
