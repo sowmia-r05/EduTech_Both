@@ -318,8 +318,7 @@ function QuestionCard({ card, questionNum, explanation, yearLevel, onOpenChat })
               )}
             </div>
           )}
-
-          {!isCorrect && <ChatHint onOpenChat={onOpenChat} />}
+          <ChatHint onOpenChat={onOpenChat} />
         </div>
       )}
     </div>

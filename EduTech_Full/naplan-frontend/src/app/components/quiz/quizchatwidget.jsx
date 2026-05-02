@@ -98,11 +98,6 @@ export default function QuizChatWidget({
     if (open) { setHasUnread(false); setPulse(false); setTimeout(() => inputRef.current?.focus(), 120); }
   }, [open]);
 
-  // Expose globally so AITutorTab hint can open this widget
-  useEffect(() => {
-    window.__openQuizChat = () => setOpen(true);
-    return () => { delete window.__openQuizChat; };
-  }, []);
 
   const send = useCallback(async () => {
     const msg = input.trim();
