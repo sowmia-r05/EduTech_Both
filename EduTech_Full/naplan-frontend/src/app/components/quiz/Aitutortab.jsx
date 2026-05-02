@@ -120,10 +120,12 @@ function QuestionImage({ card }) {
   );
 }
 
-function ChatHint() {
+function ChatHint({ onOpenChat }) {
+  // Hide entirely when chat isn't available — prevents the dead-button UX
+  if (!onOpenChat) return null;
   return (
     <button
-      onClick={() => window.__openQuizChat?.()}
+      onClick={onOpenChat}
       className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors text-left"
     >
       <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0 text-white">
@@ -133,7 +135,8 @@ function ChatHint() {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-indigo-700">Still confused? Ask your AI tutor</p>
-        <p className="text-xs text-indigo-500 mt-0.5">Tap the button at the bottom-right corner</p>
+        <p className="text-xs text-indigo-500 mt-0.5">Click here to open the chat</p>
+
       </div>
       <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -142,7 +145,7 @@ function ChatHint() {
   );
 }
 
-function QuestionCard({ card, questionNum, explanation, yearLevel }) {
+function QuestionCard({ card, questionNum, explanation, yearLevel, onOpenChat }) {
   const [expanded, setExpanded] = useState(false);
   const isCorrect = getIsCorrect(card);
 
@@ -316,14 +319,14 @@ function QuestionCard({ card, questionNum, explanation, yearLevel }) {
             </div>
           )}
 
-          {!isCorrect && <ChatHint />}
+          {!isCorrect && <ChatHint onOpenChat={onOpenChat} />}
         </div>
       )}
     </div>
   );
 }
 
-export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
+export default function AITutorTab({ attemptId, yearLevel, apiFetch, onOpenChat }) {
   const [flashcards,     setFlashcards]     = useState([]);
   const [loadingCards,   setLoadingCards]   = useState(true);
   const [error,          setError]          = useState(null);
@@ -554,6 +557,7 @@ export default function AITutorTab({ attemptId, yearLevel, apiFetch }) {
                   : null
               }
               yearLevel={yearLevel}
+              onOpenChat={onOpenChat}
             />
           );
         })}
