@@ -162,6 +162,8 @@ const regenerateAiRoute = require("./routes/regenerateAiRoute");
 const quizExplanationsRoute = require("./routes/quizExplanationsRoute");
 const quizChatRoute = require("./routes/quizChat");
 const quizAiRoutes = require("./routes/quizAiRoutes");
+const originalityRoutes = require("./routes/originalityRoutes");   // ✅ ADD THIS LINE
+
 
 const {
   secureLegacyResults,
@@ -245,9 +247,11 @@ app.get("/", (req, res) => {
 });
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
+// ─── Admin ────────────────────────────────────────────────────────────────────
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
 app.use("/api/admin", quizAiRoutes);
+app.use("/api/admin/originality", originalityRoutes);   // ✅ ADD THIS LINE
 // add right below it:
 app.use("/api/tutor", tutorRoutes);
 

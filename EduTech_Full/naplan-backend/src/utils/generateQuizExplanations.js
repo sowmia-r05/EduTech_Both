@@ -1,172 +1,206 @@
 /**
- * subTopicTaxonomy.js
+ * generateQuizExplanations.js
  *
- * Fixed vocabulary of allowed sub-topics per subject.
- * Using standard NAPLAN / Australian Curriculum terminology so that
- * analytics aggregate correctly across quizzes.
+ * Generates AI explanations + tips for quiz questions and saves them
+ * onto Question.ai_explanation. Mirrors the working pattern in
+ * generateQuizSubTopics.js so behaviour is consistent.
+ *
+ * Exports:
+ *   - generateQuizExplanations(quizId, options?, progressMap?)
+ *   - explanation_progress  (in-memory tracker keyed by quizId)
+ *
+ * Used by:
+ *   - src/routes/quizAiRoutes.js
+ *   - src/routes/adminRoutes.js
  */
 
-// ─── LANGUAGE CONVENTIONS taxonomies ─────────────────────────
-const LANGUAGE_TAXONOMIES = {
-  spelling: [
-    "Silent Letters",
-    "Double Consonants",
-    "Homophones",
-    "Suffix Rules",
-    "Prefix Rules",
-    "Common Misspellings",
-    "Vowel Patterns",
-    "Plural Forms",
-    "Compound Words",
-    "Word Endings",
-  ],
+const connectDB = require("../config/db");
+const Quiz = require("../models/quiz");
+const Question = require("../models/question");
+const { createLLMClientWithFallback, generateJSON } = require("./llmClient");
 
-  grammar: [
-    "Subject-Verb Agreement",
-    "Tense Consistency",
-    "Pronouns & Reference",
-    "Apostrophes",
-    "Commas & Clauses",
-    "Capital Letters",
-    "Quotation Marks & Dialogue",
-    "Sentence Structure",
-    "Conjunctions & Connectives",
-    "Articles & Determiners",
-  ],
+// ═══════════════════════════════════════════════════════════════
+// PROGRESS TRACKER (in-memory, keyed by quizId)
+// ═══════════════════════════════════════════════════════════════
 
-  punctuation: [
-    "Apostrophes",
-    "Commas & Clauses",
-    "Capital Letters",
-    "Quotation Marks & Dialogue",
-    "Full Stops & Sentence Endings",
-    "Colons & Semicolons",
-    "Question & Exclamation Marks",
-    "Hyphens & Dashes",
-    "Parentheses & Brackets",
-    "Punctuation in Lists",
-  ],
-};
+const explanation_progress = {};
 
-// ─── NUMERACY taxonomies (3 strands × 10 sub-topics) ─────────
-const NUMERACY_STRANDS = {
-  "Number & Algebra": [
-    "Place Value",
-    "Addition & Subtraction",
-    "Multiplication & Division",
-    "Fractions",
-    "Decimals",
-    "Percentages",
-    "Integers & Negative Numbers",
-    "Ratios & Proportions",
-    "Patterns & Sequences",
-    "Algebraic Expressions & Equations",
-  ],
+// ═══════════════════════════════════════════════════════════════
+// PROMPT BUILDER
+// ═══════════════════════════════════════════════════════════════
 
-  "Measurement & Geometry": [
-    "Length & Perimeter",
-    "Area & Surface Area",
-    "Volume & Capacity",
-    "Mass & Weight",
-    "Time & Duration",
-    "Temperature",
-    "2D Shapes & Angles",
-    "3D Shapes & Nets",
-    "Location & Transformation",
-    "Coordinate Geometry",
-  ],
+function buildPrompt(question, yearLevel, subject) {
+  const correctAnswer =
+    (question.options || []).find((o) => o.correct)?.text ||
+    question.correct_answer ||
+    "";
 
-  "Statistics & Probability": [
-    "Data Collection & Surveys",
-    "Tables & Frequency",
-    "Graphs (Bar, Line, Pie)",
-    "Mean, Median, Mode",
-    "Range & Spread",
-    "Probability of Events",
-    "Chance & Likelihood",
-    "Experimental Probability",
-    "Theoretical Probability",
-    "Interpreting Statistics",
-  ],
-};
+  const qText = question.text || question.question_text || "";
 
-// Flat list of all numeracy sub-topics (for validation)
-const NUMERACY_ALL_LABELS = Object.values(NUMERACY_STRANDS).flat();
+  return `You are an AI tutor for Australian NAPLAN students (Year ${yearLevel}).
 
-// Reverse map: sub-topic → strand
-const NUMERACY_LABEL_TO_STRAND = {};
-for (const [strand, labels] of Object.entries(NUMERACY_STRANDS)) {
-  for (const label of labels) {
-    NUMERACY_LABEL_TO_STRAND[label.toLowerCase()] = strand;
-  }
+SUBJECT: ${subject || "General"}
+QUESTION: ${qText}
+CORRECT ANSWER: ${correctAnswer}
+TOPIC: ${question.category || "General"}
+
+Write a generic explanation for any student who got this question wrong.
+Do NOT reference any specific wrong answer — keep it generic.
+No emojis.
+
+Return ONLY valid JSON, no markdown fences:
+{
+  "explanation": "...",
+  "tip": "..."
 }
 
-// ─── Helpers ─────────────────────────────────────────────────
-
-function normalise(s) {
-  return String(s || "").toLowerCase().trim();
+RULES:
+- explanation under 60 words
+- tip under 25 words
+- Year ${yearLevel} appropriate language
+- No emojis at all
+`;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════
 
 /**
- * Resolve which taxonomy applies to a quiz.
+ * Generate AI explanations for every question in a quiz (or a subset).
+ *
+ * @param {string} quizId
+ * @param {object} [options]
+ * @param {string[]} [options.questionIds]   - Restrict to these question_ids
+ * @param {object} [progressMap]             - Defaults to explanation_progress
  */
-function resolveTaxonomy(quiz) {
-  const subTopic = normalise(quiz?.sub_topic);
-  const subject = normalise(quiz?.subject);
+async function generateQuizExplanations(
+  quizId,
+  options = {},
+  progressMap = explanation_progress
+) {
+  await connectDB();
 
-  // Skip Reading
-  if (subTopic.includes("reading") || subject.includes("reading")) {
-    return { mode: "skip", reason: "Reading — no taxonomy defined for this subject" };
+  // ── Look up the quiz so we know year_level + subject ──
+  const quiz = await Quiz.findOne({ quiz_id: quizId }).lean();
+  if (!quiz) {
+    progressMap[quizId] = { status: "error", error: "Quiz not found" };
+    return;
   }
 
-  // Skip Writing
-  if (subTopic.includes("writing") || subject.includes("writing")) {
-    return { mode: "skip", reason: "Writing — uses its own marking criteria" };
+  const yearLevel = quiz.year_level || 3;
+  const subject = quiz.subject || "General";
+
+  // ── Build the question filter ──
+  const baseFilter = {
+    $or: [{ quiz_ids: quizId }, { quiz_id: quizId }],
+  };
+  const filter =
+    Array.isArray(options.questionIds) && options.questionIds.length > 0
+      ? { ...baseFilter, question_id: { $in: options.questionIds } }
+      : baseFilter;
+
+  const questions = await Question.find(filter).lean();
+  const scope = options.questionIds ? "selected" : "all";
+
+  if (!questions.length) {
+    progressMap[quizId] = {
+      status: "done",
+      done: 0,
+      failed: 0,
+      total: 0,
+      scope,
+    };
+    return;
   }
 
-  // Numeracy
-  if (
-    subject.includes("numeracy") ||
-    subject.includes("math") ||
-    subject.includes("number") ||
-    subTopic.includes("numeracy") ||
-    subTopic.includes("math")
-  ) {
-    return {
-      mode: "numeracy",
-      strands: NUMERACY_STRANDS,
-      allLabels: NUMERACY_ALL_LABELS,
-      labelToStrand: NUMERACY_LABEL_TO_STRAND,
+  // ── Initialise progress ──
+  progressMap[quizId] = {
+    status: "running",
+    done: 0,
+    failed: 0,
+    total: questions.length,
+    scope,
+  };
+
+  const client = createLLMClientWithFallback();
+  console.log(
+    `🧠 Generating explanations for quiz ${quizId} — ${questions.length} questions ` +
+      `(provider: ${client.provider}, scope: ${scope}, year: ${yearLevel})`
+  );
+
+  let done = 0;
+  let failed = 0;
+
+  // ── Process questions one by one (keeps payload small + stable) ──
+  for (const q of questions) {
+    try {
+      const prompt = buildPrompt(q, yearLevel, subject);
+
+      const result = await generateJSON(client, {
+        prompt,
+        temperature: 0.4,
+        maxTokens: 600,
+      });
+
+      const explanation = String(result.explanation || "").trim();
+      const tip = String(result.tip || "").trim();
+
+      if (!explanation) {
+        throw new Error("LLM returned empty explanation");
+      }
+
+      await Question.updateOne(
+        { question_id: q.question_id },
+        {
+          $set: {
+            ai_explanation: {
+              explanation,
+              tip,
+              generated_at: new Date(),
+            },
+          },
+        }
+      );
+
+      done++;
+      console.log(`  ✅ [${done}/${questions.length}] ${q.question_id}`);
+    } catch (err) {
+      failed++;
+      console.warn(
+        `  ⚠️  [${q.question_id}] failed: ${err.message?.slice(0, 200)}`
+      );
+    }
+
+    // Update live progress after every question
+    progressMap[quizId] = {
+      status: "running",
+      done,
+      failed,
+      total: questions.length,
+      scope,
     };
   }
 
-  // Language Conventions: specific topic match
-  const languageMatchers = [
-    { keys: ["spelling"], taxonomy: "spelling" },
-    { keys: ["punctuation"], taxonomy: "punctuation" },
-    { keys: ["grammar", "language conventions", "convention"], taxonomy: "grammar" },
-  ];
+  // ── Mark complete and clean up after 5 minutes ──
+  progressMap[quizId] = {
+    status: "done",
+    done,
+    failed,
+    total: questions.length,
+    scope,
+  };
 
-  for (const { keys, taxonomy } of languageMatchers) {
-    for (const key of keys) {
-      if (subTopic.includes(key) || subject.includes(key)) {
-        return {
-          mode: "language",
-          key: taxonomy,
-          labels: LANGUAGE_TAXONOMIES[taxonomy],
-        };
-      }
-    }
-  }
+  setTimeout(() => {
+    delete progressMap[quizId];
+  }, 5 * 60 * 1000);
 
-  // Fallback — unknown
-  return { mode: "unknown" };
+  console.log(
+    `🏁 Quiz ${quizId}: ${done} saved, ${failed} failed (${questions.length} total)`
+  );
 }
 
 module.exports = {
-  LANGUAGE_TAXONOMIES,
-  NUMERACY_STRANDS,
-  NUMERACY_ALL_LABELS,
-  NUMERACY_LABEL_TO_STRAND,
-  resolveTaxonomy,
+  generateQuizExplanations,
+  explanation_progress,
 };
