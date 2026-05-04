@@ -31,6 +31,7 @@ const CategorySchema = new mongoose.Schema(
   { _id: false }
 );
 
+
 // ✅ NEW: Tutor verification sub-document
 const TutorVerificationSchema = new mongoose.Schema(
   {
@@ -45,6 +46,44 @@ const TutorVerificationSchema = new mongoose.Schema(
   },
   { _id: false }
 );
+
+// ✅ NEW: Originality / plagiarism check sub-document
+const OriginalitySchema = new mongoose.Schema(
+  {
+    status: {
+      type: String,
+      enum: [
+        "clean",
+        "review_semantic",
+        "review_image_partial",
+        "blocked_exact_corpus",
+        "blocked_structural_corpus",
+        "blocked_semantic",
+        "blocked_image_high_risk",
+        "blocked_image_full_match",
+        "blocked_image_on_risk_page",
+        "duplicate_internal_exact",
+        "duplicate_internal_structural",
+        "unchecked",
+      ],
+      default: "unchecked",
+    },
+    exact_hash:      { type: String, index: true, default: null },
+    structural_hash: { type: String, index: true, default: null },
+    embedding:       { type: [Number], default: null },
+    embedding_model: { type: String, default: null },
+    layers:          { type: mongoose.Schema.Types.Mixed, default: null },
+    last_checked_at: { type: Date, default: null },
+    override: {
+      by:     { type: String, default: null },
+      at:     { type: Date,   default: null },
+      reason: { type: String, default: null },
+    },
+  },
+  { _id: false }
+);
+
+
 
 const QuestionSchema = new mongoose.Schema(
   {
@@ -106,6 +145,14 @@ const QuestionSchema = new mongoose.Schema(
       type: TutorVerificationSchema,
       default: () => ({ status: "pending", verified_by: null, verified_at: null, rejection_reason: null }),
     },
+
+    // ✅ NEW: Originality / plagiarism check
+    originality: {
+      type: OriginalitySchema,
+      default: () => ({ status: "unchecked" }),
+    },
+
+    // ✅ NEW: Admin verification
     // ✅ NEW: Admin verification
   // ✅ NEW: Admin verification
   admin_verification: {
@@ -146,5 +193,6 @@ const QuestionSchema = new mongoose.Schema(
 QuestionSchema.index({ quiz_ids: 1, order: 1 });
 QuestionSchema.index({ "tutor_verification.status": 1 });
 QuestionSchema.index({ "admin_verification.status": 1 });
+QuestionSchema.index({ "originality.status": 1 });
 
 module.exports = mongoose.model("Question", QuestionSchema);
