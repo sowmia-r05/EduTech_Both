@@ -127,15 +127,15 @@ function RadioQuestion({ question, answer, onAnswer, textStyle }) {
     return /^[A-Da-d]$/.test(t) && !opt.image_url;
   };
 
-  const seen = new Set();
-  const cleaned = [];
-  for (const opt of allOptions) {
-    if (isBareLetterOnly(opt)) continue;
-    const key = (opt.text || "").trim().toLowerCase() + "|" + (opt.image_url || "");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    cleaned.push(opt);
-  }
+ const seen = new Set();
+const cleaned = [];
+for (const opt of allOptions) {
+  if (isBareLetterOnly(opt)) continue;
+  const key = (opt.text || "").trim() + "|" + (opt.image_url || "");
+  if (seen.has(key)) continue;
+  seen.add(key);
+  cleaned.push(opt);
+}
 
   const visibleOptions = cleaned.length > 0 ? cleaned : allOptions;
 
