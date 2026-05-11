@@ -20,6 +20,7 @@ function formatTimestamp(iso) {
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
+ 
 async function tutorFetch(url, options = {}) {
   const token = localStorage.getItem("tutor_token");
   return fetch(`${API}${url}`, {
@@ -31,6 +32,51 @@ async function tutorFetch(url, options = {}) {
     },
   });
 }
+
+// ─── TutorWebCheck ────────────────────────────────────────────────────────────
+function TutorWebCheck({ question }) {
+  const stripHtml = (html) =>
+    String(html || "")
+      .replace(/<img[^>]*>/gi, " ")
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/?[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const cleanText = stripHtml(question.text || "");
+  const searchText = cleanText.length > 180 ? cleanText.slice(0, 180) : cleanText;
+  const quoted = `"${searchText}"`;
+
+  const acaraUrl = `https://www.google.com/search?q=${encodeURIComponent(`(site:acara.edu.au OR site:nap.edu.au) ${quoted}`)}`;
+  const hasImage = !!question.image_url;
+  const imageUrl = hasImage ? `https://www.google.com/searchbyimage?image_url=${encodeURIComponent(question.image_url)}` : null;
+
+  if (!searchText && !hasImage) return null;
+
+  return (
+    <div className="mt-3 px-3 py-2 bg-blue-500/5 border border-blue-500/15 rounded-lg">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">🌐 Copyright check</span>
+        {searchText && (
+          <a href={acaraUrl} target="_blank" rel="noreferrer" className="text-[10px] px-2 py-0.5 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-600/30 rounded transition font-medium" title="Search ACARA + NAP.edu.au only">
+            🎓 ACARA / NAPLAN
+          </a>
+        )}
+        {hasImage && (
+          <a href={imageUrl} target="_blank" rel="noreferrer" className="text-[10px] px-2 py-0.5 bg-pink-600/20 hover:bg-pink-600/40 text-pink-300 border border-pink-600/30 rounded transition" title="Reverse image search">
+            🖼️ Image source
+          </a>
+        )}
+        <span className="text-[10px] text-slate-500 ml-1">Opens in a new tab</span>
+      </div>
+    </div>
+  );
+}
+
 
 // ─── VerificationBadge ────────────────────────────────────────────────────────
 function VerificationBadge({ status }) {
@@ -1107,6 +1153,10 @@ export default function TutorDashboard() {
                               />
                           </div>
                         )}
+
+                       
+                        {/* ── Copyright spot-check ── */}
+                        <TutorWebCheck question={q} />
 
                         {/* ── Tutor verify controls ── */}
                         <div className="pt-3 border-t border-slate-800">
