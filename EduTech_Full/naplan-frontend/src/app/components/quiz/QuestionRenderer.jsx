@@ -930,16 +930,19 @@ export default function QuestionRenderer({
        question.display_style !== "word_click" && (
         <div className="leading-relaxed text-lg" style={textStyle}>
           {question.text && question.text.includes("<") ? (
-            <div
-              dangerouslySetInnerHTML={{ __html: question.text }}
-              className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
-            />
-          ) : question.text ? (
-        <p className="whitespace-pre-line">{question.text}</p>
-
-          ) : null}
-        </div>
-      )}
+          <div
+            dangerouslySetInnerHTML={{
+              __html: String(question.text)
+                .replace(/\scontenteditable\s*=\s*["'][^"']*["']/gi, "")
+                .replace(/\scontenteditable(?=[\s>])/gi, ""),
+            }}
+            className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
+          />
+        ) : question.text ? (
+          <p className="whitespace-pre-line">{question.text}</p>
+        ) : null}
+                </div>
+              )}
 
       {/* ── Question image ── */}
       {question.image_url && (
