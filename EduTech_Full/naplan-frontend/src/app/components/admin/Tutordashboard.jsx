@@ -307,6 +307,7 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
           options:     options.map((o) => ({
             option_id: o.option_id,
             text:      (o.text || "").trim(),
+            match:     (o.match || "").trim(), 
             image_url: o.image_url ?? null,
             correct:   Boolean(o.correct),
           })),
