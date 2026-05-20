@@ -119,34 +119,38 @@ function ImageWithLoader({ src, width, height, onClick }) {
    RADIO BUTTON QUESTION
    ═══════════════════════════════════════ */
 function RadioQuestion({ question, answer, onAnswer, textStyle }) {
+  console.log("🔍 RadioQuestion options:", question.options);
+  console.log("🔍 RadioQuestion selected:", answer?.selected);
   const selected = answer?.selected?.[0] || null;
   const allOptions = question.options || [];
 
-  const isBareLetterOnly = (opt) => {
-    const t = (opt.text || "").trim().replace(/[\(\)\[\]\.\s]/g, "");
-    return /^[A-Da-d]$/.test(t) && !opt.image_url;
-  };
+  const seenIds = new Set();
+  const visibleOptions = [];
+  for (const opt of allOptions) {
+    // Drop entirely empty rows (no text AND no image)
+    const hasText = opt.text && opt.text.trim() !== "";
+    const hasImage = !!opt.image_url;
+    if (!hasText && !hasImage) continue;
 
- const seen = new Set();
-const cleaned = [];
-for (const opt of allOptions) {
-  if (isBareLetterOnly(opt)) continue;
-  const key = (opt.text || "").trim() + "|" + (opt.image_url || "");
-  if (seen.has(key)) continue;
-  seen.add(key);
-  cleaned.push(opt);
-}
+    // Dedup on option_id only — that's the only safe unique key
+    const id = `${opt.text || ""}|${opt.image_url || ""}`;
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
 
-  const visibleOptions = cleaned.length > 0 ? cleaned : allOptions;
+    visibleOptions.push(opt);
+  }
 
   return (
     <div className="space-y-3">
-      {visibleOptions.map((opt) => {
+      {visibleOptions.map((opt, idx) => {
         const isSelected = selected === opt.option_id;
-        return (
-          <button
-            key={opt.option_id}
-            onClick={() => onAnswer({ selected: [opt.option_id] })}
+        // Stable key — falls back to index if option_id is missing
+        const key = opt.option_id || `opt-${idx}`;
+        // Treat empty string, null, undefined all as "no id"
+          return (
+        <button
+          key={key}
+          onClick={() => onAnswer({ selected: [opt.option_id || key] })}
             className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${
               isSelected
                 ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200"
@@ -252,19 +256,18 @@ function CheckboxQuestion({ question, answer, onAnswer, textStyle }) {
   return (
     <div className="space-y-3">
       {(() => {
-          const seen = new Set();
-          return question.options.filter(opt => {
-            if (!opt || !opt.text) return false;
-            const t = opt.text.trim();
-            if (t === "") return false;
-            // For single-letter labels (A, B, C, D), dedupe — only keep first occurrence
-            if (/^[A-D]$/.test(t)) {
-              if (seen.has(t)) return false;
-              seen.add(t);
-            }
-            return true;
-          });
-        })().map((opt) => {
+      const seenIds = new Set();
+      return question.options.filter(opt => {
+        if (!opt) return false;
+        const hasText = opt.text && opt.text.trim() !== "";
+        const hasImage = !!opt.image_url;
+        if (!hasText && !hasImage) return false;
+        const id = opt.option_id || `${opt.text || ""}|${opt.image_url || ""}`;
+        if (seenIds.has(id)) return false;
+        seenIds.add(id);
+        return true;
+      });
+    })().map((opt) => {
         const isSelected = selected.includes(opt.option_id);
         return (
           <button
