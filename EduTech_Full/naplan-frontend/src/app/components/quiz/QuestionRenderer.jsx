@@ -124,18 +124,12 @@ function RadioQuestion({ question, answer, onAnswer, textStyle }) {
   const selected = answer?.selected?.[0] || null;
   const allOptions = question.options || [];
 
-  const seenIds = new Set();
   const visibleOptions = [];
   for (const opt of allOptions) {
     // Drop entirely empty rows (no text AND no image)
     const hasText = opt.text && opt.text.trim() !== "";
     const hasImage = !!opt.image_url;
     if (!hasText && !hasImage) continue;
-
-    // Dedup on option_id only — that's the only safe unique key
-    const id = `${opt.text || ""}|${opt.image_url || ""}`;
-    if (seenIds.has(id)) continue;
-    seenIds.add(id);
 
     visibleOptions.push(opt);
   }
@@ -256,16 +250,11 @@ function CheckboxQuestion({ question, answer, onAnswer, textStyle }) {
   return (
     <div className="space-y-3">
       {(() => {
-      const seenIds = new Set();
       return question.options.filter(opt => {
         if (!opt) return false;
         const hasText = opt.text && opt.text.trim() !== "";
         const hasImage = !!opt.image_url;
-        if (!hasText && !hasImage) return false;
-        const id = opt.option_id || `${opt.text || ""}|${opt.image_url || ""}`;
-        if (seenIds.has(id)) return false;
-        seenIds.add(id);
-        return true;
+        return hasText || hasImage;
       });
     })().map((opt) => {
         const isSelected = selected.includes(opt.option_id);
