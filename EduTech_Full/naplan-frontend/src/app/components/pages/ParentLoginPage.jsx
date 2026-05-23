@@ -140,11 +140,16 @@ export default function ParentLoginPage() {
       setShowExpiredModal(false);
       setStep("otp");
     } catch (err) {
-      if (
-        err?.message?.toLowerCase().includes("not found") ||
-        err?.message?.toLowerCase().includes("no account")
-      ) {
+      const msg = (err?.message || "").toLowerCase();
+      if (msg.includes("not found") || msg.includes("no account")) {
         setError("No account found with this email. Please create an account first.");
+      } else if (
+        msg === "load failed" ||
+        msg.includes("failed to fetch") ||
+        msg.includes("networkerror") ||
+        msg.includes("network request failed")
+      ) {
+        setError("Couldn't reach the server. Please check your internet connection and try again.");
       } else {
         setError(err?.message || "Failed to send login code.");
       }
@@ -184,11 +189,21 @@ export default function ParentLoginPage() {
     const destination = resolvePostLoginRedirect(redirectIntent);
     navigate(destination, { replace: true });
 
-    } catch (err) {
-      setError(err?.message || "Verification failed. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+   } catch (err) {
+  const msg = (err?.message || "").toLowerCase();
+  if (
+    msg === "load failed" ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("network request failed")
+  ) {
+    setError("Couldn't reach the server. Please check your internet connection and try again.");
+  } else {
+    setError(err?.message || "Verification failed. Please try again.");
+  }
+} finally {
+  setLoading(false);
+}
   };
 
   /* ── Resend OTP ───────────────────────────────── */
@@ -205,7 +220,17 @@ export default function ParentLoginPage() {
       setOtp("");
       restartOtpTimer();
     } catch (err) {
-      setError(err?.message || "Failed to resend code.");
+      const msg = (err?.message || "").toLowerCase();
+      if (
+        msg === "load failed" ||
+        msg.includes("failed to fetch") ||
+        msg.includes("networkerror") ||
+        msg.includes("network request failed")
+      ) {
+        setError("Couldn't reach the server. Please check your internet connection and try again.");
+      } else {
+        setError(err?.message || "Failed to resend code.");
+      }
     } finally {
       setResending(false);
     }
