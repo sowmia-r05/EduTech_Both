@@ -105,17 +105,48 @@ app.use(
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
+// ─── CORS ─────────────────────────────────────────────────────────────────────
 const IS_DEV = process.env.NODE_ENV !== "production";
+
+// Build the static allow-list from env (comma-separated)
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// In dev, allow localhost by default if FRONTEND_ORIGIN isn't set
+if (IS_DEV && allowedOrigins.length === 0) {
+  allowedOrigins.push("http://localhost:5173", "http://localhost:3000");
+}
+
+// Regex patterns for dynamic origins (Vercel preview deploys, etc.)
+const allowedOriginPatterns = [
+  // Any edu-tech-both Vercel deploy: production + previews + branch deploys
+  /^https:\/\/edu-tech-both(-[a-z0-9-]+)?\.vercel\.app$/,
+];
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // same-origin / curl / server-to-server
+  if (allowedOrigins.includes(origin)) return true;
+  if (allowedOriginPatterns.some((re) => re.test(origin))) return true;
+  return false;
+}
+
+console.log("✅ CORS allow-list:", allowedOrigins);
+console.log("✅ CORS allow-patterns:", allowedOriginPatterns.map(String));
 
 app.use(
   cors({
-    origin: FRONTEND_ORIGIN
-      ? FRONTEND_ORIGIN.split(",").map((s) => s.trim())
-      : IS_DEV
-        ? ["http://localhost:5173", "http://localhost:3000"]
-        : false,
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) {
+        return callback(null, true);
+      }
+      console.warn(`[CORS] Rejected origin: ${origin}`);
+      return callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
 
@@ -163,6 +194,8 @@ const quizExplanationsRoute = require("./routes/quizExplanationsRoute");
 const quizChatRoute = require("./routes/quizChat");
 const quizAiRoutes = require("./routes/quizAiRoutes");
 const originalityRoutes = require("./routes/originalityRoutes");   // ✅ ADD THIS LINE
+const aiImageRoutes = require("./routes/aiImageRoutes");
+
 
 
 const {
@@ -251,7 +284,8 @@ app.get("/", (req, res) => {
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
 app.use("/api/admin", quizAiRoutes);
-app.use("/api/admin/originality", originalityRoutes);   // ✅ ADD THIS LINE
+app.use("/api/admin", aiImageRoutes);                   
+app.use("/api/admin/originality", originalityRoutes);   
 // add right below it:
 app.use("/api/tutor", tutorRoutes);
 
@@ -299,6 +333,7 @@ app.use("/uploads", async (req, res) => {
   }
 });
 
+
 // ─── Cron jobs ────────────────────────────────────────────────────────────────
 try {
   const {
@@ -316,6 +351,13 @@ try {
   console.warn("⚠️ Could not start bundle expiry cleanup cron:", err.message);
 }
 
+try {
+  const { scheduleCopyrightCheck } = require("./jobs/copyrightCheckCron");
+  scheduleCopyrightCheck();
+} catch (err) {
+  console.warn("⚠️ Could not start copyright audit cron:", err.message);
+}
+
 // ─── Global error handler ─────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
@@ -328,6 +370,4 @@ app.use((err, req, res, next) => {
     ...(IS_DEV ? { detail: err.message } : {}),
   });
 });
-
-
 module.exports = app;
