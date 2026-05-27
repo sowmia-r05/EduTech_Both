@@ -142,7 +142,7 @@ app.use(
         return callback(null, true);
       }
       console.warn(`[CORS] Rejected origin: ${origin}`);
-      return callback(new Error(`CORS: origin ${origin} not allowed`));
+      return callback(null, false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
