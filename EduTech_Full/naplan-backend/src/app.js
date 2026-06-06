@@ -194,7 +194,6 @@ const quizExplanationsRoute = require("./routes/quizExplanationsRoute");
 const quizChatRoute = require("./routes/quizChat");
 const quizAiRoutes = require("./routes/quizAiRoutes");
 const originalityRoutes = require("./routes/originalityRoutes");   // ✅ ADD THIS LINE
-const aiImageRoutes = require("./routes/aiImageRoutes");
 
 
 
@@ -284,7 +283,6 @@ app.get("/", (req, res) => {
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
 app.use("/api/admin", quizAiRoutes);
-app.use("/api/admin", aiImageRoutes);                   
 app.use("/api/admin/originality", originalityRoutes);   
 // add right below it:
 app.use("/api/tutor", tutorRoutes);
