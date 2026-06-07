@@ -244,18 +244,30 @@ function AssignQuizzesModal({ tutor, quizzes, onSaved, onClose }) {
   );
 
   const handleSave = async () => {
-    setSaving(true);
-    try {
-      const res = await adminFetch(`/api/admin/tutors/${tutor._id}/quizzes`, {
-        method: "PATCH",
-        body:   JSON.stringify({ quiz_ids: [...selected] }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to save");
-      onSaved(data.tutor);
-    } catch (err) { alert(err.message); }
-    finally { setSaving(false); }
-  };
+  setSaving(true);
+  try {
+    const current = new Set(tutor.assigned_quiz_ids || []);
+
+    // Diff: what's new in `selected` vs what was there before
+    const add    = [...selected].filter((id) => !current.has(id));
+    const remove = [...current].filter((id) => !selected.has(id));
+
+    // Nothing changed — close without a network call
+    if (add.length === 0 && remove.length === 0) {
+      onClose();
+      return;
+    }
+
+    const res = await adminFetch(`/api/admin/tutors/${tutor._id}/quizzes`, {
+      method: "PATCH",
+      body:   JSON.stringify({ add, remove }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to save");
+    onSaved(data.tutor);
+  } catch (err) { alert(err.message); }
+  finally { setSaving(false); }
+};
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">

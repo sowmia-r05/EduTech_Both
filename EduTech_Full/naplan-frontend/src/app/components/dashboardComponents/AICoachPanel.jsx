@@ -25,10 +25,15 @@ const AICoachPanel = ({
 
   // ✅ If no feedback, show loading state (auto-generating in background)
   if (!hasFeedback) {
+    // Show the spinner if the parent passed isRegenerating OR if meta.status says we're still working
+    const inferredLoading =
+      isRegenerating ||
+      ["queued", "generating", "pending"].includes(meta?.status);
+
     return (
       <div className="flex flex-col h-full bg-slate-50 rounded-xl p-4 overflow-hidden border border-slate-200">
         <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-          {isRegenerating ? (
+          {inferredLoading ? (
             <>
               <div className="w-14 h-14 mb-4 relative">
                 <div className="absolute inset-0 rounded-full border-4 border-teal-100" />
@@ -36,15 +41,17 @@ const AICoachPanel = ({
                 <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-blue-400 animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
               </div>
               <p className="text-slate-700 text-sm font-semibold">Generating AI Insights…</p>
-              <p className="text-slate-400 text-xs mt-1 text-center" style={{ whiteSpace: "nowrap", fontSize: "clamp(10px, 1.8vw, 12px)" }}>
+              <p className="text-slate-400 text-xs mt-1">
                 Analysing your performance — this takes 15–30 seconds
               </p>
-
             </>
           ) : (
             <>
-              <div className="text-3xl mb-2 opacity-40">🤖</div>
-              <p className="text-slate-400 text-sm">AI insights not available for this attempt</p>
+              <div className="text-4xl mb-3">🤖</div>
+              <p className="text-slate-600 text-sm font-medium">No AI insights yet</p>
+              <p className="text-slate-400 text-xs mt-1">
+                Feedback wasn't generated for this attempt.
+              </p>
             </>
           )}
         </div>

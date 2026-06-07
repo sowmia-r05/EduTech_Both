@@ -20,6 +20,7 @@ function formatTimestamp(iso) {
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
+ 
 async function tutorFetch(url, options = {}) {
   const token = localStorage.getItem("tutor_token");
   return fetch(`${API}${url}`, {
@@ -31,6 +32,51 @@ async function tutorFetch(url, options = {}) {
     },
   });
 }
+
+// ─── TutorWebCheck ────────────────────────────────────────────────────────────
+function TutorWebCheck({ question }) {
+  const stripHtml = (html) =>
+    String(html || "")
+      .replace(/<img[^>]*>/gi, " ")
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/?[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const cleanText = stripHtml(question.text || "");
+  const searchText = cleanText.length > 180 ? cleanText.slice(0, 180) : cleanText;
+  const quoted = `"${searchText}"`;
+
+  const acaraUrl = `https://www.google.com/search?q=${encodeURIComponent(`(site:acara.edu.au OR site:nap.edu.au) ${quoted}`)}`;
+  const hasImage = !!question.image_url;
+  const imageUrl = hasImage ? `https://www.google.com/searchbyimage?image_url=${encodeURIComponent(question.image_url)}` : null;
+
+  if (!searchText && !hasImage) return null;
+
+  return (
+    <div className="mt-3 px-3 py-2 bg-blue-500/5 border border-blue-500/15 rounded-lg">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">🌐 Copyright check</span>
+        {searchText && (
+          <a href={acaraUrl} target="_blank" rel="noreferrer" className="text-[10px] px-2 py-0.5 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-600/30 rounded transition font-medium" title="Search ACARA + NAP.edu.au only">
+            🎓 ACARA / NAPLAN
+          </a>
+        )}
+        {hasImage && (
+          <a href={imageUrl} target="_blank" rel="noreferrer" className="text-[10px] px-2 py-0.5 bg-pink-600/20 hover:bg-pink-600/40 text-pink-300 border border-pink-600/30 rounded transition" title="Reverse image search">
+            🖼️ Image source
+          </a>
+        )}
+        <span className="text-[10px] text-slate-500 ml-1">Opens in a new tab</span>
+      </div>
+    </div>
+  );
+}
+
 
 // ─── VerificationBadge ────────────────────────────────────────────────────────
 function VerificationBadge({ status }) {
@@ -243,13 +289,19 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
   const updateOptionText = (idx, val) =>
     setOptions((prev) => prev.map((o, i) => i === idx ? { ...o, text: val } : o));
 
+  const updateOptionMatch = (idx, val) =>
+  setOptions((prev) => prev.map((o, i) => i === idx ? { ...o, match: val } : o));
+
+  // ✅ NEW — detect match-pairs questions
+  const isMatching = question.type === "matching" || question.type === "match_pairs";
+
   const handleSave = async (e) => {
     e.preventDefault();
     setError("");
     if (!text.trim()) { setError("Question text cannot be empty."); return; }
-    if (hasOptions && !options.some((o) => o.correct)) {
-      setError("Please mark at least one option as correct."); return;
-    }
+   if (hasOptions && !isMatching && !options.some((o) => o.correct)) {
+  setError("Please mark at least one option as correct."); return;
+}
     setLoading(true);
     try {
       const res = await tutorFetch(`/api/tutor/questions/${question.question_id}/edit`, {
@@ -261,6 +313,7 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
           options:     options.map((o) => ({
             option_id: o.option_id,
             text:      (o.text || "").trim(),
+            match:     (o.match || "").trim(), 
             image_url: o.image_url ?? null,
             correct:   Boolean(o.correct),
           })),
@@ -317,49 +370,78 @@ function EditQuestionModal({ question, subTopicOptions, onSaved, onClose }) {
             </section>
 
             {hasOptions && (
-              <section className="space-y-2">
-                <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  {sectionNum(2)} Answer Options
-                  <span className="text-[10px] text-slate-500 font-normal normal-case tracking-normal ml-1">
-                    — {isMultiCorrect ? "check all correct" : "click circle to set correct answer"}
-                  </span>
-                </label>
-                <div className="space-y-2">
-                  {options.map((opt, idx) => {
-                    const label = String.fromCharCode(65 + idx);
-                    return (
-                      <div key={opt.option_id || idx}
-                        className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${
-                          opt.correct ? "bg-emerald-500/10 border-emerald-500/30" : "bg-slate-800/60 border-slate-700/50 hover:border-slate-600"
-                        }`}>
-                        <button type="button" onClick={() => toggleCorrect(idx)}
-                          className={`flex-shrink-0 mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                            opt.correct ? "bg-emerald-500 border-emerald-500 text-white" : "bg-transparent border-slate-600 hover:border-emerald-500"
-                          }`}>
-                          {opt.correct && (
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </button>
-                        <span className={`flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold mt-0.5 ${
-                          opt.correct ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-700 text-slate-400"
-                        }`}>{label}</span>
-                        {opt.image_url && (
-                          <img src={opt.image_url} alt={`Option ${label}`} className="h-12 rounded-lg object-contain border border-slate-600 flex-shrink-0" />
-                        )}
-                        <input type="text" value={opt.text || ""} onChange={(e) => updateOptionText(idx, e.target.value)}
-                          placeholder={`Option ${label}…`}
-                          className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none" />
-                        {opt.correct && (
-                          <span className="flex-shrink-0 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md mt-0.5 whitespace-nowrap">✓ Correct</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
+  <section className="space-y-2">
+    <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
+      {sectionNum(2)} {isMatching ? "Matching Pairs" : "Answer Options"}
+      <span className="text-[10px] text-slate-500 font-normal normal-case tracking-normal ml-1">
+        — {isMatching
+            ? "edit both columns; all pairs are correct by design"
+            : isMultiCorrect ? "check all correct" : "click circle to set correct answer"}
+      </span>
+    </label>
+
+    {/* ✅ Match-pairs editor */}
+    {isMatching ? (
+      <div className="space-y-2">
+        <div className="grid grid-cols-[1fr_24px_1fr] gap-2 px-1">
+          <span className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide">Left (prompt)</span>
+          <span />
+          <span className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wide">Right (answer)</span>
+        </div>
+        {options.map((opt, idx) => (
+          <div key={opt.option_id || idx}
+               className="grid grid-cols-[1fr_24px_1fr] gap-2 items-center">
+            <input type="text" value={opt.text || ""}
+              onChange={(e) => updateOptionText(idx, e.target.value)}
+              placeholder={`Left item ${idx + 1}`}
+              className="w-full bg-slate-800 border border-indigo-600/40 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-indigo-500" />
+            <span className="text-slate-500 text-center text-base">→</span>
+            <input type="text" value={opt.match || ""}
+              onChange={(e) => updateOptionMatch(idx, e.target.value)}
+              placeholder={`Right item ${idx + 1}`}
+              className="w-full bg-slate-800 border border-emerald-600/40 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-500" />
+          </div>
+        ))}
+      </div>
+    ) : (
+      /* Existing MCQ / checkbox editor */
+      <div className="space-y-2">
+        {options.map((opt, idx) => {
+          const label = String.fromCharCode(65 + idx);
+          return (
+            <div key={opt.option_id || idx}
+              className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${
+                opt.correct ? "bg-emerald-500/10 border-emerald-500/30" : "bg-slate-800/60 border-slate-700/50 hover:border-slate-600"
+              }`}>
+              <button type="button" onClick={() => toggleCorrect(idx)}
+                className={`flex-shrink-0 mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                  opt.correct ? "bg-emerald-500 border-emerald-500 text-white" : "bg-transparent border-slate-600 hover:border-emerald-500"
+                }`}>
+                {opt.correct && (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+              <span className={`flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold mt-0.5 ${
+                opt.correct ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-700 text-slate-400"
+              }`}>{label}</span>
+              {opt.image_url && (
+                <img src={opt.image_url} alt={`Option ${label}`} className="h-12 rounded-lg object-contain border border-slate-600 flex-shrink-0" />
+              )}
+              <input type="text" value={opt.text || ""} onChange={(e) => updateOptionText(idx, e.target.value)}
+                placeholder={`Option ${label}…`}
+                className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none" />
+              {opt.correct && (
+                <span className="flex-shrink-0 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md mt-0.5 whitespace-nowrap">✓ Correct</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    )}
+  </section>
+)}
 
             <section className="space-y-2">
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
@@ -1107,6 +1189,10 @@ export default function TutorDashboard() {
                               />
                           </div>
                         )}
+
+                       
+                        {/* ── Copyright spot-check ── */}
+                        <TutorWebCheck question={q} />
 
                         {/* ── Tutor verify controls ── */}
                         <div className="pt-3 border-t border-slate-800">

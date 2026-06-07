@@ -24,7 +24,8 @@
  *   4. Add them to the type dropdown in QuizDetailPage.jsx & ManualQuizCreator.jsx
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+
 
 /* ═══════════════════════════════════════════════════════════════
    SHARED HELPER — animated feedback banner
@@ -229,15 +230,27 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
   const options = question.options || [];
 
   // Shuffle right-column items once per mount
-  const [rightItems] = useState(() => {
+// Stable shuffle seeded by question_id — same order every time the student
+  // returns to this question, so saved matches keep their visual positions.
+  const rightItems = useMemo(() => {
     const rights = options.map((o) => o.match).filter(Boolean);
-    // Fisher-Yates shuffle
+
+    let seed = 0;
+    const qid = question.question_id || "";
+    for (let i = 0; i < qid.length; i++) {
+      seed = (seed * 31 + qid.charCodeAt(i)) & 0xffffffff;
+    }
+    const rng = () => {
+      seed = (seed * 1664525 + 1013904223) & 0xffffffff;
+      return (seed >>> 0) / 0xffffffff;
+    };
+
     for (let i = rights.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(rng() * (i + 1));
       [rights[i], rights[j]] = [rights[j], rights[i]];
     }
     return rights;
-  });
+  }, [question.question_id, options]);
 
   const pairs = answer?.pairs || {};
   const [selectedLeft, setSelectedLeft] = useState(null);
@@ -287,8 +300,26 @@ export function LineMatchQuestion({ question, answer, onAnswer, textStyle }) {
   }, [pairs]);
 
   useEffect(() => {
-    const timer = setTimeout(drawLines, 50);
-    return () => clearTimeout(timer);
+    // Draw immediately + on the next animation frame (covers slow layout)
+    drawLines();
+    const raf = requestAnimationFrame(drawLines);
+
+    // Redraw whenever the container size changes (fonts loading, viewport resize, etc.)
+    const container = svgRef.current?.parentElement;
+    let observer;
+    if (container && typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(() => drawLines());
+      observer.observe(container);
+    }
+
+    // Safety net: also redraw on window resize
+    window.addEventListener("resize", drawLines);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+      window.removeEventListener("resize", drawLines);
+    };
   }, [drawLines]);
 
   const handleSelectLeft = (text) => {

@@ -1,18 +1,17 @@
 """
 ai/gemini_explanation.py
 
-Two modes (controlled by payload["mode"]):
-  1. "explain"  → Given wrong answers + question context, generate
-                  age-appropriate explanations for each wrong question.
-                  Returns { success, explanations: [ { question_id, explanation,
-                  correct_answer, tip, emoji } ] }
+Modes (controlled by payload["mode"]):
+  1. "explain"           → explanations for wrong answers (JSON)
+  2. "explain_question"  → single-question explanation at upload time (JSON)
+  3. "chat"              → child follow-up about one question (plain text)
+  4. "agent_chat"        → subject-specific agent reply (plain text)
 
-  2. "chat"     → Child sends a follow-up message about one question.
-                  Returns { success, reply }
-
-Year-level tone rules:
-  Year 3-5  → fun, simple words, emojis, encouraging ("Great try!")
-  Year 7-9  → logical, academic, strategy-focused, no baby talk
+Provider selection:
+- OpenAI primary, Gemini fallback on ANY error (billing 429, rate limit,
+  timeout, empty/invalid response).
+- Override order with AI_PRIMARY_PROVIDER = "openai" | "gemini".
+- Needs OPENAI_API_KEY and/or GEMINI_API_KEY in the environment.
 """
 
 import os
@@ -24,14 +23,21 @@ import importlib
 # ── Add backend root to Python path ──────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import google.generativeai as genai
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 
 # ─────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
-# ✅ REPLACE WITH
 def get_tone_rules(year_level: int) -> dict:
     y = int(year_level or 3)
     if y <= 3:
@@ -92,12 +98,84 @@ def extract_json(text: str):
         raise ValueError(f"No valid JSON found in output: {text[:300]}")
 
 
-def init_model(api_key: str, model_name: str):
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(
-        model_name,
-        generation_config={"temperature": 0.4, "max_output_tokens": 2000},
+# ═══════════════════════════════════════════════════════════════
+# PROVIDERS: OpenAI primary + Gemini fallback
+# ═══════════════════════════════════════════════════════════════
+def _make_openai():
+    if OpenAI is None:
+        return None
+    key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not key:
+        return None
+    model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+    return {"provider": "openai", "client": OpenAI(api_key=key), "model": model}
+
+
+def _make_gemini():
+    if genai is None:
+        return None
+    key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not key:
+        return None
+    model = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+    genai.configure(api_key=key)
+    return {"provider": "gemini", "client": genai.GenerativeModel(model), "model": model}
+
+
+def init_providers():
+    """Return available providers, primary first. Empty list if no keys set."""
+    primary = (os.getenv("AI_PRIMARY_PROVIDER") or "openai").strip().lower()
+    openai_p = _make_openai()
+    gemini_p = _make_gemini()
+    order = [gemini_p, openai_p] if primary == "gemini" else [openai_p, gemini_p]
+    return [p for p in order if p]
+
+
+def _call_openai(p, prompt, temperature, max_tokens, json_mode):
+    kwargs = dict(
+        model=p["model"],
+        messages=[{"role": "user", "content": prompt}],
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+    resp = p["client"].chat.completions.create(**kwargs)
+    return resp.choices[0].message.content or ""
+
+
+def _call_gemini(p, prompt, temperature, max_tokens, json_mode):
+    cfg = {"temperature": temperature, "max_output_tokens": max_tokens}
+    if json_mode:
+        cfg["response_mime_type"] = "application/json"
+    try:
+        resp = p["client"].generate_content(prompt, generation_config=cfg)
+    except TypeError:
+        # older SDKs may reject response_mime_type
+        cfg.pop("response_mime_type", None)
+        resp = p["client"].generate_content(prompt, generation_config=cfg)
+    return getattr(resp, "text", "") or ""
+
+
+def generate_text(providers, prompt, temperature=0.4, max_tokens=2000, json_mode=False, max_retries=2):
+    """
+    Try each provider in order, retry max_retries each, fall back on failure.
+    Returns (text, model_used, provider_used).
+    """
+    last_error = None
+    for p in providers:
+        for _ in range(max_retries):
+            try:
+                if p["provider"] == "openai":
+                    text = _call_openai(p, prompt, temperature, max_tokens, json_mode)
+                else:
+                    text = _call_gemini(p, prompt, temperature, max_tokens, json_mode)
+                if not text or not text.strip():
+                    raise ValueError("Empty response from model")
+                return text, p["model"], p["provider"]
+            except Exception as e:
+                last_error = e
+    raise ValueError(f"All providers failed. Last error: {str(last_error)}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -157,9 +235,10 @@ RULES:
 - Never say "you got this wrong" — reframe positively
 - Return ONLY explanations for the questions listed above
 """
+
+
 # ─────────────────────────────────────────────────────────────
 # Mode 3: Pre-generate explanation for a single question
-# across all year levels — called at quiz upload time
 # ─────────────────────────────────────────────────────────────
 
 def build_single_question_prompt(question: dict, year_level: int) -> str:
@@ -196,14 +275,13 @@ RULES:
 """
 
 
-def run_explain_question(payload: dict, model) -> dict:
+def run_explain_question(payload: dict, providers) -> dict:
     """
     Generates explanation for a single question using the quiz's year level only.
     Called at quiz upload time, NOT per-student.
-    Returns { success, explanations_by_year: { "<year>": { explanation, tip } } }
     """
     question = payload.get("question") or {}
-    year_level = payload.get("year_level")  # ← comes from the quiz (e.g. Year 3)
+    year_level = payload.get("year_level")
 
     if not question.get("question_text"):
         return {"success": False, "error": "No question_text provided"}
@@ -215,13 +293,13 @@ def run_explain_question(payload: dict, model) -> dict:
     prompt = build_single_question_prompt(question, yr)
 
     try:
-        resp = model.generate_content(prompt)
-        text = getattr(resp, "text", "") or ""
-        if not text:
-            raise ValueError("Empty response")
+        text, _model, provider = generate_text(
+            providers, prompt, temperature=0.4, max_tokens=2000, json_mode=True
+        )
         result = extract_json(text)
         return {
             "success": True,
+            "provider": provider,
             "explanations_by_year": {
                 str(yr): {
                     "explanation": result.get("explanation", ""),
@@ -233,7 +311,7 @@ def run_explain_question(payload: dict, model) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def run_explain(payload: dict, model) -> dict:
+def run_explain(payload: dict, providers) -> dict:
     questions = payload.get("questions") or []
     year_level = int(payload.get("year_level") or 3)
     subject = payload.get("subject") or "General"
@@ -245,13 +323,12 @@ def run_explain(payload: dict, model) -> dict:
     prompt = build_explain_prompt(questions, year_level, subject, child_name)
 
     try:
-        resp = model.generate_content(prompt)
-        text = getattr(resp, "text", "") or ""
-        if not text:
-            raise ValueError("Empty response from Gemini")
+        text, _model, provider = generate_text(
+            providers, prompt, temperature=0.4, max_tokens=2000, json_mode=True
+        )
         result = extract_json(text)
         explanations = result.get("explanations") or []
-        return {"success": True, "explanations": explanations}
+        return {"success": True, "provider": provider, "explanations": explanations}
     except Exception as e:
         return {"success": False, "error": f"Explanation generation failed: {str(e)}"}
 
@@ -306,11 +383,8 @@ INSTRUCTIONS:
 
 Your reply:"""
 
-# ─────────────────────────────────────────────────────────────
-# Mode 4: Agent chat — routes to subject-specific agent
-# ─────────────────────────────────────────────────────────────
 
-def run_chat(payload: dict, model) -> dict:
+def run_chat(payload: dict, providers) -> dict:
     question_context = payload.get("question_context") or {}
     chat_history = payload.get("chat_history") or []
     child_message = payload.get("message") or ""
@@ -325,16 +399,19 @@ def run_chat(payload: dict, model) -> dict:
     )
 
     try:
-        resp = model.generate_content(prompt)
-        text = (getattr(resp, "text", "") or "").strip()
-        if not text:
-            raise ValueError("Empty response from Gemini")
-        return {"success": True, "reply": text}
+        text, _model, provider = generate_text(
+            providers, prompt, temperature=0.4, max_tokens=1024, json_mode=False
+        )
+        return {"success": True, "provider": provider, "reply": text.strip()}
     except Exception as e:
         return {"success": False, "error": f"Chat failed: {str(e)}"}
 
 
-def run_agent_chat(payload: dict, model) -> dict:
+# ─────────────────────────────────────────────────────────────
+# Mode 4: Agent chat — routes to subject-specific agent
+# ─────────────────────────────────────────────────────────────
+
+def run_agent_chat(payload: dict, providers) -> dict:
     subject       = (payload.get("subject") or "").strip().lower()
     message       = (payload.get("message") or "").strip()
     chat_history  = payload.get("chat_history") or []
@@ -362,26 +439,11 @@ def run_agent_chat(payload: dict, model) -> dict:
     except Exception as e:
         return {"success": False, "error": f"Prompt build failed: {str(e)}"}
 
-    # ── Call GPT-4o Mini ────────────────────────────
-# ── Call Gemini Flash ────────────────────────────
-    api_key    = (os.getenv("GEMINI_API_KEY") or "").strip()
-    model_name = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
-
-    if not api_key:
-        return {"success": False, "error": "GEMINI_API_KEY not set"}
-
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        gemini_model = genai.GenerativeModel(
-            model_name,
-            generation_config={"temperature": 0.4, "max_output_tokens": 1024},
+        text, _model, provider = generate_text(
+            providers, prompt, temperature=0.4, max_tokens=1024, json_mode=False
         )
-        resp = gemini_model.generate_content(prompt)
-        text = (getattr(resp, "text", "") or "").strip()
-        if not text:
-            raise ValueError("Empty response from Gemini")
-        return {"success": True, "reply": text}
+        return {"success": True, "provider": provider, "reply": text.strip()}
     except Exception as e:
         return {"success": False, "error": f"Agent chat failed: {str(e)}"}
 
@@ -398,30 +460,25 @@ def main():
         print(json.dumps({"success": False, "error": f"Invalid JSON input: {str(e)}"}))
         return
 
-    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
-    model_name = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
-
-    if not api_key:
-        print(json.dumps({"success": False, "error": "GEMINI_API_KEY not set"}))
-        return
-
-    try:
-        model = init_model(api_key, model_name)
-    except Exception as e:
-        print(json.dumps({"success": False, "error": f"Gemini init failed: {str(e)}"}))
+    providers = init_providers()
+    if not providers:
+        print(json.dumps({
+            "success": False,
+            "error": "No AI provider available. Set OPENAI_API_KEY and/or GEMINI_API_KEY "
+                     "(and install: pip install openai google-generativeai)."
+        }))
         return
 
     mode = payload.get("mode") or "explain"
 
-    # ✅ REPLACE WITH
     if mode == "explain":
-        result = run_explain(payload, model)
+        result = run_explain(payload, providers)
     elif mode == "explain_question":
-        result = run_explain_question(payload, model)
+        result = run_explain_question(payload, providers)
     elif mode == "chat":
-        result = run_chat(payload, model)
+        result = run_chat(payload, providers)
     elif mode == "agent_chat":
-        result = run_agent_chat(payload, model)
+        result = run_agent_chat(payload, providers)
     else:
         result = {"success": False, "error": f"Unknown mode: {mode}"}
 

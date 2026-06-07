@@ -2,49 +2,22 @@
 """
 cumulative_gemini_feedback.py
 
-Reads a JSON payload from stdin, calls Gemini to generate
-CUMULATIVE AI coaching feedback across multiple quiz attempts,
-then prints a JSON result to stdout.
+Reads a JSON payload from stdin, calls an AI model (OpenAI primary,
+Gemini fallback) to generate CUMULATIVE AI coaching feedback across
+multiple quiz attempts, then prints a JSON result to stdout.
 
-Payload (stdin):
-{
-  "child_id": "...",
-  "display_name": "Alex",
-  "year_level": 5,
-  "subject": "Overall",          // "Overall" | "Reading" | "Writing" | "Numeracy" | "Language"
-  "tests": [
-    {
-      "quiz_name": "Numeracy Test 1",
-      "score": 72,
-      "date": "2024-11-01T10:00:00Z",
-      "duration_sec": 1200,
-      "topic_breakdown": {
-        "Number & Algebra": { "scored": 8, "total": 10 },
-        "Measurement": { "scored": 4, "total": 8 }
-      }
-    }
-  ]
-}
+Provider selection:
+- Tries OpenAI first, falls back to Gemini on ANY error (billing 429,
+  rate limit, timeout, empty/invalid response).
+- Override order with AI_PRIMARY_PROVIDER = "openai" | "gemini".
+- Needs OPENAI_API_KEY and/or GEMINI_API_KEY in the environment.
 
 Output (stdout):
 {
   "success": true,
-  "feedback": {
-    "summary": "...",
-    "strengths": ["..."],
-    "areas_for_improvement": [
-      { "issue": "...", "how_to_improve": "..." }
-    ],
-    "study_tips": ["..."],
-    "encouragement": "...",
-    "trend": "improving",
-    "topic_highlights": ["..."]
-  },
-  "meta": {
-    "model": "gemini-2.0-flash",
-    "attempt_count": 5,
-    "average_score": 74.2
-  }
+  "feedback": { ... },          // parent tone
+  "feedback_child": { ... },    // child tone
+  "meta": { "model": "...", "provider": "...", "attempt_count": 5, "average_score": 74.2 }
 }
 """
 
@@ -55,16 +28,17 @@ import re
 from datetime import datetime
 
 # ─────────────────────────────────────────────
-# Gemini SDK
+# AI SDKs (both optional; need at least one)
 # ─────────────────────────────────────────────
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
 try:
     import google.generativeai as genai
 except ImportError:
-    print(json.dumps({
-        "success": False,
-        "error": "google-generativeai not installed. Run: pip install google-generativeai"
-    }))
-    sys.exit(1)
+    genai = None
 
 
 SUBJECT_LABELS = {
@@ -252,6 +226,80 @@ def clean_json_output(text):
     return text.strip()
 
 
+# ═══════════════════════════════════════════════════════════════
+# PROVIDERS: OpenAI primary + Gemini fallback
+# ═══════════════════════════════════════════════════════════════
+def _make_openai():
+    if OpenAI is None:
+        return None
+    key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not key:
+        return None
+    model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+    return {"provider": "openai", "client": OpenAI(api_key=key), "model": model}
+
+
+def _make_gemini():
+    if genai is None:
+        return None
+    key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not key:
+        return None
+    model = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+    genai.configure(api_key=key)
+    return {"provider": "gemini", "client": genai.GenerativeModel(model), "model": model}
+
+
+def init_providers():
+    """Return available providers, primary first. Empty list if no keys set."""
+    primary = (os.getenv("AI_PRIMARY_PROVIDER") or "openai").strip().lower()
+    openai_p = _make_openai()
+    gemini_p = _make_gemini()
+    order = [gemini_p, openai_p] if primary == "gemini" else [openai_p, gemini_p]
+    return [p for p in order if p]
+
+
+def _call_openai(p, prompt, temperature, max_tokens):
+    resp = p["client"].chat.completions.create(
+        model=p["model"],
+        messages=[{"role": "user", "content": prompt}],
+        temperature=temperature,
+        max_tokens=max_tokens,
+        response_format={"type": "json_object"},
+    )
+    return resp.choices[0].message.content or ""
+
+
+def _call_gemini(p, prompt, temperature, max_tokens):
+    resp = p["client"].generate_content(
+        prompt,
+        generation_config={"temperature": temperature, "max_output_tokens": max_tokens},
+    )
+    return getattr(resp, "text", "") or ""
+
+
+def generate_with_fallback(providers, prompt, temperature=0.85, max_tokens=1500, max_retries=2):
+    """
+    Try each provider in priority order, retrying max_retries times each,
+    falling back to the next provider on full failure.
+    Returns (text, model_used, provider_used).
+    """
+    last_error = None
+    for p in providers:
+        for _ in range(max_retries):
+            try:
+                if p["provider"] == "openai":
+                    text = _call_openai(p, prompt, temperature, max_tokens)
+                else:
+                    text = _call_gemini(p, prompt, temperature, max_tokens)
+                if not text:
+                    raise ValueError("Empty response from model")
+                return text, p["model"], p["provider"]
+            except Exception as e:
+                last_error = e
+    raise ValueError(f"All providers failed. Last error: {str(last_error)}")
+
+
 def main():
     raw = sys.stdin.read()
 
@@ -281,36 +329,21 @@ def main():
                 "trend": "new",
                 "topic_highlights": [],
             },
-            "meta": {"model": "none", "attempt_count": 0, "average_score": 0},
+            "meta": {"model": "none", "provider": "none", "attempt_count": 0, "average_score": 0},
         }))
         return
 
-    api_key    = (os.getenv("GEMINI_API_KEY") or "").strip()
-    model_name = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
-
-    if not api_key:
-        print(json.dumps({"success": False, "error": "GEMINI_API_KEY not set"}))
-        sys.exit(0)
-
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name)
-    except Exception as e:
-        print(json.dumps({"success": False, "error": f"AI init failed: {e}"}))
+    providers = init_providers()
+    if not providers:
+        print(json.dumps({
+            "success": False,
+            "error": "No AI provider available. Set OPENAI_API_KEY and/or GEMINI_API_KEY "
+                     "(and install: pip install openai google-generativeai)."
+        }))
         sys.exit(0)
 
     prompt_parent = build_prompt(payload, tone="parent")
     prompt_child  = build_prompt(payload, tone="child")
-
-    def call_gemini(prompt):
-        resp = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=0.85,
-                max_output_tokens=1500,
-            ),
-        )
-        return resp.text or ""
 
     def parse_feedback(raw_output):
         cleaned = clean_json_output(raw_output)
@@ -326,8 +359,8 @@ def main():
         return None
 
     try:
-        raw_parent = call_gemini(prompt_parent)
-        raw_child  = call_gemini(prompt_child)
+        raw_parent, model_parent, provider_parent = generate_with_fallback(providers, prompt_parent)
+        raw_child,  model_child,  provider_child  = generate_with_fallback(providers, prompt_child)
     except Exception as e:
         print(json.dumps({"success": False, "error": f"AI API error: {e}"}))
         sys.exit(0)
@@ -351,7 +384,9 @@ def main():
         "feedback":       feedback_parent,   # ← parent sees this
         "feedback_child": feedback_child,    # ← child sees this
         "meta": {
-            "model": model_name,
+            "model": model_parent,
+            "provider": provider_parent,
+            "provider_child": provider_child,
             "attempt_count": len(tests),
             "average_score": avg_score,
             "subject": subject,

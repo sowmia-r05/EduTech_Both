@@ -3,7 +3,15 @@ import sys
 import json
 from typing import Optional
 
-import google.generativeai as genai
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 from ai.gemini_config import MODEL_NAME, MIN_AI_WORDS
 from ai.text_cleaning import cleaned_for_checks, is_blank, count_words, sanitize_text
@@ -26,6 +34,86 @@ except Exception:  # pragma: no cover
         def deco(fn):
             return fn
         return deco
+
+
+# ═══════════════════════════════════════════════════════════════
+# PROVIDERS: OpenAI primary + Gemini fallback
+# ═══════════════════════════════════════════════════════════════
+def _make_openai():
+    if OpenAI is None:
+        return None
+    key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not key:
+        return None
+    model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+    return {"provider": "openai", "client": OpenAI(api_key=key), "model": model}
+
+
+def _make_gemini():
+    if genai is None:
+        return None
+    key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not key:
+        return None
+    # MODEL_NAME comes from ai.gemini_config (the Gemini model); allow env override
+    model = (os.getenv("GEMINI_MODEL") or MODEL_NAME or "gemini-2.0-flash").strip()
+    genai.configure(api_key=key)
+    return {"provider": "gemini", "client": genai.GenerativeModel(model), "model": model}
+
+
+def init_providers():
+    """Return available providers, primary first. Empty list if no keys set."""
+    primary = (os.getenv("AI_PRIMARY_PROVIDER") or "openai").strip().lower()
+    openai_p = _make_openai()
+    gemini_p = _make_gemini()
+    order = [gemini_p, openai_p] if primary == "gemini" else [openai_p, gemini_p]
+    return [p for p in order if p]
+
+
+def _call_openai(p, prompt, temperature, max_tokens, json_mode):
+    kwargs = dict(
+        model=p["model"],
+        messages=[{"role": "user", "content": prompt}],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+    resp = p["client"].chat.completions.create(**kwargs)
+    return resp.choices[0].message.content or ""
+
+
+def _call_gemini(p, prompt, temperature, max_tokens, json_mode):
+    cfg = {"temperature": temperature, "max_output_tokens": max_tokens}
+    if json_mode:
+        cfg["response_mime_type"] = "application/json"
+    try:
+        resp = p["client"].generate_content(prompt, generation_config=cfg)
+    except TypeError:
+        cfg.pop("response_mime_type", None)
+        resp = p["client"].generate_content(prompt, generation_config=cfg)
+    return getattr(resp, "text", "") or ""
+
+
+def generate_text(providers, prompt, temperature=0.25, max_tokens=4000, json_mode=True, max_retries=2):
+    """
+    Try each provider in order, retry max_retries each, fall back on failure.
+    Returns (text, model_used, provider_used).
+    """
+    last_error = None
+    for p in providers:
+        for _ in range(max_retries):
+            try:
+                if p["provider"] == "openai":
+                    text = _call_openai(p, prompt, temperature, max_tokens, json_mode)
+                else:
+                    text = _call_gemini(p, prompt, temperature, max_tokens, json_mode)
+                if not text or not text.strip():
+                    raise ValueError("Empty response from model")
+                return text, p["model"], p["provider"]
+            except Exception as e:
+                last_error = e
+    raise ValueError(f"All providers failed. Last error: {str(last_error)}")
 
 
 def _base_output_shape(student_year: int, text_type: str, max_total: int = 0) -> dict:
@@ -61,7 +149,7 @@ def _base_output_shape(student_year: int, text_type: str, max_total: int = 0) ->
     return data
 
 
-@traceable(name="naplan.full_gemini_assessment")
+@traceable(name="naplan.full_model_assessment")
 def _call_full_model(
     student_year: int,
     text_type: str,
@@ -70,32 +158,10 @@ def _call_full_model(
     max_total: int
 ) -> dict:
     """
-    Full model call with:
+    Full model call (OpenAI primary, Gemini fallback) with:
     - capped tokens
-    - JSON-only output (when supported)
+    - JSON-only output
     """
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    genai.configure(api_key=api_key)
-
-    generation_config = {
-        "temperature": 0.25,
-    }
-
-    # ✅ If SDK supports it, force JSON output
-    # (Some versions may raise TypeError; handled below)
-    try:
-        generation_config["response_mime_type"] = "application/json"
-    except Exception:
-        pass
-
-    try:
-        model = genai.GenerativeModel(MODEL_NAME, generation_config=generation_config)
-    except TypeError:
-        # fallback for older SDKs that don't accept some generation_config keys
-        safe_config = {
-            "temperature": generation_config.get("temperature", 0.25) }
-        model = genai.GenerativeModel(MODEL_NAME, generation_config=safe_config)
-
     prompt = f"""You are an Australian NAPLAN writing assessor.
 
 YEAR: {student_year}
@@ -193,9 +259,19 @@ JSON FORMAT (exact keys):
 }}
 """
 
-    response = model.generate_content(prompt)
-    raw_text = getattr(response, "text", "") or ""
-    return extract_json(raw_text)
+    providers = init_providers()
+    if not providers:
+        raise ValueError(
+            "No AI provider available. Set OPENAI_API_KEY and/or GEMINI_API_KEY."
+        )
+
+    raw_text, _model_used, provider_used = generate_text(
+        providers, prompt, temperature=0.25, max_tokens=4000, json_mode=True
+    )
+    parsed = extract_json(raw_text)
+    if isinstance(parsed, dict):
+        parsed.setdefault("meta", {})["provider"] = provider_used
+    return parsed
 
 
 @traceable(name="naplan.evaluate_naplan_writing")
@@ -232,9 +308,9 @@ def evaluate_naplan_writing(
         ensure_review_sections_shape(data)
         return {"success": True, "result": data}
 
-    # Missing API key
-    if not os.environ.get("GEMINI_API_KEY"):
-        return {"success": False, "error": "GEMINI_API_KEY is not set in environment."}
+    # Missing API key — need at least one provider
+    if not (os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY")):
+        return {"success": False, "error": "No AI key set (need OPENAI_API_KEY and/or GEMINI_API_KEY)."}
 
     # Word count
     wc = count_words(student_clean)

@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from openai import OpenAI
 import google.generativeai as genai
 
 
@@ -320,12 +321,57 @@ def analyze_performance(student_data: Dict[str, Any], doc: Dict[str, Any], year_
     }
 
 
-# -------------------------
-# Gemini helpers
-# -------------------------
-def init_gemini(api_key: str, model_name: str):
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(model_name)
+# ═══════════════════════════════════════════════════════════════
+# PROVIDERS: OpenAI primary + Gemini fallback
+# ═══════════════════════════════════════════════════════════════
+# Build whichever providers have keys present, ordered by priority.
+# generate_feedback() tries them in order and falls back on ANY error
+# (billing 429, rate limit, timeout, empty/invalid response, etc.).
+# Override priority with AI_PRIMARY_PROVIDER = "openai" | "gemini".
+
+def _make_openai() -> Optional[Dict[str, Any]]:
+    key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not key:
+        return None
+    model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+    return {"provider": "openai", "client": OpenAI(api_key=key), "model": model}
+
+
+def _make_gemini() -> Optional[Dict[str, Any]]:
+    key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not key:
+        return None
+    model = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+    genai.configure(api_key=key)
+    return {"provider": "gemini", "client": genai.GenerativeModel(model), "model": model}
+
+
+def init_providers() -> List[Dict[str, Any]]:
+    """Return available providers, primary first. Empty list if no keys set."""
+    primary = (os.getenv("AI_PRIMARY_PROVIDER") or "openai").strip().lower()
+    openai_p = _make_openai()
+    gemini_p = _make_gemini()
+    order = [gemini_p, openai_p] if primary == "gemini" else [openai_p, gemini_p]
+    return [p for p in order if p]
+
+
+def _call_openai(p: Dict[str, Any], prompt: str) -> str:
+    resp = p["client"].chat.completions.create(
+        model=p["model"],
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+        max_tokens=1500,
+        response_format={"type": "json_object"},
+    )
+    return resp.choices[0].message.content or ""
+
+
+def _call_gemini(p: Dict[str, Any], prompt: str) -> str:
+    resp = p["client"].generate_content(
+        prompt,
+        generation_config={"temperature": 0.7, "max_output_tokens": 1500},
+    )
+    return getattr(resp, "text", "") or ""
 
 
 def tone_guidance(year_level: Optional[int]) -> str:
@@ -499,28 +545,38 @@ def safe_json_from_text(text: str) -> Dict[str, Any]:
     start = text.find("{")
     end = text.rfind("}") + 1
     if start == -1 or end <= 0:
-        raise ValueError(f"Gemini did not return a JSON object. Response was: {text[:200]}")
+        raise ValueError(f"Model did not return a JSON object. Response was: {text[:200]}")
 
     clean = text[start:end]
     try:
         return json.loads(clean)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON from Gemini: {str(e)}\nContent: {clean[:200]}")
+        raise ValueError(f"Invalid JSON from model: {str(e)}\nContent: {clean[:200]}")
 
 
-def generate_feedback(model, prompt: str, max_retries: int = 2) -> Dict[str, Any]:
+def generate_feedback(providers: List[Dict[str, Any]], prompt: str, max_retries: int = 2) -> Tuple[Dict[str, Any], str, str]:
+    """
+    Try each provider in priority order. Within a provider, retry up to
+    max_retries. On full failure, fall back to the next provider.
+    Returns (parsed_feedback, model_used, provider_used).
+    """
     last_error = None
-    for attempt in range(max_retries):
-        try:
-            resp = model.generate_content(prompt)
-            text = getattr(resp, "text", "") or ""
-            if not text:
-                raise ValueError("Empty response from Gemini")
-            return safe_json_from_text(text)
-        except Exception as e:
-            last_error = e
-            if attempt >= max_retries - 1:
-                raise ValueError(f"Failed after {max_retries} attempts: {str(last_error)}")
+    for p in providers:
+        for attempt in range(max_retries):
+            try:
+                if p["provider"] == "openai":
+                    text = _call_openai(p, prompt)
+                else:
+                    text = _call_gemini(p, prompt)
+                if not text:
+                    raise ValueError("Empty response from model")
+                parsed = safe_json_from_text(text)
+                return parsed, p["model"], p["provider"]
+            except Exception as e:
+                last_error = e
+                # exhausted retries for this provider -> fall through to next
+        # next provider
+    raise ValueError(f"All providers failed. Last error: {str(last_error)}")
 
 
 # -------------------------
@@ -845,7 +901,7 @@ def placeholder_feedback(subject: str, quiz_name: str, model_name: str, year_lev
             "subject": subject,
             "quiz_name": quiz_name,
             "year_level": year_level,
-            "source": "subject_feedback/gemini_subject_feedback_fixed.py",
+            "source": "subject_feedback/openai_subject_feedback.py",
             "status": "done",
             "status_message": "Ready - awaiting first quiz attempt"
         },
@@ -880,21 +936,21 @@ def main():
         print(json.dumps({"success": False, "error": err}))
         return
 
-    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
-    model_name = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
-
-    if not api_key:
-        print(json.dumps({"success": False, "error": "GEMINI_API_KEY environment variable is required"}))
+    try:
+        providers = init_providers()
+    except Exception as e:
+        print(json.dumps({"success": False, "error": f"Failed to initialize providers: {str(e)}"}))
         return
+
+    if not providers:
+        print(json.dumps({"success": False, "error": "No AI provider key set (need OPENAI_API_KEY and/or GEMINI_API_KEY)"}))
+        return
+
+    # The model we *intend* to use first (for placeholder/meta before any call)
+    primary_model = providers[0]["model"]
 
     if is_no_attempt_session(doc, student_data["sub_subjects"]):
-        print(json.dumps(placeholder_feedback(subject, quiz_name, model_name, year_level)))
-        return
-
-    try:
-        model = init_gemini(api_key, model_name)
-    except Exception as e:
-        print(json.dumps({"success": False, "error": f"Failed to initialize Gemini: {str(e)}"}))
+        print(json.dumps(placeholder_feedback(subject, quiz_name, primary_model, year_level)))
         return
 
     analysis = analyze_performance(student_data, doc, year_level)
@@ -911,7 +967,7 @@ def main():
     prompt = build_gemini_prompt(analysis, subject, product_insights)
 
     try:
-        feedback_raw = generate_feedback(model, prompt)
+        feedback_raw, used_model, used_provider = generate_feedback(providers, prompt)
         feedback = coerce_ai_feedback_schema(feedback_raw, analysis, subject)
     except Exception as e:
         print(json.dumps({"success": False, "error": f"AI generation failed: {str(e)}"}))
@@ -924,14 +980,15 @@ def main():
         "performance_analysis": analysis,
         "ai_feedback": feedback,
         "ai_feedback_meta": {
-            "model": model_name,
+            "model": used_model,
+            "provider": used_provider,
             "generated_at": now.isoformat(),
             "subject": subject,
             "quiz_name": quiz_name,
             "year_level": year_level,
-            "source": "subject_feedback/gemini_subject_feedback_fixed.py",
+            "source": "subject_feedback/openai_subject_feedback.py",
             "status": "done",
-            "status_message": "Feedback generated successfully"
+            "status_message": f"Feedback generated successfully ({used_provider})"
         },
     }
 

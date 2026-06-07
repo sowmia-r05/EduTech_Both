@@ -1,25 +1,13 @@
 /**
- * QuizDetailPage.jsx — Full page version of quiz detail
- * Route: /admin/quiz/:quizId
+ * QuizDetailPage.jsx — v4 (AI image generation added)
  *
- * ✅ Fixed: CollapsibleImageResize now wired into QuestionEditor
- * ✅ Fixed: form state includes image_size, image_width, image_height
- * ✅ Fixed: handleSave sends image_size, image_width, image_height
- * ✅ Fixed: Image preview + remove button
- * ✅ Fixed: showAddForm & handleAddQuestion inside component
- * ✅ Fixed: Short answer support in QuestionEditor
- * ✅ Fixed: Option image upload + preview in QuestionEditor
- * ✅ Fixed: TypeBadge now includes "writing" type
- * ✅ Fixed: Type dropdown now includes "writing" option
- * ✅ Fixed: Card view applies image_width / image_height as inline style
- * ✅ Fixed: Card view shows writing indicator block
- * ✅ Fixed: image_width/image_height use ?? null (not || null)
- * ✅ Fixed: Options hidden for writing type in editor
- * ✅ Added: Right-click context menu — Edit / Insert Before / Insert After / Delete
- * ✅ Fixed: Insert before/after — no double form, correct order calculation
- * ✅ Fixed: picture_choice option upload uses ${API} prefix + URL normalization
- * ✅ Added: Bulk move selected questions to another quiz
- * ✅ Added: buildTextStyle applied to question text and options in card view
+ * CHANGES FROM v3:
+ *   ✅ Import AIImageGenerator
+ *   ✅ showAiGen state inside QuestionEditor
+ *   ✅ ✨ AI button next to Upload button in Image URL row
+ *   ✅ <AIImageGenerator /> modal rendered at end of QuestionEditor
+ *
+ * Place at: src/app/components/admin/QuizDetailPage.jsx
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -29,9 +17,10 @@ import DownloadXlsxButton from "./DownloadExcelButton";
 import { AddQuestionForm } from "./ManualQuizCreator";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import CollapsibleTextStyle, { buildTextStyle } from "./Collapsibletextstyle";
+import AIImageGenerator from "./AIImageGenerator";
+
 
 // ─── formatTimestamp ──────────────────────────────────────────────────────────
-// "just now" / "5m ago" / "3h ago" / "2d ago" / "Apr 23, 2026, 2:45 PM"
 function formatTimestamp(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -47,6 +36,18 @@ function formatTimestamp(iso) {
        + ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
+function stripHtml(html) {
+  return String(html || "")
+    .replace(/<img[^>]*>/gi, " ")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/?[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -69,6 +70,181 @@ function getAdminRole() {
     const payload = JSON.parse(atob(token.split(".")[1]));
     return payload.role || null;
   } catch { return null; }
+}
+
+// ════════════════════════════════════════════════════════════════
+// WebCheckRow with multi-source search buttons
+// ════════════════════════════════════════════════════════════════
+function WebCheckRow({ question, onUpdated }) {
+  const [saving, setSaving] = useState(false);
+  const [showNote, setShowNote] = useState(false);
+  const [pendingVerdict, setPendingVerdict] = useState(null);
+  const [note, setNote] = useState("");
+
+  const verdict = question.originality?.web_verdict || null;
+  const status = verdict?.status || null;
+
+  const cleanText = stripHtml(question.text || "");
+  const searchText = cleanText.length > 180 ? cleanText.slice(0, 180) : cleanText;
+  const quoted = `"${searchText}"`;
+
+  const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(quoted)}`;
+  const acaraUrl  = `https://www.google.com/search?q=${encodeURIComponent(`(site:acara.edu.au OR site:nap.edu.au) ${quoted}`)}`;
+  const cheatUrl  = `https://www.google.com/search?q=${encodeURIComponent(`(site:brainly.in OR site:brainly.com OR site:quizlet.com OR site:chegg.com OR site:studocu.com) ${quoted}`)}`;
+  const hasImage  = !!question.image_url;
+  const imageUrl  = hasImage
+    ? `https://www.google.com/searchbyimage?image_url=${encodeURIComponent(question.image_url)}`
+    : null;
+
+  const setVerdict = async (newVerdict, withNote = "") => {
+    setSaving(true);
+    try {
+      const res = await adminFetch(
+        `/api/admin/originality/web-verdict/${question.question_id}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ verdict: newVerdict, note: withNote || "" }),
+        }
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Save failed");
+      }
+      onUpdated?.();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+      setShowNote(false);
+      setPendingVerdict(null);
+      setNote("");
+    }
+  };
+
+  const beginVerdict = (v) => {
+    if (v === "clean") {
+      setVerdict(v);
+    } else {
+      setPendingVerdict(v);
+      setShowNote(true);
+    }
+  };
+
+  const statusUI = {
+    clean:           { label: "✓ Clean",            cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
+    suspicious:      { label: "⚠ Suspicious",       cls: "bg-amber-500/10 text-amber-400 border-amber-500/30" },
+    confirmed_copy:  { label: "🚨 Confirmed copy",  cls: "bg-red-500/10 text-red-400 border-red-500/30" },
+  };
+
+  return (
+    <div className="mt-3 ml-10 px-3 py-2 bg-blue-500/5 border border-blue-500/15 rounded-lg space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">🌐 Web check</span>
+
+        {status ? (
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium border ${statusUI[status]?.cls || "bg-slate-700/40 text-slate-300 border-slate-600"}`}
+            title={
+              verdict.note
+                ? `${verdict.note}\n\n— by ${verdict.verified_by || "admin"}, ${formatTimestamp(verdict.verified_at)}`
+                : `by ${verdict.verified_by || "admin"}, ${formatTimestamp(verdict.verified_at)}`
+            }
+          >
+            {statusUI[status]?.label || status}
+          </span>
+        ) : (
+          <span className="text-[10px] text-slate-500">⚪ Not checked</span>
+        )}
+
+        {verdict?.verified_at && (
+          <span className="text-[10px] text-slate-500">
+            · {formatTimestamp(verdict.verified_at)}
+          </span>
+        )}
+
+        {verdict?.note && (
+          <span className="text-[10px] text-slate-500 italic" title={verdict.note}>
+            📝 {verdict.note.length > 30 ? verdict.note.slice(0, 30) + "…" : verdict.note}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[10px] text-slate-500 font-medium">Check on:</span>
+
+        <a href={googleUrl} target="_blank" rel="noreferrer"
+          className="text-[10px] px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-600/30 rounded transition"
+          title="Search Google for verbatim copies">
+          🔍 Google
+        </a>
+
+        <a href={acaraUrl} target="_blank" rel="noreferrer"
+          className="text-[10px] px-2 py-0.5 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-600/30 rounded transition font-medium"
+          title="Search ACARA + NAP.edu.au only — checks if this is a NAPLAN past paper question">
+          🎓 ACARA / NAPLAN
+        </a>
+
+        <a href={cheatUrl} target="_blank" rel="noreferrer"
+          className="text-[10px] px-2 py-0.5 bg-orange-600/20 hover:bg-orange-600/40 text-orange-300 border border-orange-600/30 rounded transition"
+          title="Search Brainly, Quizlet, Chegg, Studocu — common cheating sites">
+          📚 Cheat sites
+        </a>
+
+        {hasImage && imageUrl && (
+          <a href={imageUrl} target="_blank" rel="noreferrer"
+            className="text-[10px] px-2 py-0.5 bg-pink-600/20 hover:bg-pink-600/40 text-pink-300 border border-pink-600/30 rounded transition"
+            title="Reverse image search — find where this image appears online">
+            🖼️ Image
+          </a>
+        )}
+      </div>
+
+      {!showNote && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-slate-500 font-medium">Verdict:</span>
+          <button onClick={() => beginVerdict("clean")} disabled={saving}
+            className="text-[10px] px-2 py-0.5 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-600/30 rounded transition disabled:opacity-40">
+            ✓ Clean
+          </button>
+          <button onClick={() => beginVerdict("suspicious")} disabled={saving}
+            className="text-[10px] px-2 py-0.5 bg-amber-600/20 hover:bg-amber-600/40 text-amber-400 border border-amber-600/30 rounded transition disabled:opacity-40">
+            ⚠ Suspicious
+          </button>
+          <button onClick={() => beginVerdict("confirmed_copy")} disabled={saving}
+            className="text-[10px] px-2 py-0.5 bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-600/30 rounded transition disabled:opacity-40">
+            🚨 Confirmed copy
+          </button>
+          {status && (
+            <button onClick={() => setVerdict("reset")} disabled={saving}
+              className="text-[10px] px-2 py-0.5 text-slate-500 hover:text-slate-300 ml-auto disabled:opacity-40">
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {showNote && (
+        <div className="flex items-center gap-2">
+          <input autoFocus type="text" value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder={
+              pendingVerdict === "confirmed_copy"
+                ? "Where did you find it? (e.g. acara.edu.au/2019-y3, brainly.in/q/123)"
+                : "Why suspicious? (optional)"
+            }
+            className="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-[11px] text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-blue-500"
+            onKeyDown={(e) => { if (e.key === "Enter") setVerdict(pendingVerdict, note); }} />
+          <button onClick={() => setVerdict(pendingVerdict, note)} disabled={saving}
+            className="text-[10px] px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-40">
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button onClick={() => { setShowNote(false); setPendingVerdict(null); setNote(""); }}
+            className="text-[10px] text-slate-400 hover:text-white">
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── File Upload Button ───────────────────────────────────────────────────────
@@ -100,23 +276,14 @@ function FileUploadButton({ onUploaded, accept = "image/*", label = "Upload" }) 
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading}
-        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs text-slate-300 rounded-lg border border-slate-600 transition flex items-center gap-1.5 flex-shrink-0"
-      >
+      <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs text-slate-300 rounded-lg border border-slate-600 transition flex items-center gap-1.5 flex-shrink-0">
         {uploading
           ? <><span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" /> Uploading...</>
           : <><span>📎</span>{label}</>}
       </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        className="hidden"
-        onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }}
-      />
+      <input ref={inputRef} type="file" accept={accept} className="hidden"
+        onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ""; }} />
     </>
   );
 }
@@ -129,27 +296,27 @@ function HtmlContent({ html, className = "", style = {} }) {
 
 function TypeBadge({ type }) {
   const styles = {
-  radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-  free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
-  matching:       "bg-teal-500/10 text-teal-400 border-teal-500/20",
-  word_click:     "bg-sky-500/10 text-sky-400 border-sky-500/20",
-  line_match:     "bg-amber-500/10 text-amber-400 border-amber-500/20",
-};
-const labels = {
-  radio_button:   "Single Choice",
-  checkbox:       "Multiple Choice",
-  picture_choice: "Picture Choice",
-  free_text:      "Free Text",
-  short_answer:   "Short Answer",
-  writing:        "Writing",
-  matching:       "Match Following",
-  word_click:     "Word Click",
-  line_match:     "Line Match",
-};
+    radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+    free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
+    matching:       "bg-teal-500/10 text-teal-400 border-teal-500/20",
+    word_click:     "bg-sky-500/10 text-sky-400 border-sky-500/20",
+    line_match:     "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  };
+  const labels = {
+    radio_button:   "Single Choice",
+    checkbox:       "Multiple Choice",
+    picture_choice: "Picture Choice",
+    free_text:      "Free Text",
+    short_answer:   "Short Answer",
+    writing:        "Writing",
+    matching:       "Match Following",
+    word_click:     "Word Click",
+    line_match:     "Line Match",
+  };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>
       {labels[type] || type}
@@ -330,11 +497,8 @@ function ContextMenu({ x, y, items, onClose }) {
   }, [onClose]);
 
   return (
-    <div
-      className="fixed z-50 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-1 min-w-[180px]"
-      style={{ top: y, left: x }}
-      onClick={(e) => e.stopPropagation()}
-    >
+    <div className="fixed z-50 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-1 min-w-[180px]"
+      style={{ top: y, left: x }} onClick={(e) => e.stopPropagation()}>
       {items.map((item, i) =>
         item === "divider" ? (
           <div key={i} className="my-1 border-t border-slate-700" />
@@ -569,7 +733,9 @@ function BulkMoveModal({ questionIds, currentQuizId, onClose, onMoved }) {
   );
 }
 
-// ─── Question Editor ──────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// QuestionEditor — UPDATED WITH ✨ AI BUTTON
+// ═══════════════════════════════════════════════════════════════
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const [form, setForm] = useState({
     text:            question.text            || "",
@@ -597,65 +763,70 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
     correct_answer:  question.correct_answer  || "",
     case_sensitive:  question.case_sensitive  || false,
     options: (question.options || []).map((o) => ({
-    option_id: o.option_id,
-  text:      o.text,
-  match:     o.match,      // ← ADD THIS if missing
-  image_url: o.image_url,
-  correct:   o.correct,
-  label:     o.label,
+      option_id: o.option_id,
+      text:      o.text,
+      match:     o.match,
+      image_url: o.image_url,
+      correct:   o.correct,
+      label:     o.label,
     })),
   });
   const [saving, setSaving] = useState(false);
 
   const textareaRef = useRef(null);
-const [selectionToolbar, setSelectionToolbar] = useState(null);
-const editorRef = useRef(null);
-const [showRawHtml, setShowRawHtml] = useState(false);
+  const [selectionToolbar, setSelectionToolbar] = useState(null);
+  const editorRef = useRef(null);
+  const [showRawHtml, setShowRawHtml] = useState(false);
+  const [showAiGen, setShowAiGen] = useState(false); // ✨ AI modal state
 
-const syncFromEditor = () => {
-  if (editorRef.current) {
-    setForm((f) => ({ ...f, text: editorRef.current.innerHTML }));
-  }
-};
+  const syncFromEditor = () => {
+    if (editorRef.current) {
+      setForm((f) => ({ ...f, text: editorRef.current.innerHTML }));
+    }
+  };
 
-const applyRichStyle = (cssStyle) => {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-  const range = sel.getRangeAt(0);
-  const span = document.createElement("span");
-  span.setAttribute("style", cssStyle);
-  range.surroundContents(span);
-  sel.removeAllRanges();
-  syncFromEditor();
-};
+  const applyRichStyle = (cssStyle) => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const span = document.createElement("span");
+    span.setAttribute("style", cssStyle);
+    range.surroundContents(span);
+    sel.removeAllRanges();
+    syncFromEditor();
+  };
 
-useEffect(() => {
-  if (editorRef.current && !showRawHtml) {
-    editorRef.current.innerHTML = form.text || "";
-  }
-}, []);
+  useEffect(() => {
+    if (editorRef.current && !showRawHtml) {
+      let html = form.text || "";
+      const trimmed = html.trim();
+      if (/^<(audio|video|img)[^>]*>(\s*<\/(audio|video)>)?$/i.test(trimmed)) {
+        html = `<p><br></p>${trimmed}<p><br></p>`;
+      }
+      editorRef.current.innerHTML = html;
+    }
+  }, []);
 
-const handleTextareaSelect = () => {
-  const el = textareaRef.current;
-  if (!el) return;
-  const start = el.selectionStart;
-  const end   = el.selectionEnd;
-  if (start === end) { setSelectionToolbar(null); return; }
-  setSelectionToolbar({ start, end, text: el.value.slice(start, end) });
-};
+  const handleTextareaSelect = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end   = el.selectionEnd;
+    if (start === end) { setSelectionToolbar(null); return; }
+    setSelectionToolbar({ start, end, text: el.value.slice(start, end) });
+  };
 
-const applyInlineStyle = (tag, style) => {
-  if (!selectionToolbar) return;
-  const { start, end, text } = selectionToolbar;
-  const before  = form.text.slice(0, start);
-  const after   = form.text.slice(end);
-  const wrapped = style
-    ? `<span style="${style}">${text}</span>`
-    : `<${tag}>${text}</${tag}>`;
-  setForm((f) => ({ ...f, text: before + wrapped + after }));
-  setSelectionToolbar(null);
-};
-
+  const applyInlineStyle = (tag, style) => {
+    if (!selectionToolbar) return;
+    const { start, end, text } = selectionToolbar;
+    const before  = form.text.slice(0, start);
+    const after   = form.text.slice(end);
+    const wrapped = style
+      ? `<span style="${style}">${text}</span>`
+      : `<${tag}>${text}</${tag}>`;
+    setForm((f) => ({ ...f, text: before + wrapped + after }));
+    setSelectionToolbar(null);
+  };
 
   const updateOption = (idx, field, value) => {
     setForm((f) => {
@@ -713,110 +884,100 @@ const applyInlineStyle = (tag, style) => {
       </div>
 
       <div>
-  <label className="block text-xs text-slate-400 mb-1">
-    Question Text
-    <span className="text-slate-600 font-normal ml-2 normal-case tracking-normal">— select text to format</span>
-  </label>
+        <label className="block text-xs text-slate-400 mb-1">
+          Question Text
+          <span className="text-slate-600 font-normal ml-2 normal-case tracking-normal">— select text to format</span>
+        </label>
 
-  {/* ── Formatting Toolbar ── */}
-  <div className="flex flex-wrap items-center gap-1 px-2 py-1.5 bg-slate-800 border border-slate-600 rounded-t-lg border-b-0">
-    {/* Font size */}
-    <select
-      onChange={(e) => {
-        if (!e.target.value) return;
-        document.execCommand("fontSize", false, "7");
-        const els = editorRef.current?.querySelectorAll('font[size="7"]');
-        els?.forEach((el) => {
-          el.removeAttribute("size");
-          el.style.fontSize = e.target.value;
-          el.outerHTML = el.outerHTML.replace(/<font/g, "<span").replace(/<\/font>/g, "</span>");
-        });
-        // simpler approach:
-        applyRichStyle(`font-size:${e.target.value}`);
-        e.target.value = "";
-        syncFromEditor();
-      }}
-      className="h-6 bg-slate-700 border border-slate-600 rounded text-[10px] text-slate-300 px-1 outline-none"
-      defaultValue="">
-      <option value="" disabled>Size</option>
-      {[10,12,14,16,18,20,24,28,32,36,40].map(s => (
-        <option key={s} value={`${s}px`}>{s}px</option>
-      ))}
-    </select>
+        <div className="flex flex-wrap items-center gap-1 px-2 py-1.5 bg-slate-800 border border-slate-600 rounded-t-lg border-b-0">
+          <select
+            onChange={(e) => {
+              if (!e.target.value) return;
+              document.execCommand("fontSize", false, "7");
+              const els = editorRef.current?.querySelectorAll('font[size="7"]');
+              els?.forEach((el) => {
+                el.removeAttribute("size");
+                el.style.fontSize = e.target.value;
+                el.outerHTML = el.outerHTML.replace(/<font/g, "<span").replace(/<\/font>/g, "</span>");
+              });
+              applyRichStyle(`font-size:${e.target.value}`);
+              e.target.value = "";
+              syncFromEditor();
+            }}
+            className="h-6 bg-slate-700 border border-slate-600 rounded text-[10px] text-slate-300 px-1 outline-none"
+            defaultValue="">
+            <option value="" disabled>Size</option>
+            {[10,12,14,16,18,20,24,28,32,36,40].map(s => (
+              <option key={s} value={`${s}px`}>{s}px</option>
+            ))}
+          </select>
 
-    <div className="w-px h-4 bg-slate-600" />
+          <div className="w-px h-4 bg-slate-600" />
 
-    {/* Bold */}
-    <button type="button" onMouseDown={(e) => { e.preventDefault(); document.execCommand("bold"); syncFromEditor(); }}
-      className="px-2 py-0.5 text-[11px] font-bold text-slate-300 hover:bg-indigo-600 hover:text-white rounded transition">B</button>
+          <button type="button" onMouseDown={(e) => { e.preventDefault(); document.execCommand("bold"); syncFromEditor(); }}
+            className="px-2 py-0.5 text-[11px] font-bold text-slate-300 hover:bg-indigo-600 hover:text-white rounded transition">B</button>
 
-    {/* Italic */}
-    <button type="button" onMouseDown={(e) => { e.preventDefault(); document.execCommand("italic"); syncFromEditor(); }}
-      className="px-2 py-0.5 text-[11px] italic text-slate-300 hover:bg-indigo-600 hover:text-white rounded transition">I</button>
+          <button type="button" onMouseDown={(e) => { e.preventDefault(); document.execCommand("italic"); syncFromEditor(); }}
+            className="px-2 py-0.5 text-[11px] italic text-slate-300 hover:bg-indigo-600 hover:text-white rounded transition">I</button>
 
-    {/* Underline */}
-    <button type="button" onMouseDown={(e) => { e.preventDefault(); document.execCommand("underline"); syncFromEditor(); }}
-      className="px-2 py-0.5 text-[11px] underline text-slate-300 hover:bg-indigo-600 hover:text-white rounded transition">U</button>
+          <button type="button" onMouseDown={(e) => { e.preventDefault(); document.execCommand("underline"); syncFromEditor(); }}
+            className="px-2 py-0.5 text-[11px] underline text-slate-300 hover:bg-indigo-600 hover:text-white rounded transition">U</button>
 
-    <div className="w-px h-4 bg-slate-600" />
+          <div className="w-px h-4 bg-slate-600" />
 
-    {/* Colors */}
-    {[
-      { color: "#ffffff", label: "White"  },
-      { color: "#ef4444", label: "Red"    },
-      { color: "#f97316", label: "Orange" },
-      { color: "#22c55e", label: "Green"  },
-      { color: "#3b82f6", label: "Blue"   },
-      { color: "#a855f7", label: "Purple" },
-      { color: "#fbbf24", label: "Yellow" },
-    ].map(({ color, label }) => (
-      <button key={color} type="button" title={label}
-        onMouseDown={(e) => { e.preventDefault(); document.execCommand("foreColor", false, color); syncFromEditor(); }}
-        className="w-4 h-4 rounded-full border border-slate-500 flex-shrink-0 hover:scale-110 transition"
-        style={{ background: color }} />
-    ))}
+          {[
+            { color: "#ffffff", label: "White"  },
+            { color: "#ef4444", label: "Red"    },
+            { color: "#f97316", label: "Orange" },
+            { color: "#22c55e", label: "Green"  },
+            { color: "#3b82f6", label: "Blue"   },
+            { color: "#a855f7", label: "Purple" },
+            { color: "#fbbf24", label: "Yellow" },
+          ].map(({ color, label }) => (
+            <button key={color} type="button" title={label}
+              onMouseDown={(e) => { e.preventDefault(); document.execCommand("foreColor", false, color); syncFromEditor(); }}
+              className="w-4 h-4 rounded-full border border-slate-500 flex-shrink-0 hover:scale-110 transition"
+              style={{ background: color }} />
+          ))}
 
-    <div className="w-px h-4 bg-slate-600" />
+          <div className="w-px h-4 bg-slate-600" />
 
-    {/* Clear formatting */}
-    <button type="button"
-      onMouseDown={(e) => { e.preventDefault(); document.execCommand("removeFormat"); syncFromEditor(); }}
-      className="px-2 py-0.5 text-[10px] text-slate-400 hover:text-white hover:bg-slate-700 rounded transition">
-      Clear
-    </button>
+          <button type="button"
+            onMouseDown={(e) => { e.preventDefault(); document.execCommand("removeFormat"); syncFromEditor(); }}
+            className="px-2 py-0.5 text-[10px] text-slate-400 hover:text-white hover:bg-slate-700 rounded transition">
+            Clear
+          </button>
 
-    {/* HTML toggle */}
-    <button type="button"
-      onClick={() => setShowRawHtml(v => !v)}
-      className="ml-auto px-2 py-0.5 text-[10px] text-slate-500 hover:text-white border border-slate-600 hover:border-slate-400 rounded transition">
-      {showRawHtml ? "Rich" : "HTML"}
-    </button>
-  </div>
+          <button type="button"
+            onClick={() => setShowRawHtml(v => !v)}
+            className="ml-auto px-2 py-0.5 text-[10px] text-slate-500 hover:text-white border border-slate-600 hover:border-slate-400 rounded transition">
+            {showRawHtml ? "Rich" : "HTML"}
+          </button>
+        </div>
 
-  {/* ── Editor ── */}
-  {showRawHtml ? (
-    <textarea
-      rows={4}
-      value={form.text}
-      onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
-      onBlur={() => {
-        if (editorRef.current) editorRef.current.innerHTML = form.text;
-      }}
-      className="w-full bg-slate-900 border border-slate-600 rounded-b-lg px-3 py-2 text-xs text-white font-mono outline-none focus:ring-2 focus:ring-indigo-500"
-    />
-  ) : (
-    <div
-      ref={editorRef}
-      contentEditable
-      suppressContentEditableWarning
-      onInput={syncFromEditor}
-      onBlur={syncFromEditor}
-      dangerouslySetInnerHTML={undefined}
-      className="w-full min-h-[80px] bg-slate-900 border border-slate-600 rounded-b-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
-      style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
-    />
-  )}
-</div>
+        {showRawHtml ? (
+          <textarea
+            rows={4}
+            value={form.text}
+            onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
+            onBlur={() => {
+              if (editorRef.current) editorRef.current.innerHTML = form.text;
+            }}
+            className="w-full bg-slate-900 border border-slate-600 rounded-b-lg px-3 py-2 text-xs text-white font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        ) : (
+          <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            onInput={syncFromEditor}
+            onBlur={syncFromEditor}
+            dangerouslySetInnerHTML={undefined}
+            className="w-full min-h-[80px] bg-slate-900 border border-slate-600 rounded-b-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+            style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+          />
+        )}
+      </div>
 
       <div className="grid grid-cols-3 gap-3">
         <div>
@@ -841,13 +1002,13 @@ const applyInlineStyle = (tag, style) => {
             <option value="matching">Match the Following</option>
           </select>
         </div>
-  <div>
+        <div>
           <label className="block text-xs text-slate-400 mb-1">Points</label>
           <input type="number" min="1" value={form.points}
             onChange={(e) => setForm((f) => ({ ...f, points: parseInt(e.target.value) || 1 }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
         </div>
-<div>
+        <div>
           <label className="block text-xs text-slate-400 mb-1">Category</label>
           <input type="text" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
@@ -855,62 +1016,63 @@ const applyInlineStyle = (tag, style) => {
       </div>
 
       {["radio_button", "checkbox", "matching", "short_answer"].includes(form.type) && (
-  <div>
-    <label className="block text-xs text-slate-400 mb-1">
-      Display Style
-      <span className="text-slate-600 font-normal ml-1">(controls how this question renders)</span>
-    </label>
-    <select
-      value={form.display_style || ""}
-      onChange={(e) => setForm((f) => ({ ...f, display_style: e.target.value || null }))}
-      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
-    >
-      <option value="">Default (standard buttons)</option>
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">
+            Display Style
+            <span className="text-slate-600 font-normal ml-1">(controls how this question renders)</span>
+          </label>
+          <select
+            value={form.display_style || ""}
+            onChange={(e) => setForm((f) => ({ ...f, display_style: e.target.value || null }))}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+          >
+            <option value="">Default (standard buttons)</option>
 
-      {form.type === "radio_button" && (
-        <>
-          <option value="word_tap">Word Tap — click the wrong word</option>
-          <option value="punctuation_placement">Punctuation Placement — A B C D inline circles</option>
-          <option value="word_click">Word Click — click a highlighted word</option>
-          <option value="inline_underline">Inline Underline — click an underlined word</option>
-          <option value="cloze_dropdown">Cloze Dropdown — fill the gap from a list</option>
-        </>
+            {form.type === "radio_button" && (
+              <>
+                <option value="word_tap">Word Tap — click the wrong word</option>
+                <option value="punctuation_placement">Punctuation Placement — A B C D inline circles</option>
+                <option value="word_click">Word Click — click a highlighted word</option>
+                <option value="inline_underline">Inline Underline — click an underlined word</option>
+                <option value="cloze_dropdown">Cloze Dropdown — fill the gap from a list</option>
+              </>
+            )}
+
+            {form.type === "checkbox" && (
+              <>
+                <option value="highlight_text">Highlight Text — tap multiple words</option>
+                <option value="inline_circle_multi">Inline Circle Multi — tap multiple positions</option>
+              </>
+            )}
+
+            {form.type === "matching" && (
+              <>
+                <option value="category_drop">Category Drop — sort into boxes</option>
+                <option value="line_match">Line Match — draw lines to connect</option>
+                <option value="drag_drop_cards">Drag & Drop Cards — modern card style</option>
+                <option value="tap_to_pair">Tap to Pair — tap left then right</option>
+              </>
+            )}
+
+            {form.type === "short_answer" && (
+              <>
+                <option value="cloze_fill">Cloze Fill — inline blank inside the sentence</option>
+                <option value="multi_blank">Multi Blank — multiple blanks in one sentence</option>
+              </>
+            )}
+          </select>
+
+          {form.display_style && (
+            <p className="mt-1 text-[10px] text-indigo-400">
+              ℹ️ This question will render using the <strong>{form.display_style}</strong> widget.
+            </p>
+          )}
+        </div>
       )}
 
-      {form.type === "checkbox" && (
-        <>
-          <option value="highlight_text">Highlight Text — tap multiple words</option>
-          <option value="inline_circle_multi">Inline Circle Multi — tap multiple positions</option>
-        </>
-      )}
-
-      {form.type === "matching" && (
-        <>
-          <option value="category_drop">Category Drop — sort into boxes</option>
-          <option value="line_match">Line Match — draw lines to connect</option>
-          <option value="drag_drop_cards">Drag & Drop Cards — modern card style</option>
-          <option value="tap_to_pair">Tap to Pair — tap left then right</option>
-        </>
-      )}
-
-      {form.type === "short_answer" && (
-        <>
-          <option value="cloze_fill">Cloze Fill — inline blank inside the sentence</option>
-          <option value="multi_blank">Multi Blank — multiple blanks in one sentence</option>
-        </>
-      )}
-    </select>
-
-    {/* Helper hint that explains the chosen style */}
-{/* Helper hint that explains the chosen style */}
-    {form.display_style && (
-      <p className="mt-1 text-[10px] text-indigo-400">
-        ℹ️ This question will render using the <strong>{form.display_style}</strong> widget.
-      </p>
-    )}
-  </div>
-)}
-
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* IMAGE URL ROW — NOW WITH ✨ AI BUTTON                       */}
+      {/* ═══════════════════════════════════════════════════════════ */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">Image URL</label>
         <div className="flex items-center gap-2">
@@ -918,6 +1080,17 @@ const applyInlineStyle = (tag, style) => {
             placeholder="https://... or upload →"
             className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
           <FileUploadButton accept="image/*,.pdf" label="Upload" onUploaded={(url) => setForm((f) => ({ ...f, image_url: url }))} />
+
+          {/* ✨ NEW — AI Generate button */}
+          <button
+            type="button"
+            onClick={() => setShowAiGen(true)}
+            className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-medium rounded-lg flex items-center gap-1 whitespace-nowrap flex-shrink-0"
+            title="Generate image with AI"
+          >
+            <span>✨</span><span>AI</span>
+          </button>
+
           {form.image_url && (
             <button onClick={() => setForm((f) => ({ ...f, image_url: "" }))} className="text-red-400 hover:text-red-300 text-xs flex-shrink-0">✕</button>
           )}
@@ -977,7 +1150,6 @@ const applyInlineStyle = (tag, style) => {
         </div>
       )}
 
-      {/* Matching pairs editor */}
       {form.type === "matching" && (
         <div className="pt-3 border-t border-slate-700">
           <div className="flex items-center justify-between mb-2">
@@ -1069,7 +1241,7 @@ const applyInlineStyle = (tag, style) => {
         </div>
       </div>
 
-     {form.type !== "free_text" && form.type !== "short_answer" && form.type !== "writing" && form.type !== "matching" && (
+      {form.type !== "free_text" && form.type !== "short_answer" && form.type !== "writing" && form.type !== "matching" && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs text-slate-400">Options (check = correct)</label>
@@ -1123,7 +1295,10 @@ const applyInlineStyle = (tag, style) => {
                       className="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-white rounded border border-slate-600 whitespace-nowrap">
                       📎 Upload
                     </button>
-                    {opt.image_url && <img src={opt.image_url} alt="" className="w-8 h-8 rounded object-cover border border-slate-600" />}
+                    {opt.image_url && (
+                      <img src={opt.image_url} alt=""
+                        className="h-10 w-auto max-w-[80px] rounded object-contain border border-slate-600 bg-white" />
+                    )}
                   </div>
                 )}
                 {form.options.length > 2 && (
@@ -1142,9 +1317,18 @@ const applyInlineStyle = (tag, style) => {
           {saving ? "Saving..." : "Save Changes"}
         </button>
       </div>
+
+      {/* ✨ NEW — AI Image Generator modal */}
+      <AIImageGenerator
+        open={showAiGen}
+        onClose={() => setShowAiGen(false)}
+        onUseImage={(url) => setForm((f) => ({ ...f, image_url: url }))}
+        defaultPrompt={stripHtml(form.text || "")}
+      />
     </div>
   );
 }
+
 // ─── Move To Position Modal ───────────────────────────────────────────────────
 function MoveToPositionModal({ question, questions, onClose, onMove }) {
   return (
@@ -1165,7 +1349,6 @@ function MoveToPositionModal({ question, questions, onClose, onMove }) {
             const preview = q.text?.replace(/<[^>]+>/g, "").slice(0, 45) || "—";
             return (
               <div key={q.question_id} className="border-b border-slate-800/50 last:border-0">
-                {/* Place ABOVE this question */}
                 <button
                   onClick={() => onMove(question.question_id, idx, "before")}
                   className="w-full flex items-center gap-3 px-5 py-2 hover:bg-indigo-600/10 transition group"
@@ -1173,7 +1356,6 @@ function MoveToPositionModal({ question, questions, onClose, onMove }) {
                   <span className="text-[10px] font-bold text-indigo-400 w-16 flex-shrink-0 group-hover:text-indigo-300">↑ Before</span>
                   <span className="text-xs text-slate-400 truncate">Q{idx + 1}: {preview}</span>
                 </button>
-                {/* Show "Place AFTER" only for last item or after each */}
                 {idx === questions.filter(q2 => q2.question_id !== question.question_id).length - 1 && (
                   <button
                     onClick={() => onMove(question.question_id, idx, "after")}
@@ -1194,6 +1376,7 @@ function MoveToPositionModal({ question, questions, onClose, onMove }) {
     </div>
   );
 }
+
 // ═══════════════════════════════════════════════════════════
 // MAIN PAGE
 // ═══════════════════════════════════════════════════════════
@@ -1215,34 +1398,33 @@ export default function QuizDetailPage() {
   const [moveQuestion,   setMoveQuestion]   = useState(null);
   const addingRef = useRef(false);
 
-  // ── Bulk move state ──
   const [selectedIds,  setSelectedIds]  = useState(new Set());
   const [showBulkMove, setShowBulkMove] = useState(false);
   const [generatingExpl, setGeneratingExpl] = useState(false);
-  const [generatingSubTopics, setGeneratingSubTopics] = useState(false);   
+  const [generatingSubTopics, setGeneratingSubTopics] = useState(false);
   const [reorderQuestion, setReorderQuestion] = useState(null);
-
+  const [searchTerm, setSearchTerm] = useState("");
 
   const handleBulkDelete = async () => {
-  if (!selectedIds.size) return;
-  if (!confirm(`Delete ${selectedIds.size} selected question(s)? This cannot be undone.`)) return;
-  try {
-    const results = await Promise.all(
-      [...selectedIds].map((qId) =>
-        adminFetch(`/api/admin/questions/${qId}?quiz_id=${quizId}`, { method: "DELETE" })
-      )
-    );
-    const failed = results.find((r) => !r.ok);
-    if (failed) {
-      const d = await failed.json().catch(() => ({}));
-      throw new Error(d.error || "Some questions failed to delete");
+    if (!selectedIds.size) return;
+    if (!confirm(`Delete ${selectedIds.size} selected question(s)? This cannot be undone.`)) return;
+    try {
+      const results = await Promise.all(
+        [...selectedIds].map((qId) =>
+          adminFetch(`/api/admin/questions/${qId}?quiz_id=${quizId}`, { method: "DELETE" })
+        )
+      );
+      const failed = results.find((r) => !r.ok);
+      if (failed) {
+        const d = await failed.json().catch(() => ({}));
+        throw new Error(d.error || "Some questions failed to delete");
+      }
+      setSelectedIds(new Set());
+      fetchDetail();
+    } catch (err) {
+      alert(err.message);
     }
-    setSelectedIds(new Set());
-    fetchDetail();
-  } catch (err) {
-    alert(err.message);
-  }
-};
+  };
 
   const toggleSelect = (id) => {
     setSelectedIds((prev) => {
@@ -1280,7 +1462,7 @@ export default function QuizDetailPage() {
         is_trial:            data.is_trial            || false,
         randomize_questions: data.randomize_questions || false,
         randomize_options:   data.randomize_options   || false,
-        attempts_enabled:    data.attempts_enabled    ?? false,  // ✅ ADD
+        attempts_enabled:    data.attempts_enabled    ?? false,
         max_attempts:        data.max_attempts        ?? "",
       });
     } catch (err) {
@@ -1305,7 +1487,8 @@ export default function QuizDetailPage() {
     const res = await adminFetch(`/api/admin/questions/${questionId}?quiz_id=${quizId}`, { method: "DELETE" });
     if (res.ok) fetchDetail(); else alert("Delete failed");
   };
- const handleSwapOrder = async (idxA, idxB) => {
+
+  const handleSwapOrder = async (idxA, idxB) => {
     const qA = questions[idxA];
     const qB = questions[idxB];
     if (!qA || !qB) return;
@@ -1347,6 +1530,7 @@ export default function QuizDetailPage() {
       )
     );
   };
+
   const handleAddQuestion = async (newQ) => {
     if (addingRef.current) return;
     addingRef.current = true;
@@ -1413,66 +1597,64 @@ export default function QuizDetailPage() {
     }
   };
 
-// ✅ Poll generation progress while running
-useEffect(() => {
-  if (!generatingExpl) return;
+  useEffect(() => {
+    if (!generatingExpl) return;
 
-  const interval = setInterval(async () => {
-    try {
-      const res = await adminFetch(
-        `/api/admin/quizzes/${quizId}/generate-explanations/status`
-      );
-      const data = await res.json();
-
-      if (data.status === "done") {
-        clearInterval(interval);
-        setGeneratingExpl(false);
-        fetchDetail(); // ✅ Reload questions to show new explanations
-       alert(
-          `✅ Done! ${data.done} explanations generated` +
-          (data.failed > 0 ? `, ${data.failed} failed` : "") +
-          (data.scope === "selected" ? " (selected questions)" : "")
+    const interval = setInterval(async () => {
+      try {
+        const res = await adminFetch(
+          `/api/admin/quizzes/${quizId}/generate-explanations/status`
         );
+        const data = await res.json();
+
+        if (data.status === "done") {
+          clearInterval(interval);
+          setGeneratingExpl(false);
+          fetchDetail();
+          alert(
+            `✅ Done! ${data.done} explanations generated` +
+            (data.failed > 0 ? `, ${data.failed} failed` : "") +
+            (data.scope === "selected" ? " (selected questions)" : "")
+          );
+        }
+      } catch {
       }
-    } catch {
-      // Silent fail — keep polling
-    }
-  }, 3000); // Poll every 3 seconds
+    }, 3000);
 
-  return () => clearInterval(interval);
-}, [generatingExpl, quizId]);
-useEffect(() => {
-  if (!generatingSubTopics) return;
+    return () => clearInterval(interval);
+  }, [generatingExpl, quizId]);
 
-  const interval = setInterval(async () => {
-    try {
-      const res = await adminFetch(
-        `/api/admin/quizzes/${quizId}/generate-subtopics/status`
-      );
-      const data = await res.json();
+  useEffect(() => {
+    if (!generatingSubTopics) return;
 
-      if (data.status === "done") {
-        clearInterval(interval);
-        setGeneratingSubTopics(false);
-        fetchDetail();
-        alert(
-        `✅ Done! ${data.done} sub-topics assigned` +
-        (data.failed > 0 ? `, ${data.failed} failed` : "") +
-        (data.scope === "selected" ? " (selected questions)" : "") +
-        (data.provider ? ` (via ${data.provider})` : "")
-      );
-      } else if (data.status === "error") {
-        clearInterval(interval);
-        setGeneratingSubTopics(false);
-        alert(`❌ Generation failed: ${data.error || "Unknown error"}`);
+    const interval = setInterval(async () => {
+      try {
+        const res = await adminFetch(
+          `/api/admin/quizzes/${quizId}/generate-subtopics/status`
+        );
+        const data = await res.json();
+
+        if (data.status === "done") {
+          clearInterval(interval);
+          setGeneratingSubTopics(false);
+          fetchDetail();
+          alert(
+            `✅ Done! ${data.done} sub-topics assigned` +
+            (data.failed > 0 ? `, ${data.failed} failed` : "") +
+            (data.scope === "selected" ? " (selected questions)" : "") +
+            (data.provider ? ` (via ${data.provider})` : "")
+          );
+        } else if (data.status === "error") {
+          clearInterval(interval);
+          setGeneratingSubTopics(false);
+          alert(`❌ Generation failed: ${data.error || "Unknown error"}`);
+        }
+      } catch {
       }
-    } catch {
-      // Silent fail — keep polling
-    }
-  }, 3000);
+    }, 3000);
 
-  return () => clearInterval(interval);
-}, [generatingSubTopics, quizId]);
+    return () => clearInterval(interval);
+  }, [generatingSubTopics, quizId]);
 
   const handleSaveSettings = async () => {
     setSavingSettings(true);
@@ -1487,7 +1669,7 @@ useEffect(() => {
           is_trial:            settingsForm.is_trial,
           randomize_questions: settingsForm.randomize_questions,
           randomize_options:   settingsForm.randomize_options,
-          attempts_enabled:    settingsForm.attempts_enabled,    // ✅ ADD
+          attempts_enabled:    settingsForm.attempts_enabled,
           max_attempts:        settingsForm.max_attempts === "" ? null : Number(settingsForm.max_attempts),
         }),
       });
@@ -1498,69 +1680,68 @@ useEffect(() => {
   };
 
   const handleQuestionVerified = (updatedQ) => {
-  setQuestions((prev) => prev.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q));
-};
+    setQuestions((prev) => prev.map((q) => q.question_id === updatedQ.question_id ? updatedQ : q));
+  };
 
+  const handleGenerateSubTopics = async () => {
+    const count = selectedIds.size;
+    const topic = quiz?.sub_topic || quiz?.subject || "the current topic";
+    const scope = count > 0 ? `${count} selected question${count !== 1 ? "s" : ""}` : "all questions";
 
-const handleGenerateSubTopics = async () => {
-  const count = selectedIds.size;
-  const topic = quiz?.sub_topic || quiz?.subject || "the current topic";
-  const scope = count > 0 ? `${count} selected question${count !== 1 ? "s" : ""}` : "all questions";
+    if (!confirm(
+      `Auto-generate fine-grained sub-topics for ${scope}?\n\n` +
+      `Parent topic: "${topic}"\n\n` +
+      `Example: "Spelling" → "Silent letters", "Homophones", "Double consonants"\n\n` +
+      `This will REPLACE existing sub-topics on the ${count > 0 ? "selected" : "affected"} questions.`
+    )) return;
 
-  if (!confirm(
-    `Auto-generate fine-grained sub-topics for ${scope}?\n\n` +
-    `Parent topic: "${topic}"\n\n` +
-    `Example: "Spelling" → "Silent letters", "Homophones", "Double consonants"\n\n` +
-    `This will REPLACE existing sub-topics on the ${count > 0 ? "selected" : "affected"} questions.`
-  )) return;
+    setGeneratingSubTopics(true);
+    try {
+      const body = count > 0
+        ? JSON.stringify({ question_ids: [...selectedIds] })
+        : JSON.stringify({});
 
-  setGeneratingSubTopics(true);
-  try {
-    const body = count > 0
-      ? JSON.stringify({ question_ids: [...selectedIds] })
-      : JSON.stringify({});
-
-    const res = await adminFetch(
-      `/api/admin/quizzes/${quizId}/generate-subtopics`,
-      { method: "POST", body, headers: { "Content-Type": "application/json" } }
-    );
-    if (!res.ok) {
-      const d = await res.json();
-      alert("Failed: " + (d.error || "Unknown error"));
+      const res = await adminFetch(
+        `/api/admin/quizzes/${quizId}/generate-subtopics`,
+        { method: "POST", body, headers: { "Content-Type": "application/json" } }
+      );
+      if (!res.ok) {
+        const d = await res.json();
+        alert("Failed: " + (d.error || "Unknown error"));
+        setGeneratingSubTopics(false);
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
       setGeneratingSubTopics(false);
     }
-  } catch (err) {
-    alert("Error: " + err.message);
-    setGeneratingSubTopics(false);
-  }
-};
+  };
 
-const handleGenerateExplanations = async () => {
-  const count = selectedIds.size;
-  const scope = count > 0 ? `${count} selected question${count !== 1 ? "s" : ""}` : "all questions";
+  const handleGenerateExplanations = async () => {
+    const count = selectedIds.size;
+    const scope = count > 0 ? `${count} selected question${count !== 1 ? "s" : ""}` : "all questions";
 
-  if (!confirm(`Regenerate AI explanations for ${scope}?`)) return;
+    if (!confirm(`Regenerate AI explanations for ${scope}?`)) return;
 
-  setGeneratingExpl(true);
-  try {
-    const body = count > 0
-      ? JSON.stringify({ question_ids: [...selectedIds] })
-      : JSON.stringify({});
+    setGeneratingExpl(true);
+    try {
+      const body = count > 0
+        ? JSON.stringify({ question_ids: [...selectedIds] })
+        : JSON.stringify({});
 
-    const res = await adminFetch(
-      `/api/admin/quizzes/${quizId}/generate-explanations`,
-      { method: "POST", body, headers: { "Content-Type": "application/json" } }
-    );
-    if (!res.ok) {
-      const d = await res.json();
-      alert("Failed: " + (d.error || "Unknown error"));
+      const res = await adminFetch(
+        `/api/admin/quizzes/${quizId}/generate-explanations`,
+        { method: "POST", body, headers: { "Content-Type": "application/json" } }
+      );
+      if (!res.ok) {
+        const d = await res.json();
+        alert("Failed: " + (d.error || "Unknown error"));
+        setGeneratingExpl(false);
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
       setGeneratingExpl(false);
     }
-  } catch (err) {
-    alert("Error: " + err.message);
-    setGeneratingExpl(false);
-  }
-};
+  };
 
   const verStats = questions.reduce(
     (acc, q) => { const s = q.tutor_verification?.status || "pending"; acc[s] = (acc[s] || 0) + 1; return acc; },
@@ -1570,7 +1751,6 @@ const handleGenerateExplanations = async () => {
   return (
     <div className="min-h-screen bg-slate-950 text-white">
 
-      {/* ── Header ── */}
       <header className="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md border-b border-slate-800">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
@@ -1643,7 +1823,6 @@ const handleGenerateExplanations = async () => {
         </div>
       </header>
 
-      {/* ── Body ── */}
       <div className="max-w-5xl mx-auto px-6 py-8">
 
         {error && (
@@ -1726,7 +1905,6 @@ const handleGenerateExplanations = async () => {
         ) : (
           <div className="space-y-4">
 
-            {/* ── Questions header with Select All + Move button ── */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Questions ({questions.length})</h2>
@@ -1753,16 +1931,56 @@ const handleGenerateExplanations = async () => {
               </div>
             </div>
 
-            {/* Add form at END of list (insertAtIndex === null) */}
             {showAddForm && insertAtIndex === null && (
               <AddQuestionForm onAdd={handleAddQuestion} onCancel={() => setShowAddForm(false)} />
+            )}
+
+            {questions.length > 0 && (
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search questions by text, number (e.g. Q5), type, or category..."
+                  className="w-full bg-slate-800/60 border border-slate-700 rounded-lg pl-9 pr-9 py-2 text-sm text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+                />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none">
+                  🔍
+                </span>
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs"
+                    title="Clear search"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             )}
 
             {questions.length === 0 && !showAddForm && (
               <div className="text-center py-24 text-slate-500">No questions in this quiz yet.</div>
             )}
 
-            {questions.map((q, i) => {
+            {questions
+              .map((q, i) => ({ q, i }))
+              .filter(({ q, i }) => {
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return true;
+                const qNumMatch = term.match(/^q?(\d+)$/);
+                if (qNumMatch && parseInt(qNumMatch[1]) === i + 1) return true;
+                const haystack = [
+                  stripHtml(q.text),
+                  q.type,
+                  ...(q.categories?.map((c) => c.name) || []),
+                  ...(q.options?.map((o) => stripHtml(o.text)) || []),
+                  q.explanation,
+                ].filter(Boolean).join(" ").toLowerCase();
+                return haystack.includes(term);
+              })
+              .map(({ q, i }) => {
+
               if (editingId === q.question_id) {
                 return (
                   <QuestionEditor key={q.question_id} question={q}
@@ -1787,7 +2005,6 @@ const handleGenerateExplanations = async () => {
               return (
                 <div key={q.question_id}>
 
-                  {/* Insert BEFORE first question */}
                   {showInsertBefore && (
                     <div className="mb-4">
                       <div className="flex items-center gap-2 mb-2">
@@ -1807,7 +2024,6 @@ const handleGenerateExplanations = async () => {
                       setContextMenu({ x: e.clientX, y: e.clientY, questionId: q.question_id, index: i });
                     }}>
 
-                    {/* ── Question header with checkbox ── */}
                     <div className="flex items-start gap-3 mb-3">
                       <input
                         type="checkbox"
@@ -1832,49 +2048,56 @@ const handleGenerateExplanations = async () => {
                           <VerificationBadge status={verStatus} />
                         </div>
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-  {/* ── Reorder buttons ── */}
-  <div className="flex items-center gap-0.5 border border-slate-700 rounded-lg overflow-hidden">
-    <button
-      onClick={() => handleSwapOrder(i - 1, i)}
-      disabled={i === 0}
-      className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-20 disabled:cursor-not-allowed transition"
-      title="Move up"
-    >▲</button>
-    <div className="w-px h-4 bg-slate-700" />
-    <button
-      onClick={() => handleSwapOrder(i, i + 1)}
-      disabled={i === questions.length - 1}
-      className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-20 disabled:cursor-not-allowed transition"
-      title="Move down"
-    >▼</button>
-    <div className="w-px h-4 bg-slate-700" />
-    <button
-      onClick={() => setReorderQuestion(q)}
-      className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 transition"
-      title="Move to position"
-    >⇅</button>
-  </div>
-  
-  <button onClick={() => { setEditingId(q.question_id); setShowAddForm(false); setInsertAtIndex(null); }}
-    className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
-  <button onClick={() => handleDeleteQuestion(q.question_id)}
-    className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
-  <span className="text-[10px] text-slate-600 italic">right-click for more</span>
-</div>
+                          <div className="flex items-center gap-0.5 border border-slate-700 rounded-lg overflow-hidden">
+                            <button
+                              onClick={() => handleSwapOrder(i - 1, i)}
+                              disabled={i === 0}
+                              className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-20 disabled:cursor-not-allowed transition"
+                              title="Move up"
+                            >▲</button>
+                            <div className="w-px h-4 bg-slate-700" />
+                            <button
+                              onClick={() => handleSwapOrder(i, i + 1)}
+                              disabled={i === questions.length - 1}
+                              className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-20 disabled:cursor-not-allowed transition"
+                              title="Move down"
+                            >▼</button>
+                            <div className="w-px h-4 bg-slate-700" />
+                            <button
+                              onClick={() => setReorderQuestion(q)}
+                              className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 transition"
+                              title="Move to position"
+                            >⇅</button>
+                          </div>
+
+                          <button onClick={() => { setEditingId(q.question_id); setShowAddForm(false); setInsertAtIndex(null); }}
+                            className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
+                          <button onClick={() => handleDeleteQuestion(q.question_id)}
+                            className="text-xs text-red-400 hover:text-red-300 font-medium">Delete</button>
+                          <span className="text-[10px] text-slate-600 italic">right-click for more</span>
+                        </div>
                       </div>
                     </div>
 
-                    {/* ── Question text with buildTextStyle ── */}
                     <div className="mb-3 ml-10">
-                    <HtmlContent html={q.text}
-                      style={buildTextStyle(q)}
-                      className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
-                  </div>
+                      <HtmlContent html={q.text}
+                        style={buildTextStyle(q)}
+                        className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
+                    </div>
 
                     {q.image_url && !q.text?.includes(q.image_url) && (
-                      <div className="mb-3 ml-10">
+                      <div className="mb-3 ml-10 relative inline-block">
                         <img src={q.image_url} alt="Question" style={imgStyle}
                           className={`${!q.image_width ? imgSizeCls : ""} rounded-lg border border-slate-700 object-contain`} />
+                        <a
+                          href={`https://www.google.com/searchbyimage?image_url=${encodeURIComponent(q.image_url)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="absolute top-1 right-1 px-1.5 py-0.5 bg-black/70 hover:bg-pink-600 text-pink-300 hover:text-white text-[10px] rounded transition"
+                          title="Reverse image search — find where this image appears online"
+                        >
+                          🔍 Find source
+                        </a>
                       </div>
                     )}
 
@@ -1902,8 +2125,6 @@ const handleGenerateExplanations = async () => {
                       </div>
                     )}
 
-                    {/* ── Options with buildTextStyle ── */}
-            
                     {q.options?.length > 0 && q.type !== "matching" && (
                       <div className="space-y-1.5 ml-10">
                         {q.options.map((opt, oi) => (
@@ -1916,7 +2137,10 @@ const handleGenerateExplanations = async () => {
                               (q.text_style_scope === "options" || q.text_style_scope === "all")
                                 ? buildTextStyle(q) : {}
                             }>{opt.text}</span>
-                            {opt.image_url && <img src={opt.image_url} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-700" />}
+                            {opt.image_url && (
+                              <img src={opt.image_url} alt=""
+                                className="h-20 w-auto max-w-[160px] rounded-lg object-contain border border-slate-700 bg-white p-1" />
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1928,30 +2152,29 @@ const handleGenerateExplanations = async () => {
                       </div>
                     )}
 
-                    {/* Matching pairs display — for tutor/admin review */}
-                    {/* Matching pairs display — for tutor/admin review */}
-{q.type === "matching" && q.options?.length > 0 && (
-  <div className="mt-3 ml-10 space-y-2">
-    <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider">
-      🔗 Match Pairs
-      <span className="text-slate-500 font-normal normal-case tracking-normal ml-1.5">— all pairs are correct by design</span>
-    </p>
-    <div className="space-y-1.5">
-      {q.options.map((opt, oi) => ( 
-        <div key={opt.option_id || oi}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 text-sm">
-          <span className="flex-1 px-3 py-1.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-medium">
-            {opt.text || <span className="italic text-slate-500">(empty)</span>}
-          </span>
-          <span className="text-slate-500 text-base flex-shrink-0">→</span>
-          <span className="flex-1 px-3 py-1.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium">
-            {opt.match || <span className="italic text-slate-500">(empty)</span>}
-          </span>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
+                    {q.type === "matching" && q.options?.length > 0 && (
+                      <div className="mt-3 ml-10 space-y-2">
+                        <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider">
+                          🔗 Match Pairs
+                          <span className="text-slate-500 font-normal normal-case tracking-normal ml-1.5">— all pairs are correct by design</span>
+                        </p>
+                        <div className="space-y-1.5">
+                          {q.options.map((opt, oi) => (
+                            <div key={opt.option_id || oi}
+                              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 text-sm">
+                              <span className="flex-1 px-3 py-1.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-medium">
+                                {opt.text || <span className="italic text-slate-500">(empty)</span>}
+                              </span>
+                              <span className="text-slate-500 text-base flex-shrink-0">→</span>
+                              <span className="flex-1 px-3 py-1.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium">
+                                {opt.match || <span className="italic text-slate-500">(empty)</span>}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {q.type === "short_answer" && q.correct_answer && (
                       <div className="mt-2 ml-10 px-3 py-2 bg-orange-500/5 border border-orange-500/10 rounded-lg">
                         <p className="text-[10px] text-orange-500 font-bold mb-0.5">✍️ Answer</p>
@@ -1963,40 +2186,41 @@ const handleGenerateExplanations = async () => {
                       </div>
                     )}
 
-                 {(q.ai_explanation?.explanation || q.explanations_by_year || q.explanation) && (
-                    <div className="mt-2 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
-  
-                      <p className="text-[10px] text-amber-500 font-bold mb-0.5">
-                        Explanation
+                    {(q.ai_explanation?.explanation || q.explanations_by_year || q.explanation) && (
+                      <div className="mt-2 ml-10 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg">
+
+                        <p className="text-[10px] text-amber-500 font-bold mb-0.5">
+                          Explanation
+                          {q.ai_explanation?.explanation && (
+                            <span className="ml-2 text-emerald-400 font-normal normal-case">✅ AI generated</span>
+                          )}
+                        </p>
+
                         {q.ai_explanation?.explanation && (
-                          <span className="ml-2 text-emerald-400 font-normal normal-case">✅ AI generated</span>
+                          <p className="text-xs text-emerald-400/80">{q.ai_explanation.explanation}</p>
                         )}
-                      </p>
+                        {q.ai_explanation?.tip && (
+                          <p className="text-[10px] text-slate-400 mt-1 italic">💡 {q.ai_explanation.tip}</p>
+                        )}
+                        {!q.ai_explanation?.explanation && q.explanation && (
+                          <p className="text-xs text-amber-400/80">{q.explanation}</p>
+                        )}
 
-                      {q.ai_explanation?.explanation && (
-                        <p className="text-xs text-emerald-400/80">{q.ai_explanation.explanation}</p>
-                      )}
-                      {q.ai_explanation?.tip && (
-                        <p className="text-[10px] text-slate-400 mt-1 italic">💡 {q.ai_explanation.tip}</p>
-                      )}
-                      {!q.ai_explanation?.explanation && q.explanation && (
-                        <p className="text-xs text-amber-400/80">{q.explanation}</p>
-                      )}
+                        {q.explanations_by_year && (
+                          <div className="mt-2 grid grid-cols-2 gap-1.5">
+                            {Object.entries(q.explanations_by_year).map(([yr, expl]) => (
+                              <div key={yr} className="px-2 py-1.5 bg-slate-800/80 rounded border border-slate-700/50">
+                                <p className="text-[10px] text-indigo-400 font-bold mb-0.5">Year {yr}</p>
+                                <p className="text-[11px] text-slate-300 leading-relaxed">{expl.explanation}</p>
+                                {expl.tip && <p className="text-[10px] text-slate-500 mt-1 italic">💡 {expl.tip}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                      {/* ✅ MOVED INSIDE */}
-                      {q.explanations_by_year && (
-                        <div className="mt-2 grid grid-cols-2 gap-1.5">
-                          {Object.entries(q.explanations_by_year).map(([yr, expl]) => (
-                            <div key={yr} className="px-2 py-1.5 bg-slate-800/80 rounded border border-slate-700/50">
-                              <p className="text-[10px] text-indigo-400 font-bold mb-0.5">Year {yr}</p>
-                              <p className="text-[11px] text-slate-300 leading-relaxed">{expl.explanation}</p>
-                              {expl.tip && <p className="text-[10px] text-slate-500 mt-1 italic">💡 {expl.tip}</p>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    <WebCheckRow question={q} onUpdated={fetchDetail} />
 
                     {canVerify && (
                       <div className="mt-3 pt-3 border-t border-slate-800 ml-10">
@@ -2005,7 +2229,6 @@ const handleGenerateExplanations = async () => {
                     )}
                   </div>
 
-                  {/* Insert AFTER this card */}
                   {showInsertAfter && (
                     <div className="mt-4">
                       <div className="flex items-center gap-2 mb-2">
@@ -2063,6 +2286,7 @@ const handleGenerateExplanations = async () => {
           }}
         />
       )}
+
       {reorderQuestion && (
         <MoveToPositionModal
           question={reorderQuestion}

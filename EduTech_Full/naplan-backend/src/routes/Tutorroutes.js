@@ -269,19 +269,21 @@ const update = {
    
 
     // Only update options if provided and valid
-    if (Array.isArray(options) && options.length > 0) {
-      // Merge incoming option changes with existing option_ids
-      const mergedOptions = options.map((incoming, idx) => {
-        const existing = (question.options || [])[idx] || {};
-        return {
-          option_id: incoming.option_id || existing.option_id,
-          text:      String(incoming.text || "").trim(),
-          image_url: incoming.image_url ?? existing.image_url ?? null,
-          correct:   Boolean(incoming.correct),
-        };
-      });
-      update.$set.options = mergedOptions;
-    }
+    // Only update options if provided and valid
+if (Array.isArray(options) && options.length > 0) {
+  // Merge incoming option changes with existing option_ids
+  const mergedOptions = options.map((incoming, idx) => {
+    const existing = (question.options || [])[idx] || {};
+    return {
+      option_id: incoming.option_id || existing.option_id,
+      text:      String(incoming.text || "").trim(),
+      match:     String(incoming.match ?? existing.match ?? "").trim(),  // ✅ ADDED
+      image_url: incoming.image_url ?? existing.image_url ?? null,
+      correct:   Boolean(incoming.correct),
+    };
+  });
+  update.$set.options = mergedOptions;
+}
 
     const updated = await Question.findOneAndUpdate(
       { question_id: req.params.questionId },
