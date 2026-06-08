@@ -17,7 +17,6 @@ import DownloadXlsxButton from "./DownloadExcelButton";
 import { AddQuestionForm } from "./ManualQuizCreator";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import CollapsibleTextStyle, { buildTextStyle } from "./Collapsibletextstyle";
-import AIImageGenerator from "./AIImageGenerator";
 
 
 // ─── formatTimestamp ──────────────────────────────────────────────────────────
@@ -1317,14 +1316,6 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
           {saving ? "Saving..." : "Save Changes"}
         </button>
       </div>
-
-      {/* ✨ NEW — AI Image Generator modal */}
-      <AIImageGenerator
-        open={showAiGen}
-        onClose={() => setShowAiGen(false)}
-        onUseImage={(url) => setForm((f) => ({ ...f, image_url: url }))}
-        defaultPrompt={stripHtml(form.text || "")}
-      />
     </div>
   );
 }

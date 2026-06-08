@@ -114,20 +114,23 @@ router.post("/google", async (req, res) => {
     const googleUser = await verifyGoogleToken(credential);
 
     // 2. Find or create parent
-    let parent = await Parent.findOne({ email: googleUser.email });
-    let isNewAccount = false;
+    // 2. Find or create parent (atomic — no duplicate window)
+    const existed = await Parent.findOne({ email: googleUser.email });
+    let isNewAccount = !existed;
+    let parent = await Parent.findOneAndUpdate(
+      { email: googleUser.email },
+      { $setOnInsert: {
+          email: googleUser.email,
+          firstName: googleUser.firstName || "Parent",
+          lastName: googleUser.lastName || "",
+          auth_provider: "google",
+          email_verified: true,
+          status: "active",
+      } },
+      { new: true, upsert: true }
+    );
 
-    if (!parent) {
-      // Create new parent from Google profile
-      parent = await Parent.create({
-        email: googleUser.email,
-        firstName: googleUser.firstName || "Parent",
-        lastName: googleUser.lastName || "",
-        auth_provider: "google",
-        email_verified: true,
-        status: "active",
-      });
-      isNewAccount = true;
+    if (!existed) {
       console.log(`✅ New parent created via Google Sign-In: ${googleUser.email}`);
     } else {
       // Existing parent — update auth_provider if they were OTP-only before
@@ -157,7 +160,9 @@ router.post("/google", async (req, res) => {
     const parent_token = jwt.sign(
       {
         typ: "parent",
+        role: "parent",
         parent_id: parent._id.toString(),
+        parentId: parent._id.toString(),
         email: parent.email,
       },
       PARENT_SECRET,

@@ -179,15 +179,16 @@ router.post("/verify-otp", async (req, res) => {
       return res.status(401).json({ ok: false, error: "Invalid OTP" });
     }
 
-    let parent = await Parent.findOne({ email });
-    if (!parent) {
-      parent = await Parent.create({
-        email,
-        firstName: String(record.firstName || "").trim(),
-        lastName: String(record.lastName || "").trim(),
-        status: "active",
-      });
-    }
+    const parent = await Parent.findOneAndUpdate(
+      { email },
+      { $setOnInsert: {
+          email,
+          firstName: String(record.firstName || "").trim(),
+          lastName: String(record.lastName || "").trim(),
+          status: "active",
+      } },
+      { new: true, upsert: true }
+    );
     pendingParentSignups.delete(email);
 
     const parent_token = jwt.sign(
