@@ -1930,6 +1930,7 @@ export default function QuizDetailPage() {
                 )}
               </div>
             </div>
+            
 
             {showAddForm && insertAtIndex === null && (
               <AddQuestionForm onAdd={handleAddQuestion} onCancel={() => setShowAddForm(false)} />
@@ -2085,6 +2086,7 @@ export default function QuizDetailPage() {
                         className={`text-sm text-white leading-relaxed [&_img]:${imgSizeCls} [&_img]:rounded-lg [&_img]:mt-2 [&_img]:border [&_img]:border-slate-700`} />
                     </div>
 
+                    {/* ✅ UPGRADED: image now has reverse-image-search overlay */}
                     {q.image_url && !q.text?.includes(q.image_url) && (
                       <div className="mb-3 ml-10 relative inline-block">
                         <img src={q.image_url} alt="Question" style={imgStyle}
@@ -2220,6 +2222,9 @@ export default function QuizDetailPage() {
                       </div>
                     )}
 
+                    <WebCheckRow question={q} onUpdated={fetchDetail} />
+
+                    {/* Web Spot-Check row */}
                     <WebCheckRow question={q} onUpdated={fetchDetail} />
 
                     {canVerify && (
