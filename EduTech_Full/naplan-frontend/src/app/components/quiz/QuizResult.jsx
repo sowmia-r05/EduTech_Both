@@ -51,9 +51,11 @@ import QuizChatWidget from "./quizchatwidget";
           max-width: 220px;
         }
         @media (max-width: 768px) {
-          .qh-nav { padding: 0 12px; }
+          .qh-nav { padding: 0 12px; gap: 8px; }
           .qh-pills { position: static; left: auto; transform: none; }
           .qh-quizname { display: none; }
+          .qh-logo-text { display: none; }     /* keep just the logo square on phones */
+          .qh-pills button { padding: 6px 10px !important; font-size: 13px !important; }
         }
       `}</style>
 
@@ -74,10 +76,10 @@ import QuizChatWidget from "./quizchatwidget";
               <rect x="3"  y="14" width="7" height="7"/>
             </svg>
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize:14, fontWeight:700, color:"#111827", whiteSpace:"nowrap" }}>KAI Solutions</div>
-            <div style={{ fontSize:10, color:"#9CA3AF", letterSpacing:"0.08em", whiteSpace:"nowrap" }}>NAPLAN PREP</div>
-          </div>
+          <div className="qh-logo-text" style={{ minWidth: 0 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:"#111827", whiteSpace:"nowrap" }}>KAI Solutions</div>
+          <div style={{ fontSize:10, color:"#9CA3AF", letterSpacing:"0.08em", whiteSpace:"nowrap" }}>NAPLAN PREP</div>
+          </div>   
         </div>
 
         {/* ── Centre: Tab pills ── */}
