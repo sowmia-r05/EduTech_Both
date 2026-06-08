@@ -1201,7 +1201,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
                 </div>
               ) : (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                   <table className="w-full text-sm table-fixed hidden md:table">
+                  <table className="w-full text-sm table-fixed hidden lg:table">
                     <colgroup>
                       <col style={{ width: "13%" }} />
                       <col style={{ width: "23%" }} />
@@ -1353,7 +1353,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
                   </table>
 
                   {/* ── MOBILE CARDS (md:hidden) ── */}
-                  <div className="md:hidden divide-y divide-slate-100">
+                  <div className="lg:hidden divide-y divide-slate-100">
                     {paginatedQuizzes.length > 0 ? paginatedQuizzes.map((quiz) => {
                       const style = SUBJECT_STYLE[quiz.subject] || SUBJECT_STYLE.Other;
                       const Icon = style.icon;
@@ -1666,7 +1666,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
             <PaginationBar />
           </div>
 
-           <table className="w-full text-sm hidden md:table">
+          <table className="w-full text-sm hidden lg:table">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Quiz</th>
@@ -1748,7 +1748,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
           </table>
 
           {/* ── MOBILE CARDS (md:hidden) ── */}
-          <div className="md:hidden divide-y divide-slate-100">
+          <div className="lg:hidden divide-y divide-slate-100">
             {paginated.map((t) => {
               const style = SUBJECT_STYLE[t.subject] || SUBJECT_STYLE.Other;
               const Icon = style.icon;
