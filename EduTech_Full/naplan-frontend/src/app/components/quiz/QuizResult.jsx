@@ -1,4 +1,15 @@
-function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentViewing, onBack, onBackToParent, isWriting }) {
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth }     from "@/app/context/AuthContext";
+import ChildAvatarMenu from "@/app/components/ui/ChildAvatarMenu";
+import AITutorTab from "./Aitutortab";
+import QuizChatWidget from "./quizchatwidget";
+
+/* ═══════════════════════════════════════════
+   SELF-CONTAINED HEADER
+   KAI logo  |  Tab pills  |  Quiz name + Avatar
+   ═══════════════════════════════════════════ */
+ function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentViewing, onBack, onBackToParent, isWriting }) {
   const navigate = useNavigate();
 
   return (
@@ -39,14 +50,9 @@ function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentVie
           text-overflow: ellipsis;
           max-width: 220px;
         }
-        /* Phones: stop centering pills absolutely; let them sit inline and shrink */
         @media (max-width: 768px) {
           .qh-nav { padding: 0 12px; }
-          .qh-pills {
-            position: static;
-            left: auto;
-            transform: none;
-          }
+          .qh-pills { position: static; left: auto; transform: none; }
           .qh-quizname { display: none; }
         }
       `}</style>
@@ -135,5 +141,484 @@ function QuizHeader({ activeTab, onTabChange, quizName, displayName, isParentVie
         </div>
       </nav>
     </>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   SCORE RING  (Results tab)
+   ═══════════════════════════════════════════ */
+function ScoreRing({ percentage }) {
+  const R = 52, C = 2 * Math.PI * R;
+  const color = percentage >= 85 ? "#059669" : percentage >= 70 ? "#d97706"
+              : percentage >= 50 ? "#2563eb" : "#dc2626";
+  return (
+    <div className="relative w-32 h-32">
+      <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r={R} fill="none" stroke="#f1f5f9" strokeWidth="8"/>
+        <circle cx="60" cy="60" r={R} fill="none" stroke={color} strokeWidth="8"
+          strokeLinecap="round" strokeDasharray={C}
+          strokeDashoffset={C - (percentage/100)*C}
+          className="transition-all duration-1000 ease-out"/>
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-3xl font-bold text-slate-800">{percentage}%</span>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   TOPIC BREAKDOWN  (Results tab)
+   ═══════════════════════════════════════════ */
+function TopicBreakdown({ entries }) {
+  const [open, setOpen] = useState(false);
+  if (!entries?.length) return null;
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <button onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
+        Topic Breakdown
+        <svg className={`w-4 h-4 text-slate-400 transition-transform ${open ? "rotate-180":""}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+        </svg>
+      </button>
+      {open && (
+        <div className="px-5 pb-5 space-y-3 border-t border-slate-100">
+          {entries.map(([name, { scored, total }]) => {
+            const pct = total > 0 ? Math.round((scored/total)*100) : 0;
+            const bar = pct>=80?"bg-emerald-500":pct>=50?"bg-amber-400":"bg-red-500";
+            const txt = pct>=80?"text-emerald-600":pct>=50?"text-amber-600":"text-red-600";
+            return (
+              <div key={name} className="space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-600 font-medium truncate max-w-[70%]">{name}</span>
+                  <span className={`font-semibold ${txt}`}>{pct}%</span>
+                </div>
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${bar}`} style={{ width:`${pct}%` }}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════════ */
+const buildTopicStrength = (tb={}) => {
+  const strong=[], weak=[];
+  Object.entries(tb).forEach(([topic,v]) => {
+    const total=Number(v?.total)||0, scored=Number(v?.scored)||0;
+    if (!total) return;
+    const p=scored/total;
+    if (p>=0.75) strong.push({ topic, accuracy:p });
+    else if (p<=0.5) weak.push({ topic, lostMarks:total-scored });
+  });
+  return { strongTopics:strong, weakTopics:weak.sort((a,b)=>b.lostMarks-a.lostMarks) };
+};
+
+
+
+const buildSuggestions = (fb) => {
+  if (!fb) return [];
+  const list=[];
+  if (fb.overall_feedback) list.push({ title:"Overall Feedback", description:fb.overall_feedback });
+  (fb.strengths||[]).forEach(s=>list.push({ title:"Strength", description:s }));
+  (fb.weaknesses||[]).forEach(w=>list.push({ title:"Weak Area", description:w }));
+  (fb.growth_areas||[]).forEach(g=>{ if(g) list.push({ title:"Improvement", description:g }); });
+  (fb.areas_of_improvement||[]).forEach(a=>{
+    const d=[a?.issue,a?.how_to_improve].filter(Boolean).join(" — ");
+    if(d) list.push({ title:"Improvement", description:d });
+  });
+  if (fb.encouragement) list.push({ title:"Encouragement", description:fb.encouragement });
+  return list;
+};
+
+const fmtDuration = s => {
+  const n=Number(s);
+  if (!Number.isFinite(n)||n<=0) return "—";
+  const m=Math.floor(n/60), r=Math.round(n%60);
+  return m<=0?`${r}s`:`${m}m ${r}s`;
+};
+
+const cleanTopicName = (raw) => {
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 3) return parts[1]; // "Category, Sub-topic, Difficulty" → Sub-topic
+  if (parts.length === 2) return parts[1]; // "Category, Sub-topic" → Sub-topic
+  return parts[0];                         // already clean (e.g. reading passage names)
+};
+
+const getStatus = pct =>
+  pct>=85?{ label:"Outstanding",  cls:"text-emerald-600" }:
+  pct>=70?{ label:"Well Done",    cls:"text-emerald-600" }:
+  pct>=50?{ label:"On Track",     cls:"text-amber-600"   }:
+  pct>=30?{ label:"Developing",   cls:"text-amber-600"   }:
+          { label:"More Practice",cls:"text-red-600"     };
+
+
+
+
+/* ═══════════════════════════════════════════
+   MAIN EXPORT
+   ═══════════════════════════════════════════ */
+export default function QuizResult({
+  result           = {},
+  quizName         = "Quiz",
+  violations       = 0,
+  onClose,
+  onRetake,
+  onViewAnalytics,
+  onViewAIFeedback,
+  childStatus:     childStatusProp,
+  displayName,        
+  isParentViewing,    
+  childId,
+  attemptsExhausted = false,
+  attemptCount = null,
+}) {
+  const navigate = useNavigate();
+  const { childProfile, apiFetch, childToken, parentToken } = useAuth();
+  const authRef = useRef({ childProfile });
+  useEffect(() => { authRef.current = { childProfile }; }, [childProfile]);
+
+  const [activeTab,        setActiveTab]        = useState(0);
+  const [showExplanations, setShowExplanations] = useState(false);
+  const [aiPollStatus,     setAiPollStatus]      = useState(null);  // "done"|"error"|null
+  const [subscriptionStatus, setSubscriptionStatus] = useState(childStatusProp || null); // "trial"|"active"|null
+  const [chatOpen,         setChatOpen]         = useState(false);  // ✅ NEW: controls QuizChatWidget
+
+
+
+  const score      = result.score           || {};
+  const topics     = result.topic_breakdown || {};
+  const isWriting  = result.is_writing      || false;
+  const aiStatus   = result.ai_status       || null;
+  const attemptId  = result.attempt_id || result.response_id || null;
+  const percentage = score.percentage || 0;
+   const resolvedQuizId =
+    result?.quiz_id ||
+    result?.quizId ||
+    result?.quiz?.quiz_id ||
+    result?.quiz?._id ||
+    null;
+
+  const resolvedName = displayName || childProfile?.displayName || "Student";
+
+  /* AI status polling */
+  useEffect(() => {
+    if (!attemptId || !["queued","generating","pending"].includes(aiStatus)) return;
+    const token = childToken || parentToken;
+    let timer;
+    const poll = async () => {
+      try {
+        const h = { Accept:"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}) };
+        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL||""}/api/attempts/${attemptId}/ai-status`, { headers:h });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.status==="done"||d.status==="ai_done") setAiPollStatus("done");
+          else if (d.status==="error") setAiPollStatus("error");
+          else timer = setTimeout(poll, 5000);
+        }
+      } catch {}
+    };
+    timer = setTimeout(poll, 5000);
+    return () => clearTimeout(timer);
+  }, [attemptId, aiStatus, childToken, parentToken]);
+
+
+  /* fetch live child subscription status */
+useEffect(() => {
+  if (!childToken && !parentToken) return;
+  // Use childStatusProp if already passed — no extra API call needed
+  if (childStatusProp) {
+    setSubscriptionStatus(childStatusProp);
+    return;
+  }
+  (async () => {
+    try {
+      const res = await apiFetch("/api/auth/me");
+      if (res.ok) { const d = await res.json(); setSubscriptionStatus(d.status || null); }
+    } catch {}
+  })();
+}, [apiFetch, childToken, parentToken, childStatusProp]);
+
+
+
+
+  const gradeLabel = useMemo(() => {
+    if (percentage>=90) return "Outstanding!";
+    if (percentage>=80) return "Great job!";
+    if (percentage>=70) return "Good work!";
+    if (percentage>=50) return "Keep practicing!";
+    return "More practice needed";
+  }, [percentage]);
+
+  const topicEntries = useMemo(() =>
+    Object.entries(topics).sort((a,b) => {
+      const pA = a[1].total>0 ? a[1].scored/a[1].total : 0;
+      const pB = b[1].total>0 ? b[1].scored/b[1].total : 0;
+      return pA-pB;
+    }), [topics]
+  );
+
+  const handleViewAnalytics = useCallback(() => {
+    if (onViewAnalytics) onViewAnalytics();
+    else navigate("/child-dashboard");
+  }, [navigate, onViewAnalytics]);
+
+
+
+
+  // Navigates to the full Dashboard.jsx for this attempt
+  const handleViewDashboard = useCallback(() => {
+    if (!attemptId) return;
+    const { childProfile: cp } = authRef.current;
+    navigate("/NonWritingLookupQuizResults/results", {
+      state: {
+        r: attemptId,
+        username: cp?.username || null,
+        subject: result?.subject || null,
+        quiz_name: quizName || null,
+      },
+    });
+  }, [navigate, attemptId, result?.subject, quizName]);
+
+
+  /* ── shared icon SVGs ── */
+  const IcAnswers = () => (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round"
+        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+    </svg>
+  );
+  const IcAnalytics = () => (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round"
+        d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625z"/>
+    </svg>
+  );
+  const IcAI = () => (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round"
+        d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
+    </svg>
+  );
+  const IcRetake = () => (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round"
+        d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+    </svg>
+  );
+  const IcChevron = () => (
+    <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+    </svg>
+  );
+
+  const ActionBtn = ({ onClick, icon, label, variant="default", badge }) => (
+    <button onClick={onClick} className={`
+      group w-full inline-flex items-center justify-between px-5 py-4 rounded-xl transition-all shadow-sm
+      ${variant==="indigo"
+        ? "border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 hover:border-indigo-300"
+        : "border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300"}
+    `}>
+      <span className="flex items-center gap-3">
+        <span className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors
+          ${variant==="indigo"
+            ? "bg-indigo-100 group-hover:bg-indigo-200 text-indigo-600"
+            : "bg-slate-100 group-hover:bg-slate-200 text-slate-600"}`}>
+          {icon}
+        </span>
+        <span className={`text-sm font-semibold ${variant==="indigo"?"text-indigo-800":"text-slate-700"}`}>
+          {label}
+          {badge && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-200 text-indigo-700 uppercase tracking-wide">{badge}</span>}
+        </span>
+      </span>
+      <IcChevron/>
+    </button>
+  );
+
+  /* ════════════════════════════════════════
+     RENDER
+     ════════════════════════════════════════ */
+  return (
+    <div className="min-h-screen bg-slate-50">
+
+      {/* ONE sticky bar: logo + tabs + avatar */}
+
+      <QuizHeader
+          activeTab={activeTab}
+          quizName={quizName}
+          displayName={resolvedName}
+          isParentViewing={isParentViewing || false}
+          isWriting={isWriting}   
+          onBack={onClose}
+          onBackToParent={() => navigate("/parent-dashboard")}
+          onTabChange={(tabId) => {
+            if (tabId === 0) { setActiveTab(0); return; }
+            if (!attemptId) return;
+            const cp = authRef.current?.childProfile;
+            const state = {
+              r:              attemptId,
+              username:       cp?.username || null,
+              subject:        result?.subject || null,
+              quiz_name:      quizName || null,
+              fromQuizResult: true,
+            };
+            if (onViewAIFeedback) {
+              onViewAIFeedback(attemptId, result?.subject, quizName);
+            } else {
+              navigate(
+                isWriting ? "/writing-feedback/result" : "/NonWritingLookupQuizResults/results",
+                { state }
+              );
+            }
+          }}
+        />
+
+      {/* ── TAB 1: RESULTS ── */}
+      {activeTab === 0 && (
+        <div className="px-4 py-8">
+          <div className="max-w-7xl mx-auto space-y-4">
+
+   <div className="rounded-2xl overflow-hidden shadow-md border border-slate-200 max-w-3xl mx-auto w-full">
+  {/* Compact dark header — inline badge + quiz name on one row */}
+  <div
+    style={{ background:"linear-gradient(135deg,#1E293B 0%,#334155 100%)" }}
+    className="px-6 py-3 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3"
+  >
+    <div
+      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-widest flex-shrink-0"
+      style={{ background:"rgba(255,255,255,0.12)", color:"rgba(255,255,255,0.75)" }}
+    >
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      QUIZ COMPLETE
+    </div>
+    <h1 className="text-white font-bold text-base sm:text-lg leading-snug text-center sm:text-left">
+      {quizName}
+    </h1>
+  </div>
+
+  {/* Score section — horizontal on desktop, stacked on mobile */}
+  <div className="bg-white px-6 py-5">
+    <div className="flex flex-col sm:flex-row items-center justify-center gap-5 sm:gap-8">
+
+      {/* Ring / AI evaluating */}
+      <div className="flex-shrink-0">
+        {isWriting && percentage === 0 ? (
+          <div className="w-24 h-24 rounded-full border-8 border-indigo-100 flex items-center justify-center bg-indigo-50">
+            <span className="text-indigo-500 text-[11px] font-semibold text-center leading-tight px-2">AI<br/>Evaluating</span>
+          </div>
+        ) : (
+          <ScoreRing percentage={percentage}/>
+        )}
+      </div>
+
+      {/* Label + metadata pills */}
+      <div className="text-center sm:text-left min-w-0">
+        <p className="text-lg font-bold text-slate-800 leading-tight">
+          {isWriting && percentage === 0 ? "Writing Submitted ✓" : gradeLabel}
+        </p>
+        <div className="flex items-center justify-center sm:justify-start gap-2 mt-2 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/>
+            </svg>
+            {isWriting
+              ? (percentage === 0 ? "AI scoring..." : "See AI Feedback tab")
+              : (score.available > 0
+                  ? `${score.points||0} / ${score.available} pts`
+                  : `${percentage}%`)}
+          </span>
+
+          {!isWriting && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+              Grade {score.grade||"—"}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+            <TopicBreakdown entries={topicEntries}/>
+        
+
+
+            {/* Action buttons */}
+            <div className="space-y-3 pt-2">
+              {!isWriting && (
+                <>
+                  <button
+                    onClick={() => setShowExplanations((v) => !v)}
+                    className="group w-full inline-flex items-center justify-between px-5 py-4 rounded-xl transition-all shadow-sm border border-slate-200 bg-white hover:bg-slate-50"
+                  >
+                    <span className="flex items-center gap-3">
+                      <span className="w-9 h-9 rounded-lg flex items-center justify-center bg-slate-100 group-hover:bg-slate-200 text-slate-600">
+                        <IcAnswers />
+                      </span>
+                      <span className="text-sm font-semibold text-slate-700">View Answers + Explanations</span>
+                    </span>
+                    <svg className={`w-4 h-4 text-slate-400 transition-transform ${showExplanations ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+                    </svg>
+                  </button>
+                  {showExplanations && attemptId && (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      <AITutorTab
+                        attemptId={attemptId}
+                        yearLevel={childProfile?.yearLevel || result?.year_level || 3}
+                        apiFetch={apiFetch}
+                        onOpenChat={resolvedQuizId ? () => setChatOpen(true) : null}
+                      />
+                    </div>
+                  )}
+                </>
+              )}  
+
+              {/* ✅ FIX: Show disabled state if attempts exhausted, retake button if allowed */}
+              {attemptsExhausted ? (
+                <div className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-400 text-sm font-semibold cursor-not-allowed">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                  No Attempts Left ({attemptCount?.used}/{attemptCount?.max})
+                </div>
+              ) : onRetake ? (
+                <ActionBtn onClick={onRetake} icon={<IcRetake/>} label="Retake Quiz"/>
+              ) : null}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+
+    {/* ── TAB 1: AI FEEDBACK (non-writing — embedded iframe) ── */}
+      
+ 
+   {/* AI Chat Widget — floats over results page */}
+      {/* AI Chat Widget — floats over results page */}
+{attemptId && resolvedQuizId && (
+  <QuizChatWidget
+    quizId={resolvedQuizId}
+    attemptId={attemptId}
+    subject={result?.subject || ""}
+    yearLevel={childProfile?.yearLevel || result?.year_level || 3}
+    apiFetch={apiFetch}
+    open={chatOpen}
+    onOpenChange={setChatOpen}
+  />
+)}
+
+    </div>
   );
 }
