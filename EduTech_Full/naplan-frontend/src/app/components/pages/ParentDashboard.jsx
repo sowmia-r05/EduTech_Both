@@ -72,7 +72,7 @@ const RESPONSIVE_CSS = `
   }
   .pd-stat-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 14px;
     margin-bottom: 32px;
   }
