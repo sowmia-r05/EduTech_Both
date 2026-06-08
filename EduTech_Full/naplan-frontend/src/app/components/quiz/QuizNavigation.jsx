@@ -31,7 +31,7 @@ export default function QuizNavigation({ currentIdx, totalQuestions, questions, 
                 </svg>
               </button>
             </div>
-            <div className="grid grid-cols-8 sm:grid-cols-10 gap-2">
+            <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-2">
               {questions.map((q, idx) => {
                 if (q.type === "free_text") return null;
                 const a = answers[q.question_id];

@@ -96,14 +96,14 @@ export default function AssignTutorsModal({ quiz, onSaved, onClose }) {
         const shouldBeAssigned  = selected.has(t._id);
         if (currentlyAssigned === shouldBeAssigned) continue; // no change
 
-        const nextIds = shouldBeAssigned
-          ? [...(t.assigned_quiz_ids || []), quizId]
-          : (t.assigned_quiz_ids || []).filter((id) => id !== quizId);
+        const body = shouldBeAssigned
+          ? { add: [quizId], remove: [] }
+          : { add: [], remove: [quizId] };
 
         tasks.push(
           adminFetch(`/api/admin/tutors/${t._id}/quizzes`, {
             method: "PATCH",
-            body:   JSON.stringify({ quiz_ids: nextIds }),
+            body:   JSON.stringify(body),
           }).then(async (res) => {
             if (!res.ok) {
               const d = await res.json().catch(() => ({}));

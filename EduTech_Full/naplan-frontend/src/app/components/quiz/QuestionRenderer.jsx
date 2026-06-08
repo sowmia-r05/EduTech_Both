@@ -656,26 +656,28 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
 /* ═══════════════════════════════════════════════════════════
    CATEGORY DROP — Language Convention only
    ═══════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════
+   CATEGORY DROP — touch + mouse compatible (TAP TO PLACE)
+   Tap a word, then tap a box. Works on phones/tablets (no HTML5 drag).
+   ═══════════════════════════════════════════════════════════ */
 function CategoryDropQuestion({ question, answer, onAnswer }) {
   const pairs = answer?.pairs || {};
+  const [selectedId, setSelectedId] = useState(null);
+
   const categories = [...new Set(
     (question.options || []).map(o => o.match || o.match_text || "").filter(Boolean)
   )];
   const placed = Object.keys(pairs);
   const unplaced = (question.options || []).filter(o => !placed.includes(o.option_id));
 
-  const handleDragStart = (e, optionId) => {
-    e.dataTransfer.setData("optionId", optionId);
-  };
+  const handleSelect = (optionId) =>
+    setSelectedId((cur) => (cur === optionId ? null : optionId));
 
-  const handleDrop = (e, category) => {
-    e.preventDefault();
-    const optionId = e.dataTransfer.getData("optionId");
-    if (!optionId) return;
-    onAnswer({ pairs: { ...pairs, [optionId]: category } });
+  const handlePlace = (category) => {
+    if (!selectedId) return;
+    onAnswer({ pairs: { ...pairs, [selectedId]: category } });
+    setSelectedId(null);
   };
-
-  const handleDragOver = (e) => e.preventDefault();
 
   const handleRemove = (optionId) => {
     const updated = { ...pairs };
@@ -687,77 +689,83 @@ function CategoryDropQuestion({ question, answer, onAnswer }) {
     <div className="space-y-5">
       <div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-          Drag words into the correct box
+          Tap a word, then tap the box it belongs in
         </p>
-        <div
-          className="min-h-14 bg-sky-50 border-2 border-dashed border-sky-300 rounded-xl p-3 flex flex-wrap gap-2"
-          onDragOver={handleDragOver}
-          onDrop={(e) => {
-            e.preventDefault();
-            const optionId = e.dataTransfer.getData("optionId");
-            if (!optionId) return;
-            const updated = { ...pairs };
-            delete updated[optionId];
-            onAnswer({ pairs: updated });
-          }}
-        >
-          {unplaced.map(opt => (
-            <div
-              key={opt.option_id}
-              draggable
-              onDragStart={(e) => handleDragStart(e, opt.option_id)}
-              className="px-3 py-1.5 bg-indigo-600 text-white rounded-full text-sm font-medium cursor-grab active:cursor-grabbing select-none shadow-sm hover:bg-indigo-700 transition"
-            >
-              {opt.text}
-            </div>
-          ))}
+        <div className="min-h-14 bg-sky-50 border-2 border-dashed border-sky-300 rounded-xl p-3 flex flex-wrap gap-2">
+          {unplaced.map(opt => {
+            const isSel = selectedId === opt.option_id;
+            return (
+              <button
+                key={opt.option_id}
+                type="button"
+                onClick={() => handleSelect(opt.option_id)}
+                className={`px-4 py-2.5 min-h-[44px] rounded-full text-sm font-medium select-none shadow-sm transition ${
+                  isSel
+                    ? "bg-amber-400 text-slate-900 ring-2 ring-amber-500 scale-105"
+                    : "bg-indigo-600 text-white hover:bg-indigo-700"
+                }`}
+              >
+                {opt.text}
+              </button>
+            );
+          })}
           {unplaced.length === 0 && (
-            <span className="text-xs text-slate-400 italic">All words placed ✓</span>
+            <span className="text-xs text-slate-400 italic self-center">All words placed ✓</span>
           )}
         </div>
       </div>
 
-      <div className={`grid gap-4 ${categories.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+      <div className={`grid gap-4 ${categories.length === 3 ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2"}`}>
         {categories.map(cat => {
           const wordsInCat = (question.options || []).filter(o => pairs[o.option_id] === cat);
+          const armed = !!selectedId;
           return (
             <div key={cat} className="space-y-2">
               <p className="text-center text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg py-1.5">
                 {cat}
               </p>
-              <div
-                className="min-h-20 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-3 flex flex-wrap gap-2 content-start transition-colors"
-                onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-indigo-400", "bg-indigo-50"); }}
-                onDragLeave={(e) => { e.currentTarget.classList.remove("border-indigo-400", "bg-indigo-50"); }}
-                onDrop={(e) => { e.currentTarget.classList.remove("border-indigo-400", "bg-indigo-50"); handleDrop(e, cat); }}
+              <button
+                type="button"
+                onClick={() => handlePlace(cat)}
+                disabled={!armed}
+                className={`w-full min-h-20 rounded-xl p-3 flex flex-wrap gap-2 content-start border-2 border-dashed transition-colors text-left ${
+                  armed ? "border-indigo-400 bg-indigo-50 cursor-pointer" : "border-slate-300 bg-slate-50 cursor-default"
+                }`}
               >
                 {wordsInCat.map(opt => (
-                  <div
+                  <span
                     key={opt.option_id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, opt.option_id)}
-                    onClick={() => handleRemove(opt.option_id)}
-                    className="px-3 py-1.5 bg-indigo-600 text-white rounded-full text-sm font-medium cursor-grab select-none shadow-sm hover:bg-red-500 transition"
-                    title="Click to remove"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); handleRemove(opt.option_id); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault(); e.stopPropagation(); handleRemove(opt.option_id);
+                      }
+                    }}
+                    className="px-3 py-1.5 min-h-[36px] inline-flex items-center bg-indigo-600 text-white rounded-full text-sm font-medium select-none shadow-sm hover:bg-red-500 transition cursor-pointer"
+                    title="Tap to remove"
                   >
                     {opt.text} ×
-                  </div>
+                  </span>
                 ))}
                 {wordsInCat.length === 0 && (
-                  <p className="text-xs text-slate-400 italic w-full text-center pt-2">Drop here</p>
+                  <span className="text-xs text-slate-400 italic w-full text-center pt-2 pointer-events-none">
+                    {armed ? "Tap to drop here" : "Empty"}
+                  </span>
                 )}
-              </div>
+              </button>
             </div>
           );
         })}
       </div>
+
       <p className="text-xs text-slate-400 text-center">
-        Drag words into boxes • Click a placed word to remove it
+        Tap a word, then tap a box • Tap a placed word to remove it
       </p>
     </div>
   );
 }
-
 /* ═══════════════════════════════════════════════════════════
    FREE TEXT QUESTION (display-only — NO student input)
    ═══════════════════════════════════════════════════════════ */

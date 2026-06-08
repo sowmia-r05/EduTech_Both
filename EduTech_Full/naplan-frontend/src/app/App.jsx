@@ -23,6 +23,7 @@ import AdminDashboard from "@/app/components/admin/AdminDashboard";
 import RequireAdmin   from "@/app/components/admin/RequireAdmin";
 import QuizDetailPage from "@/app/components/admin/QuizDetailPage";
 import OriginalityChecker from "@/app/components/admin/OriginalityChecker";
+import AIImageDashboard from "@/app/components/admin/AIImageDashboard";
 import Tutorlogin     from "@/app/components/admin/Tutorlogin";
 import Tutordashboard from "@/app/components/admin/Tutordashboard";
 import RequireTutor   from "@/app/components/admin/RequireTutor";
@@ -161,6 +162,10 @@ export default function AppRoutes() {
       <Route
         path={`${ADMIN_PATH}/originality`}
         element={<RequireAdmin><OriginalityChecker /></RequireAdmin>}
+      />
+      <Route
+        path={`${ADMIN_PATH}/ai-images`}
+        element={<RequireAdmin><AIImageDashboard /></RequireAdmin>}
       />
 
         {/* ─── Tutor ─── */}

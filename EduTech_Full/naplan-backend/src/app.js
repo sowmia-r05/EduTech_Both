@@ -127,6 +127,12 @@ const allowedOriginPatterns = [
 
 function isAllowedOrigin(origin) {
   if (!origin) return true; // same-origin / curl / server-to-server
+
+  // ✅ In dev, allow any localhost / 127.0.0.1 port (Vite may use 5173, 5174, etc.)
+  if (IS_DEV && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    return true;
+  }
+
   if (allowedOrigins.includes(origin)) return true;
   if (allowedOriginPatterns.some((re) => re.test(origin))) return true;
   return false;
@@ -194,6 +200,8 @@ const quizExplanationsRoute = require("./routes/quizExplanationsRoute");
 const quizChatRoute = require("./routes/quizChat");
 const quizAiRoutes = require("./routes/quizAiRoutes");
 const originalityRoutes = require("./routes/originalityRoutes");   // ✅ ADD THIS LINE
+const aiImageRoutes = require("./routes/aiImageRoutes");
+
 
 
 
@@ -283,6 +291,7 @@ app.get("/", (req, res) => {
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
 app.use("/api/admin", quizAiRoutes);
+app.use("/api/admin", aiImageRoutes);                   
 app.use("/api/admin/originality", originalityRoutes);   
 // add right below it:
 app.use("/api/tutor", tutorRoutes);
@@ -349,12 +358,12 @@ try {
   console.warn("⚠️ Could not start bundle expiry cleanup cron:", err.message);
 }
 
-try {
-  const { scheduleCopyrightCheck } = require("./jobs/copyrightCheckCron");
-  scheduleCopyrightCheck();
-} catch (err) {
-  console.warn("⚠️ Could not start copyright audit cron:", err.message);
-}
+// try {
+//   const { scheduleCopyrightCheck } = require("./jobs/copyrightCheckCron");
+//   scheduleCopyrightCheck();
+// } catch (err) {
+//   console.warn("⚠️ Could not start copyright audit cron:", err.message);
+// }
 
 // ─── Global error handler ─────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
