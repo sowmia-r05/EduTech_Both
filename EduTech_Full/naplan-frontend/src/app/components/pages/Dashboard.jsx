@@ -494,12 +494,30 @@ export default function Dashboard() {
 return (
   <>
     {fromQuizResult ? (
-      <nav style={{
-        background:"#fff", borderBottom:"1px solid #E5E7EB",
-        height:"58px", display:"flex", alignItems:"center",
-        justifyContent:"space-between", padding:"0 24px",
-        position:"sticky", top:0, zIndex:100, gap:16,
-      }}>
+      <nav className="nwd-nav">
+        <style>{`
+          .nwd-nav {
+            background:#fff; border-bottom:1px solid #E5E7EB;
+            height:58px; display:flex; align-items:center;
+            justify-content:space-between; padding:0 24px;
+            position:sticky; top:0; z-index:100; gap:12px; box-sizing:border-box;
+          }
+          .nwd-pills {
+            position:absolute; left:50%; transform:translateX(-50%);
+            display:flex; align-items:center; background:#F1F5F9;
+            border-radius:10px; padding:4px; gap:4px; z-index:1;
+          }
+          .nwd-quizname {
+            font-size:13px; color:#6B7280; font-weight:500;
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;
+          }
+          @media (max-width: 768px) {
+            .nwd-nav { padding:0 12px; }
+            .nwd-pills { position:static; left:auto; transform:none; }
+            .nwd-quizname { display:none; }
+          }
+        `}</style>
+
         {/* Left: KAI Logo */}
         <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
           <div style={{ width:36, height:36, borderRadius:9, background:"linear-gradient(135deg,#7C3AED,#6D28D9)", display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -516,7 +534,7 @@ return (
 
 
         {/* Centre: Results | AI Feedback tab pills */}
-        <div style={{ position:"absolute", left:"50%", transform:"translateX(-50%)", display:"flex", alignItems:"center", background:"#F1F5F9", borderRadius:10, padding:4, gap:4, zIndex:1 }}>
+           <div className="nwd-pills">
         <button onClick={() => {
           navigate("/child-dashboard", {
             state: {
@@ -538,9 +556,7 @@ return (
 
         {/* Right: quiz name + avatar */}
         <div style={{ display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
-          <span style={{ fontSize:13, color:"#6B7280", fontWeight:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:220 }}>
-            {quizNameParam}
-          </span>
+          <span className="nwd-quizname">{quizNameParam}</span>
           <ChildAvatarMenu
             displayName={displayName}
             isParentViewing={isParentViewing}
@@ -638,7 +654,7 @@ return (
         <div className="px-6 py-3 space-y-3">
 
           {/* ── ROW 1: 4 Stat Cards ── */}
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <div id="overall-score" className="relative bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col items-center justify-center gap-1 h-20">
               <div className="flex items-center gap-1.5 mb-0.5">
                 <Trophy className="w-3.5 h-3.5 text-indigo-400" />

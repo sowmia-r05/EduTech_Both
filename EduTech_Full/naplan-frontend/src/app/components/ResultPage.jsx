@@ -85,19 +85,29 @@ const TopBar = ({ displayName, onLogout, onBackToChildDashboard, onBackToParentD
     : "?";
 
   return (
-    <nav style={{
-      background: "#fff",
-      borderBottom: "1px solid #E5E7EB",
-      height: "58px",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "0 24px",
-      position: "sticky",
-      top: 0,
-      zIndex: 100,
-      gap: 16,
-    }}>
+    <nav className="wr-nav">
+      <style>{`
+        .wr-nav {
+          background:#fff; border-bottom:1px solid #E5E7EB;
+          height:58px; display:flex; align-items:center;
+          justify-content:space-between; padding:0 24px;
+          position:sticky; top:0; z-index:100; gap:12px; box-sizing:border-box;
+        }
+        .wr-pills {
+          position:absolute; left:50%; transform:translateX(-50%);
+          display:flex; align-items:center; background:#F1F5F9;
+          border-radius:10px; padding:4px; gap:4px; z-index:1;
+        }
+        .wr-quizname {
+          font-size:13px; color:#6B7280; font-weight:500;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;
+        }
+        @media (max-width: 768px) {
+          .wr-nav { padding:0 12px; }
+          .wr-pills { position:static; left:auto; transform:none; }
+          .wr-quizname { display:none; }
+        }
+      `}</style>
 
       {/* ── Left: KAI Logo ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -121,11 +131,8 @@ const TopBar = ({ displayName, onLogout, onBackToChildDashboard, onBackToParentD
       </div>
 
       {/* ── Centre: Results | AI Feedback tab pills ── */}
-      <div style={{
-        position: "absolute", left: "50%", transform: "translateX(-50%)",
-        display: "flex", alignItems: "center",
-        background: "#F1F5F9", borderRadius: 10, padding: 4, gap: 4, zIndex: 1,
-      }}>
+            <div className="wr-pills">
+
         {/* Results — navigates back to child dashboard */}
         <button
           onClick={onGoToResults}
@@ -161,13 +168,7 @@ const TopBar = ({ displayName, onLogout, onBackToChildDashboard, onBackToParentD
       {/* ── Right: Quiz name + Avatar ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
         {quizName && (
-          <span style={{
-            fontSize: 13, color: "#6B7280", fontWeight: 500,
-            whiteSpace: "nowrap", overflow: "hidden",
-            textOverflow: "ellipsis", maxWidth: 220,
-          }}>
-            {quizName}
-          </span>
+          <span className="wr-quizname">{quizName}</span>
         )}
         <ChildAvatarMenu
           displayName={displayName}
