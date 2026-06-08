@@ -1029,7 +1029,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
       )}
 
       {/* KPI Cards — context-aware */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white rounded-xl p-5 border shadow-sm">
+        <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 bg-white rounded-xl p-4 md:p-5 border shadow-sm">
         {isParentViewing ? (
           <>
             <div>
@@ -1201,7 +1201,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
                 </div>
               ) : (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                  <table className="w-full text-sm table-fixed">
+                   <table className="w-full text-sm table-fixed hidden md:table">
                     <colgroup>
                       <col style={{ width: "13%" }} />
                       <col style={{ width: "23%" }} />
@@ -1351,6 +1351,95 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
                       )}
                     </tbody>
                   </table>
+
+                  {/* ── MOBILE CARDS (md:hidden) ── */}
+                  <div className="md:hidden divide-y divide-slate-100">
+                    {paginatedQuizzes.length > 0 ? paginatedQuizzes.map((quiz) => {
+                      const style = SUBJECT_STYLE[quiz.subject] || SUBJECT_STYLE.Other;
+                      const Icon = style.icon;
+                      const isCompleted = quiz.status === "completed";
+                      const canViewResult = isCompleted && Boolean(quiz.response_id);
+                      return (
+                        <div
+                          key={quiz.id}
+                          onClick={() => canViewResult && handleViewResult(quiz)}
+                          className={`p-4 ${canViewResult ? "cursor-pointer active:bg-indigo-50/40" : ""}`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${style.bg}`}>
+                                <Icon className={`w-4 h-4 ${style.text}`} />
+                              </span>
+                              <span className={`text-xs font-semibold ${style.text}`}>{quiz.subject}</span>
+                              <DifficultyBadge difficulty={quiz.difficulty} />
+                            </div>
+                            {isCompleted
+                              ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 flex-shrink-0"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Completed</span>
+                              : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-50 text-slate-600 border border-slate-200 flex-shrink-0"><span className="w-1.5 h-1.5 rounded-full bg-slate-400" />Not Started</span>}
+                          </div>
+
+                          <p className="font-medium text-slate-800 leading-snug mb-2">{quiz.name}</p>
+
+                          <div className="flex items-center gap-3 flex-wrap text-xs text-slate-500 mb-3">
+                            {isCompleted && quiz.score !== null && (
+                              <span className={`font-bold ${quiz.score >= 85 ? "text-emerald-600" : quiz.score >= 70 ? "text-amber-600" : "text-rose-600"}`}>
+                                {quiz.score}%{quiz.grade ? ` (${quiz.grade})` : ""}
+                              </span>
+                            )}
+                            {isCompleted && quiz.violations != null && (
+                              <span className={quiz.violations === 0 ? "text-emerald-600" : quiz.violations <= 2 ? "text-amber-600" : "text-rose-600"}>
+                                {quiz.violations === 0 ? "✓ No violations" : `⚠ ${quiz.violations} violations`}
+                              </span>
+                            )}
+                            {quiz.date_completed && (
+                              <span>{new Date(quiz.date_completed).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</span>
+                            )}
+                          </div>
+
+                          <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                            {isCompleted ? (
+                              quiz.attempts_exhausted ? (
+                                <span className="flex-1 text-center px-3 py-2 bg-slate-100 text-slate-400 text-xs font-semibold rounded-lg border border-slate-200">
+                                  No Attempts Left
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => setActiveQuiz(quiz)}
+                                  className="flex-1 px-3 py-2 bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200"
+                                >
+                                  Retake{quiz.attempts_enabled && quiz.max_attempts ? ` (${quiz.attempt_count}/${quiz.max_attempts})` : ""}
+                                </button>
+                              )
+                            ) : (
+                              <button
+                                onClick={() => setActiveQuiz(quiz)}
+                                className="flex-1 px-3 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-lg"
+                              >
+                                Start Quiz
+                              </button>
+                            )}
+                            {canViewResult && (
+                              <button
+                                onClick={() => handleViewResult(quiz)}
+                                className={`flex-1 px-3 py-2 text-white text-xs font-semibold rounded-lg ${(quiz.subject || "").toLowerCase() === "writing" ? "bg-purple-600" : "bg-indigo-600"}`}
+                              >
+                                View Results
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }) : (
+                      <div className="px-5 py-12 text-center">
+                        <p className="text-slate-400 text-sm">
+                          {entitledCatalog.length === 0
+                            ? (isParentViewing ? `${displayName} hasn't completed any quizzes yet.` : "No quizzes here yet — pick one and give it a go!")
+                            : "No quizzes match your filters."}
+                        </p>
+                        {entitledCatalog.length > 0 && <button onClick={() => { setSearch(""); setSubjectFilter("All"); setViewMode("all"); }} className="text-indigo-600 text-sm font-medium mt-2">Clear filters</button>}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Pagination */}
                   {totalPages > 1 && (
@@ -1577,7 +1666,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
             <PaginationBar />
           </div>
 
-          <table className="w-full text-sm">
+           <table className="w-full text-sm hidden md:table">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Quiz</th>
@@ -1657,6 +1746,44 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
               })}
             </tbody>
           </table>
+
+          {/* ── MOBILE CARDS (md:hidden) ── */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {paginated.map((t) => {
+              const style = SUBJECT_STYLE[t.subject] || SUBJECT_STYLE.Other;
+              const Icon = style.icon;
+              const scoreInfo = getScoreInfo(t.score);
+              const mins = t.duration ? Math.floor(t.duration / 60) : 0;
+              const secs = t.duration ? t.duration % 60 : 0;
+              const durationLabel = t.duration ? (mins > 0 ? `${mins}m ${secs}s` : `${secs}s`) : "—";
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => t.response_id && handleViewResult(t)}
+                  className={`p-4 ${t.response_id ? "cursor-pointer active:bg-indigo-50/40" : ""}`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${style.bg}`}>
+                        <Icon className={`w-3.5 h-3.5 ${style.text}`} />
+                      </span>
+                      <span className={`text-xs font-medium ${style.text}`}>{t.subject}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${scoreInfo.color}`}>{t.score}%</span>
+                  </div>
+                  <p className="font-medium text-slate-800 leading-snug">{t.name}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Attempt #{t._attemptNum} · {scoreInfo.label}</p>
+                  <div className="mt-2 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${scoreInfo.bar}`} style={{ width: `${t.score}%` }} />
+                  </div>
+                  <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                    <span>{new Date(t.date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" })}</span>
+                    <span>{durationLabel}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
           {/* Pagination bottom */}
           {totalHistoryPages > 1 && (
