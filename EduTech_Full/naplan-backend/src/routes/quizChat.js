@@ -3,10 +3,18 @@
  * ===========
  * POST /api/quizzes/:quizId/chat
  *
- * Quiz-scoped AI chat with semantic caching (Qdrant + Gemini embeddings).
+ * Quiz-scoped AI chat.
  *
  * Mount in server.js:
  *   app.use('/api/quizzes', require('./routes/quizChat'));
+ *
+ * NOTES:
+ *   - Python is launched as a MODULE from the backend root (cwd: BACKEND_ROOT)
+ *     so that `ai.prompts.*` imports inside gemini_explanation.py resolve.
+ *     Launching by file path put only `ai/` on sys.path and broke agent_chat.
+ *   - The semantic cache (chat_cache.py) uses Gemini embeddings. While Gemini
+ *     is disabled it can't work, so it's gated behind CHAT_CACHE_ENABLED.
+ *     Set CHAT_CACHE_ENABLED=true only after migrating embeddings to OpenAI.
  */
 
 "use strict";
@@ -22,9 +30,11 @@ const { getChildHistory }   = require("../chat/getChildHistory");
 const router = express.Router();
 
 // ── Config ─────────────────────────────────────────────────────────────────
-const GEMINI_SCRIPT    = path.join(__dirname, "../../ai/gemini_explanation.py");
-const CACHE_SCRIPT     = path.join(__dirname, "../../ai/chat_cache.py");
+const BACKEND_ROOT     = path.resolve(__dirname, "../..");          // naplan-backend/
+const GEMINI_SCRIPT    = path.join(BACKEND_ROOT, "ai/gemini_explanation.py");
+const CACHE_SCRIPT     = path.join(BACKEND_ROOT, "ai/chat_cache.py");
 const PYTHON_BIN       = process.env.PYTHON_BIN || "python3";
+const CACHE_ENABLED    = process.env.CHAT_CACHE_ENABLED === "true"; // OFF by default
 const CACHE_THRESHOLD  = parseFloat(process.env.CHAT_CACHE_THRESHOLD || "0.92");
 const MAX_CHAT_HISTORY = 6;
 const QUIZ_CACHE_TTL   = 10 * 60 * 1000; // 10 min in-process cache
@@ -55,16 +65,26 @@ const chatRateLimit = rateLimit({
 });
 
 // ── Python runner ──────────────────────────────────────────────────────────
+// Runs the target script as a MODULE from BACKEND_ROOT so package imports
+// (e.g. `import ai.prompts.maths_agent`) resolve correctly.
 function runPython(scriptPath, payload) {
+  const moduleName = path
+    .relative(BACKEND_ROOT, scriptPath)
+    .replace(/\.py$/, "")
+    .replace(/[\\/]/g, ".");
+
   return new Promise((resolve, reject) => {
-    const proc = spawn(PYTHON_BIN, [scriptPath]);
+    const proc = spawn(PYTHON_BIN, ["-m", moduleName], {
+      cwd: BACKEND_ROOT,
+      env: { ...process.env },
+    });
     let stdout = "", stderr = "";
 
     proc.stdout.on("data", (d) => (stdout += d.toString()));
     proc.stderr.on("data", (d) => (stderr += d.toString()));
 
     proc.on("close", () => {
-      if (stderr) console.warn(`[quizChat] Python stderr (${path.basename(scriptPath)}):`, stderr.slice(0, 500));
+      if (stderr) console.warn(`[quizChat] Python stderr (${moduleName}):`, stderr.slice(0, 500));
       if (!stdout.trim()) return reject(new Error(`Python script produced no output. stderr: ${stderr.slice(0, 300)}`));
       try { resolve(JSON.parse(stdout.trim())); }
       catch { reject(new Error(`Failed to parse Python output: ${stdout.slice(0, 200)}`)); }
@@ -95,7 +115,6 @@ function extractChildId(req, _res, next) {
 
 // ── Load quiz questions from MongoDB ───────────────────────────────────────
 // Tries multiple strategies to find the quiz, since collection names vary.
-// ── Load quiz questions from MongoDB ──────────────────────────────────────
 async function loadQuizQuestions(quizId, req) {
   // 1. Check in-process cache
   const cached = _getCachedQuiz(quizId);
@@ -158,8 +177,10 @@ async function loadQuizQuestions(quizId, req) {
 
   return null;
 }
+
 // ── Store in cache async (fire-and-forget) ─────────────────────────────────
 function storeInCacheAsync(quizId, message, answer) {
+  if (!CACHE_ENABLED) return; // cache disabled — skip
   runPython(CACHE_SCRIPT, { mode: "store_cache", quiz_id: quizId, message, answer })
     .then((result) => {
       if (result.stored) {
@@ -180,30 +201,32 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
 
   console.log(`[quizChat] Message for quiz ${quizId}: "${message.slice(0, 60)}"`);
 
-  // ── 1. Check semantic cache ──────────────────────────────────────────────
+  // ── 1. Check semantic cache (only if enabled) ────────────────────────────
   let cacheHit = false, reply = null, cacheScore = null;
 
-  try {
-    const cacheResult = await runPython(CACHE_SCRIPT, {
-      mode: "check_cache", quiz_id: quizId, message: message.trim(), threshold: CACHE_THRESHOLD,
-    });
-    if (cacheResult.error) {
-      console.error(`[quizChat] Cache ERROR: ${cacheResult.error}`);
-    } else if (cacheResult._qdrant_error) {
-      console.error(`[quizChat] Qdrant ERROR: ${cacheResult._qdrant_error}`);
-    } else if (cacheResult.hit) {
-      cacheHit   = true;
-      reply      = cacheResult.answer;
-      cacheScore = cacheResult.score;
-      console.log(`[quizChat] Cache HIT (score: ${cacheScore}) for quiz ${quizId}`);
-    } else {
-      console.log(`[quizChat] Cache MISS for quiz ${quizId}`);
+  if (CACHE_ENABLED) {
+    try {
+      const cacheResult = await runPython(CACHE_SCRIPT, {
+        mode: "check_cache", quiz_id: quizId, message: message.trim(), threshold: CACHE_THRESHOLD,
+      });
+      if (cacheResult.error) {
+        console.error(`[quizChat] Cache ERROR: ${cacheResult.error}`);
+      } else if (cacheResult._qdrant_error) {
+        console.error(`[quizChat] Qdrant ERROR: ${cacheResult._qdrant_error}`);
+      } else if (cacheResult.hit) {
+        cacheHit   = true;
+        reply      = cacheResult.answer;
+        cacheScore = cacheResult.score;
+        console.log(`[quizChat] Cache HIT (score: ${cacheScore}) for quiz ${quizId}`);
+      } else {
+        console.log(`[quizChat] Cache MISS for quiz ${quizId}`);
+      }
+    } catch (err) {
+      console.warn("[quizChat] Cache check failed (non-fatal):", err.message);
     }
-  } catch (err) {
-    console.warn("[quizChat] Cache check failed (non-fatal):", err.message);
   }
 
-  // ── 2. Cache miss → call Gemini ──────────────────────────────────────────
+  // ── 2. Cache miss (or disabled) → call the AI tutor ──────────────────────
   if (!cacheHit) {
     // Load quiz questions
     let questions = [];
@@ -212,10 +235,11 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
     } catch (err) {
       console.error("[quizChat] Failed to load quiz questions:", err.message);
     }
+
     // ── Off-topic guard ──────────────────────────────────────────────────
     const offTopicPhrases = ["joke","weather","football","cricket","movie","youtube","tiktok","instagram","who made you","are you real","do you like"];
     const isOffTopic = offTopicPhrases.some((p) => message.toLowerCase().includes(p));
-     if (isOffTopic) {
+    if (isOffTopic) {
       const youngKid = (req.yearLevel || 3) <= 5;
       return res.json({
         reply: youngKid
@@ -230,20 +254,7 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
       // Don't 404 — still try to answer without quiz context
     }
 
-    const yearLevel = req.yearLevel || 3;
-    const childName = req.childName || "Student";
-
-    // Build quiz context string
-    const quizContext = questions.length
-      ? questions.map((q, i) =>
-          `Q${i + 1}: ${q.question_text}` +
-          (q.options?.length ? ` [Options: ${q.options.join(" / ")}]` : "") +
-          (q.correct_answer ? ` [Answer: ${q.correct_answer}]` : "") +
-          (q.category ? ` [Topic: ${q.category}]` : "")
-        ).join("\n")
-      : "No specific quiz context available.";
-
-   // ── Fetch attempt context + child history in parallel ──
+    // ── Fetch attempt context + child history in parallel ──
     const [attemptCtx, historyCtx] = await Promise.all([
       attempt_id ? getAttemptContext(attempt_id) : Promise.resolve(null),
       req.childId ? getChildHistory(req.childId) : Promise.resolve(null),
@@ -258,22 +269,22 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
       history_context: historyCtx  || "",
     };
 
-    let geminiResult;
+    let agentResult;
     try {
-      geminiResult = await runPython(GEMINI_SCRIPT, agentPayload);
+      agentResult = await runPython(GEMINI_SCRIPT, agentPayload);
     } catch (err) {
       console.error("[quizChat] Agent call failed:", err.message);
       return res.status(500).json({ error: "AI tutor is temporarily unavailable. Please try again." });
     }
 
-    if (!geminiResult?.success) {
-      console.error("[quizChat] Agent returned error:", geminiResult?.error);
-      return res.status(500).json({ error: geminiResult?.error || "AI response failed." });
+    if (!agentResult?.success) {
+      console.error("[quizChat] Agent returned error:", agentResult?.error);
+      return res.status(500).json({ error: agentResult?.error || "AI response failed." });
     }
 
-    reply = geminiResult.reply;
+    reply = agentResult.reply;
 
-    // Async store in cache
+    // Async store in cache (no-op while cache disabled)
     if (reply) storeInCacheAsync(quizId, message.trim(), reply);
   }
 
