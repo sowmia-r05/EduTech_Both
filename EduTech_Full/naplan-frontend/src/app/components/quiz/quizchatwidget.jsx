@@ -108,7 +108,7 @@ export default function QuizChatWidget({
     setInput("");
     setLoading(true);
     const history = next.slice(-(MAX_HISTORY + 1), -1).map((m) => ({
-      role: m.role === "user" ? "child" : "ai", content: m.content,
+      role: m.role === "user" ? "user" : "assistant", content: m.content,
     }));
     try {
       const res  = await apiFetch(`/api/quizzes/${quizId}/chat`, {

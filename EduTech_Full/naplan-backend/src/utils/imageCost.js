@@ -1,17 +1,23 @@
 /**
  * utils/imageCost.js
  *
- * Pricing table for OpenAI image generation + helper to compute
+ * Pricing table for AI image generation + helper to compute
  * cost-per-call. Prices are in USD per image.
  *
- * Update this file whenever OpenAI changes pricing.
- * Reference: https://openai.com/api/pricing/
+ * Gemini (Nano Banana) models bill a FLAT price per image.
+ * OpenAI models (legacy, kept for reference) bill per quality tier + size.
  *
  * Place in: naplan-backend/src/utils/imageCost.js
  */
 
 // ─── Pricing table (USD per image) ─────────────────────────────
 const PRICING = {
+  // ─── Gemini (Nano Banana) — flat USD per image ───
+  "gemini-3.1-flash-image": 0.067,  // Nano Banana 2 (1K) — has free tier (5k/mo)
+  "gemini-2.5-flash-image": 0.039,  // Nano Banana (cheapest)
+  "gemini-3-pro-image":     0.134,  // Nano Banana Pro (2K, highest quality)
+
+  // ─── OpenAI (legacy — no longer used, kept for historical cost lookups) ───
   // DALL-E 3 — quality + size based
   "dall-e-3": {
     standard: {
@@ -35,7 +41,7 @@ const PRICING = {
     },
   },
 
-  // gpt-image-1 — newer model, quality-tier based
+  // gpt-image-1 — quality-tier based
   "gpt-image-1": {
     low: {
       "1024x1024": 0.011,
@@ -59,8 +65,8 @@ const PRICING = {
  * Calculate the USD cost for a single image generation.
  *
  * @param {object} args
- * @param {string} args.model    — "dall-e-3" | "dall-e-2" | "gpt-image-1"
- * @param {string} args.size     — "1024x1024" | "1792x1024" | etc
+ * @param {string} args.model    — "gemini-3.1-flash-image" | "dall-e-3" | etc
+ * @param {string} args.size     — "1024x1024" | "1792x1024" | etc (ignored for Gemini)
  * @param {string} args.quality  — "standard" | "hd" | "low" | "medium" | "high"
  * @returns {number} cost in USD (0 if unknown combination)
  */
@@ -71,7 +77,10 @@ function calculateCost({ model, size, quality = "standard" }) {
     return 0;
   }
 
-  // Fallback chain: requested quality → standard → medium → first available
+  // Gemini models use a flat per-image price (not nested by quality/size)
+  if (typeof modelPricing === "number") return modelPricing;
+
+  // OpenAI: fallback chain — requested quality → standard → medium → first available
   const qualityTier =
     modelPricing[quality] ||
     modelPricing.standard ||
