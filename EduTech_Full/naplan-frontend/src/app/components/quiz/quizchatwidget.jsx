@@ -4,6 +4,7 @@
  * - Sparkle/AI icon on the FAB
  * - Pulses once after 3s to draw attention
  * - window.__openQuizChat() lets AITutorTab hint open it directly
+ * - AI replies render **bold** and line breaks (lightweight, no deps)
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -11,6 +12,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const MAX_HISTORY  = 6;
 const YOUNG_CUTOFF = 5;
 function isYoung(y) { return Number(y || 3) <= YOUNG_CUTOFF; }
+
+// ── Minimal inline markdown: **bold** + *italic*, newlines via pre-wrap ──
+function renderFormatted(text) {
+  const str = String(text ?? "");
+  const parts = str.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
+}
 
 function IcSparkle({ size = 22 }) {
   return (
@@ -134,8 +150,8 @@ export default function QuizChatWidget({
     <>
       {/* Panel */}
       <div style={{
-        position: "fixed", bottom: 88, right: 20, zIndex: 9998,
-        width: 500, maxWidth: "calc(100vw - 40px)", maxHeight: 700,
+        position: "fixed", bottom: 96, right: 20, zIndex: 9998,
+        width: 720, maxWidth: "calc(100vw - 40px)", height: "min(820px, calc(100vh - 110px))",
         display: "flex", flexDirection: "column",
         background: "#fff", border: "1px solid #E5E7EB", borderRadius: 16,
         boxShadow: "0 8px 32px rgba(0,0,0,0.14)", overflow: "hidden",
@@ -144,25 +160,25 @@ export default function QuizChatWidget({
         pointerEvents: open ? "auto" : "none",
         transition: "opacity 0.18s ease, transform 0.18s ease",
       }}>
-        <div style={{ padding: "12px 16px", background: accent, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <IcSparkle size={20} />
+        <div style={{ padding: "18px 22px", background: accent, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <IcSparkle size={32} />
           <div style={{ flex: 1 }}>
-            <div style={{ color: "#fff", fontWeight: 700, fontSize: 17}}>{young ? "Your AI tutor ✨" : "AI Tutor"}</div>
-            <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 14 }}>Ask anything about this quiz</div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 30}}>{young ? "Your AI tutor ✨" : "AI Tutor"}</div>
+            <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 19 }}>Ask anything about this quiz</div>
           </div>
           <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.85)", padding: 4, borderRadius: 6, display: "flex", alignItems: "center" }}>
-            <IcClose size={18} />
+            <IcClose size={30} />
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8, background: "#FAFAFA" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 14, background: "#FAFAFA" }}>
           {messages.length === 0 && (
-            <div style={{ textAlign: "center", padding: "20px 8px 4px" }}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>✨</div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: "#374151" }}>
+            <div style={{ textAlign: "center", padding: "26px 8px 4px" }}>
+              <div style={{ fontSize: 42, marginBottom: 8 }}>✨</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: "#374151" }}>
                 {young ? "Hi! I'm your AI helper." : "Hi! I'm your AI tutor."}
               </div>
-              <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 4 }}>
+              <div style={{ fontSize: 19, color: "#9CA3AF", marginTop: 4 }}>
                 {young ? "Ask me anything about this quiz!" : "Ask me about any question in this quiz."}
               </div>
             </div>
@@ -170,15 +186,15 @@ export default function QuizChatWidget({
           {messages.map((m, i) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
               <div style={{
-                maxWidth: "82%", padding: "9px 13px",
-                borderRadius: m.role === "user" ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
+                maxWidth: "85%", padding: "16px 20px",
+                borderRadius: m.role === "user" ? "16px 16px 2px 16px" : "16px 16px 16px 2px",
                 background: m.role === "user" ? accent : "#fff",
                 color: m.role === "user" ? "#fff" : "#1F2937",
-                fontSize: 16, lineHeight: 1.7,
+                fontSize: 26, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word",
                 border: m.role === "ai" ? "1px solid #E5E7EB" : "none",
-              }}>{m.content}</div>
+              }}>{m.role === "ai" ? renderFormatted(m.content) : m.content}</div>
               {m.role === "ai" && m.cached && (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 600, color: "#059669", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 4, padding: "1px 5px", marginTop: 4 }}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 600, color: "#059669", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 4, padding: "2px 6px", marginTop: 4 }}>
                   <span>⚡</span><span>Instant answer</span>
                   {m.score && <span style={{ opacity: 0.65 }}>({Math.round(m.score * 100)}% match)</span>}
                 </div>
@@ -187,7 +203,7 @@ export default function QuizChatWidget({
           ))}
           {loading && (
             <div style={{ alignSelf: "flex-start" }}>
-              <div style={{ padding: "8px 14px", borderRadius: "14px 14px 14px 2px", background: "#fff", border: "1px solid #E5E7EB" }}>
+              <div style={{ padding: "8px 14px", borderRadius: "16px 16px 16px 2px", background: "#fff", border: "1px solid #E5E7EB" }}>
                 <TypingDots />
               </div>
             </div>
@@ -195,7 +211,7 @@ export default function QuizChatWidget({
           <div ref={bottomRef} />
         </div>
 
-        <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: "1px solid #F3F4F6", background: "#fff", flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 10, padding: "16px 18px", borderTop: "1px solid #F3F4F6", background: "#fff", flexShrink: 0 }}>
           <input
             ref={inputRef}
             value={input}
@@ -204,10 +220,10 @@ export default function QuizChatWidget({
             placeholder={young ? "Type your question here..." : "Ask about this quiz..."}
             disabled={loading}
             maxLength={500}
-            style={{ flex: 1, border: "1px solid #D1D5DB", borderRadius: 10, padding: "10px 14px", fontSize: 16, outline: "none", color: "#111827", background: loading ? "#F9FAFB" : "#fff" }}
+            style={{ flex: 1, border: "1px solid #D1D5DB", borderRadius: 12, padding: "16px 20px", fontSize: 24, outline: "none", color: "#111827", background: loading ? "#F9FAFB" : "#fff" }}
           />
-          <button onClick={send} disabled={!canSend} style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: canSend ? accent : "#E5E7EB", color: "#fff", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
-            <IcSend size={15} />
+          <button onClick={send} disabled={!canSend} style={{ padding: "12px 22px", borderRadius: 12, border: "none", background: canSend ? accent : "#E5E7EB", color: "#fff", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
+            <IcSend size={28} />
           </button>
         </div>
       </div>
@@ -217,7 +233,7 @@ export default function QuizChatWidget({
         onClick={() => setOpen((v) => !v)}
         style={{
           position: "fixed", bottom: 24, right: 24, zIndex: 9999,
-          width: 54, height: 54, borderRadius: "50%",
+          width: 66, height: 66, borderRadius: "50%",
           background: open ? "#374151" : accent,
           color: "#fff", border: "none", cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -227,9 +243,9 @@ export default function QuizChatWidget({
         }}
         aria-label={open ? "Close AI tutor" : "Open AI tutor"}
       >
-        {open ? <IcClose size={18} /> : <IcSparkle size={22} />}
+        {open ? <IcClose size={26} /> : <IcSparkle size={30} />}
         {!open && hasUnread && (
-          <div style={{ position: "absolute", top: 8, right: 8, width: 10, height: 10, borderRadius: "50%", background: "#EF4444", border: "2px solid #fff" }} />
+          <div style={{ position: "absolute", top: 10, right: 10, width: 12, height: 12, borderRadius: "50%", background: "#EF4444", border: "2px solid #fff" }} />
         )}
       </button>
     </>

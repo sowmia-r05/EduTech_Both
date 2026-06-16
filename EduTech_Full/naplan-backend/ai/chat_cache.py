@@ -109,7 +109,6 @@ def _ensure_collection(qdrant: QdrantClient) -> None:
 
 # ── Embedding ─────────────────────────────────────────────────────────────────
 
-# AFTER
 def _embed(gemini, text: str, task_type: str = "retrieval_query") -> list[float]:
     """Embed normalised text using gemini-embedding-001."""
     result = gemini.models.embed_content(
@@ -118,6 +117,7 @@ def _embed(gemini, text: str, task_type: str = "retrieval_query") -> list[float]
         config=types.EmbedContentConfig(task_type=task_type),
     )
     return result.embeddings[0].values
+
 
 # ── Cache operations ──────────────────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ def check_cache(
         { "hit": True,  "answer": "...", "score": 0.97, "cached_question": "..." }
         { "hit": False }
     """
-    embedding = _embed(gemini, message, task_type="retrieval_query") # 
+    embedding = _embed(gemini, message, task_type="retrieval_query")
 
     # Filter to this quiz only — different quizzes can have the same question text
     # but need different scoped answers.
