@@ -59,7 +59,7 @@ import QuizChatWidget from "./quizchatwidget";
         }
       `}</style>
 
-      <nav className="qh-nav">
+       <nav className="qh-nav" style={{ zoom: 1.2 }}>
 
         {/* ── Left: KAI logo ── */}
         <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
@@ -485,7 +485,7 @@ useEffect(() => {
 
       {/* ── TAB 1: RESULTS ── */}
       {activeTab === 0 && (
-        <div className="px-4 py-8">
+        <div className="px-4 py-8" style={{ zoom: 1.2 }}>
           <div className="max-w-7xl mx-auto space-y-4">
 
    <div className="rounded-2xl overflow-hidden shadow-md border border-slate-200 max-w-3xl mx-auto w-full">
