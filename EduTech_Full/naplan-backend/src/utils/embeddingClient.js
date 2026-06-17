@@ -3,24 +3,19 @@
  *
  * Multi-provider embedding client for originality checks.
  *
- *   gemini   → text-embedding-004                 (768-dim)   — GEMINI_API_KEY
+ *   gemini   → gemini-embedding-001               (768-dim)   — GEMINI_API_KEY
  *   grok     → grok-embedding-small               (1024-dim)  — XAI_API_KEY
  *   openai   → text-embedding-3-small             (1536-dim)  — OPENAI_API_KEY
  *
  * Place at: src/utils/embeddingClient.js
  *
  * Configure via .env:
- *   EMBEDDING_PROVIDER=grok          (gemini | grok | openai — default: gemini)
+ *   EMBEDDING_PROVIDER=gemini        (gemini | grok | openai — default: gemini)
  *   EMBEDDING_MODEL=                 (override default model for the provider)
  *
  * IMPORTANT: vector dimensionality varies by provider. Once you have ingested
  * the corpus with one provider you cannot mix providers — switching means
  * re-embedding the entire corpus_items collection. Pick one and stick with it.
- *
- * Usage:
- *   const { embedText, embedBatch, cosineSimilarity } = require("./embeddingClient");
- *   const vec = await embedText("What is 2 + 2?");
- *   const sim = cosineSimilarity(vecA, vecB);   // 0..1
  */
 
 // ═══════════════════════════════════════════════════════════════
@@ -31,7 +26,7 @@ async function embedTextGemini(text) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.LLM_API_KEY;
   if (!apiKey) throw new Error("Embedding (gemini): GEMINI_API_KEY not set");
 
-  const model = process.env.EMBEDDING_MODEL || "text-embedding-004";
+  const model = process.env.EMBEDDING_MODEL || "gemini-embedding-001";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`;
 
   const res = await fetch(url, {
@@ -41,6 +36,7 @@ async function embedTextGemini(text) {
       model: `models/${model}`,
       content: { parts: [{ text: String(text || "").slice(0, 9000) }] },
       taskType: "SEMANTIC_SIMILARITY",
+      outputDimensionality: 768,
     }),
   });
 
@@ -140,10 +136,6 @@ async function embedText(text) {
   return fn(text);
 }
 
-/**
- * Embed many texts in parallel with concurrency cap.
- * Failed items become null (caller decides what to do).
- */
 async function embedBatch(texts, { concurrency = 4, onProgress } = {}) {
   const results = new Array(texts.length).fill(null);
   let next = 0;
@@ -166,10 +158,6 @@ async function embedBatch(texts, { concurrency = 4, onProgress } = {}) {
   return results;
 }
 
-/**
- * Cosine similarity between two equal-length vectors. Returns 0..1.
- * Returns 0 if dimensions don't match — important guard when changing providers.
- */
 function cosineSimilarity(a, b) {
   if (!a || !b || a.length !== b.length) return 0;
   let dot = 0, na = 0, nb = 0;
