@@ -60,6 +60,45 @@ function _setCachedQuiz(quizId, questions) {
   if (_quizCache.size >= 200) _quizCache.delete(_quizCache.keys().next().value);
   _quizCache.set(quizId, { questions, cachedAt: Date.now() });
 }
+// -- Pick only the question(s) relevant to the student's message -------------
+// Returns { relevant: [...], usedFallback: bool }. Cuts token size massively
+// vs. sending the whole quiz on every turn.
+function selectRelevantQuestions(message, questions) {
+  if (!questions || !questions.length) return { relevant: [], usedFallback: true };
+
+  const msg = message.toLowerCase();
+
+  // 1) Number reference: "q3", "question 3", "number 3", "3rd"
+  const numMatch =
+    msg.match(/\b(?:q(?:uestion)?|number|no\.?)\s*#?\s*(\d{1,2})\b/) ||
+    msg.match(/\b(\d{1,2})(?:st|nd|rd|th)\b/);
+  if (numMatch) {
+    const idx = parseInt(numMatch[1], 10) - 1;
+    if (idx >= 0 && idx < questions.length) {
+      return { relevant: [{ q: questions[idx], index: idx }], usedFallback: false };
+    }
+  }
+
+  // 2) Keyword overlap: score each question by shared meaningful words
+  const stop = new Set(["the","a","an","is","are","was","were","what","why","how","do","does","did","of","to","in","on","for","and","or","my","this","that","i","me","you","it","question","wrong","answer","explain","help"]);
+  const msgWords = new Set(msg.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(w => w.length > 2 && !stop.has(w)));
+
+  if (msgWords.size) {
+    const scored = questions.map((q, index) => {
+      const qText = String(q.question_text || "").toLowerCase();
+      let score = 0;
+      for (const w of msgWords) if (qText.includes(w)) score++;
+      return { q, index, score };
+    }).filter(s => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2);
+
+    if (scored.length) return { relevant: scored, usedFallback: false };
+  }
+
+  // 3) No match → general question, no specific question context
+  return { relevant: [], usedFallback: true };
+}
 
 // -- Rate limiter: 20 msg/hour per child --------------------------------------
 const chatRateLimit = rateLimit({
@@ -302,23 +341,63 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
     console.warn(`[quizChat] No questions found for quiz ${quizId} — proceeding without context`);
   }
 
-  const quizContext = questions.length
-    ? questions.map((q, i) =>
-        `Q${i + 1}: ${q.question_text}` +
+  // -- Build a SLIM quiz context (relevant questions only) --------------------
+  // For attempt-aware turns we keep the full list (buildAttemptBlock needs it).
+  // For generic turns we send only the question(s) the student is asking about.
+  let quizContext;
+  if (hasAttempt) {
+    // attempt path: full context is fine; the attempt block already lists all Qs
+    quizContext = questions.length
+      ? questions.map((q, i) =>
+          `Q${i + 1}: ${q.question_text}` +
+          (q.options && q.options.length ? ` [Options: ${q.options.join(" / ")}]` : "") +
+          (q.correct_answer ? ` [Answer: ${q.correct_answer}]` : "") +
+          (q.category ? ` [Topic: ${q.category}]` : "")
+        ).join("\n")
+      : "No specific quiz context available.";
+  } else {
+    const { relevant, usedFallback } = selectRelevantQuestions(cleanMsg, questions);
+    if (relevant.length) {
+      quizContext = relevant.map(({ q, index }) =>
+        `Q${index + 1}: ${q.question_text}` +
         (q.options && q.options.length ? ` [Options: ${q.options.join(" / ")}]` : "") +
         (q.correct_answer ? ` [Answer: ${q.correct_answer}]` : "") +
         (q.category ? ` [Topic: ${q.category}]` : "")
-      ).join("\n")
-    : "No specific quiz context available.";
-
-  const attemptBlock = hasAttempt ? buildAttemptBlock(attemptCtx, questions) : "";
-
+      ).join("\n");
+    } else if (questions.length) {
+      const topics = [...new Set(questions.map(q => q.category).filter(Boolean))];
+      quizContext = topics.length
+        ? `This quiz covers these topics: ${topics.join(", ")}. (Ask the student which question they mean for specifics.)`
+        : "This is a NAPLAN practice quiz. Ask the student which question they mean for specifics.";
+    } else {
+      quizContext = "No specific quiz context available.";
+    }
+    console.log(`[quizChat] Context: ${relevant.length ? relevant.length + " relevant Q(s)" : "topic-list fallback"}`);
+  }
+  // -- Subject-specific tutoring guidance -------------------------------------
+  const subjectKey = String(subject || "").toLowerCase();
+  let subjectGuidance;
+  if (/math|numeracy/.test(subjectKey)) {
+    subjectGuidance =
+      `This is a MATHS question. Render all maths using LaTeX: wrap inline maths in single dollar signs, e.g. $\\frac{1}{4}$, $3 \\times 4$, $x^2$. ` +
+      `Work through the steps in order, show the calculation, and explain the reasoning behind each step rather than only stating the final answer.`;
+  } else if (/read/.test(subjectKey)) {
+    subjectGuidance =
+      `This is a READING question. Focus on comprehension: point back to evidence in the text, explain how to infer meaning, and model how to rule out wrong options. Do NOT use maths notation or LaTeX.`;
+  } else if (/writ|language|grammar/.test(subjectKey)) {
+    subjectGuidance =
+      `This is a WRITING/LANGUAGE question. Focus on grammar, sentence structure, word choice, and clear examples. Correct gently and show an improved version. Do NOT use maths notation or LaTeX.`;
+  } else {
+    subjectGuidance =
+      `Explain clearly and simply with examples suited to the question. Use LaTeX maths notation only if the question is mathematical.`;
+  }
   // -- Build prompt -----------------------------------------------------------
   const systemPrompt = [
     `You are a warm, encouraging AI tutor inside a NAPLAN practice quiz for Australian students.`,
     `The student is in Year ${yearLevel}. Use clear, simple, age-appropriate language and be supportive.`,
     `Only help with this quiz and its topics. If asked about something unrelated, gently steer back to the quiz.`,
     `Keep replies under 120 words. Guide the student's thinking step by step rather than only giving the final answer, unless they explicitly ask for the answer.`,
+    subjectGuidance,
     `\nQuiz questions for context:\n${quizContext}`,
     attemptBlock,
     subject ? `\nSubject: ${subject}` : "",
