@@ -5,8 +5,19 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import OpenAI
-import google.generativeai as genai
+# 👈 CHANGED: optional imports — the script no longer crashes at startup
+# if a provider library is missing. (Was: "from openai import OpenAI"
+# unconditionally, which throws ModuleNotFoundError on Render when the
+# openai package isn't installed, killing every feedback run.)
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 
 # -------------------------
@@ -322,7 +333,7 @@ def analyze_performance(student_data: Dict[str, Any], doc: Dict[str, Any], year_
 
 
 # ═══════════════════════════════════════════════════════════════
-# PROVIDERS: OpenAI primary + Gemini fallback
+# PROVIDERS: Gemini primary + OpenAI fallback
 # ═══════════════════════════════════════════════════════════════
 # Build whichever providers have keys present, ordered by priority.
 # generate_feedback() tries them in order and falls back on ANY error
@@ -330,6 +341,8 @@ def analyze_performance(student_data: Dict[str, Any], doc: Dict[str, Any], year_
 # Override priority with AI_PRIMARY_PROVIDER = "openai" | "gemini".
 
 def _make_openai() -> Optional[Dict[str, Any]]:
+    if OpenAI is None:  # 👈 CHANGED: skip cleanly if the openai library isn't installed
+        return None
     key = (os.getenv("OPENAI_API_KEY") or "").strip()
     if not key:
         return None
@@ -338,17 +351,19 @@ def _make_openai() -> Optional[Dict[str, Any]]:
 
 
 def _make_gemini() -> Optional[Dict[str, Any]]:
+    if genai is None:  # 👈 CHANGED: skip cleanly if google-generativeai isn't installed
+        return None
     key = (os.getenv("GEMINI_API_KEY") or "").strip()
     if not key:
         return None
-    model = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+    model = (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash-lite").strip()  # 👈 CHANGED: was "gemini-2.0-flash"
     genai.configure(api_key=key)
     return {"provider": "gemini", "client": genai.GenerativeModel(model), "model": model}
 
 
 def init_providers() -> List[Dict[str, Any]]:
     """Return available providers, primary first. Empty list if no keys set."""
-    primary = (os.getenv("AI_PRIMARY_PROVIDER") or "openai").strip().lower()
+    primary = (os.getenv("AI_PRIMARY_PROVIDER") or "gemini").strip().lower()  # 👈 CHANGED: was "openai"
     openai_p = _make_openai()
     gemini_p = _make_gemini()
     order = [gemini_p, openai_p] if primary == "gemini" else [openai_p, gemini_p]
@@ -901,7 +916,7 @@ def placeholder_feedback(subject: str, quiz_name: str, model_name: str, year_lev
             "subject": subject,
             "quiz_name": quiz_name,
             "year_level": year_level,
-            "source": "subject_feedback/openai_subject_feedback.py",
+            "source": "subject_feedback/gemini_subject_feedback.py",  # 👈 CHANGED: was "openai_subject_feedback.py"
             "status": "done",
             "status_message": "Ready - awaiting first quiz attempt"
         },
@@ -943,7 +958,7 @@ def main():
         return
 
     if not providers:
-        print(json.dumps({"success": False, "error": "No AI provider key set (need OPENAI_API_KEY and/or GEMINI_API_KEY)"}))
+        print(json.dumps({"success": False, "error": "No AI provider key set (need GEMINI_API_KEY and/or OPENAI_API_KEY)"}))
         return
 
     # The model we *intend* to use first (for placeholder/meta before any call)
@@ -986,7 +1001,7 @@ def main():
             "subject": subject,
             "quiz_name": quiz_name,
             "year_level": year_level,
-            "source": "subject_feedback/openai_subject_feedback.py",
+            "source": "subject_feedback/gemini_subject_feedback.py",  # 👈 CHANGED: was "openai_subject_feedback.py"
             "status": "done",
             "status_message": f"Feedback generated successfully ({used_provider})"
         },
