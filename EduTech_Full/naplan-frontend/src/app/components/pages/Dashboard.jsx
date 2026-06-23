@@ -764,13 +764,13 @@ return (
                     <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
                       <BarChart2 className="w-4 h-4 text-emerald-500" />
                     </div>
-                    <span className="text-sm font-semibold text-slate-700">Top 5 Topics Overview</span>
+                    <span className="text-sm font-semibold text-slate-700">All Topics Overview</span>
                   </div>
-                  <div className="flex-1 p-3">
+                  <div className="flex-1 p-3 overflow-y-auto min-h-0">
                     {/* title="" already suppresses inner title — unchanged */}
                     <TopTopicsFunnelChart
                       topicBreakdown={selectedResult?.topicBreakdown}
-                      topN={5}
+                      topN={0}
                       height={180}
                       title=""
                     />
