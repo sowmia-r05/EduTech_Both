@@ -634,8 +634,11 @@ router.get("/attempts/:attemptId/ai-status", async (req, res) => {
       return res.json({ ai_status: status });
     }
 
-    // Not in Writing yet — check QuizAttempt (still processing)
-    const attempt = await QuizAttempt.findOne({ attempt_id: attemptId })
+
+    const or = [{ attempt_id: attemptId }, { response_id: attemptId }];
+    if (/^[a-f\d]{24}$/i.test(attemptId)) or.push({ _id: attemptId });
+
+    const attempt = await QuizAttempt.findOne({ $or: or })
       .select("ai_feedback_meta")
       .lean();
 

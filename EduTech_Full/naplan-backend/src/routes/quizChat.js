@@ -5,22 +5,10 @@
  *
  * Quiz-scoped AI tutor — Google Gemini, direct from Node.
  *
- * Two modes, decided automatically:
- *   • ATTEMPT-AWARE (student has an attempt loaded): the prompt includes the
- *     student's OWN per-question results — which option they chose, whether it
- *     was right, and the correct answer — so the tutor can answer "what's wrong
- *     with Q3?". These replies are personal and are NOT written to the cache.
- *   • GENERIC (no attempt): standalone conceptual questions use the shared
- *     Qdrant semantic cache (one answer per question, per quiz), with a light
- *     personalization pass from the child's history.
- *
- * ENV (Render backend):
- *   GEMINI_API_KEY        — required (AIza...)
- *   GEMINI_MODEL          — optional, default "gemini-2.5-flash-lite"
- *   QDRANT_URL            — required for caching
- *   QDRANT_API_KEY        — required for caching
- *   QUIZ_CACHE_ENABLED    — optional, default true
- *   PERSONALIZE_REPLIES   — optional, default true
+ * ✅ attemptBlock is defined before the prompt (fixes the 500 ReferenceError).
+ * ✅ buildAttemptBlock now numbers questions using getAttemptContext's
+ *    question_number (which matches the on-screen numbering) instead of the
+ *    old array-position numbering, so "question 7" maps to the real Q7.
  *
  * Requires Node 18+ (built-in global fetch).
  */
@@ -60,15 +48,13 @@ function _setCachedQuiz(quizId, questions) {
   if (_quizCache.size >= 200) _quizCache.delete(_quizCache.keys().next().value);
   _quizCache.set(quizId, { questions, cachedAt: Date.now() });
 }
+
 // -- Pick only the question(s) relevant to the student's message -------------
-// Returns { relevant: [...], usedFallback: bool }. Cuts token size massively
-// vs. sending the whole quiz on every turn.
 function selectRelevantQuestions(message, questions) {
   if (!questions || !questions.length) return { relevant: [], usedFallback: true };
 
   const msg = message.toLowerCase();
 
-  // 1) Number reference: "q3", "question 3", "number 3", "3rd"
   const numMatch =
     msg.match(/\b(?:q(?:uestion)?|number|no\.?)\s*#?\s*(\d{1,2})\b/) ||
     msg.match(/\b(\d{1,2})(?:st|nd|rd|th)\b/);
@@ -79,7 +65,6 @@ function selectRelevantQuestions(message, questions) {
     }
   }
 
-  // 2) Keyword overlap: score each question by shared meaningful words
   const stop = new Set(["the","a","an","is","are","was","were","what","why","how","do","does","did","of","to","in","on","for","and","or","my","this","that","i","me","you","it","question","wrong","answer","explain","help"]);
   const msgWords = new Set(msg.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(w => w.length > 2 && !stop.has(w)));
 
@@ -96,7 +81,6 @@ function selectRelevantQuestions(message, questions) {
     if (scored.length) return { relevant: scored, usedFallback: false };
   }
 
-  // 3) No match → general question, no specific question context
   return { relevant: [], usedFallback: true };
 }
 
@@ -171,35 +155,35 @@ async function personalizeReply(genericAnswer, { childName, yearLevel, historyCt
 }
 
 // -- Build the student's per-question results block (ATTEMPT-AWARE path) -------
-function buildAttemptBlock(attemptCtx, questions) {
+// 👈 CHANGED: numbers now come from getAttemptContext (question_number), which
+// matches the on-screen numbering. No longer numbered by array position.
+function buildAttemptBlock(attemptCtx, _questions) {
   if (!attemptCtx) return "";
+
+  const all   = attemptCtx.all_questions || [];
   const wrong = attemptCtx.wrong_questions || [];
-  const wrongByText = new Map(
-    wrong.map((w) => [String(w.question_text || "").trim(), w])
-  );
+  const list  = all.length ? all : wrong.map((w) => ({ ...w, is_correct: false }));
 
   const lines = [];
-  lines.push(`\n--- THIS STUDENT'S OWN RESULTS (use this to answer how THEY did) ---`);
+  lines.push(`\n--- THIS STUDENT'S OWN RESULTS — question numbers match what the student sees on screen ---`);
   if (attemptCtx.score_pct != null) lines.push(`Overall score: ${attemptCtx.score_pct}%`);
 
-  if (questions && questions.length) {
-    questions.forEach((q, i) => {
-      const w = wrongByText.get(String(q.question_text || "").trim());
-      if (w) {
-        lines.push(
-          `Q${i + 1}: "${q.question_text}" -> student chose "${w.child_answer}" (INCORRECT); ` +
-          `correct answer is "${w.correct_answer || q.correct_answer}".`
-        );
-      } else {
-        lines.push(`Q${i + 1}: "${q.question_text}" -> student answered CORRECTLY.`);
-      }
-    });
-  } else if (wrong.length) {
-    wrong.forEach((w) =>
-      lines.push(`"${w.question_text}" -> student chose "${w.child_answer}" (INCORRECT); correct is "${w.correct_answer}".`)
-    );
+  for (const q of list) {
+    if (q.is_correct) {
+      lines.push(`Q${q.question_number}: "${q.question_text}" -> student answered CORRECTLY ("${q.child_answer}").`);
+    } else {
+      lines.push(
+        `Q${q.question_number}: "${q.question_text}" -> student chose "${q.child_answer}" (INCORRECT); ` +
+        `correct answer is "${q.correct_answer}".`
+      );
+    }
   }
-  lines.push(`When the student says "question 3" / "Q3", use the Q-numbers above. Explain clearly why their choice was wrong and why the correct answer is right.`);
+
+  lines.push(
+    `Use these EXACT question numbers. When the student says "question 7" / "Q7", answer about Q7 above — ` +
+    `never renumber, and never ask the student which question it is (you already have them). If they name a ` +
+    `number marked CORRECT above, congratulate them and explain why it is right.`
+  );
   return lines.join("\n");
 }
 
@@ -306,7 +290,7 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
     .filter((m) => m.content);
   const isStandalone = historyMessages.length === 0;
 
-  // ✅ FIX: pass db so the student's attempt data actually loads
+  // ✅ pass db so the student's attempt data actually loads
   const [attemptCtx, historyCtx] = await Promise.all([
     attempt_id ? getAttemptContext(attempt_id, db).catch(() => null) : Promise.resolve(null),
     req.childId ? getChildHistory(req.childId, db).catch(() => null) : Promise.resolve(null),
@@ -342,11 +326,8 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
   }
 
   // -- Build a SLIM quiz context (relevant questions only) --------------------
-  // For attempt-aware turns we keep the full list (buildAttemptBlock needs it).
-  // For generic turns we send only the question(s) the student is asking about.
   let quizContext;
   if (hasAttempt) {
-    // attempt path: full context is fine; the attempt block already lists all Qs
     quizContext = questions.length
       ? questions.map((q, i) =>
           `Q${i + 1}: ${q.question_text}` +
@@ -374,6 +355,7 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
     }
     console.log(`[quizChat] Context: ${relevant.length ? relevant.length + " relevant Q(s)" : "topic-list fallback"}`);
   }
+
   // -- Subject-specific tutoring guidance -------------------------------------
   const subjectKey = String(subject || "").toLowerCase();
   let subjectGuidance;
@@ -391,6 +373,10 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
     subjectGuidance =
       `Explain clearly and simply with examples suited to the question. Use LaTeX maths notation only if the question is mathematical.`;
   }
+
+  // 👈 attemptBlock MUST be defined before it is used in systemPrompt below.
+  const attemptBlock = hasAttempt ? buildAttemptBlock(attemptCtx, questions) : "";
+
   // -- Build prompt -----------------------------------------------------------
   const systemPrompt = [
     `You are a warm, encouraging AI tutor inside a NAPLAN practice quiz for Australian students.`,
@@ -429,8 +415,6 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
   }
 
   // -- Deliver ----------------------------------------------------------------
-  // Attempt-aware replies are already personal (built from the student's
-  // results). Generic replies get the light history-based personalization.
   const reply = hasAttempt
     ? genericReply
     : await personalizeReply(genericReply, { childName: req.childName, yearLevel, historyCtx });

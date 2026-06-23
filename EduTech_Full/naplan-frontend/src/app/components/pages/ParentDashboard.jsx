@@ -445,7 +445,12 @@ function ChildCard({ child, colorIndex, onEdit, onDelete, onViewResults, onFreeS
   const color    = AVATAR_COLORS[colorIndex % AVATAR_COLORS.length];
   const isActive = child.status === "active";
   return (
-    <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #E5E7EB", boxShadow: "0 2px 10px rgba(0,0,0,0.06)", padding: "20px", display: "flex", flexDirection: "column" }}>
+    <div
+      onClick={() => onViewResults?.(child)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onViewResults?.(child); } }}
+      style={{ background: "#fff", borderRadius: "16px", border: "1px solid #E5E7EB", boxShadow: "0 2px 10px rgba(0,0,0,0.06)", padding: "20px", display: "flex", flexDirection: "column", cursor: "pointer" }}>
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "14px" }}>
@@ -458,7 +463,9 @@ function ChildCard({ child, colorIndex, onEdit, onDelete, onViewResults, onFreeS
             <div style={{ fontSize: "13px", color: "#9CA3AF", marginTop: "3px" }}>{child.yearLevel || "—"} · @{child.username || child.name.toLowerCase()}</div>
           </div>
         </div>
-        <KebabMenu onEdit={() => onEdit?.(child)} onDelete={() => onDelete?.(child.id)} />
+        <span onClick={(e) => e.stopPropagation()}>
+          <KebabMenu onEdit={() => onEdit?.(child)} onDelete={() => onDelete?.(child.id)} />
+        </span>
       </div>
 
       {/* Status badge */}
@@ -472,7 +479,7 @@ function ChildCard({ child, colorIndex, onEdit, onDelete, onViewResults, onFreeS
         }}>{isActive ? "Full Access" : "Free Trial"}</span>
         {isActive
           ? <span style={{ fontSize: "13px", color: "#6B7280" }}>Full access unlocked ✓</span>
-          : <span style={{ fontSize: "13px", color: PURPLE[600], fontWeight: 600, cursor: "pointer" }} onClick={() => onBuyBundle?.(child)}>Unlock full access →</span>
+                   : <span style={{ fontSize: "13px", color: PURPLE[600], fontWeight: 600, cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onBuyBundle?.(child); }}>Unlock full access →</span>
         }
       </div>
 
@@ -494,7 +501,7 @@ function ChildCard({ child, colorIndex, onEdit, onDelete, onViewResults, onFreeS
       </div>
 
       {/* Action buttons */}
-      <div style={{ display: "flex", gap: "10px", marginTop: "auto" }}>
+      <div style={{ display: "flex", gap: "10px", marginTop: "auto" }} onClick={(e) => e.stopPropagation()}>
         {isActive ? (
           <>
             <button
