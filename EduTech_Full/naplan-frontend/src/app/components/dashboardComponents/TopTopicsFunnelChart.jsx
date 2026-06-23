@@ -7,7 +7,7 @@ export default function TopTopicsPerformance({
 }) {
   /* ------------------ Transform Data ------------------ */
   const data = useMemo(() => {
-    return Object.entries(topicBreakdown)
+    const sorted = Object.entries(topicBreakdown)
       .map(([topic, value]) => {
         const scored = Number(value?.scored ?? 0);
         const total = Number(value?.total ?? 0);
@@ -25,10 +25,9 @@ export default function TopTopicsPerformance({
         };
       })
       .filter(Boolean)
-      .sort((a, b) => b.accuracy - a.accuracy)
-      .slice(0, topN);
+      .sort((a, b) => b.accuracy - a.accuracy);                       
+    return topN ? sorted.slice(0, topN) : sorted;                     
   }, [topicBreakdown, topN]);
-
   const getColor = (accuracy) => {
     if (accuracy <= 30) return "bg-red-500";
     if (accuracy <= 60) return "bg-amber-500";
