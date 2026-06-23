@@ -5,10 +5,6 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-# 👈 CHANGED: optional imports — the script no longer crashes at startup
-# if a provider library is missing. (Was: "from openai import OpenAI"
-# unconditionally, which throws ModuleNotFoundError on Render when the
-# openai package isn't installed, killing every feedback run.)
 try:
     from openai import OpenAI
 except ImportError:
@@ -327,6 +323,7 @@ def analyze_performance(student_data: Dict[str, Any], doc: Dict[str, Any], year_
         "pace": pace,  # fast|steady|slow|unknown
         "high_performance_count": int(high),
         "low_performance_count": int(low),
+        "all_topics": topic_perf,
         "top_topics": top_topics,
         "weak_topics": weak_topics,
     }
@@ -402,6 +399,307 @@ def tone_guidance(year_level: Optional[int]) -> str:
     if year_level == 9:
         return "Use mature, direct coaching tone, exam-strategy focus, self-reflection."
     return "Use supportive, clear, actionable tone."
+
+
+# 👈 ADDED: difficulty label derived from how the student scored on a passage.
+def passage_difficulty_label(pct: float) -> str:
+    if pct >= 75:
+        return "comfortable"
+    if pct >= 50:
+        return "manageable"
+    return "challenging"
+
+
+# 👈 ADDED: Reading-only prompt. Frames feedback around PASSAGE DIFFICULTY
+# (derived from score), never skills/sub-topics. Same JSON shape as the
+# standard prompt so the frontend renders it identically.
+def build_reading_prompt(analysis: Dict[str, Any], year_level: Optional[int],
+                         product_insights: Optional[List[str]] = None) -> str:
+    accuracy = analysis.get("accuracy")
+    pace = analysis.get("pace")
+    time_taken = analysis.get("time_taken_minutes")
+    spq = analysis.get("seconds_per_question")
+
+    time_str = f"{time_taken} minutes" if time_taken is not None else "not recorded"
+    spq_str = f"{spq} sec/question" if spq is not None else "not available"
+
+    passages = analysis.get("all_topics") or []
+    lines = []
+    for p in passages:
+        label = passage_difficulty_label(p["percentage"])
+        lines.append(
+            f"{p['name']} — {p['percentage']}% "
+            f"({int(p['scored'])}/{int(p['total'])}) → {label} for this student"
+        )
+    passage_block = "\n  • ".join(lines) if lines else "No passage data available"
+
+    insights_block = ""
+    if product_insights:
+        insights_block = "\n\nProduct Style Guidelines:\n• " + "\n• ".join(product_insights)
+
+    tone_block = f"YEAR LEVEL: Year {year_level if year_level else 'Unknown'}\nTONE RULE: {tone_guidance(year_level)}"
+
+    return f"""You are an expert AI Reading Coach creating personalized feedback for a Reading comprehension assessment.
+
+AUDIENCE: Student + Parent/Teacher
+{tone_block}
+
+═══════════════════════════════════════════════════════════════
+READING FEEDBACK RULES (READ CAREFULLY):
+═══════════════════════════════════════════════════════════════
+- Reading questions are grouped by PASSAGE, not by skill or sub-topic.
+- Do NOT give skill-by-skill or topic-by-topic study tips.
+- Frame everything around PASSAGE DIFFICULTY, judged from this student's score:
+   - A LOW score on a passage means it was a harder / longer / trickier passage.
+     Reassure the student that tougher passages are completely normal, and give ONE
+     gentle, GENERAL reading strategy. NEVER say or imply the student is bad at reading.
+   - A HIGH score means praise — they handled a solid passage confidently.
+- You MAY name a passage, but only to say how hard or easy it was — never as a
+  "topic to study".
+
+═══════════════════════════════════════════════════════════════
+PERFORMANCE DATA:
+═══════════════════════════════════════════════════════════════
+Overall Reading Score: {accuracy}%
+Time: {time_str}  |  Speed: {spq_str}  |  Pace: {pace}
+
+PASSAGES (with difficulty for this student):
+  • {passage_block}
+
+TIMING RULE:
+- Mention timing in overall_feedback (1 sentence).
+{insights_block}
+
+═══════════════════════════════════════════════════════════════
+OUTPUT REQUIREMENTS:
+═══════════════════════════════════════════════════════════════
+
+Return ONLY valid JSON (no markdown, no code blocks, no extra text).
+
+Required JSON structure:
+{{
+  "overall_feedback": "EXACTLY 2 short sentences, max 14 words each.",
+  "coach": [
+    {{"insight":"...","reason":"...","action":"..."}},
+    {{"insight":"...","reason":"...","action":"..."}},
+    {{"insight":"...","reason":"...","action":"..."}}
+  ],
+  "strengths": ["3 points praising passages handled well, max 10 words each", "...", "..."],
+  "weaknesses": ["3 points framing harder passages gently, max 10 words each", "...", "..."],
+  "growth_areas": ["3 points, max 10 words each", "...", "..."],
+  "study_tips": ["up to 3 GENERAL reading strategies, max 10 words each", "...", "..."],
+
+  "topic_wise_tips": [
+    {{"topic":"Challenging passages","tips":["<=14 words","<=14 words"]}},
+    {{"topic":"Passages you handled well","tips":["<=14 words"]}}
+  ],
+
+  "cta": "One motivating call-to-action (12 words max)",
+  "encouragement": "4-5 short sentences, supportive and specific."
+}}
+
+CHECKLIST:
+- Talk about PASSAGE DIFFICULTY, not skills or sub-topics.
+- A low passage score = a harder passage + reassurance, never blame.
+- topic_wise_tips group by difficulty ("Challenging passages" / "Passages you handled well").
+- study_tips are GENERAL reading strategies, not passage-specific drills.
+- Include timing in overall_feedback (1 sentence).
+""".strip()
+
+
+# 👈 ADDED: Reading-only schema coercion. Same output keys as
+# coerce_ai_feedback_schema, but builds difficulty-framed fallbacks and never
+# injects a passage name as a "study topic".
+def coerce_reading_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str, Any]:
+    ai = ai if isinstance(ai, dict) else {}
+
+    def arr(x):
+        return x if isinstance(x, list) else []
+
+    def ensure_string(x):
+        return str(x).strip() if x else ""
+
+    def clamp_words(s: str, max_words: int) -> str:
+        s = (s or "").strip()
+        return " ".join(s.split()[:max_words]) if s else ""
+
+    accuracy = analysis.get("accuracy")
+    pace = analysis.get("pace") or "unknown"
+    time_taken = analysis.get("time_taken_minutes")
+    spq = analysis.get("seconds_per_question")
+
+    passages = analysis.get("all_topics") or []
+    challenging = sorted([p for p in passages if p["percentage"] < 50],
+                         key=lambda x: x["percentage"])
+    comfortable = sorted([p for p in passages if p["percentage"] >= 75],
+                         key=lambda x: x["percentage"], reverse=True)
+
+    GENERAL_TIPS = [
+        "Reread the question before scanning the passage.",
+        "Skim for keywords, then read that part closely.",
+        "Underline who, what and where as you read.",
+        "Check every option back against the text.",
+    ]
+
+    # ---- COACH (3) ----
+    coach_items = []
+    for item in arr(ai.get("coach")):
+        if isinstance(item, dict):
+            i = ensure_string(item.get("insight"))
+            r = ensure_string(item.get("reason"))
+            a = ensure_string(item.get("action"))
+            if i and r and a:
+                coach_items.append({"insight": i, "reason": r, "action": a})
+    coach_items = coach_items[:3]
+    while len(coach_items) < 3:
+        idx = len(coach_items)
+        if idx < len(challenging):
+            p = challenging[idx]
+            coach_items.append({
+                "insight": f"The '{p['name']}' passage was a tougher one.",
+                "reason": f"You scored {p['percentage']}% there — harder passages are normal.",
+                "action": clamp_words(GENERAL_TIPS[idx % len(GENERAL_TIPS)], 14),
+            })
+        else:
+            coach_items.append({
+                "insight": "Short daily reading builds comprehension confidence.",
+                "reason": "Regular practice makes tricky passages feel easier.",
+                "action": "Read one short passage and answer 5 questions daily.",
+            })
+
+    # ---- STRENGTHS (3) — praise comfortable passages ----
+    strengths = [ensure_string(x) for x in arr(ai.get("strengths")) if ensure_string(x)][:3]
+    for p in comfortable:
+        if len(strengths) >= 3:
+            break
+        if p["name"].lower() not in " ".join(strengths).lower():
+            strengths.append(f"Handled the '{p['name']}' passage well ({p['percentage']}%)")
+    if pace == "fast" and spq is not None and len(strengths) < 3:
+        strengths.append(f"Good reading pace: {spq}s per question")
+    STRENGTH_FILL = [
+        "Stayed focused through the whole test",
+        "Worked steadily across every passage",
+        "Kept going even on the longer passages",
+    ]
+    sf = 0
+    while len(strengths) < 3 and sf < len(STRENGTH_FILL):
+        if STRENGTH_FILL[sf] not in strengths:
+            strengths.append(STRENGTH_FILL[sf])
+        sf += 1
+    strengths = strengths[:3]
+
+    # ---- WEAKNESSES (3) — passage difficulty, never blame ----
+    weaknesses = [ensure_string(x) for x in arr(ai.get("weaknesses")) if ensure_string(x)][:3]
+    for p in challenging:
+        if len(weaknesses) >= 3:
+            break
+        if p["name"].lower() not in " ".join(weaknesses).lower():
+            weaknesses.append(f"The '{p['name']}' passage was a challenging one")
+    if pace == "slow" and spq is not None and len(weaknesses) < 3:
+        weaknesses.append(f"Reading pace was a little slow: {spq}s/question")
+    WEAK_FILL = [
+        "Some longer passages need a careful second read",
+        "Tricky questions are worth a slower, closer look",
+        "Building stamina on long passages will help",
+    ]
+    wf = 0
+    while len(weaknesses) < 3 and wf < len(WEAK_FILL):
+        if WEAK_FILL[wf] not in weaknesses:
+            weaknesses.append(WEAK_FILL[wf])
+        wf += 1
+    weaknesses = weaknesses[:3]
+
+    # ---- GROWTH AREAS (3) ----
+    growth_areas = [ensure_string(x) for x in arr(ai.get("growth_areas")) if ensure_string(x)][:3]
+    for p in challenging:
+        if len(growth_areas) >= 3:
+            break
+        if p["name"].lower() not in " ".join(growth_areas).lower():
+            growth_areas.append(f"Build confidence on harder passages like '{p['name']}'")
+    GROWTH_FILL = [
+        "Practice longer passages to build reading stamina",
+        "Slow down and reread before answering",
+        "Review the questions you found tricky",
+    ]
+    gf = 0
+    while len(growth_areas) < 3 and gf < len(GROWTH_FILL):
+        if GROWTH_FILL[gf] not in growth_areas:
+            growth_areas.append(GROWTH_FILL[gf])
+        gf += 1
+    growth_areas = growth_areas[:3]
+
+    # ---- STUDY TIPS — general reading strategies ----
+    study_tips = [ensure_string(x) for x in arr(ai.get("study_tips")) if ensure_string(x)][:3]
+    i = 0
+    while len(study_tips) < 3 and i < len(GENERAL_TIPS):
+        if GENERAL_TIPS[i] not in study_tips:
+            study_tips.append(GENERAL_TIPS[i])
+        i += 1
+    study_tips = study_tips[:3]
+
+    # ---- TOPIC-WISE TIPS — grouped by DIFFICULTY, not passage/skill ----
+    topic_wise_tips: List[Dict[str, Any]] = []
+    if challenging:
+        top_hard = challenging[:2]
+        names = ", ".join(f"'{p['name']}'" for p in top_hard)
+        verb = "was" if len(top_hard) == 1 else "were"
+        topic_wise_tips.append({
+            "topic": "Challenging passages",
+            "tips": [
+                clamp_words(f"{names} {verb} tougher — that is completely normal.", 14),
+                "Reread the question, then skim the passage for keywords.",
+            ],
+        })
+    if comfortable:
+        names = ", ".join(f"'{p['name']}'" for p in comfortable[:2])
+        topic_wise_tips.append({
+            "topic": "Passages you handled well",
+            "tips": [
+                clamp_words(f"Great work on {names}.", 14),
+                "Keep using the strategies that worked here.",
+            ],
+        })
+    if not topic_wise_tips:
+        topic_wise_tips.append({
+            "topic": "Building reading stamina",
+            "tips": [
+                "Read one short passage and answer questions daily.",
+                "Slow down on long passages and reread tricky parts.",
+            ],
+        })
+    topic_wise_tips = topic_wise_tips[:3]
+
+    # ---- OVERALL FEEDBACK (must mention timing) ----
+    overall_feedback = ensure_string(ai.get("overall_feedback"))
+    if not overall_feedback:
+        if challenging:
+            overall_feedback = (f"You scored {accuracy}% overall; some passages were "
+                                f"harder than others. Keep practising and you will grow.")
+        else:
+            overall_feedback = (f"Solid reading at {accuracy}% overall. "
+                                f"You handled the passages confidently.")
+    if time_taken is not None and ("minute" not in overall_feedback.lower()) and ("time" not in overall_feedback.lower()):
+        overall_feedback = f"{overall_feedback} Time taken: {time_taken} minutes."
+
+    cta = ensure_string(ai.get("cta")) or "Read one passage a day and beat your last score."
+    encouragement = ensure_string(ai.get("encouragement")) or (
+        "Every passage you read makes the next one easier. "
+        "Harder passages are a chance to grow, not a setback. "
+        "Keep reading a little each day. "
+        "You are improving with every test."
+    )
+
+    return {
+        "overall_feedback": overall_feedback,
+        "coach": coach_items,
+        "strengths": strengths,
+        "weaknesses": weaknesses,
+        "growth_areas": growth_areas,
+        "study_tips": study_tips,
+        "topic_wise_tips": topic_wise_tips,
+        "cta": cta,
+        "encouragement": encouragement,
+    }
 
 
 def build_gemini_prompt(analysis: Dict[str, Any], subject: str, product_insights: Optional[List[str]] = None) -> str:
@@ -979,11 +1277,19 @@ def main():
         "For topic_wise_tips: topic + 1-3 bullet tips only",
     ]
 
-    prompt = build_gemini_prompt(analysis, subject, product_insights)
+    # 👈 CHANGED: Reading uses passage-difficulty feedback (no skills/sub-topics).
+    is_reading = subject == "Reading"
+    if is_reading:
+        prompt = build_reading_prompt(analysis, year_level, product_insights)
+    else:
+        prompt = build_gemini_prompt(analysis, subject, product_insights)
 
     try:
         feedback_raw, used_model, used_provider = generate_feedback(providers, prompt)
-        feedback = coerce_ai_feedback_schema(feedback_raw, analysis, subject)
+        if is_reading:                                                    # 👈 CHANGED
+            feedback = coerce_reading_feedback_schema(feedback_raw, analysis)
+        else:
+            feedback = coerce_ai_feedback_schema(feedback_raw, analysis, subject)
     except Exception as e:
         print(json.dumps({"success": False, "error": f"AI generation failed: {str(e)}"}))
         return
