@@ -94,7 +94,7 @@ export default function AppRoutes() {
         <Route path="/free-trial" element={<FreeTrialPage />} />
         <Route path="/terms"   element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
-        <Route path="/bundles" element={<RequireParent><WithFooter><BundleSelectionPage /></WithFooter></RequireParent>} />
+        <Route path="/bundles" element={<WithFooter><BundleSelectionPage /></WithFooter>} />
 
         {/* ─── Parent Auth ─── */}
         <Route path="/parent/create" element={<ParentCreatePage />} />
