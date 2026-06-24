@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
 
 import StatCard from "@/app/components/dashboardComponents/StatCard";
@@ -127,6 +127,18 @@ const getResultStatus = (percentage) => {
   return { label: "Needs Practice", status: "needs attention" };
 };
 
+const hasRealAiFeedback = (doc) => {
+  const fb = doc?.ai_feedback;
+  if (!fb) return false;
+  return (
+    (fb.overall_feedback && String(fb.overall_feedback).trim().length > 0) ||
+    (Array.isArray(fb.strengths) && fb.strengths.length > 0) ||
+    (Array.isArray(fb.weaknesses) && fb.weaknesses.length > 0) ||
+    (Array.isArray(fb.coach) && fb.coach.length > 0) ||
+    (Array.isArray(fb.topic_wise_tips) && fb.topic_wise_tips.length > 0)
+  );
+};
+
 const isAiPending = (doc) => {
   if (!doc) return false;
   const legacyStatus = String(doc?.ai?.status || "").toLowerCase();
@@ -253,6 +265,7 @@ export default function Dashboard() {
   const [showTourModal, setShowTourModal] = useState(false);
   const [selectedAttemptOverride, setSelectedAttemptOverride] = useState(null);
   const [aiPending, setAiPending] = useState(false);
+  const autoGenAttempted = useRef(new Set());
 
 
 
@@ -454,6 +467,38 @@ export default function Dashboard() {
         .then((full) => { if (full) setActiveFullResult(full); })
         .catch(() => {});
     }, [selectedResult, latestResult, activeToken]);
+
+    // ✅ AUTO-GENERATE + STORE: if this attempt has no AI feedback, call the
+    //    backend once. triggerAiFeedback saves ai_feedback into MongoDB.
+    useEffect(() => {
+      const resolved = activeFullResult || selectedResult;
+      if (!resolved) return;
+      if (aiPending) return;                  // already generating / polling
+      if (isAiPending(resolved)) return;      // backend already in progress
+      if (hasRealAiFeedback(resolved)) return; // only if there is NO feedback
+
+      const id = resolved?.response_id || resolved?.attempt_id || responseId;
+      if (!id) return;
+
+      const tb = resolved?.topicBreakdown || resolved?.topic_breakdown;
+      const hasTB = tb && Object.keys(tb).length > 0;
+      if (!hasTB) return; // nothing to generate from
+
+      if (autoGenAttempted.current.has(id)) return; // only once per attempt
+      autoGenAttempted.current.add(id);
+
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+      fetch(`${API_BASE}/api/results/${id}/regenerate-ai`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+        },
+      })
+        .then((r) => { if (r.ok) setAiPending(true); }) // existing polling refetches the stored feedback
+        .catch(() => {});
+    }, [selectedResult, activeFullResult, aiPending, responseId, activeToken]);
 
     const testTakenDates = useMemo(() => {
     return quizAttempts.map((r) => {
