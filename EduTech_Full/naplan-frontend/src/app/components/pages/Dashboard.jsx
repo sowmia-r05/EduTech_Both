@@ -67,7 +67,28 @@ const buildTopicStrength = (topicBreakdown = {}) => {
   });
   return { strongTopics: strong, weakTopics: weak.sort((a, b) => b.lostMarks - a.lostMarks) };
 };
-
+// group reading passages by difficulty (no names) for the panel
+const buildReadingTiers = (topicBreakdown = {}) => {
+  const buckets = { easier: [], medium: [], harder: [] };
+  Object.values(topicBreakdown).forEach((v) => {
+    const total = Number(v?.total) || 0;
+    const scored = Number(v?.scored) || 0;
+    if (!total) return;
+    const pct = Math.round((scored / total) * 100);
+    if (pct >= 75) buckets.easier.push(pct);
+    else if (pct >= 50) buckets.medium.push(pct);
+    else buckets.harder.push(pct);
+  });
+  const mk = (key, label, list) =>
+    list.length
+      ? { key, label, count: list.length, avg: Math.round(list.reduce((a, b) => a + b, 0) / list.length) }
+      : null;
+  return [
+    mk("easier", "Easier passages", buckets.easier),
+    mk("medium", "Medium passages", buckets.medium),
+    mk("harder", "Harder passages", buckets.harder),
+  ].filter(Boolean);
+};
 
 
 const buildSuggestionsFromFeedback = (feedback) => {
@@ -475,6 +496,12 @@ export default function Dashboard() {
   const duration = formatDuration(selectedResult?.duration);
   const attemptsUsed = selectedDate ? filteredResults.length || "—" : quizAttempts.length || "—";
   const { strongTopics, weakTopics } = buildTopicStrength(resolvedResult?.topicBreakdown || {});
+  const isReadingResult =
+    String(resolvedResult?.ai_feedback_meta?.subject || "").toLowerCase() === "reading" ||
+    /reading/i.test(selectedResult?.quiz_name || "");
+  const readingTiers = isReadingResult
+    ? buildReadingTiers(resolvedResult?.topicBreakdown || {})
+    : [];
   const suggestions = buildSuggestionsFromFeedback(resolvedResult?.ai_feedback);
    const violations =
     selectedResult?.proctoring_summary?.total_violations ||
@@ -813,6 +840,8 @@ return (
                   feedback={resolvedResult?.ai_feedback}
                   strongTopics={strongTopics}
                   weakTopics={weakTopics}
+                  isReading={isReadingResult}
+                  readingTiers={readingTiers}
                   showTitle={false}
                   isRegenerating={aiPending}
                 />
