@@ -575,14 +575,32 @@ def coerce_reading_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any])
         "Check every option back against the text.",
     ]
 
-    # ---- STRENGTHS (no names) ----
-    strengths = [ensure_string(x) for x in arr(ai.get("strengths"))
-                 if ensure_string(x) and not has_name(x)][:3]
+    # ---- de-dup helper: collapse repeated / near-identical points ----
+    def _key(s):
+        norm = re.sub(r"[^a-z0-9 ]", "", (s or "").lower())
+        return " ".join(norm.split()[:3])  # first 3 words = the point's "topic"
+
+    def build_distinct(ai_list, fillers, target=3):
+        out, seen = [], set()
+        for item in list(ai_list) + list(fillers):
+            item = ensure_string(item)
+            if not item or has_name(item):
+                continue
+            k = _key(item)
+            if not k or k in seen:
+                continue
+            seen.add(k)
+            out.append(item)
+            if len(out) >= target:
+                break
+        return out
+
+    # ---- STRENGTHS (no names, no repeats) ----
     tier_strengths = []
     if easy["n"]:
-        tier_strengths.append(f"Strong on easier passages (avg {easy['avg']}%)")
+        tier_strengths.append("Strong on the easier passages")
     if med["n"]:
-        tier_strengths.append(f"Steady on medium passages (avg {med['avg']}%)")
+        tier_strengths.append("Steady on the medium passages")
     if pace == "fast" and spq is not None:
         tier_strengths.append(f"Good reading pace: {spq}s per question")
     GENERIC_STRENGTH = [
@@ -590,21 +608,14 @@ def coerce_reading_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any])
         "Worked steadily across every passage",
         "Kept going even on the longer passages",
     ]
-    for s in tier_strengths + GENERIC_STRENGTH:
-        if len(strengths) >= 3:
-            break
-        if s not in strengths:
-            strengths.append(s)
-    strengths = strengths[:3]
+    strengths = build_distinct(arr(ai.get("strengths")), tier_strengths + GENERIC_STRENGTH)
 
-    # ---- WEAKNESSES (no names, never blame) ----
-    weaknesses = [ensure_string(x) for x in arr(ai.get("weaknesses"))
-                  if ensure_string(x) and not has_name(x)][:3]
+    # ---- WEAKNESSES (no names, no repeats, never blame) ----
     tier_weak = []
     if hard["n"]:
-        tier_weak.append(f"Harder passages were tricky (avg {hard['avg']}%)")
+        tier_weak.append("Harder passages were the toughest part")
     if med["n"]:
-        tier_weak.append(f"Medium passages have room to grow (avg {med['avg']}%)")
+        tier_weak.append("Medium passages have room to grow")
     if pace == "slow" and spq is not None:
         tier_weak.append(f"Reading pace was a little slow: {spq}s/question")
     GENERIC_WEAK = [
@@ -612,16 +623,9 @@ def coerce_reading_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any])
         "Tricky questions are worth a slower, closer look",
         "Building stamina on long passages will help",
     ]
-    for w in tier_weak + GENERIC_WEAK:
-        if len(weaknesses) >= 3:
-            break
-        if w not in weaknesses:
-            weaknesses.append(w)
-    weaknesses = weaknesses[:3]
+    weaknesses = build_distinct(arr(ai.get("weaknesses")), tier_weak + GENERIC_WEAK)
 
-    # ---- GROWTH AREAS (no names) ----
-    growth_areas = [ensure_string(x) for x in arr(ai.get("growth_areas"))
-                    if ensure_string(x) and not has_name(x)][:3]
+    # ---- GROWTH AREAS (no names, no repeats) ----
     tier_growth = []
     if hard["n"]:
         tier_growth.append("Build confidence on the harder passages")
@@ -632,12 +636,7 @@ def coerce_reading_feedback_schema(ai: Dict[str, Any], analysis: Dict[str, Any])
         "Slow down and reread before answering",
         "Review the questions you found tricky",
     ]
-    for g in tier_growth + GENERIC_GROWTH:
-        if len(growth_areas) >= 3:
-            break
-        if g not in growth_areas:
-            growth_areas.append(g)
-    growth_areas = growth_areas[:3]
+    growth_areas = build_distinct(arr(ai.get("growth_areas")), tier_growth + GENERIC_GROWTH)
 
     # ---- STUDY TIPS (general, no names) ----
     study_tips = [ensure_string(x) for x in arr(ai.get("study_tips"))
