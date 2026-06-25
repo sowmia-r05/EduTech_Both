@@ -165,25 +165,30 @@ router.post("/attempts/:attemptId/chat", async (req, res) => {
     if (error) return res.status(status).json({ error });
 
     // Build question context
-    let questionContext = {};
-    if (question_id) {
-      const q = await Question.findOne({ question_id }).lean();
-      if (q) {
-        const answerRecord = (attempt.answers || []).find(
-          (a) => a.question_id === question_id
-        );
-        const correctOption = (q.options || []).find((o) => o.correct);
-        const childOption = (q.options || []).find(
-          (o) => (answerRecord?.selected_option_ids || []).includes(o.option_id)
-        );
-        questionContext = {
-          question_text: q.text || "",
-          correct_answer: correctOption?.text || "",
-          child_answer: childOption?.text || answerRecord?.text_answer || "",
-          category: q.categories?.[0]?.name || attempt.subject || "General",
-        };
-      }
-    }
+let questionContext = {};
+if (question_id) {
+  const q = await Question.findOne({ question_id }).lean();
+  if (q) {
+    const answers = attempt.answers || [];
+    const answerRecord = answers.find((a) => a.question_id === question_id);
+
+    // ✅ Real 1-based position within this attempt's answers
+    const idx = answers.findIndex((a) => a.question_id === question_id);
+    const questionNumber = idx >= 0 ? idx + 1 : null;
+
+    const correctOption = (q.options || []).find((o) => o.correct);
+    const childOption = (q.options || []).find(
+      (o) => (answerRecord?.selected_option_ids || []).includes(o.option_id)
+    );
+    questionContext = {
+      question_number: questionNumber,   // ← NEW: pass it explicitly
+      question_text: q.text || "",
+      correct_answer: correctOption?.text || "",
+      child_answer: childOption?.text || answerRecord?.text_answer || "",
+      category: q.categories?.[0]?.name || attempt.subject || "General",
+    };
+  }
+}
 
     const yearLevel = child?.year_level || attempt.year_level || 3;
     const childName = child?.display_name || child?.username || "Student";

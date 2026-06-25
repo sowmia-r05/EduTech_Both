@@ -25,13 +25,16 @@ async function geminiGenerate({ prompt, temperature = 0.4, maxTokens = 4000, sys
   if (!apiKey) throw new Error("Gemini: no API key set (GEMINI_API_KEY or LLM_API_KEY)");
 
   const model = process.env.LLM_MODEL || "gemini-2.0-flash";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const finalPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+    "Content-Type": "application/json",
+    "x-goog-api-key": apiKey,                         
+  },
     body: JSON.stringify({
       contents: [{ parts: [{ text: finalPrompt }] }],
       generationConfig: { temperature, maxOutputTokens: maxTokens },

@@ -3,14 +3,25 @@
 // ✅ Uses Brevo API (HTTPS) instead of SMTP to avoid Render ETIMEDOUT on SMTP ports.
 // ✅ UPDATED: Removed dependency on deleted ../models/user
 //    Now looks up Parent by email directly (username OTP flow is legacy).
+//
+// ═══════════════════════════════════════════════════════════════
+// 🛠️ FIX (defect A1): the verify flow was permanently broken.
+//   1. /otp/request stored `otpHash` + omitted `email` and `lastSentAt`.
+//   2. /otp/verify read `record.hash` (undefined) → every code rejected.
+//   3. JWT read `record.email` (undefined); 30s cooldown never fired.
+//   4. Duplicated unreachable expiry block removed.
+// Also hardened: secure OTP generation + timing-safe hash comparison.
+// NOTE: the in-memory `otpStore` (defect A11) is a SEPARATE issue — it is
+//   cleared on restart and not shared across instances. Move it to
+//   MongoDB (TTL index) or Redis before running more than one instance.
+// ═══════════════════════════════════════════════════════════════
 
 const express = require("express");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 
 const { sendBrevoEmail } = require("../services/brevoEmail");
-const Parent = require("../models/parent"); 
-
+const Parent = require("../models/parent");
 
 const router = express.Router();
 
@@ -27,7 +38,6 @@ const router = express.Router();
   }
   console.log("✅ OTP_SECRET validated");
 })();
-
 
 function requiredEnv(name) {
   const v = process.env[name];
@@ -50,7 +60,7 @@ async function lookupEmailByUsername(username) {
 
   const rx = new RegExp(`^${escapeRegExp(u)}$`, "i");
 
-  // ✅ Look up Parent by email (username field treated as email for legacy support)
+  // Look up Parent by email (username field treated as email for legacy support)
   const doc =
     (await Parent.findOne({ email: rx }).select("email").lean()) ||
     (await Parent.findOne({ username: rx }).select("email").lean());
@@ -59,7 +69,7 @@ async function lookupEmailByUsername(username) {
   return email || null;
 }
 
-// In-memory OTP store (Render restarts clear this; Mongo storage is better later)
+// In-memory OTP store (defect A11 — replace with Mongo TTL / Redis for multi-instance)
 const otpStore = new Map();
 
 setInterval(() => {
@@ -69,25 +79,34 @@ setInterval(() => {
       otpStore.delete(key);
     }
   }
-}, 60 *1000).unref?.();
+}, 60 * 1000).unref?.();
 
 function hashOtp(username, otp) {
-  
   return crypto
     .createHmac("sha256", process.env.OTP_SECRET)
     .update(`${username}:${otp}`)
     .digest("hex");
 }
 
+// ✅ Timing-safe comparison of two hex digests (constant length → safe).
+function safeHashEqual(aHex, bHex) {
+  if (typeof aHex !== "string" || typeof bHex !== "string") return false;
+  const a = Buffer.from(aHex, "hex");
+  const b = Buffer.from(bHex, "hex");
+  if (a.length !== b.length || a.length === 0) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+// ✅ Cryptographically secure 6-digit code (was Math.random — defect A32).
 function makeOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 function maskEmail(email) {
   return String(email || "").replace(/(^.).*(@.*$)/, "$1****$2");
 }
 
-// POST /api/auth/otp/request { username }
+// ─── POST /api/auth/otp/request  { username } ──────────────────────────────────
 router.post("/otp/request", async (req, res) => {
   try {
     const username = String(req.body?.username || "").trim();
@@ -101,6 +120,7 @@ router.post("/otp/request", async (req, res) => {
     const now = Date.now();
     const existing = otpStore.get(username);
 
+    // ✅ Cooldown now works — lastSentAt is actually stored below.
     if (existing?.lastSentAt && now - existing.lastSentAt < 30_000) {
       return res
         .status(429)
@@ -108,13 +128,15 @@ router.post("/otp/request", async (req, res) => {
     }
 
     const otp = makeOtp();
-    const hash = hashOtp(username, otp);
-    const expiresAt = now + otpExpiresSeconds() * 1000;
 
-    otpStore.set(username, { 
+    // ✅ FIX: store otpHash, email, lastSentAt, expiresAt, attempts.
+    //    (Previously omitted email + lastSentAt, and verify looked for `hash`.)
+    otpStore.set(username, {
       otpHash: hashOtp(username, otp),
-      expiresAt: Date.now() + (otpExpiresSeconds() * 1000),
+      email,
+      expiresAt: now + otpExpiresSeconds() * 1000,
       attempts: 0,
+      lastSentAt: now,
     });
 
     await sendBrevoEmail({
@@ -134,14 +156,11 @@ router.post("/otp/request", async (req, res) => {
     return res.json({ ok: true, email_masked: maskEmail(email) });
   } catch (err) {
     console.error("OTP request error:", err?.response?.data || err);
-    return res.status(500).json({
-      error: "Failed to send OTP",
-      detail: err?.response?.data || err.message,
-    });
+    return res.status(500).json({ error: "Failed to send OTP" });
   }
 });
 
-// POST /api/auth/otp/verify { username, otp }
+// ─── POST /api/auth/otp/verify  { username, otp } ──────────────────────────────
 router.post("/otp/verify", async (req, res) => {
   try {
     const username = String(req.body?.username || "").trim();
@@ -150,16 +169,16 @@ router.post("/otp/verify", async (req, res) => {
     if (!username || !otp) {
       return res.status(400).json({ error: "Username and OTP required" });
     }
+    if (!/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ error: "OTP must be a 6-digit code" });
+    }
 
     const record = otpStore.get(username);
-    if (!record || Date.now() > record.expiresAt) {
-      otpStore.delete(username);
-      return res.status(401).json({ error: "OTP expired. Please request a new one" });
-    } 
 
+    // ✅ Single expiry check (removed the duplicated unreachable block).
     if (!record || Date.now() > record.expiresAt) {
       otpStore.delete(username);
-      return res.status(401).json({ error: "OTP expired" });
+      return res.status(401).json({ error: "OTP expired. Please request a new one." });
     }
 
     record.attempts += 1;
@@ -168,25 +187,30 @@ router.post("/otp/verify", async (req, res) => {
       return res.status(429).json({ error: "Too many attempts. Request a new OTP." });
     }
 
-    const expected = record.hash;
+    // ✅ FIX: compare against record.otpHash (was record.hash → always undefined),
+    //    using a timing-safe comparison.
     const got = hashOtp(username, otp);
-    if (got !== expected) return res.status(401).json({ error: "Invalid OTP" });
+    if (!safeHashEqual(got, record.otpHash)) {
+      return res.status(401).json({ error: "Invalid OTP" });
+    }
 
+    // ✅ Capture email BEFORE deleting the record (was undefined before).
+    const email = record.email;
     otpStore.delete(username);
 
     const loginSecret = requiredEnv("OTP_SECRET");
     const now = Math.floor(Date.now() / 1000);
 
     const loginToken = jwt.sign(
-      { sub: username, email: record.email, iat: now, exp: now + 15 * 60 },
+      { sub: username, email, iat: now, exp: now + 15 * 60 },
       loginSecret,
-      { algorithm: "HS256" }
+      { algorithm: "HS256" },
     );
 
     return res.json({ ok: true, login_token: loginToken });
   } catch (err) {
     console.error("OTP verify error:", err);
-    return res.status(500).json({ error: "Failed to verify OTP", detail: err.message });
+    return res.status(500).json({ error: "Failed to verify OTP" });
   }
 });
 
