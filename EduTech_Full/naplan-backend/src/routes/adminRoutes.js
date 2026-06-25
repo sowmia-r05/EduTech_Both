@@ -190,6 +190,16 @@ router.get("/template", (req, res) => {
 // ═══════════════════════════════════════════════════════════
 // ALL ROUTES BELOW REQUIRE ADMIN JWT
 // ═══════════════════════════════════════════════════════════
+// ─── Admin-only guard ────────────────────────────────────────────────────────
+// requireAdmin (below) admits BOTH "admin" and "tutor" roles. adminOnly blocks
+// tutors, for routes that must never be reachable by a tutor token.
+function adminOnly(req, res, next) {
+  if (req.admin?.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+}
+
 router.use(requireAdmin);
 
 // GET /api/admin/me
@@ -222,7 +232,7 @@ router.post("/invite", async (req, res) => {
   }
 });
 
-router.get("/invites", async (req, res) => {
+router.get("/invites", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const invites = await AdminInvite.find({ used: false, expiresAt: { $gt: new Date() } })
@@ -239,7 +249,7 @@ router.get("/invites", async (req, res) => {
   }
 });
 
-router.delete("/invites/:token", async (req, res) => {
+router.delete("/invites/:token", adminOnly, async (req, res) => {
   try {
     await connectDB();
     await AdminInvite.deleteOne({ token: req.params.token });
@@ -252,7 +262,7 @@ router.delete("/invites/:token", async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 // ADMIN ACCOUNT MANAGEMENT
 // ═══════════════════════════════════════════════════════════
-router.get("/admins", async (req, res) => {
+router.get("/admins", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const admins = await Admin.find()
@@ -265,7 +275,7 @@ router.get("/admins", async (req, res) => {
   }
 });
 
-router.get("/admins/pending", async (req, res) => {
+router.get("/admins/pending", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const admins = await Admin.find({ status: "pending" })
@@ -278,7 +288,7 @@ router.get("/admins/pending", async (req, res) => {
   }
 });
 
-router.patch("/admins/:adminId", async (req, res) => {
+router.patch("/admins/:adminId", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const admin = await Admin.findById(req.params.adminId);
@@ -315,7 +325,7 @@ router.patch("/admins/:adminId", async (req, res) => {
   }
 });
 
-router.delete("/admins/:adminId", async (req, res) => {
+router.delete("/admins/:adminId", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const admin = await Admin.findById(req.params.adminId);
@@ -511,7 +521,7 @@ const uploadMiddleware = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-router.post("/upload", (req, res) => {
+router.post("/upload", adminOnly, (req, res) => {
   uploadMiddleware.single("file")(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "File too large. Max 50MB." });
@@ -584,7 +594,7 @@ router.get("/quizzes/:quizId", async (req, res) => {
   }
 });
 
-router.patch("/quizzes/:quizId", async (req, res) => {
+router.patch("/quizzes/:quizId", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const allowedFields = [
@@ -670,7 +680,7 @@ router.get("/quizzes/:quizId/export", async (req, res) => {
   }
 });
 
-router.delete("/quizzes/:quizId", async (req, res) => {
+router.delete("/quizzes/:quizId", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const quiz = await Quiz.findOneAndDelete({ quiz_id: req.params.quizId });
@@ -697,7 +707,7 @@ router.delete("/quizzes/:quizId", async (req, res) => {
 // QUESTION ROUTES
 // ═══════════════════════════════════════════════════════════
 
-router.patch("/questions/:questionId/move", requireAdmin, async (req, res) => {
+router.patch("/questions/:questionId/move", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { questionId } = req.params;
@@ -803,7 +813,7 @@ router.patch("/questions/:questionId/verify", async (req, res) => {
 });
 
 // ✅ Admin verification (writes to admin_verification only — tutor_verification NEVER touched)
-router.patch("/questions/:questionId/admin-verify", async (req, res) => {
+router.patch("/questions/:questionId/admin-verify", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { status, message } = req.body;
@@ -855,7 +865,7 @@ router.get("/verification-summary", async (req, res) => {
   }
 });
 
-router.post("/quizzes/:quizId/questions", async (req, res) => {
+router.post("/quizzes/:quizId/questions", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { quizId } = req.params;
@@ -913,7 +923,7 @@ router.post("/quizzes/:quizId/questions", async (req, res) => {
   }
 });
 
-router.patch("/questions/:questionId", async (req, res) => {
+router.patch("/questions/:questionId", adminOnly, async (req, res) => {
   try {
     await connectDB();
 
@@ -957,7 +967,7 @@ router.patch("/questions/:questionId", async (req, res) => {
   }
 });
 
-router.delete("/questions/:questionId", async (req, res) => {
+router.delete("/questions/:questionId", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { quiz_id } = req.query;
@@ -983,7 +993,7 @@ router.delete("/questions/:questionId", async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 // QUIZ UPLOAD
 // ═══════════════════════════════════════════════════════════
-router.post("/quizzes/upload", async (req, res) => {
+router.post("/quizzes/upload", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { quiz: quizData, questions: questionsData } = req.body;
@@ -1054,7 +1064,7 @@ router.post("/quizzes/upload", async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 // BUNDLE ROUTES
 // ═══════════════════════════════════════════════════════════
-router.get("/bundles", async (req, res) => {
+router.get("/bundles", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const bundles = await QuizCatalog.find().sort({ year_level: 1, tier: 1 }).lean();
@@ -1064,7 +1074,7 @@ router.get("/bundles", async (req, res) => {
   }
 });
 
-router.get("/bundles/:bundleId", async (req, res) => {
+router.get("/bundles/:bundleId", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const bundle = await QuizCatalog.findOne({ bundle_id: req.params.bundleId }).lean();
@@ -1075,7 +1085,7 @@ router.get("/bundles/:bundleId", async (req, res) => {
   }
 });
 
-router.post("/bundles", async (req, res) => {
+router.post("/bundles", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { bundle_name, description, year_level, tier, price_cents, currency, max_quiz_count, questions_per_quiz, distribution_mode, swap_eligible_from, subjects } = req.body;
@@ -1100,7 +1110,7 @@ router.post("/bundles", async (req, res) => {
   }
 });
 
-router.patch("/bundles/:bundleId", async (req, res) => {
+router.patch("/bundles/:bundleId", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const allowedFields = ["bundle_name", "description", "year_level", "tier", "price_cents", "currency", "is_active", "max_quiz_count", "questions_per_quiz", "distribution_mode", "swap_eligible_from", "subjects"];
@@ -1114,7 +1124,7 @@ router.patch("/bundles/:bundleId", async (req, res) => {
   }
 });
 
-router.delete("/bundles/:bundleId", async (req, res) => {
+router.delete("/bundles/:bundleId", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const bundle = await QuizCatalog.findOneAndDelete({ bundle_id: req.params.bundleId });
@@ -1125,7 +1135,7 @@ router.delete("/bundles/:bundleId", async (req, res) => {
   }
 });
 
-router.post("/bundles/:bundleId/quizzes", async (req, res) => {
+router.post("/bundles/:bundleId/quizzes", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { quiz_id } = req.body;
@@ -1139,7 +1149,7 @@ router.post("/bundles/:bundleId/quizzes", async (req, res) => {
   }
 });
 
-router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
+router.delete("/bundles/:bundleId/quizzes", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { quiz_id } = req.body;
@@ -1153,7 +1163,7 @@ router.delete("/bundles/:bundleId/quizzes", async (req, res) => {
   }
 });
 
-router.patch("/bundles/:bundleId/quizzes", async (req, res) => {
+router.patch("/bundles/:bundleId/quizzes", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { quiz_ids } = req.body;
@@ -1169,7 +1179,7 @@ router.patch("/bundles/:bundleId/quizzes", async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 // CHILDREN / PURCHASE MANAGEMENT
 // ═══════════════════════════════════════════════════════════
-router.get("/children", async (req, res) => {
+router.get("/children", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const children = await Child.find()
@@ -1181,7 +1191,7 @@ router.get("/children", async (req, res) => {
   }
 });
 
-router.patch("/children/:childId/bundles", async (req, res) => {
+router.patch("/children/:childId/bundles", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { bundle_ids } = req.body;
@@ -1195,7 +1205,7 @@ router.patch("/children/:childId/bundles", async (req, res) => {
 });
 // ✅ NEW: Manually regenerate AI explanations for a quiz
 // ✅ Manually regenerate AI explanations for a quiz (admin button only)
-router.post("/quizzes/:quizId/generate-explanations", async (req, res) => {
+router.post("/quizzes/:quizId/generate-explanations", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const { quizId } = req.params;

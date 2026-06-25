@@ -353,9 +353,13 @@ def build_chat_prompt(
 
     q = question_context or {}
 
+    q_num = q.get("question_number")
+    q_label = f"Question {q_num}" if q_num else "this question"
+
     return f"""You are a friendly AI tutor for {child_name}, a Year {year_level} Australian NAPLAN student.
 
 QUESTION CONTEXT:
+  This is {q_label}.
   Question text: {q.get('question_text', '(not provided)')}
   Correct answer: {q.get('correct_answer', '(not provided)')}
   Child's answer: {q.get('child_answer', '(not provided)')}
@@ -373,6 +377,7 @@ CONVERSATION SO FAR:
 Child's new message: {child_message}
 
 INSTRUCTIONS:
+- This is {q_label}. If you mention the question by number, use EXACTLY that — never renumber it, and ignore how the child numbered it in their message.
 - Answer ONLY what the child asked
 - Stay focused on this specific question
 - Keep your reply under 80 words
