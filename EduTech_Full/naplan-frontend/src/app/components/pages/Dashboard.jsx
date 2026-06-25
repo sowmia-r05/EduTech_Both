@@ -3,6 +3,7 @@ import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
 
 import StatCard from "@/app/components/dashboardComponents/StatCard";
 import AICoachPanel from "@/app/components/dashboardComponents/AICoachPanel";
+import ReadingReport from "@/app/components/dashboardComponents/ReadingReport";
 import DonutScoreChart from "@/app/components/dashboardComponents/DonutScoreChart";
 import WeakTopicsBarChart from "@/app/components/dashboardComponents/WeakTopicsBarChart";
 import AISuggestionPanel from "@/app/components/dashboardComponents/AISuggestionPanel";
@@ -721,8 +722,19 @@ return (
         </div>
 
         {/* ══════════════════════════════════════════════
-            DASHBOARD GRID
+            DASHBOARD BODY — Reading uses its own report
         ══════════════════════════════════════════════ */}
+        {isReadingResult ? (
+          <ReadingReport
+            result={resolvedResult}
+            percentage={percentage}
+            duration={duration}
+            attemptsUsed={attemptsUsed}
+            violations={violations}
+            yearLevel={yearLevel}
+            feedback={resolvedResult?.ai_feedback}
+          />
+        ) : (
         <div className="px-6 py-3 space-y-3">
 
           {/* ── ROW 1: 4 Stat Cards ── */}
@@ -895,6 +907,7 @@ return (
 
           </div>
         </div>
+        )}
       </div>
     </TrialGateOverlay>
   </>
