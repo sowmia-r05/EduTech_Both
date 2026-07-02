@@ -17,6 +17,7 @@ import DownloadXlsxButton from "./DownloadExcelButton";
 import { AddQuestionForm } from "./ManualQuizCreator";
 import CollapsibleImageResize from "./CollapsibleImageResize";
 import CollapsibleTextStyle, { buildTextStyle } from "./Collapsibletextstyle";
+import DOMPurify from "dompurify";
 
 
 // ─── formatTimestamp ──────────────────────────────────────────────────────────
@@ -290,7 +291,7 @@ function FileUploadButton({ onUploaded, accept = "image/*", label = "Upload" }) 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function HtmlContent({ html, className = "", style = {} }) {
   if (!html) return null;
-  return <div className={className} dangerouslySetInnerHTML={{ __html: html }} style={{ overflowWrap: "break-word", ...style }} />;
+  return <div className={className} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} style={{ overflowWrap: "break-word", ...style }} />;
 }
 
 function TypeBadge({ type }) {

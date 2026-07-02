@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ADMIN_PATH } from "@/app/App";
+
 // ─── formatTimestamp ──────────────────────────────────────────────────────────
 // "just now" / "5m ago" / "3h ago" / "2d ago" / "Apr 23, 2026, 2:45 PM"
 function formatTimestamp(iso) {
@@ -1078,7 +1079,7 @@ export default function TutorDashboard() {
                             <div className="px-4 py-4">
                               <div
                                 className="text-sm text-slate-200 leading-relaxed prose prose-invert prose-sm max-w-none"
-                                dangerouslySetInnerHTML={{ __html: q.text || "" }}
+                                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(q.text || "") }}
                               />
                               {q.image_url && (
                                 <div className="mt-4">
@@ -1095,9 +1096,9 @@ export default function TutorDashboard() {
                         ) : (
                           <>
                             <div
-                              className="text-sm text-white leading-relaxed mb-3 prose prose-invert prose-sm max-w-none"
-                              dangerouslySetInnerHTML={{ __html: q.text }}
-                            />
+                              className="text-xs text-amber-400/80 prose prose-sm max-w-none"
+                                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(q.explanation) }}
+                              />
                             {q.image_url && (
                               <div className="mb-3">
                                 <img src={q.image_url} alt="Question" onClick={() => setZoomedImage(q.image_url)}
