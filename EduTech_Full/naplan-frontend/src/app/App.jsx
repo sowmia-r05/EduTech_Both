@@ -30,6 +30,8 @@ import RequireTutor   from "@/app/components/admin/RequireTutor";
 import { useAuth } from "@/app/context/AuthContext";
 import IdleTimeoutProvider from "./components/auth/IdleTimeoutProvider";
 import ChildIdleTimeoutProvider from "./components/auth/ChildIdleTimeoutProvider";
+import { Analytics } from "@vercel/analytics/react";
+
 
 // Read from env var — add VITE_ADMIN_PATH=/your-secret-path to frontend .env
 const ADMIN_PATH = import.meta.env.VITE_ADMIN_PATH || "/admin";
@@ -175,8 +177,9 @@ export default function AppRoutes() {
           element={<RequireTutor><Tutordashboard /></RequireTutor>}
         />
 
-        <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
+      <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
       </Routes>
+      <Analytics />
     </AuthProvider>
   );
 }
