@@ -5,6 +5,8 @@
 
 import { useState, useEffect } from "react";
 
+import DOMPurify from "dompurify";
+
 function isYoung(yearLevel) { return Number(yearLevel) <= 5; }
 
 function stripHtml(html) {
@@ -165,9 +167,9 @@ function QuestionCard({ card, questionNum, explanation, yearLevel, onOpenChat })
         {/* Content — matches quiz PassagePanel exactly */}
         <div className="px-5 py-5">
           {hasHtml ? (
-            <div
+          <div
               className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none mb-4"
-              dangerouslySetInnerHTML={{ __html: passageText }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(passageText) }}
             />
           ) : (
             <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap mb-4">

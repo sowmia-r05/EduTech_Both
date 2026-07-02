@@ -52,7 +52,7 @@ async function extractQuestionsFromPdf(pdfPath, sourceMeta) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
   const model = process.env.LLM_MODEL || "gemini-2.0-flash";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const subject = sourceMeta.subject || "the subject of this document";
   const year    = sourceMeta.year_level || "the year level shown in this document";
@@ -77,7 +77,10 @@ Format: { "questions": [ ... ] }`;
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
     body: JSON.stringify({
       contents: [{
         parts: [

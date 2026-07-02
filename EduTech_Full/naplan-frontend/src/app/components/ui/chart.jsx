@@ -7,13 +7,6 @@ import { cn } from "./utils";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" };
-icon?: React.ComponentType;
-  } & (
-    | { color?: string; theme?: never }
-    | { color?: never; theme: Record<keyof typeof THEMES, string> }
-  );
-};
-};
 
 const ChartContext = React.createContext(null);
 
@@ -27,13 +20,7 @@ function useChart() {
   return context;
 }
 
-function ChartContainer({
-  id,
-  className,
-  children,
-  config,
-  ...props
-}) {
+function ChartContainer({ id, className, children, config, ...props }) {
   const uniqueId = React.useId();
   const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`;
 
@@ -58,7 +45,8 @@ function ChartContainer({
 }
 
 const ChartStyle = ({ id, config }) => {
-  const colorConfig = Object.entries(config).filter(([, config]) => config.theme || config.color,
+  const colorConfig = Object.entries(config).filter(
+    ([, itemConfig]) => itemConfig.theme || itemConfig.color,
   );
 
   if (!colorConfig.length) {
@@ -68,13 +56,13 @@ const ChartStyle = ({ id, config }) => {
   return (
     <style
       dangerouslySetInnerHTML={{
-        __html => `
+        __html: Object.entries(THEMES)
+          .map(
+            ([theme, prefix]) => `
 ${prefix} [data-chart=${id}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
-    const color =
-      itemConfig.theme?.[theme typeof itemConfig.theme] ||
-      itemConfig.color;
+    const color = itemConfig.theme?.[theme] || itemConfig.color;
     return color ? `  --color-${key}: ${color};` : null;
   })
   .join("\n")}
@@ -116,7 +104,7 @@ function ChartTooltipContent({
     const itemConfig = getPayloadConfigFromPayload(config, item, key);
     const value =
       !labelKey && typeof label === "string"
-        ? config[label typeof config]?.label || label
+        ? config[label]?.label || label
         : itemConfig?.label;
 
     if (labelFormatter) {
@@ -189,12 +177,10 @@ function ChartTooltipContent({
                             "my-0.5": nestLabel && indicator === "dashed",
                           },
                         )}
-                        style={
-                          {
-                            "--color-bg": indicatorColor,
-                            "--color-border": indicatorColor,
-                          }
-                        }
+                        style={{
+                          "--color-bg": indicatorColor,
+                          "--color-border": indicatorColor,
+                        }}
                       />
                     )
                   )}
@@ -293,24 +279,17 @@ function getPayloadConfigFromPayload(config, payload, key) {
 
   let configLabelKey = key;
 
-  if (
-    key in payload &&
-    typeof payload[key typeof payload] === "string"
-  ) {
-    configLabelKey = payload[key typeof payload];
+  if (key in payload && typeof payload[key] === "string") {
+    configLabelKey = payload[key];
   } else if (
     payloadPayload &&
     key in payloadPayload &&
-    typeof payloadPayload[key typeof payloadPayload] === "string"
+    typeof payloadPayload[key] === "string"
   ) {
-    configLabelKey = payloadPayload[
-      key typeof payloadPayload
-    ];
+    configLabelKey = payloadPayload[key];
   }
 
-  return configLabelKey in config
-    ? config[configLabelKey]
-    : config[key typeof config];
+  return configLabelKey in config ? config[configLabelKey] : config[key];
 }
 
 export {

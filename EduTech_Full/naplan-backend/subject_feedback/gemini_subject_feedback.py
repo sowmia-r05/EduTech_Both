@@ -1338,7 +1338,7 @@ def main():
 
     try:
         feedback_raw, used_model, used_provider = generate_feedback(providers, prompt)
-        if is_reading:                                                    # 👈 CHANGED
+        if is_reading:                                                   
             feedback = coerce_reading_feedback_schema(feedback_raw, analysis)
         else:
             feedback = coerce_ai_feedback_schema(feedback_raw, analysis, subject)

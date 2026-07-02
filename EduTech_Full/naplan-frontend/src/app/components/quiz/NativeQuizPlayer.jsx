@@ -14,6 +14,8 @@ import QuestionRenderer from "./QuestionRenderer";
 import QuizNavigation from "./QuizNavigation";
 import QuizReview from "./QuizReview";
 import QuizResult from "./QuizResult";
+import DOMPurify from "dompurify";
+
 
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
@@ -99,7 +101,7 @@ function PassagePanel({ passage }) {
         {passageText.includes("<") ? (
           <div
             className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none mb-4"
-            dangerouslySetInnerHTML={{ __html: passageText }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(passageText) }}
           />
         ) : (
           <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap mb-4">
