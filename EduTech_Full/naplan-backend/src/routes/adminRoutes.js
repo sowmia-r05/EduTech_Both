@@ -511,7 +511,7 @@ const uploadMiddleware = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     const ok = [
-      "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
+      "image/jpeg", "image/png", "image/gif", "image/webp",
       "application/pdf",
       "audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "audio/webm",
       "video/mp4", "video/webm", "video/ogg", "video/quicktime",

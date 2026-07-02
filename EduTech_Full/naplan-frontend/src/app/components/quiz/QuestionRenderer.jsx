@@ -6,11 +6,13 @@
  *  ✅ Only references components that actually exist
  *  ✅ Full OCR / Year 3 handwriting upload preserved
  *  ✅ textStyle / optionsStyle applied where relevant
+ *  ✅ DOMPurify.sanitize() on the dangerouslySetInnerHTML question-text sink
  */
 
 import { useState, useRef, useMemo } from "react";
 import { useAuth } from "@/app/context/AuthContext";
 import { LineMatchQuestion, WordClickQuestion } from "./InteractiveQuestionTypes";
+import DOMPurify from "dompurify";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -119,8 +121,6 @@ function ImageWithLoader({ src, width, height, onClick }) {
    RADIO BUTTON QUESTION
    ═══════════════════════════════════════ */
 function RadioQuestion({ question, answer, onAnswer, textStyle }) {
-  console.log("🔍 RadioQuestion options:", question.options);
-  console.log("🔍 RadioQuestion selected:", answer?.selected);
   const selected = answer?.selected?.[0] || null;
   const allOptions = question.options || [];
 
@@ -140,11 +140,10 @@ function RadioQuestion({ question, answer, onAnswer, textStyle }) {
         const isSelected = selected === opt.option_id;
         // Stable key — falls back to index if option_id is missing
         const key = opt.option_id || `opt-${idx}`;
-        // Treat empty string, null, undefined all as "no id"
-          return (
-        <button
-          key={key}
-          onClick={() => onAnswer({ selected: [opt.option_id || key] })}
+        return (
+          <button
+            key={key}
+            onClick={() => onAnswer({ selected: [opt.option_id || key] })}
             className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${
               isSelected
                 ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200"
@@ -654,9 +653,6 @@ function PunctuationPlacementQuestion({ question, answer, onAnswer }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   CATEGORY DROP — Language Convention only
-   ═══════════════════════════════════════════════════════════ */
-/* ═══════════════════════════════════════════════════════════
    CATEGORY DROP — touch + mouse compatible (TAP TO PLACE)
    Tap a word, then tap a box. Works on phones/tablets (no HTML5 drag).
    ═══════════════════════════════════════════════════════════ */
@@ -766,6 +762,7 @@ function CategoryDropQuestion({ question, answer, onAnswer }) {
     </div>
   );
 }
+
 /* ═══════════════════════════════════════════════════════════
    FREE TEXT QUESTION (display-only — NO student input)
    ═══════════════════════════════════════════════════════════ */
@@ -932,9 +929,11 @@ export default function QuestionRenderer({
           {question.text && question.text.includes("<") ? (
           <div
             dangerouslySetInnerHTML={{
-              __html: String(question.text)
-                .replace(/\scontenteditable\s*=\s*["'][^"']*["']/gi, "")
-                .replace(/\scontenteditable(?=[\s>])/gi, ""),
+              __html: DOMPurify.sanitize(
+                String(question.text)
+                  .replace(/\scontenteditable\s*=\s*["'][^"']*["']/gi, "")
+                  .replace(/\scontenteditable(?=[\s>])/gi, "")
+              ),
             }}
             className="prose prose-slate prose-sm max-w-none [&_img]:rounded-lg [&_img]:max-w-full [&_img]:cursor-zoom-in"
           />
