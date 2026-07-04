@@ -129,13 +129,15 @@ const allowedOriginPatterns = [
 function isAllowedOrigin(origin) {
   if (!origin) return true; // same-origin / curl / server-to-server
 
-  // ✅ In dev, allow any localhost / 127.0.0.1 port (Vite may use 5173, 5174, etc.)
-  if (IS_DEV && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-    return true;
+  // Static allow-list (prod custom domain from FRONTEND_ORIGIN) — ALL environments
+  if (allowedOrigins.includes(origin)) return true;
+
+  // Localhost + Vercel preview deploys — NON-PROD ONLY, never trusted in production
+  if (IS_DEV) {
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+    if (allowedOriginPatterns.some((re) => re.test(origin))) return true;
   }
 
-  if (allowedOrigins.includes(origin)) return true;
-  if (allowedOriginPatterns.some((re) => re.test(origin))) return true;
   return false;
 }
 
