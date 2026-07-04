@@ -49,6 +49,7 @@ const cookieParser = require("cookie-parser");
 const path = require("path");
 const { s3, BUCKET } = require("./utils/s3Upload");
 const { GetObjectCommand } = require("@aws-sdk/client-s3");
+const sanitizeMongo = require("./middleware/sanitizeMongo");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -171,6 +172,9 @@ app.use(
   }),
 );
 
+// ── NoSQL injection sanitizer — after body parse, before routes (Express 5 safe) ──
+app.use(sanitizeMongo);
+
 // ─── Route imports ────────────────────────────────────────────────────────────
 const healthRoutes = require("./routes/healthRoutes");
 const examRoutes = require("./routes/examRoutes");
@@ -287,13 +291,11 @@ app.get("/", (req, res) => {
 });
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
-// ─── Admin ────────────────────────────────────────────────────────────────────
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
 app.use("/api/admin", quizAiRoutes);
-app.use("/api/admin", aiImageRoutes);                   
-app.use("/api/admin/originality", originalityRoutes);   
-// add right below it:
+app.use("/api/admin", aiImageRoutes);
+app.use("/api/admin/originality", originalityRoutes);
 app.use("/api/tutor", tutorRoutes);
 
 // ─── Quiz, flashcards, available quizzes ─────────────────────────────────────
