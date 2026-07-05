@@ -1,6 +1,10 @@
 const router = require("express").Router();
 const jwt = require("jsonwebtoken");
-const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
+
+// ⚠️ Precedence must match token SIGNING and your auth middleware.
+// Your env validation treats PARENT_JWT_SECRET as primary — keep that order
+// everywhere (ideally export this from one shared config/jwt.js and import it).
+const JWT_SECRET = process.env.PARENT_JWT_SECRET || process.env.JWT_SECRET;
 
 const { verifyToken, requireAuth } = require("../middleware/auth");
 const connectDB = require("../config/db");
@@ -8,15 +12,26 @@ const Child = require("../models/child");
 const Parent = require("../models/parent");
 
 /**
+ * Single place the cookie-decode rules live, so /session can't drift from
+ * the verifyToken middleware. Returns decoded claims or null (never throws).
+ * When you add revocation, the ver/tokenVersion check belongs in verifyToken
+ * (which /me uses); short access-token TTL is what protects /session.
+ */
+function decode(token) {
+  if (!token) return null;
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch {
+    return null; // expired or invalid
+  }
+}
+
+/**
  * GET /api/auth/me
- *
- * Returns the currently authenticated user from their httpOnly cookie.
+ * Returns the authenticated user's PROFILE from their httpOnly cookie.
  * Used by AuthContext on mount to rehydrate session without localStorage.
- *
- * Reads whichever cookie is present:
- *   child_token  → returns { role: "child", ...child profile }
- *   parent_token → returns { role: "parent", ...parent profile }
- *   neither      → returns 401
+ * Does NOT return the token — the cookie is sent automatically via
+ * credentials:"include", so the frontend never needs to hold it.
  */
 router.get("/me", verifyToken, requireAuth, async (req, res) => {
   try {
@@ -25,18 +40,12 @@ router.get("/me", verifyToken, requireAuth, async (req, res) => {
 
     if (role === "child") {
       const child = await Child.findById(childId)
-        .select(
-          "display_name username year_level status parent_id entitled_quiz_ids",
-        )
+        .select("display_name username year_level status parent_id entitled_quiz_ids")
         .lean();
       if (!child) return res.status(404).json({ error: "Child not found" });
 
-      // Re-sign a fresh token to return to the frontend
-      const token = req.cookies?.child_token || null;
-
       return res.json({
         role: "child",
-        token, // ← frontend stores in memory
         childId: child._id.toString(),
         parentId: child.parent_id.toString(),
         username: child.username,
@@ -54,12 +63,8 @@ router.get("/me", verifyToken, requireAuth, async (req, res) => {
         .lean();
       if (!parent) return res.status(404).json({ error: "Parent not found" });
 
-      // Return the raw cookie token so frontend can store in memory
-      const token = req.cookies?.parent_token || null;
-
       return res.json({
         role: "parent",
-        token, // ← frontend stores in memory
         parentId: parent._id.toString(),
         firstName: parent.firstName || "",
         lastName: parent.lastName || "",
@@ -77,41 +82,33 @@ router.get("/me", verifyToken, requireAuth, async (req, res) => {
   }
 });
 
-
-
-
+/**
+ * GET /api/auth/session
+ * Soft probe: returns whichever sessions exist (parent, child, or both —
+ * e.g. a parent viewing a child). No 401; missing/expired cookies are just
+ * omitted. Shares decode() with /me so verification rules stay in one place.
+ */
 router.get("/session", (req, res) => {
-  const parentToken = req.cookies?.parent_token;
-  const childToken = req.cookies?.child_token;
-
   const sessions = {};
 
-  if (parentToken) {
-    try {
-      const decoded = jwt.verify(parentToken, JWT_SECRET);
-      sessions.parent = {
-        parentId: decoded.parentId,
-        email: decoded.email,
-        role: "parent",
-      };
-    } catch {
-      /* expired or invalid — ignore */
-    }
+  const parent = decode(req.cookies?.parent_token);
+  if (parent) {
+    sessions.parent = {
+      parentId: parent.parentId,
+      email: parent.email,
+      role: "parent",
+    };
   }
 
-  if (childToken) {
-    try {
-      const decoded = jwt.verify(childToken, JWT_SECRET);
-      sessions.child = {
-        childId: decoded.childId,
-        parentId: decoded.parentId,
-        username: decoded.username,
-        yearLevel: decoded.yearLevel,
-        role: "child",
-      };
-    } catch {
-      /* expired or invalid — ignore */
-    }
+  const child = decode(req.cookies?.child_token);
+  if (child) {
+    sessions.child = {
+      childId: child.childId,
+      parentId: child.parentId,
+      username: child.username,
+      yearLevel: child.yearLevel,
+      role: "child",
+    };
   }
 
   res.json(sessions);
