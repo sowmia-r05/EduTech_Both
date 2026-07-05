@@ -19,6 +19,37 @@ const Parent = require("../models/parent");
 const { provisionPurchase } = require("../services/provisioningService");
 
 // ────────────────────────────────────────────
+// Shared helper: verify Stripe-reported amount/currency against our record.
+// session.amount_total is in the smallest currency unit (cents), same as amount_cents.
+// Returns { ok: true } when they match, or { ok: false, reason } on mismatch.
+//
+// NOTE: strict equality is only valid while checkout has NO coupons/promo codes
+// and NO tax. If you enable allow_promotion_codes or automatic tax, amount_total
+// will legitimately differ from amount_cents — compare against amount_subtotal
+// (or store the discounted expected amount) instead.
+// ────────────────────────────────────────────
+function verifyPaymentAmount(purchase, session) {
+  const expected = Number(purchase.amount_cents);
+  const charged = Number(session.amount_total);
+  const expectedCurrency = (purchase.currency || "aud").toLowerCase();
+  const chargedCurrency = (session.currency || "").toLowerCase();
+
+  const amountMismatch =
+    Number.isFinite(expected) && Number.isFinite(charged) && expected !== charged;
+  const currencyMismatch = chargedCurrency && expectedCurrency !== chargedCurrency;
+
+  if (amountMismatch || currencyMismatch) {
+    return {
+      ok: false,
+      reason:
+        `Amount/currency mismatch: charged ${charged} ${chargedCurrency}, ` +
+        `expected ${expected} ${expectedCurrency}`,
+    };
+  }
+  return { ok: true };
+}
+
+// ────────────────────────────────────────────
 // POST /api/payments/checkout
 // Body: { bundle_id, child_ids: [childId1, ...] }
 // Returns: { ok, checkout_url, session_id }
@@ -217,22 +248,41 @@ router.post("/webhook", async (req, res) => {
         const sessionId = session.id;
         const paymentIntent = session.payment_intent;
 
-        // ── Update Purchase status → 'paid' ──
-        const purchase = await Purchase.findOneAndUpdate(
-          { stripe_session_id: sessionId },
-          {
-            $set: {
-              status: "paid",
-              stripe_payment_intent: paymentIntent,
-            },
-          },
-          { new: true }
-        );
+        // ── Fetch the pending Purchase (do NOT flip to paid yet) ──
+        const purchase = await Purchase.findOne({
+          stripe_session_id: sessionId,
+        });
 
         if (!purchase) {
           console.error(`⚠️ No Purchase found for session ${sessionId}`);
           return;
         }
+
+        // ── Idempotency: ignore duplicate webhook deliveries ──
+        if (purchase.status === "paid") {
+          console.log(
+            `ℹ️ Purchase ${purchase._id} already paid — skipping duplicate webhook`,
+          );
+          return;
+        }
+
+        // ── ✅ Amount + currency verification (defense-in-depth) ──
+        const check = verifyPaymentAmount(purchase, session);
+        if (!check.ok) {
+          console.error(
+            `🚨 Payment verification failed for session ${sessionId}: ${check.reason}`,
+          );
+          // Do NOT provision. Mark failed + record reason for admin review.
+          purchase.status = "failed";
+          purchase.provision_error = check.reason;
+          await purchase.save();
+          return;
+        }
+
+        // ── Verified — mark paid ──
+        purchase.status = "paid";
+        purchase.stripe_payment_intent = paymentIntent;
+        await purchase.save();
 
         console.log(`💰 Payment confirmed for purchase ${purchase._id}`);
 
@@ -305,41 +355,61 @@ router.get(
             await stripe.checkout.sessions.retrieve(sessionId);
 
           if (stripeSession.payment_status === "paid") {
-            // Webhook hasn't arrived yet — update the purchase ourselves
-            await Purchase.findByIdAndUpdate(purchase._id, {
-              $set: {
+            // ── ✅ Amount + currency verification (mirror of webhook) ──
+            // Prevents the verify endpoint from becoming a bypass of the
+            // webhook's amount check.
+            const check = verifyPaymentAmount(purchase, stripeSession);
+
+            if (!check.ok) {
+              console.error(
+                `🚨 Verify amount check failed for session ${sessionId}: ${check.reason}`,
+              );
+              await Purchase.findByIdAndUpdate(purchase._id, {
+                $set: {
+                  status: "failed",
+                  provision_error: check.reason,
+                },
+              });
+              purchase = { ...purchase, status: "failed" };
+            } else {
+              // Webhook hasn't arrived yet — update the purchase ourselves
+              await Purchase.findByIdAndUpdate(purchase._id, {
+                $set: {
+                  status: "paid",
+                  stripe_payment_intent: stripeSession.payment_intent,
+                },
+              });
+              purchase = {
+                ...purchase,
                 status: "paid",
                 stripe_payment_intent: stripeSession.payment_intent,
-              },
-            });
-            purchase = {
-              ...purchase,
-              status: "paid",
-              stripe_payment_intent: stripeSession.payment_intent,
-            };
+              };
 
-            console.log(
-              `💰 Verify fallback: Payment confirmed for purchase ${purchase._id}`,
-            );
+              console.log(
+                `💰 Verify fallback: Payment confirmed for purchase ${purchase._id}`,
+              );
 
-            // Trigger provisioning in background
-            setImmediate(async () => {
-              try {
-                const result = await provisionPurchase(purchase._id.toString());
-                if (result.success) {
-                  console.log(
-                    `✅ Verify fallback: Provisioning complete for purchase ${purchase._id}`,
+              // Trigger provisioning in background
+              setImmediate(async () => {
+                try {
+                  const result = await provisionPurchase(
+                    purchase._id.toString(),
                   );
-                } else {
-                  console.error(
-                    `❌ Verify fallback: Provisioning failed:`,
-                    result.error,
-                  );
+                  if (result.success) {
+                    console.log(
+                      `✅ Verify fallback: Provisioning complete for purchase ${purchase._id}`,
+                    );
+                  } else {
+                    console.error(
+                      `❌ Verify fallback: Provisioning failed:`,
+                      result.error,
+                    );
+                  }
+                } catch (err) {
+                  console.error("Verify fallback provisioning error:", err);
                 }
-              } catch (err) {
-                console.error("Verify fallback provisioning error:", err);
-              }
-            });
+              });
+            }
           }
         } catch (stripeErr) {
           console.warn("Stripe session check failed:", stripeErr.message);
