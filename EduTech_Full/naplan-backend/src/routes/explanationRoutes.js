@@ -145,9 +145,23 @@ router.post("/attempts/:attemptId/explain", async (req, res) => {
     const questionIds = allAnswers.map((a) => a.question_id);
     const questions = await Question.find({ question_id: { $in: questionIds } }).lean();
 
-    const explanations = questions.map((q) => {
+    // ✅ FIX: Question.find({ $in }) returns Mongo's order, NOT quiz order.
+    // Index by id, then rebuild in the SAME order as attempt.answers so the
+    // returned explanations line up with the questions the child actually saw
+    // (protects any consumer that pairs by position instead of question_id).
+    const qById = new Map(questions.map((q) => [String(q.question_id), q]));
+
+    const explanations = allAnswers.map((answerRecord) => {
+      const q = qById.get(String(answerRecord.question_id));
+      if (!q) {
+        return {
+          question_id: answerRecord.question_id,
+          is_correct:  answerRecord?.is_correct || false,
+          explanation: "",
+          tip:         "",
+        };
+      }
       const expl = (q.explanations_by_year || {})[yearLevel] || {};
-      const answerRecord = allAnswers.find((a) => a.question_id === q.question_id);
       return {
         question_id: q.question_id,
         is_correct:  answerRecord?.is_correct || false,
@@ -171,7 +185,7 @@ router.post("/attempts/:attemptId/chat", async (req, res) => {
   try {
     await connectDB();
     const { attemptId } = req.params;
-    const { question_id, message, chat_history } = req.body;
+    const { question_id, message, chat_history, question_number } = req.body;
 
     if (!message || !message.trim()) {
       return res.status(400).json({ error: "message is required" });
@@ -188,8 +202,20 @@ router.post("/attempts/:attemptId/chat", async (req, res) => {
         const answers = attempt.answers || [];
         const answerRecord = answers.find((a) => a.question_id === question_id);
 
-        const idx = answers.findIndex((a) => a.question_id === question_id);
-        const questionNumber = idx >= 0 ? idx + 1 : null;
+        // ✅ FIX: Prefer the number the FRONTEND actually displayed to the
+        // child. Deriving it from the position in attempt.answers is wrong
+        // whenever the display order differs from storage order (randomised
+        // questions, or reading passages excluded from the on-screen count),
+        // which made the tutor cite the wrong "Question N". Fall back to the
+        // answers index only when the client didn't send a number.
+        let questionNumber = null;
+        const clientNum = Number(question_number);
+        if (question_number !== undefined && question_number !== null && Number.isFinite(clientNum)) {
+          questionNumber = clientNum;
+        } else {
+          const idx = answers.findIndex((a) => a.question_id === question_id);
+          questionNumber = idx >= 0 ? idx + 1 : null;
+        }
 
         const correctOption = (q.options || []).find((o) => o.correct);
         const childOption = (q.options || []).find(

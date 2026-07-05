@@ -293,9 +293,9 @@ export default function ParentVerifyPage() {
       {/* Expired OTP Modal */}
       {showExpiredModal && (
         <OtpExpiredModal
-          onResend={handleResendOtp}
+          onRequestNewOtp={handleResendOtp}
           onGoBack={handleExpiredGoBack}
-          resending={resending}
+          loading={resending}
         />
       )}
     </div>
