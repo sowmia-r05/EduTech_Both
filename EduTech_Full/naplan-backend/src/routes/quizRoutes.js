@@ -1,18 +1,15 @@
 /**
- * routes/quizRoutes.js  (v6 — fixed topic_breakdown not persisting)
+ * routes/quizRoutes.js  (v7 — IDOR fix on child-scoped listing routes)
  *
- * ✅ FIX in v5:
- *   Removed premature `syncWritingAttempt` call from the submit handler.
- *   It was creating a Writing doc with ai.status="error" (AI hadn't run yet)
- *   and then DELETING the QuizAttempt — causing triggerAiFeedback to exit early
- *   and never actually generate AI feedback.
- *   triggerAiFeedback handles 100% of the writing pipeline correctly.
+ * SECURITY FIX (v7):
+ *   /children/:childId/in-progress and /children/:childId/attempts previously
+ *   authorized ANY parent (isParent = role === "parent") without checking the
+ *   parent owns THAT child — a parent could read other families' children's
+ *   attempts by changing :childId. Now the parent branch verifies ownership
+ *   against the DB. /attempts/:attemptId/result tightened to default-deny.
  *
- * ✅ FIX in v6:
- *   Added `attempt.markModified('topic_breakdown')` after assigning topicBreakdown.
- *   topic_breakdown is a Mongoose Map type — assigning a plain JS object to it
- *   does NOT get tracked as a change by Mongoose, so it was silently skipped on save().
- *   markModified() forces Mongoose to include it in the next save().
+ * (v6) markModified('topic_breakdown') so the Mongoose Map persists.
+ * (v5) removed premature syncWritingAttempt from submit.
  */
 
 const express = require("express");
@@ -22,7 +19,7 @@ const Quiz = require("../models/quiz");
 const Question = require("../models/question");
 const QuizAttempt = require("../models/quizAttempt");
 const Child = require("../models/child");
-const { triggerAiFeedback } = require("../services/aiFeedbackService"); // ✅ removed syncWritingAttempt
+const { triggerAiFeedback } = require("../services/aiFeedbackService");
 const { sendQuizCompletionEmail, checkNotificationEligibility } = require("../services/emailNotifications");
 const QuizCatalog = require("../models/quizCatalog");
 const Writing = require("../models/writing");
@@ -34,6 +31,34 @@ const TIMER_GRACE_PERIOD_SEC = 60;
 
 // All routes require authentication
 router.use(verifyToken, requireAuth);
+
+// ─── Ownership helper (default-DENY) ───
+// The child themselves, OR a parent who owns this child. Anyone else → false.
+async function canAccessChild(req, childId) {
+  if (!childId) return false;
+  if (String(req.user.childId || "") === String(childId)) return true;
+  if (req.user.role === "parent") {
+    const owned = await Child.findOne({
+      _id: childId,
+      parent_id: req.user.parentId || req.user.parent_id,
+    }).lean();
+    return !!owned;
+  }
+  return false;
+}
+
+// ─── Ownership helper for an attempt doc (default-DENY) ───
+function ownsAttempt(req, attempt) {
+  if (!attempt) return false;
+  const isChildOwner =
+    req.user.role === "child" &&
+    String(attempt.child_id) === String(req.user.childId);
+  const isParentOwner =
+    req.user.role === "parent" &&
+    attempt.parent_id != null &&
+    String(attempt.parent_id) === String(req.user.parentId || req.user.parent_id);
+  return isChildOwner || isParentOwner;
+}
 
 // ═══════════════════════════════════════
 // GET /api/quizzes/:quizId
@@ -240,7 +265,6 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       .sort({ order: 1 })
       .lean();
 
-    // AFTER
     const safeQuestions = questions.map((q) => ({
       question_id: q.question_id,
       type: q.type,
@@ -256,7 +280,7 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       image_url: q.image_url || null,
      image_width: q.image_width ?? null,
      image_height: q.image_height ?? null,
-      image_size: q.image_size || "medium", // ← ADD
+      image_size: q.image_size || "medium",
       order: q.order,
       voice_url: q.voice_url || null,
       video_url: q.video_url || null,
@@ -269,7 +293,7 @@ router.get("/quizzes/:quizId/questions", async (req, res) => {
       text_color:          q.text_color           || null,
       max_length:          q.max_length           || null,
       text_style_scope:    q.text_style_scope     || "question",
-      display_style:       q.display_style        || null,  // ← ADD THIS
+      display_style:       q.display_style        || null,
     }));
 
     if (quiz.randomize_questions) {
@@ -318,6 +342,13 @@ router.get("/quizzes/:quizId/resume", async (req, res) => {
     if (!childId && role === "parent") childId = req.query.childId;
     if (!childId) return res.status(403).json({ error: "Child login required" });
 
+    // ✅ parent must own this child
+    if (role === "parent" && !tokenChildId) {
+      if (!(await canAccessChild(req, childId))) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+
     const attempt = await QuizAttempt.findOne({
       child_id: childId,
       quiz_id: req.params.quizId,
@@ -363,9 +394,7 @@ router.patch("/attempts/:attemptId/autosave", async (req, res) => {
     const attempt = await QuizAttempt.findOne({ attempt_id: req.params.attemptId });
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
 
-    const isChildOwner = String(attempt.child_id) === String(req.user.childId);
-    const isParentOwner = req.user.role === "parent" && String(attempt.parent_id) === String(req.user.parentId);
-    if (!isChildOwner && !isParentOwner) return res.status(403).json({ error: "Not your attempt" });
+    if (!ownsAttempt(req, attempt)) return res.status(403).json({ error: "Not your attempt" });
     if (attempt.status !== "in_progress") return res.status(400).json({ error: "Attempt already submitted" });
 
     if (attempt.expires_at && new Date() > new Date(attempt.expires_at)) {
@@ -402,9 +431,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     const attempt = await QuizAttempt.findOne({ attempt_id: req.params.attemptId });
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
 
-    const isChildOwner = String(attempt.child_id) === String(req.user.childId);
-    const isParentOwner = req.user.role === "parent" && String(attempt.parent_id) === String(req.user.parentId);
-    if (!isChildOwner && !isParentOwner) return res.status(403).json({ error: "Not your attempt" });
+    if (!ownsAttempt(req, attempt)) return res.status(403).json({ error: "Not your attempt" });
     if (attempt.status !== "in_progress") return res.status(400).json({ error: "Already submitted" });
 
     let timerExpired = false;
@@ -420,7 +447,6 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     const questionMap = {};
     for (const q of questions) questionMap[q.question_id] = q;
 
-    // ✅ NEW — matches the same logic as the start route
     const isWriting = /writing/i.test(attempt.subject || attempt.quiz_name || "");
 
     let totalPoints = 0;
@@ -506,7 +532,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     attempt.duration_sec = Math.round((attempt.submitted_at - attempt.started_at) / 1000);
     attempt.status = isWriting ? "submitted" : "scored";
     attempt.topic_breakdown = topicBreakdown;
-    attempt.markModified("topic_breakdown"); // ✅ FIX v6: Forces Mongoose to persist the Map field
+    attempt.markModified("topic_breakdown");
     attempt.timer_expired = timerExpired;
 
     if (proctoring) {
@@ -529,11 +555,6 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
     await attempt.save();
 
     console.log(`✅ Quiz submitted: attempt=${attempt.attempt_id}, score=${percentage}%, grade=${grade}${timerExpired ? " (timer expired)" : ""}`);
-
-    // ✅ FIX: Removed premature syncWritingAttempt() call that was here.
-    // It was creating a Writing doc with ai.status="error" (before AI ran),
-    // deleting the QuizAttempt, then triggerAiFeedback found nothing and exited.
-    // triggerAiFeedback handles the full writing pipeline on its own.
 
     triggerAiFeedback({
       attemptId: attempt.attempt_id,
@@ -593,6 +614,7 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
 
 // ═══════════════════════════════════════
 // GET /api/attempts/:attemptId/result
+// ✅ default-DENY owner check
 // ═══════════════════════════════════════
 router.get("/attempts/:attemptId/result", async (req, res) => {
   try {
@@ -600,9 +622,7 @@ router.get("/attempts/:attemptId/result", async (req, res) => {
     const attempt = await QuizAttempt.findOne({ attempt_id: req.params.attemptId }).lean();
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
 
-    const isOwner = String(attempt.child_id) === String(req.user.childId);
-    const isParent = String(attempt.parent_id) === String(req.user.parentId);
-    if (!isOwner && !isParent) return res.status(403).json({ error: "Access denied" });
+    if (!ownsAttempt(req, attempt)) return res.status(403).json({ error: "Access denied" });
 
     res.json(attempt);
   } catch (err) {
@@ -612,10 +632,6 @@ router.get("/attempts/:attemptId/result", async (req, res) => {
 
 // ═══════════════════════════════════════
 // GET /api/attempts/:attemptId/ai-status
-// Lightweight poll — QuizResult.jsx calls this every 5s
-// to detect when writing AI feedback finishes.
-// Checks Writing collection first (writing moves there after AI),
-// falls back to QuizAttempt for in-progress status.
 // ═══════════════════════════════════════
 router.get("/attempts/:attemptId/ai-status", async (req, res) => {
   try {
@@ -626,10 +642,16 @@ router.get("/attempts/:attemptId/ai-status", async (req, res) => {
     const writing = await Writing.findOne({
       $or: [{ response_id: attemptId }, { attempt_id: attemptId }],
     })
-      .select("ai")
+      .select("ai child_id parent_id")
       .lean();
 
     if (writing) {
+      // ✅ ownership check before exposing status
+      const owns =
+        (req.user.role === "child" && String(writing.child_id) === String(req.user.childId)) ||
+        (req.user.role === "parent" && writing.parent_id != null &&
+          String(writing.parent_id) === String(req.user.parentId || req.user.parent_id));
+      if (!owns) return res.status(403).json({ error: "Access denied" });
       const status = writing?.ai?.status || "pending";
       return res.json({ ai_status: status });
     }
@@ -639,12 +661,14 @@ router.get("/attempts/:attemptId/ai-status", async (req, res) => {
     if (/^[a-f\d]{24}$/i.test(attemptId)) or.push({ _id: attemptId });
 
     const attempt = await QuizAttempt.findOne({ $or: or })
-      .select("ai_feedback_meta")
+      .select("ai_feedback_meta child_id parent_id")
       .lean();
 
     if (!attempt) {
       return res.status(404).json({ error: "Attempt not found" });
     }
+
+    if (!ownsAttempt(req, attempt)) return res.status(403).json({ error: "Access denied" });
 
     const status = attempt?.ai_feedback_meta?.status || "queued";
     return res.json({ ai_status: status });
@@ -656,15 +680,16 @@ router.get("/attempts/:attemptId/ai-status", async (req, res) => {
 
 // ═══════════════════════════════════════
 // GET /api/children/:childId/in-progress
+// ✅ parent branch now verifies ownership of this child
 // ═══════════════════════════════════════
 router.get("/children/:childId/in-progress", async (req, res) => {
   try {
     await connectDB();
     const childId = req.params.childId;
 
-    const isChild = String(req.user.childId) === childId;
-    const isParent = req.user.role === "parent";
-    if (!isChild && !isParent) return res.status(403).json({ error: "Access denied" });
+    if (!(await canAccessChild(req, childId))) {
+      return res.status(403).json({ error: "Access denied" });
+    }
 
     const attempts = await QuizAttempt.find({ child_id: childId, status: "in_progress" })
       .sort({ started_at: -1 })
@@ -703,15 +728,16 @@ router.get("/children/:childId/in-progress", async (req, res) => {
 
 // ═══════════════════════════════════════
 // GET /api/children/:childId/attempts
+// ✅ parent branch now verifies ownership of this child
 // ═══════════════════════════════════════
 router.get("/children/:childId/attempts", async (req, res) => {
   try {
     await connectDB();
     const childId = req.params.childId;
 
-    const isChild = String(req.user.childId) === childId;
-    const isParent = req.user.role === "parent";
-    if (!isChild && !isParent) return res.status(403).json({ error: "Access denied" });
+    if (!(await canAccessChild(req, childId))) {
+      return res.status(403).json({ error: "Access denied" });
+    }
 
     const attempts = await QuizAttempt.find({ child_id: childId })
       .sort({ submitted_at: -1 })

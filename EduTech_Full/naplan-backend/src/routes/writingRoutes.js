@@ -7,24 +7,27 @@ const {
   requireParent,
 } = require("../middleware/auth");
 
-// ─── Helper: verify ownership of a child record ───
+// ─── Helper: verify ownership of a child record (default-DENY) ───
+// Returns the child ONLY if the caller is affirmatively authorized.
+// Unknown/missing role → null → caller returns 403.
 async function assertChildOwnership(req, childId) {
+  if (!childId) return null;
   const child = await Child.findById(childId).lean();
   if (!child) return null;
 
+  let authorized = false;
   if (req.user.role === "parent") {
     const parentId = req.user.parentId || req.user.parent_id;
-    if (String(child.parent_id) !== String(parentId)) return null;
+    authorized = String(child.parent_id) === String(parentId);
+  } else if (req.user.role === "child") {
+    authorized = String(child._id) === String(req.user.childId);
   }
-  if (req.user.role === "child") {
-    if (String(child._id) !== String(req.user.childId)) return null;
-  }
-  return child;
+  return authorized ? child : null;
 }
 
 // ─────────────────────────────────────────────────
 // GET /api/writing/
-// ✅ FIXED S-05: Now scoped to parent's own children
+// Scoped to parent's own children
 // ─────────────────────────────────────────────────
 router.get("/", verifyToken, requireParent, async (req, res) => {
   try {
@@ -53,7 +56,7 @@ router.get("/", verifyToken, requireParent, async (req, res) => {
 
 // ─────────────────────────────────────────────────
 // GET /api/writing/by-child-id
-// ✅ FIXED S-07: Added ownership check
+// Ownership-checked
 // ─────────────────────────────────────────────────
 router.get("/by-child-id", verifyToken, requireAuth, async (req, res) => {
   try {
@@ -79,7 +82,8 @@ router.get("/by-child-id", verifyToken, requireAuth, async (req, res) => {
 
 // ─────────────────────────────────────────────────
 // GET /api/writing/by-username
-// ✅ FIXED S-25: Added ownership check
+// Ownership-checked, and data is queried by child_id (matches the
+// authorization) — NOT by the denormalized user.user_name string.
 // ─────────────────────────────────────────────────
 router.get("/by-username", verifyToken, requireAuth, async (req, res) => {
   try {
@@ -97,7 +101,8 @@ router.get("/by-username", verifyToken, requireAuth, async (req, res) => {
     const owned = await assertChildOwnership(req, child._id);
     if (!owned) return res.status(403).json({ error: "Access denied" });
 
-    const q = { "user.user_name": username };
+    // ✅ Query by the SAME key we authorized (child_id), not user.user_name
+    const q = { child_id: child._id };
     if (quiz_name) q.quiz_name = quiz_name;
 
     const results = await Writing.find(q)
@@ -115,7 +120,7 @@ router.get("/by-username", verifyToken, requireAuth, async (req, res) => {
 
 // ─────────────────────────────────────────────────
 // GET /api/writing/latest/by-username
-// ✅ FIXED: Added ownership check
+// Ownership-checked, queried by child_id
 // ─────────────────────────────────────────────────
 router.get(
   "/latest/by-username",
@@ -135,7 +140,8 @@ router.get(
       const owned = await assertChildOwnership(req, child._id);
       if (!owned) return res.status(403).json({ error: "Access denied" });
 
-      const doc = await Writing.findOne({ "user.user_name": username })
+      // ✅ Query by child_id (matches authorization)
+      const doc = await Writing.findOne({ child_id: child._id })
         .sort({ submitted_at: -1, createdAt: -1 })
         .lean();
 
@@ -151,8 +157,7 @@ router.get(
 
 // ─────────────────────────────────────────────────
 // GET /api/writing/:responseId
-// No ownership check needed — responseId is an unguessable UUID;
-// but adding auth is still good practice.
+// Auth + ownership enforced (do NOT rely on responseId being unguessable).
 // ─────────────────────────────────────────────────
 router.get("/:responseId", verifyToken, requireAuth, async (req, res) => {
   try {

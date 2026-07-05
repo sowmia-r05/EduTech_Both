@@ -1,6 +1,3 @@
-
-
-
 const express   = require("express");
 const mongoose  = require("mongoose");
 const router    = express.Router();
@@ -11,6 +8,24 @@ const Child        = require("../models/child");
 const QuizAttempt  = require("../models/quizAttempt");
 const Writing      = require("../models/writing");
 
+
+// ────────────────────────────────────────────
+// Shared ownership guard (default-DENY).
+// Returns true ONLY if the caller is affirmatively authorized for this child.
+// Any unrecognized role falls through to false → 403.
+// If you later need tutors/admins to read child data, add an explicit
+// branch here — do NOT loosen the default.
+// ────────────────────────────────────────────
+function isAuthorizedForChild(req, child) {
+  if (req.user.role === "parent") {
+    const parentId = req.user.parentId || req.user.parent_id;
+    return String(child.parent_id) === String(parentId);
+  }
+  if (req.user.role === "child") {
+    return String(child._id) === String(req.user.childId);
+  }
+  return false; // unknown / missing role → denied
+}
 
 
 async function aggregateChildStats(child) {
@@ -235,8 +250,12 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
 
 // ────────────────────────────────────────────
 // GET /api/children/check-username/:username
+// ✅ Gated: only a logged-in parent can probe username availability.
+//    (Prevents unauthenticated username enumeration.)
+//    ⚠️ If your signup form calls this BEFORE the parent is logged in,
+//    revert to the unauthenticated version or it will break that field.
 // ────────────────────────────────────────────
-router.get("/check-username/:username", async (req, res) => {
+router.get("/check-username/:username", verifyToken, requireParent, async (req, res) => {
   try {
     await connectDB();
     const username = String(req.params.username || "").trim().toLowerCase();
@@ -274,7 +293,8 @@ router.get("/:childId", verifyToken, requireParent, async (req, res) => {
 });
 
 // ────────────────────────────────────────────
-// GET /api/children/:childId/me   ← ✅ OWNERSHIP CHECK ADDED
+// GET /api/children/:childId/me
+// ✅ Default-DENY ownership check
 // ────────────────────────────────────────────
 router.get("/:childId/me", verifyToken, requireAuth, async (req, res) => {
   try {
@@ -286,17 +306,8 @@ router.get("/:childId/me", verifyToken, requireAuth, async (req, res) => {
     const child = await Child.findById(childId).select("-pin_hash").lean();
     if (!child) return res.status(404).json({ error: "Child not found" });
 
-    // ✅ FIX: Ownership check — was completely missing before
-    if (req.user.role === "parent") {
-      const parentId = req.user.parentId || req.user.parent_id;
-      if (String(child.parent_id) !== String(parentId)) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-    }
-    if (req.user.role === "child") {
-      if (String(child._id) !== String(req.user.childId)) {
-        return res.status(403).json({ error: "Access denied" });
-      }
+    if (!isAuthorizedForChild(req, child)) {
+      return res.status(403).json({ error: "Access denied" });
     }
 
     return res.json(child);
@@ -382,6 +393,7 @@ router.delete("/:childId", verifyToken, requireParent, async (req, res) => {
 
 // ────────────────────────────────────────────
 // GET /api/children/:childId/results
+// ✅ Default-DENY ownership check
 // ────────────────────────────────────────────
 router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
   try {
@@ -393,14 +405,8 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
     const child = await Child.findById(childId).lean();
     if (!child) return res.status(404).json({ error: "Child not found" });
 
-    if (req.user.role === "parent") {
-      const parentId = req.user.parentId || req.user.parent_id;
-      if (String(child.parent_id) !== String(parentId))
-        return res.status(403).json({ error: "Access denied" });
-    }
-    if (req.user.role === "child") {
-      if (String(child._id) !== String(req.user.childId))
-        return res.status(403).json({ error: "Access denied" });
+    if (!isAuthorizedForChild(req, child)) {
+      return res.status(403).json({ error: "Access denied" });
     }
 
     const attempts = await QuizAttempt.find({
@@ -419,6 +425,7 @@ router.get("/:childId/results", verifyToken, requireAuth, async (req, res) => {
 
 // ────────────────────────────────────────────
 // GET /api/children/:childId/writing
+// ✅ Default-DENY ownership check
 // ────────────────────────────────────────────
 router.get("/:childId/writing", verifyToken, requireAuth, async (req, res) => {
   try {
@@ -430,14 +437,8 @@ router.get("/:childId/writing", verifyToken, requireAuth, async (req, res) => {
     const child = await Child.findById(childId).lean();
     if (!child) return res.status(404).json({ error: "Child not found" });
 
-    if (req.user.role === "parent") {
-      const parentId = req.user.parentId || req.user.parent_id;
-      if (String(child.parent_id) !== String(parentId))
-        return res.status(403).json({ error: "Access denied" });
-    }
-    if (req.user.role === "child") {
-      if (String(child._id) !== String(req.user.childId))
-        return res.status(403).json({ error: "Access denied" });
+    if (!isAuthorizedForChild(req, child)) {
+      return res.status(403).json({ error: "Access denied" });
     }
 
     const docs = await Writing.find({ child_id: child._id })
