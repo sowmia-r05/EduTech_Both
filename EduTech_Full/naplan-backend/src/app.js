@@ -322,25 +322,90 @@ app.use("/api/payments", paymentRoutes);
 // ─── OCR ──────────────────────────────────────────────────────────────────────
 app.use("/api/ocr", ocrRoute);
 
-// ─── S3 image proxy ───────────────────────────────────────────────────────────
-// Serves /uploads/... paths by proxying from S3.
-// ✅ Cross-origin headers set FIRST so browsers (child dashboard) can load images.
-app.use("/uploads", async (req, res) => {
+// ─── S3 image proxy (HARDENED) ───────────────────────────────────────────────
+// Serves /uploads/... by streaming from S3/MinIO.
+//   • Rate-limited per IP (images burst, so the window is generous)
+//   • Path-validated (blocks traversal / null bytes / bad extensions)
+//   • SVG served with a locked-down CSP + nosniff (no script execution)
+//   • NO local filesystem fallback — a miss is a real 404
+const uploadsLimiter = rateLimit({
+  windowMs: Number(process.env.UPLOADS_RATE_WINDOW_MS || 60 * 1000),
+  max: Number(process.env.UPLOADS_RATE_MAX || 600),
+  message: { error: "Too many image requests, please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const UPLOAD_IMG_TYPES = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+};
+
+app.use("/uploads", uploadsLimiter, async (req, res) => {
+  // req.path is like "/2026-03/image.jpg" (already URL-decoded by Express)
+  const rel = req.path.replace(/^\/+/, "");
+
+  // Reject traversal / null bytes / oversize keys
+  if (
+    !rel ||
+    rel.length > 512 ||
+    rel.includes("..") ||
+    rel.includes("\\") ||
+    rel.includes("\0")
+  ) {
+    return res.status(400).json({ error: "Invalid image path" });
+  }
+
+  const ext = rel.split(".").pop().toLowerCase();
+  const contentType = UPLOAD_IMG_TYPES[ext];
+  if (!contentType) {
+    return res.status(400).json({ error: "Unsupported image type" });
+  }
+
+  // Cross-origin headers so the child/parent dashboards can load these
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const s3Key = "uploads" + req.path; // e.g. "uploads/2026-03/image.jpg"
+  const s3Key = "uploads/" + rel; // e.g. "uploads/2026-03/image.jpg"
+
   try {
-    const command = new GetObjectCommand({ Bucket: BUCKET, Key: s3Key });
-    const s3Response = await s3.send(command);
-    res.setHeader("Content-Type", s3Response.ContentType || "image/jpeg");
-    res.setHeader("Cache-Control", "public, max-age=31536000");
+    const s3Response = await s3.send(
+      new GetObjectCommand({ Bucket: BUCKET, Key: s3Key }),
+    );
+
+    // Harden SVG: neutralise any embedded script / external reference
+    if (contentType === "image/svg+xml") {
+      res.setHeader(
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      );
+    }
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    if (s3Response.ETag) res.setHeader("ETag", s3Response.ETag);
+
+    s3Response.Body.on("error", (streamErr) => {
+      console.error("[/uploads] stream error:", streamErr.message);
+      if (!res.headersSent) res.status(502).end();
+      else res.destroy(streamErr);
+    });
     s3Response.Body.pipe(res);
   } catch (err) {
-    const localPath = path.join(__dirname, "public", "uploads", req.path);
-    res.sendFile(localPath, (sendErr) => {
-      if (sendErr) res.status(404).json({ error: "Image not found" });
-    });
+    const status = err && err.$metadata && err.$metadata.httpStatusCode;
+    if (
+      (err && (err.name === "NoSuchKey" || err.name === "NotFound")) ||
+      status === 404
+    ) {
+      return res.status(404).json({ error: "Image not found" });
+    }
+    console.error("[/uploads] S3 error:", err && err.name, err && err.message);
+    return res.status(502).json({ error: "Upstream storage error" });
   }
 });
 
