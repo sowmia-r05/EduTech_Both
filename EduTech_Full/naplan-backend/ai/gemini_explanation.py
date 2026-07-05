@@ -98,6 +98,21 @@ def extract_json(text: str):
         raise ValueError(f"No valid JSON found in output: {text[:300]}")
 
 
+def _question_key(q: dict, index_1based: int) -> str:
+    """
+    Returns a stable, non-empty identifier for a question.
+    Prefers the canonical question_id used everywhere else in the app,
+    then _id / id / question_number, and finally the 1-based position.
+    Guarantees the prompt never emits a blank ID (which would break
+    ID-based matching and silently fall back to fragile positional matching).
+    """
+    for k in ("question_id", "_id", "id", "question_number"):
+        v = q.get(k)
+        if v not in (None, ""):
+            return str(v)
+    return str(index_1based)
+
+
 # ═══════════════════════════════════════════════════════════════
 # PROVIDERS: OpenAI primary + Gemini fallback
 # ═══════════════════════════════════════════════════════════════
@@ -187,8 +202,9 @@ def build_explain_prompt(questions: list, year_level: int, subject: str, child_n
 
     questions_block = ""
     for i, q in enumerate(questions, 1):
+        qid = _question_key(q, i)
         questions_block += f"""
-Question {i} (ID: {q.get('question_id', '')})
+Question {i} (ID: {qid})
   Text: {q.get('question_text', '(no text)')}
   Child answered: {q.get('child_answer', '(no answer)')}
   Correct answer: {q.get('correct_answer', '(unknown)')}
@@ -222,7 +238,8 @@ OUTPUT: Return ONLY valid JSON — no markdown, no extra text.
 {{
   "explanations": [
     {{
-      "question_id": "...",
+      "question_id": "<echo the exact ID shown above>",
+      "question_number": <echo the exact Question number shown above>,
       "explanation": "...",
       "tip": "..."
     }}
@@ -230,6 +247,8 @@ OUTPUT: Return ONLY valid JSON — no markdown, no extra text.
 }}
 
 RULES:
+- Return EXACTLY one item per question — do not skip, merge, or reorder.
+- For each item, echo BOTH the exact question_id AND the question_number shown above.
 - Keep each explanation under 60 words
 - Keep each tip under 30 words
 - Never say "you got this wrong" — reframe positively
@@ -327,8 +346,41 @@ def run_explain(payload: dict, providers) -> dict:
             providers, prompt, temperature=0.4, max_tokens=2000, json_mode=True
         )
         result = extract_json(text)
-        explanations = result.get("explanations") or []
-        return {"success": True, "provider": provider, "explanations": explanations}
+        raw = result.get("explanations") or []
+
+        # Index the model's output by id and by number so we can look each up
+        # regardless of the order (or gaps) the model returned them in.
+        by_id = {}
+        by_num = {}
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            qid = item.get("question_id")
+            if qid not in (None, ""):
+                by_id[str(qid)] = item
+            qn = item.get("question_number")
+            if qn not in (None, ""):
+                try:
+                    by_num[int(qn)] = item
+                except (ValueError, TypeError):
+                    pass
+
+        # Re-attach to the INPUT questions — preserves order AND length, so
+        # explanations[i] always corresponds to questions[i], and each entry
+        # carries the correct question_id for id-based matching on the route.
+        # A question the model skipped comes back with empty strings instead of
+        # stealing the next question's explanation.
+        aligned = []
+        for i, q in enumerate(questions, 1):
+            qid = _question_key(q, i)
+            match = by_id.get(qid) or by_num.get(i) or {}
+            aligned.append({
+                "question_id": qid,
+                "explanation": match.get("explanation", ""),
+                "tip":         match.get("tip", ""),
+            })
+
+        return {"success": True, "provider": provider, "explanations": aligned}
     except Exception as e:
         return {"success": False, "error": f"Explanation generation failed: {str(e)}"}
 
