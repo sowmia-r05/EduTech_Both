@@ -2,8 +2,7 @@
  * src/routes/explanationRoutes.js
  *
  * POST /api/attempts/:attemptId/explain
- *   → Generates per-question AI explanations for wrong answers
- *   → Calls ai/gemini_explanation.py with mode="explain"
+ *   → Returns per-question explanations from pre-stored data (no Python)
  *
  * POST /api/attempts/:attemptId/chat
  *   → Child sends a follow-up chat message about one question
@@ -27,8 +26,38 @@ const EXPLANATION_SCRIPT = path.resolve(__dirname, "../../ai/gemini_explanation.
 const PYTHON_BIN = process.env.PYTHON_BIN || (process.platform === "win32" ? "py" : "python3");
 const TIMEOUT_MS = 120000; // 2 min
 
-// ─── Python runner (reuses same robust pattern as aiFeedbackService) ───
-function runExplanationScript(payload) {
+// -------------------------------------------------------------
+// Concurrency cap for Python spawns (self-contained - no imports).
+// Limits how many Python processes run at once so a burst of chats
+// can't exhaust server memory. Default 3, override with
+// MAX_CONCURRENT_PYTHON in .env.
+// -------------------------------------------------------------
+const MAX_CONCURRENT_PYTHON = Number(process.env.MAX_CONCURRENT_PYTHON || 3);
+let activePython = 0;
+const pythonQueue = [];
+
+function acquirePythonSlot() {
+  return new Promise((resolve) => {
+    if (activePython < MAX_CONCURRENT_PYTHON) {
+      activePython++;
+      resolve();
+    } else {
+      pythonQueue.push(resolve);
+    }
+  });
+}
+
+function releasePythonSlot() {
+  activePython = Math.max(0, activePython - 1);
+  const next = pythonQueue.shift();
+  if (next) {
+    activePython++;
+    next();
+  }
+}
+
+// --- Raw Python runner (the spawn itself) ---
+function spawnExplanationScript(payload) {
   return new Promise((resolve, reject) => {
     const child = spawn(PYTHON_BIN, ["-m", "ai.gemini_explanation"], {
       cwd: BACKEND_ROOT,
@@ -67,7 +96,17 @@ function runExplanationScript(payload) {
   });
 }
 
-// ─── Helper: verify child owns this attempt ───
+// --- Gated runner: waits for a free slot, always releases it ---
+async function runExplanationScript(payload) {
+  await acquirePythonSlot();
+  try {
+    return await spawnExplanationScript(payload);
+  } finally {
+    releasePythonSlot();
+  }
+}
+
+// --- Helper: verify child owns this attempt ---
 async function resolveAttemptAndChild(req, attemptId) {
   const attempt = await QuizAttempt.findOne({ attempt_id: attemptId }).lean();
   if (!attempt) return { error: "Attempt not found", status: 404 };
@@ -85,18 +124,9 @@ async function resolveAttemptAndChild(req, attemptId) {
   return { attempt, child };
 }
 
-// ═══════════════════════════════════════════════════════════
-// POST /api/attempts/:attemptId/explain
-//
-// Body: (none required — we pull everything from the attempt)
-//
-// Returns:
-// {
-//   explanations: [
-//     { question_id, explanation, tip, emoji }
-//   ]
-// }
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
+// POST /api/attempts/:attemptId/explain   (no Python - reads stored data)
+// ===========================================================
 router.post("/attempts/:attemptId/explain", async (req, res) => {
   try {
     await connectDB();
@@ -105,10 +135,8 @@ router.post("/attempts/:attemptId/explain", async (req, res) => {
     const { attempt, child, error, status } = await resolveAttemptAndChild(req, attemptId);
     if (error) return res.status(status).json({ error });
 
-    // ✅ Read year level from child or attempt
     const yearLevel = String(child?.year_level || attempt.year_level || "3");
 
-    // ✅ Get all question IDs from this attempt
     const allAnswers = attempt.answers || [];
     if (allAnswers.length === 0) {
       return res.json({ explanations: [] });
@@ -117,7 +145,6 @@ router.post("/attempts/:attemptId/explain", async (req, res) => {
     const questionIds = allAnswers.map((a) => a.question_id);
     const questions = await Question.find({ question_id: { $in: questionIds } }).lean();
 
-    // ✅ Build explanations from pre-stored explanations_by_year — NO Gemini call
     const explanations = questions.map((q) => {
       const expl = (q.explanations_by_year || {})[yearLevel] || {};
       const answerRecord = allAnswers.find((a) => a.question_id === q.question_id);
@@ -137,20 +164,9 @@ router.post("/attempts/:attemptId/explain", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════
-// POST /api/attempts/:attemptId/chat
-//
-// Body:
-// {
-//   question_id: "...",          // which question the child is asking about
-//   message: "Why is B wrong?",  // child's message
-//   chat_history: [              // previous turns (optional)
-//     { role: "child"|"ai", content: "..." }
-//   ]
-// }
-//
-// Returns: { reply: "..." }
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
+// POST /api/attempts/:attemptId/chat   (spawns Python - now capped)
+// ===========================================================
 router.post("/attempts/:attemptId/chat", async (req, res) => {
   try {
     await connectDB();
@@ -165,30 +181,29 @@ router.post("/attempts/:attemptId/chat", async (req, res) => {
     if (error) return res.status(status).json({ error });
 
     // Build question context
-let questionContext = {};
-if (question_id) {
-  const q = await Question.findOne({ question_id }).lean();
-  if (q) {
-    const answers = attempt.answers || [];
-    const answerRecord = answers.find((a) => a.question_id === question_id);
+    let questionContext = {};
+    if (question_id) {
+      const q = await Question.findOne({ question_id }).lean();
+      if (q) {
+        const answers = attempt.answers || [];
+        const answerRecord = answers.find((a) => a.question_id === question_id);
 
-    // ✅ Real 1-based position within this attempt's answers
-    const idx = answers.findIndex((a) => a.question_id === question_id);
-    const questionNumber = idx >= 0 ? idx + 1 : null;
+        const idx = answers.findIndex((a) => a.question_id === question_id);
+        const questionNumber = idx >= 0 ? idx + 1 : null;
 
-    const correctOption = (q.options || []).find((o) => o.correct);
-    const childOption = (q.options || []).find(
-      (o) => (answerRecord?.selected_option_ids || []).includes(o.option_id)
-    );
-    questionContext = {
-      question_number: questionNumber,   // ← NEW: pass it explicitly
-      question_text: q.text || "",
-      correct_answer: correctOption?.text || "",
-      child_answer: childOption?.text || answerRecord?.text_answer || "",
-      category: q.categories?.[0]?.name || attempt.subject || "General",
-    };
-  }
-}
+        const correctOption = (q.options || []).find((o) => o.correct);
+        const childOption = (q.options || []).find(
+          (o) => (answerRecord?.selected_option_ids || []).includes(o.option_id)
+        );
+        questionContext = {
+          question_number: questionNumber,
+          question_text: q.text || "",
+          correct_answer: correctOption?.text || "",
+          child_answer: childOption?.text || answerRecord?.text_answer || "",
+          category: q.categories?.[0]?.name || attempt.subject || "General",
+        };
+      }
+    }
 
     const yearLevel = child?.year_level || attempt.year_level || 3;
     const childName = child?.display_name || child?.username || "Student";
