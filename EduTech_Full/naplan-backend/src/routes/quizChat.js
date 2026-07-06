@@ -6,9 +6,20 @@
  * Quiz-scoped AI tutor — Google Gemini, direct from Node.
  *
  * ✅ attemptBlock is defined before the prompt (fixes the 500 ReferenceError).
- * ✅ buildAttemptBlock now numbers questions using getAttemptContext's
- *    question_number (which matches the on-screen numbering) instead of the
- *    old array-position numbering, so "question 7" maps to the real Q7.
+ * ✅ buildAttemptBlock numbers questions using getAttemptContext's
+ *    question_number (which matches the on-screen numbering).
+ *
+ * 👉 QUESTION-MAPPING FIX:
+ *    The prompt used to contain TWO numbered question lists that disagreed:
+ *      (1) attemptBlock  — numbered by the real on-screen question_number, and
+ *      (2) quizContext   — numbered by ARRAY POSITION (Q${i+1}) from
+ *                          loadQuizQuestions, which isn't sorted by `order` and
+ *                          counts things like a Reading passage as "Q1".
+ *    Two differently-numbered lists in one prompt made "question 3" resolve to
+ *    the wrong question (the classic off-by-one). Now, when we have the
+ *    student's attempt, attemptBlock is the ONLY numbered list we feed the
+ *    model. The generic (no-attempt) path is unchanged. loadQuizQuestions is
+ *    also sorted by `order` so the generic path's numbering is sane too.
  *
  * Requires Node 18+ (built-in global fetch).
  */
@@ -155,8 +166,8 @@ async function personalizeReply(genericAnswer, { childName, yearLevel, historyCt
 }
 
 // -- Build the student's per-question results block (ATTEMPT-AWARE path) -------
-// 👈 CHANGED: numbers now come from getAttemptContext (question_number), which
-// matches the on-screen numbering. No longer numbered by array position.
+// Numbers come from getAttemptContext (question_number), which matches the
+// on-screen numbering. This is the SINGLE authoritative numbered list.
 function buildAttemptBlock(attemptCtx, _questions) {
   if (!attemptCtx) return "";
 
@@ -182,7 +193,8 @@ function buildAttemptBlock(attemptCtx, _questions) {
   lines.push(
     `Use these EXACT question numbers. When the student says "question 7" / "Q7", answer about Q7 above — ` +
     `never renumber, and never ask the student which question it is (you already have them). If they name a ` +
-    `number marked CORRECT above, congratulate them and explain why it is right.`
+    `number marked CORRECT above, congratulate them and explain why it is right. This list is the ONLY source ` +
+    `of question numbers — ignore any other numbering.`
   );
   return lines.join("\n");
 }
@@ -205,6 +217,9 @@ function extractChildId(req, _res, next) {
 }
 
 // -- Load quiz questions from MongoDB -----------------------------------------
+// 👉 Sorted by `order` so array position lines up with on-screen order for the
+//    generic (no-attempt) path. (The attempt path no longer relies on this for
+//    numbering — see buildAttemptBlock.)
 async function loadQuizQuestions(quizId, req) {
   const cached = _getCachedQuiz(quizId);
   if (cached) return cached;
@@ -218,7 +233,10 @@ async function loadQuizQuestions(quizId, req) {
       );
 
       if (quiz && quiz.questions && quiz.questions.length) {
-        const questions = quiz.questions.map((q) => ({
+        const ordered = quiz.questions
+          .slice()
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        const questions = ordered.map((q) => ({
           question_text:  q.question_text,
           options:        (q.options || []).map(o => o.text || o.label || String(o)),
           correct_answer: q.correct_answer,
@@ -233,7 +251,8 @@ async function loadQuizQuestions(quizId, req) {
         const ids = quiz.question_ids.map(id => { try { return new ObjectId(id); } catch (e) { return id; } });
         const docs = await db.collection("questions")
           .find({ _id: { $in: ids } })
-          .project({ question_text: 1, options: 1, correct_answer: 1, category: 1 })
+          .project({ question_text: 1, options: 1, correct_answer: 1, category: 1, order: 1 })
+          .sort({ order: 1 })
           .toArray();
         if (docs.length) {
           const mapped = docs.map((q) => ({
@@ -325,19 +344,15 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
     console.warn(`[quizChat] No questions found for quiz ${quizId} — proceeding without context`);
   }
 
-  // -- Build a SLIM quiz context (relevant questions only) --------------------
-  let quizContext;
-  if (hasAttempt) {
-    quizContext = questions.length
-      ? questions.map((q, i) =>
-          `Q${i + 1}: ${q.question_text}` +
-          (q.options && q.options.length ? ` [Options: ${q.options.join(" / ")}]` : "") +
-          (q.correct_answer ? ` [Answer: ${q.correct_answer}]` : "") +
-          (q.category ? ` [Topic: ${q.category}]` : "")
-        ).join("\n")
-      : "No specific quiz context available.";
-  } else {
-    const { relevant, usedFallback } = selectRelevantQuestions(cleanMsg, questions);
+  // -- Build quiz context -----------------------------------------------------
+  // 👉 When we have the student's attempt, the ONLY numbered list we feed the
+  //    model is attemptBlock (numbered by the real on-screen question_number).
+  //    We deliberately do NOT build a second, array-position-numbered list
+  //    here — two differently-numbered lists in one prompt is exactly what made
+  //    "Q3" resolve to the wrong question. The generic path keeps its list.
+  let quizContext = "";
+  if (!hasAttempt) {
+    const { relevant } = selectRelevantQuestions(cleanMsg, questions);
     if (relevant.length) {
       quizContext = relevant.map(({ q, index }) =>
         `Q${index + 1}: ${q.question_text}` +
@@ -378,13 +393,16 @@ router.post("/:quizId/chat", extractChildId, chatRateLimit, async (req, res) => 
   const attemptBlock = hasAttempt ? buildAttemptBlock(attemptCtx, questions) : "";
 
   // -- Build prompt -----------------------------------------------------------
+  // 👉 The "Quiz questions for context" numbered list is included ONLY on the
+  //    no-attempt path. On the attempt path, attemptBlock is the sole numbered
+  //    source of truth (filter(Boolean) drops the empty string).
   const systemPrompt = [
     `You are a warm, encouraging AI tutor inside a NAPLAN practice quiz for Australian students.`,
     `The student is in Year ${yearLevel}. Use clear, simple, age-appropriate language and be supportive.`,
     `Only help with this quiz and its topics. If asked about something unrelated, gently steer back to the quiz.`,
     `Keep replies under 120 words. Guide the student's thinking step by step rather than only giving the final answer, unless they explicitly ask for the answer.`,
     subjectGuidance,
-    `\nQuiz questions for context:\n${quizContext}`,
+    hasAttempt ? "" : `\nQuiz questions for context:\n${quizContext}`,
     attemptBlock,
     subject ? `\nSubject: ${subject}` : "",
   ].filter(Boolean).join("\n");

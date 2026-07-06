@@ -3,12 +3,23 @@
 // Loads a student's attempt so the AI tutor can answer "why did I get Q3 wrong?"
 // WITHOUT asking the student which question they mean.
 //
-// ✅ REWRITE: previous version used a raw req.app.locals.db handle, queried a
-//    "quiz_attempts" collection, read quiz.questions (embedded), and treated
-//    attempt.answers as an object. All of those returned empty data, so the
-//    tutor never knew the student's results. This version uses the same Mongoose
-//    models the rest of the app uses, joins the real `questions` collection by
-//    quiz_ids, and builds wrong_questions from the answers ARRAY.
+// ✅ REWRITE: uses the same Mongoose models as the rest of the app, joins the
+//    real `questions` collection by quiz_ids, and reads attempt.answers as an
+//    ARRAY.
+//
+// 👉 QUESTION-NUMBER FIX (this bug):
+//    The previous version pushed wrong-answer entries with NO `question_number`,
+//    so the tutor prompt printed "Qundefined" and had to fall back to a second,
+//    array-position-numbered list that counted the Reading passage as "Q1" —
+//    producing the off-by-one ("ask Q3, get Q4").
+//
+//    Now we assign `question_number` to match what the student sees ON SCREEN.
+//    The player (NativeQuizPlayer) numbers only ANSWERABLE questions — it skips
+//    the free_text passage (see `answerableQuestions`). So we do the same: walk
+//    the questions in `order`, skip the passage, and use a running counter as
+//    the on-screen number. We also return `all_questions` (every answerable
+//    question, with is_correct), not just the wrong ones, so the tutor can talk
+//    about questions the student got right too.
 
 const QuizAttempt = require("../models/quizAttempt");
 const Quiz        = require("../models/quiz");
@@ -44,29 +55,54 @@ async function getAttemptContext(attemptId, _db) {
     if (a && a.question_id) answersById[a.question_id] = a;
   }
 
-  // ── Build the list of questions the student got wrong ──────
+  // ── Build the numbered question list ───────────────────────
+  // `question_number` is the ON-SCREEN number: the position among answerable
+  // (non-passage) questions, in `order`. This exactly mirrors the player's
+  // `answerableQuestions` numbering, so "Q3" here === "Q3" the student saw.
+  const allQuestions   = [];
   const wrongQuestions = [];
+  let qNum = 0;
+
   for (const q of questions || []) {
-    if (q.type === "free_text" || q.type === "writing") continue;
+    // The player does NOT number the free_text passage — neither do we.
+    // (Skipping it here is what keeps our numbers aligned with the screen.)
+    if (q.type === "free_text") continue;
+
+    qNum += 1; // ← on-screen question number
 
     const ans = answersById[q.question_id];
-    if (!ans) continue;                 // unanswered → skip
-    if (ans.is_correct) continue;       // correct → not a "wrong" question
 
     const chosen = (q.options || [])
-      .filter((o) => (ans.selected_option_ids || []).includes(o.option_id))
+      .filter((o) => (ans?.selected_option_ids || []).includes(o.option_id))
       .map((o) => o.text);
     const correct = (q.options || [])
       .filter((o) => o.correct)
       .map((o) => o.text);
 
-    wrongQuestions.push({
-      question_id:    q.question_id,
-      question_text:  q.text || q.question_text || "",
-      child_answer:   chosen.join(", ") || ans.text_answer || "No answer",
-      correct_answer: correct.join(", ") || "",
-      topic:          q.categories?.[0]?.name || "",
-    });
+    const isCorrect  = !!(ans && ans.is_correct);
+    const childAnswer =
+      chosen.join(", ") ||
+      (ans && ans.text_answer) ||
+      "No answer";
+
+    const entry = {
+      question_number: qNum,
+      question_id:     q.question_id,
+      question_text:   q.text || q.question_text || "",
+      child_answer:    childAnswer,
+      correct_answer:  correct.join(", ") || "",
+      is_correct:      isCorrect,
+      topic:           q.categories?.[0]?.name || "",
+    };
+
+    // Every answerable question goes into all_questions (answered or not) so the
+    // numbering stays contiguous and the tutor can see the whole quiz.
+    allQuestions.push(entry);
+
+    // wrong_questions keeps its original meaning (answered + incorrect) for the
+    // Python agent path that still reads it. Same object reference — carries the
+    // question_number too, for free.
+    if (ans && !isCorrect) wrongQuestions.push(entry);
   }
 
   // Reading passage (if any) so the tutor can refer back to the text
@@ -86,7 +122,8 @@ async function getAttemptContext(attemptId, _db) {
     score_points:    attempt.score?.points    || 0,
     score_available: attempt.score?.available || 0,
     topic_breakdown: attempt.topic_breakdown  || {},
-    wrong_questions: wrongQuestions,
+    all_questions:   allQuestions,   // ← NEW: every answerable question, numbered
+    wrong_questions: wrongQuestions, // ← now also carries question_number
     passage_text:    passage?.text || passage?.question_text || null,
   };
 
