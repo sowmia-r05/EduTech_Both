@@ -1,11 +1,20 @@
 /**
- * routes/ocrRoute.js  (v3 — Uses GEMINI instead of OpenAI)
+ * routes/ocrRoute.js  (v4 — fixes false "no handwriting" rejection)
  *
  * ✅ Why Gemini?
  *   - You already have GEMINI_API_KEY in your .env for writing feedback
  *   - Gemini Flash is FREE (generous free tier, no billing needed)
  *   - Gemini Vision is excellent at handwriting OCR
  *   - No more 429 rate limit errors from OpenAI
+ *
+ * 👉 FIX (v4): neat, careful handwriting was being rejected as "printed text".
+ *    The old prompt listed "printed text" as a NO_HANDWRITING trigger and told
+ *    the model to expect messy Year-3 scrawl, so tidy writing (e.g. a formal-
+ *    letter page) was misclassified and bounced with
+ *    "This image doesn't appear to contain handwriting."
+ *    Now: transcribe whenever there is readable text; only reject genuine
+ *    non-text images (a selfie, an object, a blank page). Sentinel checks are
+ *    also tolerant of trailing punctuation/quotes.
  *
  * POST /api/ocr/handwriting
  * Body: { base64: "...", mediaType: "image/jpeg" }
@@ -22,6 +31,12 @@ const router = express.Router();
 router.use(verifyToken, requireAuth);
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+
+// Normalise a model reply down to letters/underscores so a sentinel like
+// `NO_HANDWRITING.` or `"NON_ENGLISH"` is still detected.
+function sentinel(text) {
+  return String(text || "").replace(/[^A-Za-z_]/g, "").toUpperCase();
+}
 
 // ══════════════════════════════════════════════
 // POST /api/ocr/handwriting
@@ -69,18 +84,19 @@ router.post("/handwriting", async (req, res) => {
                 },
               },
               {
-                text: `You are a handwriting transcription assistant for an Australian primary school student (Year 3, approx. 8-9 years old).
+                text: `You are a handwriting transcription assistant for a school student's written work.
 
-              STEP 1 — Check if this image contains handwritten English text:
-              - If the image does NOT contain handwriting (e.g. it is a photo of a person, animal, landscape, object, printed text, or anything other than handwriting), respond with exactly: NO_HANDWRITING
-              - If the image contains handwriting but it is NOT in English (e.g. Arabic, Chinese, Hindi, Tamil, or any other non-English language), respond with exactly: NON_ENGLISH
-              - Only proceed to STEP 2 if the image clearly contains handwritten English text.
+STEP 1 — Decide whether there is readable text to transcribe:
+- Respond with exactly NO_HANDWRITING only if the image contains NO readable text at all — for example a photo of a person, an animal, scenery, or an object, or a blank/unreadable page.
+- IMPORTANT: neat, tidy, evenly-spaced handwriting is STILL handwriting. Do NOT reject careful or well-formed handwriting as "printed" — transcribe it.
+- If the image contains readable text but it is clearly NOT English (e.g. Arabic, Chinese, Hindi, Tamil), respond with exactly NON_ENGLISH.
+- If you are unsure, prefer to transcribe rather than reject.
 
-              STEP 2 — Transcribe the English handwriting:
-              - Keep the original spelling and punctuation exactly as written (even if there are mistakes)
-              - Preserve paragraph breaks
-              - Do NOT add corrections, comments, translations, or explanations
-              - Return ONLY the transcribed English text, nothing else`,
+STEP 2 — Transcribe the English text:
+- Keep the original spelling and punctuation exactly as written (even if there are mistakes).
+- Preserve line and paragraph breaks.
+- Do NOT add corrections, comments, translations, headings, or explanations.
+- Return ONLY the transcribed text, nothing else.`,
               },
             ],
           },
@@ -107,17 +123,19 @@ router.post("/handwriting", async (req, res) => {
       });
     }
 
-    // ✅ Fix 2: Reject non-handwriting images (photos, scenery, objects etc.)
-    if (extractedText === "NO_HANDWRITING") {
-      console.log("⚠️ OCR rejected — image does not contain handwriting");
+    const verdict = sentinel(extractedText);
+
+    // ✅ Reject genuine non-text images (selfies, objects, scenery, blank page)
+    if (verdict === "NO_HANDWRITING") {
+      console.log("⚠️ OCR rejected — image does not contain readable text");
       return res.status(422).json({
         error:
           "This image doesn't appear to contain handwriting. Please upload a photo of your written work only.",
       });
     }
 
-    // ✅ Fix 1: Reject non-English handwriting
-    if (extractedText === "NON_ENGLISH") {
+    // ✅ Reject clearly non-English handwriting
+    if (verdict === "NON_ENGLISH") {
       console.log("⚠️ OCR rejected — non-English handwriting detected");
       return res.status(422).json({
         error:
@@ -129,10 +147,6 @@ router.post("/handwriting", async (req, res) => {
       `✅ OCR success — extracted ${extractedText.split(/\s+/).length} words`,
     );
     return res.json({ text: extractedText });
-
-
-
-
   } catch (err) {
     if (err.response) {
       const status = err.response.status;
