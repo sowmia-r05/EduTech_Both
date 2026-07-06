@@ -86,18 +86,23 @@ async function authPost(path, data, token) {
 
 
 
+// ✅ FIXED — now parses the body, checks res.ok, and returns (was doing none of these)
 async function authPut(path, data, token) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PUT",
     credentials: "include",
     headers: {
-      "Content-Type": "application/json", // ← ADD THIS HERE TOO
+      "Content-Type": "application/json",
       Accept: "application/json",
       "Cache-Control": "no-cache",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(data),
   });
+  if (res.status === 204) return null;
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `Request failed: ${res.status}`);
+  return body;
 }
 
 
