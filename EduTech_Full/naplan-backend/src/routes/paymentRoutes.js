@@ -209,10 +209,26 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
 
 // ────────────────────────────────────────────
 // POST /api/payments/webhook
-// Stripe webhook — verifies signature, updates Purchase, triggers provisioning
+// Stripe webhook — verifies signature, updates Purchase, triggers provisioning.
 //
-// NOTE: This route needs the raw body for signature verification.
-// app.js must use express.json({ verify: (req, res, buf) => { req.rawBody = buf; }})
+// CONTRACT (the whole point of this handler):
+//   • Return 200 ONLY after provisioning has actually succeeded.
+//   • Return 5xx when provisioning fails → Stripe retries the webhook later,
+//     which re-drives provisioning until it works (self-healing).
+//   • Return 200 for things that must NOT be retried (bad-but-final states:
+//     unknown event type, no matching purchase, amount mismatch).
+//   • Return 400 for a bad signature (client error — Stripe won't retry).
+//
+// Because we now block on provisioning before responding, idempotency is keyed
+// on `provisioned === true` (NOT status "paid"). A retry after a failed
+// provisioning MUST fall through and try again — keying on "paid" would wrongly
+// short-circuit it and leave the purchase stuck forever.
+//
+// NOTE: This route needs the RAW body for signature verification. Confirm app.js
+// gives this route the unparsed body — either express.raw({ type: "application/json" })
+// mounted for /api/payments/webhook, or a global express.json verify callback that
+// stashes the buffer (in which case pass that buffer to constructEvent below).
+// This handler is left using req.body unchanged since your signatures currently verify.
 // ────────────────────────────────────────────
 router.post("/webhook", async (req, res) => {
   const sig = req.headers["stripe-signature"];
@@ -225,83 +241,95 @@ router.post("/webhook", async (req, res) => {
 
   let event;
   try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      webhookSecret
-    );
+    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err) {
     console.error("Stripe signature verification failed:", err.message);
     return res.status(400).json({ error: "Invalid signature" });
   }
 
-  // ACK immediately
-  res.status(200).json({ received: true });
+  // Only handle the event we care about. ACK everything else with 200 so Stripe
+  // stops retrying events we intentionally ignore.
+  if (event.type !== "checkout.session.completed") {
+    return res.status(200).json({ received: true, ignored: event.type });
+  }
 
-  // Process asynchronously
-  setImmediate(async () => {
-    try {
-      await connectDB();
+  try {
+    await connectDB();
 
-      if (event.type === "checkout.session.completed") {
-        const session = event.data.object;
-        const sessionId = session.id;
-        const paymentIntent = session.payment_intent;
+    const session = event.data.object;
+    const sessionId = session.id;
+    const paymentIntent = session.payment_intent;
 
-        // ── Fetch the pending Purchase (do NOT flip to paid yet) ──
-        const purchase = await Purchase.findOne({
-          stripe_session_id: sessionId,
-        });
+    const purchase = await Purchase.findOne({ stripe_session_id: sessionId });
 
-        if (!purchase) {
-          console.error(`⚠️ No Purchase found for session ${sessionId}`);
-          return;
-        }
-
-        // ── Idempotency: ignore duplicate webhook deliveries ──
-        if (purchase.status === "paid") {
-          console.log(
-            `ℹ️ Purchase ${purchase._id} already paid — skipping duplicate webhook`,
-          );
-          return;
-        }
-
-        // ── ✅ Amount + currency verification (defense-in-depth) ──
-        const check = verifyPaymentAmount(purchase, session);
-        if (!check.ok) {
-          console.error(
-            `🚨 Payment verification failed for session ${sessionId}: ${check.reason}`,
-          );
-          // Do NOT provision. Mark failed + record reason for admin review.
-          purchase.status = "failed";
-          purchase.provision_error = check.reason;
-          await purchase.save();
-          return;
-        }
-
-        // ── Verified — mark paid ──
-        purchase.status = "paid";
-        purchase.stripe_payment_intent = paymentIntent;
-        await purchase.save();
-
-        console.log(`💰 Payment confirmed for purchase ${purchase._id}`);
-
-        // ── Trigger provisioning ──
-        const result = await provisionPurchase(purchase._id.toString());
-
-        if (result.success) {
-          console.log(`✅ Provisioning complete for purchase ${purchase._id}`);
-        } else {
-          console.error(
-            `❌ Provisioning failed for purchase ${purchase._id}:`,
-            result.error
-          );
-        }
-      }
-    } catch (err) {
-      console.error("Stripe webhook processing error:", err);
+    if (!purchase) {
+      // Phantom event — nothing to provision. ACK so Stripe stops retrying.
+      console.error(`⚠️ No Purchase found for session ${sessionId}`);
+      return res
+        .status(200)
+        .json({ received: true, note: "no matching purchase" });
     }
-  });
+
+    // ── Idempotency: keyed on `provisioned`, NOT `status`. ──
+    // Stripe sends duplicates + retries. If provisioning already succeeded,
+    // ACK and stop. A purchase that is "paid" but NOT yet provisioned falls
+    // through below so provisioning gets (re)attempted.
+    if (purchase.provisioned === true) {
+      console.log(
+        `ℹ️ Purchase ${purchase._id} already provisioned — skipping duplicate webhook`,
+      );
+      return res
+        .status(200)
+        .json({ received: true, note: "already provisioned" });
+    }
+
+    // ── ✅ Amount + currency verification (defense-in-depth) ──
+    const check = verifyPaymentAmount(purchase, session);
+    if (!check.ok) {
+      console.error(
+        `🚨 Payment verification failed for session ${sessionId}: ${check.reason}`,
+      );
+      // Do NOT provision. Mark failed + record reason. ACK with 200 — the charged
+      // amount won't change on retry, so a 5xx would just loop pointlessly.
+      purchase.status = "failed";
+      purchase.provision_error = check.reason;
+      await purchase.save();
+      return res
+        .status(200)
+        .json({ received: true, note: "amount mismatch" });
+    }
+
+    // ── Verified — mark paid (idempotent: skip the write if already paid, e.g.
+    //    on a Stripe retry after a provisioning failure). ──
+    if (purchase.status !== "paid") {
+      purchase.status = "paid";
+      purchase.stripe_payment_intent = paymentIntent;
+      await purchase.save();
+    }
+
+    console.log(`💰 Payment confirmed for purchase ${purchase._id}`);
+
+    // ── Provision. Respond 200 ONLY after this succeeds. ──
+    const result = await provisionPurchase(purchase._id.toString());
+
+    if (!result.success) {
+      // 5xx → Stripe retries the webhook later. Purchase stays paid +
+      // provisioned:false (the recoverable "stuck" state), and the retry
+      // re-drives provisioning via the fall-through above.
+      console.error(
+        `❌ Provisioning failed for purchase ${purchase._id}:`,
+        result.error,
+      );
+      return res.status(500).json({ error: "Provisioning failed" });
+    }
+
+    console.log(`✅ Provisioning complete for purchase ${purchase._id}`);
+    return res.status(200).json({ received: true, provisioned: true });
+  } catch (err) {
+    // Unexpected error → 5xx so Stripe retries.
+    console.error("Stripe webhook processing error:", err);
+    return res.status(500).json({ error: "Webhook processing error" });
+  }
 });
 
 // ────────────────────────────────────────────
