@@ -16,7 +16,13 @@
  *    admin can add quizzes to the bundle at any time and children
  *    see them immediately via availableQuizzesRoute + quizRoutes.
  *
- * Idempotent: running twice produces the same result.
+ * Idempotent AND race-safe:
+ *   - Running twice produces the same result (child writes use $set /
+ *     $addToSet, which are idempotent).
+ *   - The FINAL status write is guarded so that a concurrent run which
+ *     hit a transient error can NOT overwrite a sibling run that already
+ *     succeeded. The failure branch only writes when provisioned !== true.
+ * ═══════════════════════════════════════════════════════════════
  */
 
 const Child = require("../models/child");
@@ -36,6 +42,8 @@ async function provisionPurchase(purchaseId) {
     return { success: false, error: "Purchase not found" };
   }
 
+  // Fast-path: already done. (The race-safe writes below are the real
+  // guard; this just avoids doing the work when it's clearly complete.)
   if (purchase.provisioned) {
     console.log(`✅ Purchase ${purchaseId} already provisioned, skipping.`);
     return { success: true };
@@ -50,9 +58,16 @@ async function provisionPurchase(purchaseId) {
 
   const bundle = await QuizCatalog.findOne({ bundle_id: purchase.bundle_id });
   if (!bundle) {
-    await Purchase.findByIdAndUpdate(purchaseId, {
-      $set: { provisioned: false, provision_error: `Bundle '${purchase.bundle_id}' not found in quiz_catalog` },
-    });
+    // Deterministic failure — but still guard against clobbering a success.
+    await Purchase.findOneAndUpdate(
+      { _id: purchaseId, provisioned: { $ne: true } },
+      {
+        $set: {
+          provisioned: false,
+          provision_error: `Bundle '${purchase.bundle_id}' not found in quiz_catalog`,
+        },
+      },
+    );
     return { success: false, error: `Bundle '${purchase.bundle_id}' not found` };
   }
 
@@ -78,6 +93,7 @@ async function provisionPurchase(purchaseId) {
     try {
       // ✅ SIMPLIFIED: Only set status + add bundle ID.
       // No entitled_quiz_ids needed — bundles are looked up dynamically.
+      // Both operations are idempotent, so a concurrent/retried run is safe.
       await Child.findByIdAndUpdate(childId, {
         $set: { status: "active" },
         $addToSet: {
@@ -92,20 +108,44 @@ async function provisionPurchase(purchaseId) {
     }
   }
 
-  // ── Mark purchase as provisioned ──
+  // ── Mark purchase as provisioned (race-safe) ──
   const allSuccess = errors.length === 0;
-  await Purchase.findByIdAndUpdate(purchaseId, {
-    $set: {
-      provisioned: allSuccess,
-      provisioned_at: allSuccess ? new Date() : undefined,
-      provision_error: allSuccess ? null : errors.join("; "),
-    },
-  });
 
   if (allSuccess) {
+    // Success is authoritative — write it unconditionally.
+    await Purchase.findByIdAndUpdate(purchaseId, {
+      $set: {
+        provisioned: true,
+        provisioned_at: new Date(),
+        provision_error: null,
+      },
+    });
     console.log(`\n✅ Purchase ${purchaseId} fully provisioned.`);
   } else {
-    console.warn(`\n⚠️ Purchase ${purchaseId} had errors:`, errors);
+    // Failure must NOT overwrite a concurrent run that already succeeded.
+    // Only record the error if the purchase is still not provisioned.
+    const updated = await Purchase.findOneAndUpdate(
+      { _id: purchaseId, provisioned: { $ne: true } },
+      {
+        $set: {
+          provisioned: false,
+          provision_error: errors.join("; "),
+        },
+      },
+      { new: true },
+    );
+
+    if (updated) {
+      console.warn(`\n⚠️ Purchase ${purchaseId} had errors:`, errors);
+    } else {
+      // A sibling run already marked it provisioned — treat as success.
+      console.log(
+        `\nℹ️ Purchase ${purchaseId} already provisioned by a concurrent run; ` +
+          `ignoring transient errors from this run:`,
+        errors,
+      );
+      return { success: true, note: "provisioned by concurrent run" };
+    }
   }
 
   return {
