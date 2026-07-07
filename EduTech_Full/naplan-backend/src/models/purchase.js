@@ -35,6 +35,10 @@ const PurchaseSchema = new mongoose.Schema(
     provisioned: { type: Boolean, default: false },
     provisioned_at: { type: Date, default: null },
     provision_error: { type: String, default: null },
+    // Atomic claim lock for markPaidAndProvision(). Set when a run claims the
+    // right to provision, cleared on completion. Stale locks (older than the
+    // TTL in paymentRoutes.js) are treated as abandoned and can be re-claimed.
+    provisioning_lock_at: { type: Date, default: null },
 
     // Expiry
     expires_at: { type: Date, default: null },
