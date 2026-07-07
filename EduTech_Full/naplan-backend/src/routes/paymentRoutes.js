@@ -9,14 +9,26 @@
  */
 
 const router = require("express").Router();
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+// Pin the API version so outbound Stripe calls have a stable request/response
+// shape, independent of the account-default version (which drifts as Stripe
+// ships new releases). Keep this on the same train as the installed SDK
+// (stripe@20.x → clover). Verify against Dashboard → Developers → your default
+// API version; if your account default is older, pin to THAT instead.
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2025-12-15.clover",
+});
 const { verifyToken, requireParent } = require("../middleware/auth");
 const connectDB = require("../config/db");
 const Purchase = require("../models/purchase");
 const QuizCatalog = require("../models/quizCatalog");
 const Child = require("../models/child");
 const Parent = require("../models/parent");
+const StripeEvent = require("../models/stripeEvent");
 const { provisionPurchase } = require("../services/provisioningService");
+
+// Stale-lock self-heal window: if a claim holder crashes mid-provision, the
+// lock is considered abandoned after this long and can be re-claimed.
+const PROVISION_LOCK_TTL_MS = 2 * 60 * 1000;
 
 // ────────────────────────────────────────────
 // Shared helper: verify Stripe-reported amount/currency against our record.
@@ -47,6 +59,115 @@ function verifyPaymentAmount(purchase, session) {
     };
   }
   return { ok: true };
+}
+
+// ────────────────────────────────────────────
+// Idempotency ledger helper: record a Stripe event as processed.
+// Call this ONLY on terminal-success (2xx) outcomes — never before processing
+// and never on a 5xx path, or a retry of a failed provisioning would be
+// short-circuited and never re-driven.
+// A duplicate-key error (11000) means a concurrent delivery already recorded
+// the same event — that's expected and safe to ignore.
+// ────────────────────────────────────────────
+async function markEventProcessed(event) {
+  try {
+    await StripeEvent.create({ event_id: event.id, type: event.type });
+  } catch (err) {
+    if (err?.code !== 11000) {
+      console.warn(`Could not record Stripe event ${event.id}:`, err.message);
+    }
+  }
+}
+
+// ────────────────────────────────────────────
+// SINGLE SOURCE OF TRUTH: verify amount → claim → mark paid → provision.
+// Shared by the webhook, the verify-fallback, and retry-provision so all three
+// behave identically and cannot double-provision.
+//
+// The caller locates + authorizes the purchase (their security boundary differs)
+// and hands the record here. It works with either a Mongoose doc or a .lean()
+// object — it never calls .save(), only findOneAndUpdate/findByIdAndUpdate by _id.
+//
+// Pass `session` (a Stripe checkout.session, or a retrieved session) when an
+// amount check is wanted (webhook + verify). Omit it for retry-provision, where
+// the purchase is already paid + amount-verified.
+//
+// Requires `provisioning_lock_at: { type: Date }` on the Purchase schema for the
+// atomic claim. Without that field the claim degrades to a no-op (still safe —
+// provisionPurchase is race-safe internally — but no longer single-execution).
+//
+// Returns { ok, outcome, error? }, outcome ∈:
+//   "amount_mismatch" | "already_provisioned" | "in_progress"
+//   | "provisioned"   | "provision_failed"
+// ────────────────────────────────────────────
+async function markPaidAndProvision({ purchase, session }) {
+  // 1. Amount/currency check — only when a session is supplied.
+  if (session) {
+    const check = verifyPaymentAmount(purchase, session);
+    if (!check.ok) {
+      // Do NOT provision. Mark failed (guarded so we can't clobber a concurrent
+      // success). The charge already happened — surface this to admin/refund.
+      await Purchase.findOneAndUpdate(
+        { _id: purchase._id, provisioned: { $ne: true } },
+        { $set: { status: "failed", provision_error: check.reason } },
+      );
+      return { ok: false, outcome: "amount_mismatch", error: check.reason };
+    }
+  }
+
+  // 2. Fast path — already provisioned.
+  if (purchase.provisioned === true) {
+    return { ok: true, outcome: "already_provisioned" };
+  }
+
+  // 3. Atomically claim the right to provision. Wins only if not already
+  //    provisioned AND no fresh lock is held (stale locks self-heal after TTL).
+  const staleBefore = new Date(Date.now() - PROVISION_LOCK_TTL_MS);
+  const claimed = await Purchase.findOneAndUpdate(
+    {
+      _id: purchase._id,
+      provisioned: { $ne: true },
+      $or: [
+        { provisioning_lock_at: { $exists: false } },
+        { provisioning_lock_at: null },
+        { provisioning_lock_at: { $lt: staleBefore } },
+      ],
+    },
+    {
+      $set: {
+        status: "paid",
+        provisioning_lock_at: new Date(),
+        ...(session?.payment_intent
+          ? { stripe_payment_intent: session.payment_intent }
+          : {}),
+      },
+    },
+    { new: true },
+  );
+
+  if (!claimed) {
+    // Either already provisioned, or another run holds a fresh lock.
+    const current = await Purchase.findById(purchase._id).lean();
+    if (current?.provisioned) {
+      return { ok: true, outcome: "already_provisioned" };
+    }
+    return { ok: false, outcome: "in_progress" };
+  }
+
+  // 4. We own the claim — provision (also race-safe internally).
+  const result = await provisionPurchase(claimed._id.toString());
+
+  // 5. Release the lock. On success provisionPurchase already set
+  //    provisioned:true; on failure we clear the lock so a retry can re-claim
+  //    immediately rather than waiting for the TTL.
+  await Purchase.findByIdAndUpdate(claimed._id, {
+    $unset: { provisioning_lock_at: "" },
+  });
+
+  if (!result.success) {
+    return { ok: false, outcome: "provision_failed", error: result.error };
+  }
+  return { ok: true, outcome: "provisioned" };
 }
 
 // ────────────────────────────────────────────
@@ -209,26 +330,22 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
 
 // ────────────────────────────────────────────
 // POST /api/payments/webhook
-// Stripe webhook — verifies signature, updates Purchase, triggers provisioning.
+// Stripe webhook — verifies signature, then delegates to markPaidAndProvision.
 //
-// CONTRACT (the whole point of this handler):
-//   • Return 200 ONLY after provisioning has actually succeeded.
-//   • Return 5xx when provisioning fails → Stripe retries the webhook later,
-//     which re-drives provisioning until it works (self-healing).
-//   • Return 200 for things that must NOT be retried (bad-but-final states:
-//     unknown event type, no matching purchase, amount mismatch).
-//   • Return 400 for a bad signature (client error — Stripe won't retry).
+// CONTRACT:
+//   • 200 ONLY after provisioning has actually succeeded.
+//   • 5xx when provisioning fails or is in progress elsewhere → Stripe retries.
+//   • 200 for final states that must NOT be retried (unknown type, no purchase,
+//     amount mismatch, duplicate).
+//   • 400 for a bad signature.
 //
-// Because we now block on provisioning before responding, idempotency is keyed
-// on `provisioned === true` (NOT status "paid"). A retry after a failed
-// provisioning MUST fall through and try again — keying on "paid" would wrongly
-// short-circuit it and leave the purchase stuck forever.
+// IDEMPOTENCY — two layers:
+//   1. StripeEvent ledger (unique index on event_id): recorded only AFTER a
+//      successful outcome, so failed-provisioning retries still re-drive.
+//   2. markPaidAndProvision's atomic claim + purchase.provisioned guard.
 //
 // NOTE: This route needs the RAW body for signature verification. Confirm app.js
-// gives this route the unparsed body — either express.raw({ type: "application/json" })
-// mounted for /api/payments/webhook, or a global express.json verify callback that
-// stashes the buffer (in which case pass that buffer to constructEvent below).
-// This handler is left using req.body unchanged since your signatures currently verify.
+// gives this route the unparsed body.
 // ────────────────────────────────────────────
 router.post("/webhook", async (req, res) => {
   const sig = req.headers["stripe-signature"];
@@ -247,86 +364,84 @@ router.post("/webhook", async (req, res) => {
     return res.status(400).json({ error: "Invalid signature" });
   }
 
-  // Only handle the event we care about. ACK everything else with 200 so Stripe
-  // stops retrying events we intentionally ignore.
-  if (event.type !== "checkout.session.completed") {
-    return res.status(200).json({ received: true, ignored: event.type });
-  }
-
   try {
     await connectDB();
 
+    // ── Layer 1: idempotency ledger. Short-circuit already-processed events. ──
+    const alreadyHandled = await StripeEvent.findOne({
+      event_id: event.id,
+    }).lean();
+    if (alreadyHandled) {
+      return res.status(200).json({ received: true, note: "duplicate event" });
+    }
+
+    // ACK event types we don't handle with 200 (no ledger row needed).
+    if (event.type !== "checkout.session.completed") {
+      return res.status(200).json({ received: true, ignored: event.type });
+    }
+
     const session = event.data.object;
     const sessionId = session.id;
-    const paymentIntent = session.payment_intent;
 
     const purchase = await Purchase.findOne({ stripe_session_id: sessionId });
 
     if (!purchase) {
-      // Phantom event — nothing to provision. ACK so Stripe stops retrying.
       console.error(`⚠️ No Purchase found for session ${sessionId}`);
+      await markEventProcessed(event);
       return res
         .status(200)
         .json({ received: true, note: "no matching purchase" });
     }
 
-    // ── Idempotency: keyed on `provisioned`, NOT `status`. ──
-    // Stripe sends duplicates + retries. If provisioning already succeeded,
-    // ACK and stop. A purchase that is "paid" but NOT yet provisioned falls
-    // through below so provisioning gets (re)attempted.
-    if (purchase.provisioned === true) {
-      console.log(
-        `ℹ️ Purchase ${purchase._id} already provisioned — skipping duplicate webhook`,
-      );
-      return res
-        .status(200)
-        .json({ received: true, note: "already provisioned" });
+    // ── Single path: verify amount → claim → mark paid → provision. ──
+    const { outcome, error } = await markPaidAndProvision({ purchase, session });
+
+    switch (outcome) {
+      case "amount_mismatch":
+        console.error(`🚨 Amount mismatch for session ${sessionId}: ${error}`);
+        await markEventProcessed(event);
+        return res
+          .status(200)
+          .json({ received: true, note: "amount mismatch" });
+
+      case "already_provisioned":
+        console.log(
+          `ℹ️ Purchase ${purchase._id} already provisioned — duplicate webhook`,
+        );
+        await markEventProcessed(event);
+        return res
+          .status(200)
+          .json({ received: true, note: "already provisioned" });
+
+      case "in_progress":
+        // Another run (e.g. verify-fallback) is mid-provision. Do NOT record the
+        // event; ask Stripe to retry — by then it's either provisioned (→200) or
+        // the lock is free to re-claim.
+        console.log(
+          `⏳ Purchase ${purchase._id} provisioning elsewhere — asking Stripe to retry`,
+        );
+        return res.status(503).json({ error: "Provisioning in progress" });
+
+      case "provision_failed":
+        console.error(
+          `❌ Provisioning failed for purchase ${purchase._id}:`,
+          error,
+        );
+        return res.status(500).json({ error: "Provisioning failed" });
+
+      case "provisioned":
+        console.log(`✅ Provisioning complete for purchase ${purchase._id}`);
+        await markEventProcessed(event);
+        return res
+          .status(200)
+          .json({ received: true, provisioned: true });
+
+      default:
+        console.error(`Unknown provisioning outcome: ${outcome}`);
+        return res.status(500).json({ error: "Unknown provisioning outcome" });
     }
-
-    // ── ✅ Amount + currency verification (defense-in-depth) ──
-    const check = verifyPaymentAmount(purchase, session);
-    if (!check.ok) {
-      console.error(
-        `🚨 Payment verification failed for session ${sessionId}: ${check.reason}`,
-      );
-      // Do NOT provision. Mark failed + record reason. ACK with 200 — the charged
-      // amount won't change on retry, so a 5xx would just loop pointlessly.
-      purchase.status = "failed";
-      purchase.provision_error = check.reason;
-      await purchase.save();
-      return res
-        .status(200)
-        .json({ received: true, note: "amount mismatch" });
-    }
-
-    // ── Verified — mark paid (idempotent: skip the write if already paid, e.g.
-    //    on a Stripe retry after a provisioning failure). ──
-    if (purchase.status !== "paid") {
-      purchase.status = "paid";
-      purchase.stripe_payment_intent = paymentIntent;
-      await purchase.save();
-    }
-
-    console.log(`💰 Payment confirmed for purchase ${purchase._id}`);
-
-    // ── Provision. Respond 200 ONLY after this succeeds. ──
-    const result = await provisionPurchase(purchase._id.toString());
-
-    if (!result.success) {
-      // 5xx → Stripe retries the webhook later. Purchase stays paid +
-      // provisioned:false (the recoverable "stuck" state), and the retry
-      // re-drives provisioning via the fall-through above.
-      console.error(
-        `❌ Provisioning failed for purchase ${purchase._id}:`,
-        result.error,
-      );
-      return res.status(500).json({ error: "Provisioning failed" });
-    }
-
-    console.log(`✅ Provisioning complete for purchase ${purchase._id}`);
-    return res.status(200).json({ received: true, provisioned: true });
   } catch (err) {
-    // Unexpected error → 5xx so Stripe retries.
+    // Unexpected error → 5xx so Stripe retries. Event not recorded → reprocesses.
     console.error("Stripe webhook processing error:", err);
     return res.status(500).json({ error: "Webhook processing error" });
   }
@@ -356,6 +471,8 @@ router.get("/history", verifyToken, requireParent, async (req, res) => {
 // ────────────────────────────────────────────
 // GET /api/payments/verify/:sessionId
 // Returns purchase details after Stripe redirect (for the success modal).
+// If the webhook hasn't landed yet, confirms with Stripe and drives the SAME
+// markPaidAndProvision path (awaited, so the response reflects final state).
 // ────────────────────────────────────────────
 router.get(
   "/verify/:sessionId",
@@ -367,7 +484,7 @@ router.get(
       const parentId = req.user?.parentId || req.user?.parent_id;
       const { sessionId } = req.params;
 
-      let purchase = await Purchase.findOne({
+      const purchase = await Purchase.findOne({
         stripe_session_id: sessionId,
         parent_id: parentId,
       }).lean();
@@ -376,68 +493,21 @@ router.get(
         return res.status(404).json({ error: "Purchase not found" });
       }
 
-      // ── FIX: If still pending, check Stripe directly ──
+      // ── If still pending, confirm with Stripe and drive the shared path ──
       if (purchase.status === "pending") {
         try {
           const stripeSession =
             await stripe.checkout.sessions.retrieve(sessionId);
 
           if (stripeSession.payment_status === "paid") {
-            // ── ✅ Amount + currency verification (mirror of webhook) ──
-            // Prevents the verify endpoint from becoming a bypass of the
-            // webhook's amount check.
-            const check = verifyPaymentAmount(purchase, stripeSession);
-
-            if (!check.ok) {
-              console.error(
-                `🚨 Verify amount check failed for session ${sessionId}: ${check.reason}`,
-              );
-              await Purchase.findByIdAndUpdate(purchase._id, {
-                $set: {
-                  status: "failed",
-                  provision_error: check.reason,
-                },
-              });
-              purchase = { ...purchase, status: "failed" };
-            } else {
-              // Webhook hasn't arrived yet — update the purchase ourselves
-              await Purchase.findByIdAndUpdate(purchase._id, {
-                $set: {
-                  status: "paid",
-                  stripe_payment_intent: stripeSession.payment_intent,
-                },
-              });
-              purchase = {
-                ...purchase,
-                status: "paid",
-                stripe_payment_intent: stripeSession.payment_intent,
-              };
-
-              console.log(
-                `💰 Verify fallback: Payment confirmed for purchase ${purchase._id}`,
-              );
-
-              // Trigger provisioning in background
-              setImmediate(async () => {
-                try {
-                  const result = await provisionPurchase(
-                    purchase._id.toString(),
-                  );
-                  if (result.success) {
-                    console.log(
-                      `✅ Verify fallback: Provisioning complete for purchase ${purchase._id}`,
-                    );
-                  } else {
-                    console.error(
-                      `❌ Verify fallback: Provisioning failed:`,
-                      result.error,
-                    );
-                  }
-                } catch (err) {
-                  console.error("Verify fallback provisioning error:", err);
-                }
-              });
-            }
+            const { outcome, error } = await markPaidAndProvision({
+              purchase, // lean object is fine — the helper updates by _id
+              session: stripeSession,
+            });
+            console.log(
+              `Verify → markPaidAndProvision for ${purchase._id}: ${outcome}` +
+                (error ? ` (${error})` : ""),
+            );
           }
         } catch (stripeErr) {
           console.warn("Stripe session check failed:", stripeErr.message);
@@ -445,7 +515,7 @@ router.get(
         }
       }
 
-      // Re-fetch with populated children (status may have changed from provisioning)
+      // Re-fetch with populated children (status may have changed above)
       const freshPurchase = await Purchase.findById(purchase._id)
         .populate("child_ids", "display_name username year_level status")
         .lean();
@@ -593,7 +663,9 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
 
 // ────────────────────────────────────────────
 // ✅ Issue #3: POST /api/payments/retry-provision/:purchaseId
-// Parent-triggered retry of quiz assignment after provisioning failure
+// Parent-triggered retry of quiz assignment after provisioning failure.
+// Drives the SAME markPaidAndProvision path (no session → skips amount check;
+// the purchase is already paid + verified).
 // ────────────────────────────────────────────
 router.post("/retry-provision/:purchaseId", verifyToken, requireParent, async (req, res) => {
   try {
@@ -602,7 +674,7 @@ router.post("/retry-provision/:purchaseId", verifyToken, requireParent, async (r
     const purchaseId = req.params.purchaseId;
     const parentId = req.user.parentId || req.user.parent_id;
 
-    // Find the purchase — must belong to this parent and be paid but not provisioned
+    // Must belong to this parent and be paid but not provisioned
     const purchase = await Purchase.findOne({
       _id: purchaseId,
       parent_id: parentId,
@@ -627,17 +699,16 @@ router.post("/retry-provision/:purchaseId", verifyToken, requireParent, async (r
       message: "Provisioning retry started. Quizzes will appear in a few minutes.",
     });
 
-    // Run provisioning in background
+    // Run in background via the shared path
     setImmediate(async () => {
       try {
-        const result = await provisionPurchase(purchaseId);
-        if (result.success) {
-          console.log(`✅ Retry provisioning succeeded for purchase ${purchaseId}`);
-        } else {
-          console.error(`❌ Retry provisioning failed for purchase ${purchaseId}:`, result.error);
+        const { outcome, error } = await markPaidAndProvision({ purchase });
+        console.log(`Retry-provision for ${purchaseId}: ${outcome}`);
+        if (outcome === "provision_failed") {
+          console.error(`❌ Retry provisioning failed for ${purchaseId}:`, error);
         }
       } catch (err) {
-        console.error(`❌ Retry provisioning error for purchase ${purchaseId}:`, err.message);
+        console.error(`❌ Retry provisioning error for ${purchaseId}:`, err.message);
         await Purchase.findByIdAndUpdate(purchaseId, {
           $set: { provision_error: `Retry failed: ${err.message}` },
         }).catch(() => {});

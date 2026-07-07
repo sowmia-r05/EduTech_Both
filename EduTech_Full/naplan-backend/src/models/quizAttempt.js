@@ -1,7 +1,24 @@
 /**
- * models/quizAttempt.js  (v2 — GAPS FILLED)
+ * models/quizAttempt.js  (v4 — RACE-SAFE START + SUBMIT)
  *
  * Tracks each child's attempt at a quiz.
+ *
+ * CHANGES FROM v3:
+ *   ✅ Added "scoring" transient status — the submit handler claims an attempt
+ *      by atomically flipping in_progress → scoring, so a duplicate submit loses
+ *      the claim and receives a 409 rather than double-scoring.
+ *
+ * CHANGES FROM v2:
+ *   ✅ Added a PARTIAL UNIQUE INDEX so at most one in-progress attempt can
+ *      exist per (child_id, quiz_id). This is the DB-level guarantee that a
+ *      double-start (double-click, second tab, React StrictMode double-effect,
+ *      network retry) cannot create two live attempts. The /start route's
+ *      atomic upsert relies on this: the losing side of a race gets an 11000
+ *      duplicate-key error instead of a second attempt.
+ *
+ *   NOTE: If duplicate in-progress attempts ALREADY exist in the collection,
+ *   this index will FAIL to build. Run the one-time cleanup script first
+ *   (dedupeInProgressAttempts.js) before/at deploy.
  *
  * CHANGES FROM v1:
  *   ✅ Gap 5: No schema change needed (max_attempts lives on Quiz model)
@@ -64,13 +81,19 @@ const QuizAttemptSchema = new mongoose.Schema(
     year_level: { type: Number },
 
     // ─── Status lifecycle ───
-    // in_progress → submitted (writing) → scored → ai_done
-    // in_progress → scored (MCQ) → ai_done
+    // in_progress → scoring → scored → ai_done                        (MCQ)
+    // in_progress → scoring → submitted → scored → ai_done            (writing)
     // in_progress → expired (timer ran out without submit)
     // Any → error
+    //
+    // ✅ "scoring" is a transient CLAIM state. The submit handler atomically flips
+    //    in_progress → scoring, so a duplicate submit (double-click, timer
+    //    auto-submit racing a manual submit, network retry) loses the claim and
+    //    gets a 409 instead of double-scoring. On a scoring failure the handler
+    //    MUST reset status back to "in_progress" (retryable) or "error".
     status: {
       type: String,
-      enum: ["in_progress", "submitted", "scored", "ai_done", "expired", "error"], // ✅ Added "expired"
+      enum: ["in_progress", "scoring", "submitted", "scored", "ai_done", "expired", "error"],
       default: "in_progress",
       index: true,
     },
@@ -165,5 +188,20 @@ QuizAttemptSchema.index({ child_id: 1, quiz_id: 1 });
 QuizAttemptSchema.index({ child_id: 1, status: 1 });
 QuizAttemptSchema.index({ parent_id: 1, child_id: 1 });
 QuizAttemptSchema.index({ expires_at: 1, status: 1 }); // ✅ For expired attempt cleanup
+
+// ✅ RACE-SAFE CLAIM: at most one in-progress attempt per (child_id, quiz_id).
+// `status` is included in the key so this does NOT collide with the plain
+// { child_id, quiz_id } index above (same key pattern + different options is
+// rejected by MongoDB). The partialFilterExpression means the constraint only
+// applies to in-progress rows — completed attempts (scored/ai_done/expired/…)
+// drop out, so legitimate retakes still work.
+QuizAttemptSchema.index(
+  { child_id: 1, quiz_id: 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: "in_progress" },
+    name: "uniq_active_attempt_per_child_quiz",
+  }
+);
 
 module.exports = mongoose.model("QuizAttempt", QuizAttemptSchema);
