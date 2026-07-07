@@ -1,7 +1,12 @@
 /**
- * models/quizAttempt.js  (v4 — RACE-SAFE START + SUBMIT)
+ * models/quizAttempt.js  (v5 — SHARED STATUS CONSTANTS)
  *
  * Tracks each child's attempt at a quiz.
+ *
+ * CHANGES FROM v4:
+ *   ✅ Status strings now come from src/constants/attemptStatus.js — one source
+ *      of truth shared by the model, routes, cron, count query, and tests.
+ *      No more hand-typed "in_progress"/"scored"/etc. literals in this file.
  *
  * CHANGES FROM v3:
  *   ✅ Added "scoring" transient status — the submit handler claims an attempt
@@ -31,6 +36,12 @@
 
 const mongoose = require("mongoose");
 const { v4: uuidv4 } = require("uuid");
+const {
+  ATTEMPT_STATUS,
+  ATTEMPT_STATUS_VALUES,
+  FEEDBACK_STATUS,
+  FEEDBACK_STATUS_VALUES,
+} = require("../constants/attemptStatus");
 
 const AnswerSchema = new mongoose.Schema(
   {
@@ -93,8 +104,8 @@ const QuizAttemptSchema = new mongoose.Schema(
     //    MUST reset status back to "in_progress" (retryable) or "error".
     status: {
       type: String,
-      enum: ["in_progress", "scoring", "submitted", "scored", "ai_done", "expired", "error"],
-      default: "in_progress",
+      enum: ATTEMPT_STATUS_VALUES,
+      default: ATTEMPT_STATUS.IN_PROGRESS,
       index: true,
     },
 
@@ -174,8 +185,8 @@ const QuizAttemptSchema = new mongoose.Schema(
       subject: { type: String, default: "" },
       status: {
         type: String,
-        enum: ["pending", "queued", "generating", "done", "error"],
-        default: "pending",
+        enum: FEEDBACK_STATUS_VALUES,
+        default: FEEDBACK_STATUS.PENDING,
       },
       status_message: { type: String, default: "" },
     },
@@ -199,7 +210,7 @@ QuizAttemptSchema.index(
   { child_id: 1, quiz_id: 1, status: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: "in_progress" },
+    partialFilterExpression: { status: ATTEMPT_STATUS.IN_PROGRESS },
     name: "uniq_active_attempt_per_child_quiz",
   }
 );
