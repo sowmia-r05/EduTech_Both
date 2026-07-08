@@ -20,23 +20,32 @@
 //    the on-screen number. We also return `all_questions` (every answerable
 //    question, with is_correct), not just the wrong ones, so the tutor can talk
 //    about questions the student got right too.
+//
+// 👉 CACHE FIX:
+//    The L1 memory cache was an unbounded `new Map()` — every attempt ever looked
+//    up stayed in memory for the life of the process, slowly growing until the
+//    instance OOM-crashed. It is now a bounded LRUCache (max entries + TTL), so
+//    memory is capped no matter how many distinct attempts are requested.
 
 const QuizAttempt = require("../models/quizAttempt");
 const Quiz        = require("../models/quiz");
 const Question    = require("../models/question");
 const Child       = require("../models/child");
 
-const cache  = new Map();
-const TTL_MS = 5 * 60 * 1000; // 5 minutes
+// ✅ Bounded LRU cache (verify path: src/utils/lruCache.js)
+// max 500 attempts, 5-min TTL. The LRU now owns expiry, so we store `data`
+// directly instead of wrapping it with a manual { data, expiresAt }.
+const { LRUCache } = require("../utils/lruCache");
+const cache = new LRUCache({ max: 500, ttlMs: 5 * 60 * 1000 });
 
 // Note: the second arg (db) is accepted but ignored, so existing call sites like
 // getAttemptContext(attempt_id, db) keep working without any change.
 async function getAttemptContext(attemptId, _db) {
   if (!attemptId) return null;
 
-  // ── L1: Node memory cache ──────────────────────────────────
+  // ── L1: Node memory cache (bounded, TTL-managed by LRUCache) ─
   const hit = cache.get(attemptId);
-  if (hit && hit.expiresAt > Date.now()) return hit.data;
+  if (hit) return hit;
 
   // ── Load the attempt ───────────────────────────────────────
   const attempt = await QuizAttempt.findOne({ attempt_id: attemptId }).lean();
@@ -122,12 +131,12 @@ async function getAttemptContext(attemptId, _db) {
     score_points:    attempt.score?.points    || 0,
     score_available: attempt.score?.available || 0,
     topic_breakdown: attempt.topic_breakdown  || {},
-    all_questions:   allQuestions,   // ← NEW: every answerable question, numbered
+    all_questions:   allQuestions,   // ← every answerable question, numbered
     wrong_questions: wrongQuestions, // ← now also carries question_number
     passage_text:    passage?.text || passage?.question_text || null,
   };
 
-  cache.set(attemptId, { data, expiresAt: Date.now() + TTL_MS });
+  cache.set(attemptId, data);
   return data;
 }
 

@@ -42,8 +42,8 @@ async function connectDB() {
         socketTimeoutMS: 45000, // Socket timeout for operations 45s
 
         // Connection pool settings for production
-        maxPoolSize: 10,
-        minPoolSize: 2,
+        maxPoolSize: parseInt(process.env.DB_MAX_POOL_SIZE || "10", 10),
+        minPoolSize: parseInt(process.env.DB_MIN_POOL_SIZE || "2", 10),
       })
       .then((m) => {
         console.log("✅ MongoDB connected");
