@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const connectDB = require("../config/db");
 const Parent = require("../models/parent");
+const PendingOtp = require("../models/pendingOtp");
 const { sendBrevoEmail } = require("../services/brevoEmail");
 const { setAuthCookie, clearAuthCookie } = require("../utils/setCookies");
 
@@ -43,20 +44,6 @@ async function sendOtpEmail(toEmail, otp) {
   });
 }
 
-// ── In-memory OTP stores ──
-const pendingParentSignups = new Map();
-const pendingParentLogins = new Map();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [email, rec] of pendingParentSignups.entries()) {
-    if (!rec || now > rec.expiresAt) pendingParentSignups.delete(email);
-  }
-  for (const [email, rec] of pendingParentLogins.entries()) {
-    if (!rec || now > rec.expiresAt) pendingParentLogins.delete(email);
-  }
-}, 60 * 1000).unref?.();
-
 // POST /api/parents/auth/send-otp
 router.post("/send-otp", async (req, res) => {
   try {
@@ -66,51 +53,51 @@ router.post("/send-otp", async (req, res) => {
     const email = normalizeEmail(req.body?.email);
 
     if (!firstName)
-      return res
-        .status(400)
-        .json({ ok: false, error: "First name is required" });
+      return res.status(400).json({ ok: false, error: "First name is required" });
     if (!lastName)
-      return res
-        .status(400)
-        .json({ ok: false, error: "Last name is required" });
+      return res.status(400).json({ ok: false, error: "Last name is required" });
     if (!email)
       return res.status(400).json({ ok: false, error: "Email is required" });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-      return res
-        .status(400)
-        .json({ ok: false, error: "Valid email is required" });
+      return res.status(400).json({ ok: false, error: "Valid email is required" });
 
     const exists = await Parent.exists({ email });
     if (exists)
-      return res
-        .status(409)
-        .json({
-          ok: false,
-          code: "EMAIL_EXISTS",
-          error: "This email already exists. Please sign in.",
-        });
+      return res.status(409).json({
+        ok: false,
+        code: "EMAIL_EXISTS",
+        error: "This email already exists. Please sign in.",
+      });
 
     const now = Date.now();
-    const existing = pendingParentSignups.get(email);
-    if (existing?.lastSentAt && now - existing.lastSentAt < RESEND_COOLDOWN_MS)
-      return res
-        .status(429)
-        .json({
-          ok: false,
-          error: "Please wait 30 seconds before requesting another OTP.",
-        });
+    const existing = await PendingOtp.findOne({ email, purpose: "signup" });
+    if (
+      existing?.lastSentAt &&
+      now - new Date(existing.lastSentAt).getTime() < RESEND_COOLDOWN_MS
+    )
+      return res.status(429).json({
+        ok: false,
+        error: "Please wait 30 seconds before requesting another OTP.",
+      });
 
     const otp = generateOtp();
     const otpHash = hashOtp(email, otp);
-    pendingParentSignups.set(email, {
-      firstName,
-      lastName,
-      email,
-      otpHash,
-      expiresAt: now + OTP_TTL_MS,
-      attempts: 0,
-      lastSentAt: now,
-    });
+
+    await PendingOtp.findOneAndUpdate(
+      { email, purpose: "signup" },
+      {
+        $set: {
+          email,
+          purpose: "signup",
+          codeHash: otpHash,
+          profile: { firstName, lastName },
+          attempts: 0,
+          lastSentAt: new Date(now),
+          expiresAt: new Date(now + OTP_TTL_MS),
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
 
     await sendOtpEmail(email, otp);
     return res.json({
@@ -120,13 +107,11 @@ router.post("/send-otp", async (req, res) => {
     });
   } catch (err) {
     console.error("Parent send-otp failed:", err?.response?.data || err);
-    return res
-      .status(500)
-      .json({
-        ok: false,
-        error: "Failed to send OTP",
-        detail: err?.response?.data || err.message,
-      });
+    return res.status(500).json({
+      ok: false,
+      error: "Failed to send OTP",
+      detail: err?.response?.data || err.message,
+    });
   }
 });
 
@@ -134,9 +119,7 @@ router.post("/send-otp", async (req, res) => {
 router.post("/verify-otp", async (req, res) => {
   try {
     if (!PARENT_SECRET)
-      return res
-        .status(500)
-        .json({ ok: false, error: "PARENT_JWT_SECRET missing" });
+      return res.status(500).json({ ok: false, error: "PARENT_JWT_SECRET missing" });
     await connectDB();
 
     const email = normalizeEmail(req.body?.email);
@@ -147,49 +130,43 @@ router.post("/verify-otp", async (req, res) => {
     if (!otp)
       return res.status(400).json({ ok: false, error: "OTP is required" });
     if (!/^\d{6}$/.test(otp))
-      return res
-        .status(400)
-        .json({ ok: false, error: "OTP must be a 6-digit code" });
+      return res.status(400).json({ ok: false, error: "OTP must be a 6-digit code" });
 
-    const record = pendingParentSignups.get(email);
+    const record = await PendingOtp.findOne({ email, purpose: "signup" });
     if (!record)
-      return res
-        .status(401)
-        .json({
-          ok: false,
-          error: "OTP not requested. Please request OTP again.",
-        });
-    if (Date.now() > record.expiresAt) {
-      pendingParentSignups.delete(email);
-      return res
-        .status(401)
-        .json({ ok: false, error: "OTP expired. Please request OTP again." });
+      return res.status(401).json({
+        ok: false,
+        error: "OTP not requested. Please request OTP again.",
+      });
+    if (Date.now() > new Date(record.expiresAt).getTime()) {
+      await PendingOtp.deleteOne({ _id: record._id });
+      return res.status(401).json({ ok: false, error: "OTP expired. Please request OTP again." });
     }
 
-    record.attempts = (record.attempts || 0) + 1;
-    if (record.attempts > MAX_OTP_ATTEMPTS) {
-      pendingParentSignups.delete(email);
-      return res
-        .status(429)
-        .json({ ok: false, error: "Too many attempts. Request a new OTP." });
+    const attempts = (record.attempts || 0) + 1;
+    if (attempts > MAX_OTP_ATTEMPTS) {
+      await PendingOtp.deleteOne({ _id: record._id });
+      return res.status(429).json({ ok: false, error: "Too many attempts. Request a new OTP." });
     }
 
-    if (hashOtp(email, otp) !== record.otpHash) {
-      pendingParentSignups.set(email, record);
+    if (hashOtp(email, otp) !== record.codeHash) {
+      await PendingOtp.updateOne({ _id: record._id }, { $set: { attempts } });
       return res.status(401).json({ ok: false, error: "Invalid OTP" });
     }
 
     const parent = await Parent.findOneAndUpdate(
       { email },
-      { $setOnInsert: {
+      {
+        $setOnInsert: {
           email,
-          firstName: String(record.firstName || "").trim(),
-          lastName: String(record.lastName || "").trim(),
+          firstName: String(record.profile?.firstName || "").trim(),
+          lastName: String(record.profile?.lastName || "").trim(),
           status: "active",
-      } },
-      { new: true, upsert: true }
+        },
+      },
+      { new: true, upsert: true },
     );
-    pendingParentSignups.delete(email);
+    await PendingOtp.deleteOne({ _id: record._id });
 
     const parent_token = jwt.sign(
       {
@@ -219,12 +196,8 @@ router.post("/verify-otp", async (req, res) => {
   } catch (err) {
     console.error("Parent verify-otp failed:", err);
     if (err?.code === 11000)
-      return res
-        .status(409)
-        .json({ ok: false, error: "Parent already exists" });
-    return res
-      .status(500)
-      .json({ ok: false, error: "Failed to verify OTP", detail: err.message });
+      return res.status(409).json({ ok: false, error: "Parent already exists" });
+    return res.status(500).json({ ok: false, error: "Failed to verify OTP", detail: err.message });
   }
 });
 
@@ -237,47 +210,49 @@ router.post("/login-otp", async (req, res) => {
     if (!email)
       return res.status(400).json({ ok: false, error: "Email is required" });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-      return res
-        .status(400)
-        .json({ ok: false, error: "Valid email is required" });
+      return res.status(400).json({ ok: false, error: "Valid email is required" });
 
     const parent = await Parent.findOne({ email });
     if (!parent)
-      return res
-        .status(404)
-        .json({
-          ok: false,
-          error:
-            "No account found with this email. Please create an account first.",
-        });
+      return res.status(404).json({
+        ok: false,
+        error: "No account found with this email. Please create an account first.",
+      });
 
     const now = Date.now();
-    const existing = pendingParentLogins.get(email);
-    if (existing?.lastSentAt && now - existing.lastSentAt < RESEND_COOLDOWN_MS)
-      return res
-        .status(429)
-        .json({
-          ok: false,
-          error: "Please wait 30 seconds before requesting another code.",
-        });
+    const existing = await PendingOtp.findOne({ email, purpose: "login" });
+    if (
+      existing?.lastSentAt &&
+      now - new Date(existing.lastSentAt).getTime() < RESEND_COOLDOWN_MS
+    )
+      return res.status(429).json({
+        ok: false,
+        error: "Please wait 30 seconds before requesting another code.",
+      });
 
     const otp = generateOtp();
     const otpHash = hashOtp(email, otp);
-    pendingParentLogins.set(email, {
-      email,
-      otpHash,
-      expiresAt: now + OTP_TTL_MS,
-      attempts: 0,
-      lastSentAt: now,
-    });
+
+    await PendingOtp.findOneAndUpdate(
+      { email, purpose: "login" },
+      {
+        $set: {
+          email,
+          purpose: "login",
+          codeHash: otpHash,
+          attempts: 0,
+          lastSentAt: new Date(now),
+          expiresAt: new Date(now + OTP_TTL_MS),
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
 
     await sendOtpEmail(email, otp);
     return res.json({ ok: true, otp_sent_to: maskEmail(email) });
   } catch (err) {
     console.error("Parent login-otp failed:", err);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Failed to send login code" });
+    return res.status(500).json({ ok: false, error: "Failed to send login code" });
   }
 });
 
@@ -289,9 +264,7 @@ router.post("/logout", (req, res) => {
 router.post("/verify-login-otp", async (req, res) => {
   try {
     if (!PARENT_SECRET)
-      return res
-        .status(500)
-        .json({ ok: false, error: "PARENT_JWT_SECRET missing" });
+      return res.status(500).json({ ok: false, error: "PARENT_JWT_SECRET missing" });
     await connectDB();
 
     const email = normalizeEmail(req.body?.email);
@@ -300,44 +273,36 @@ router.post("/verify-login-otp", async (req, res) => {
     if (!email)
       return res.status(400).json({ ok: false, error: "Email is required" });
     if (!otp || !/^\d{6}$/.test(otp))
-      return res
-        .status(400)
-        .json({ ok: false, error: "OTP must be a 6-digit code" });
+      return res.status(400).json({ ok: false, error: "OTP must be a 6-digit code" });
 
-    const record = pendingParentLogins.get(email);
+    const record = await PendingOtp.findOne({ email, purpose: "login" });
     if (!record)
-      return res
-        .status(401)
-        .json({
-          ok: false,
-          error: "No login code requested. Please request one first.",
-        });
-    if (Date.now() > record.expiresAt) {
-      pendingParentLogins.delete(email);
-      return res
-        .status(401)
-        .json({ ok: false, error: "Code expired. Please request a new one." });
+      return res.status(401).json({
+        ok: false,
+        error: "No login code requested. Please request one first.",
+      });
+    if (Date.now() > new Date(record.expiresAt).getTime()) {
+      await PendingOtp.deleteOne({ _id: record._id });
+      return res.status(401).json({ ok: false, error: "Code expired. Please request a new one." });
     }
 
-    record.attempts = (record.attempts || 0) + 1;
-    if (record.attempts > MAX_OTP_ATTEMPTS) {
-      pendingParentLogins.delete(email);
-      return res
-        .status(429)
-        .json({ ok: false, error: "Too many attempts. Request a new code." });
+    const attempts = (record.attempts || 0) + 1;
+    if (attempts > MAX_OTP_ATTEMPTS) {
+      await PendingOtp.deleteOne({ _id: record._id });
+      return res.status(429).json({ ok: false, error: "Too many attempts. Request a new code." });
     }
 
-    if (hashOtp(email, otp) !== record.otpHash) {
-      pendingParentLogins.set(email, record);
+    if (hashOtp(email, otp) !== record.codeHash) {
+      await PendingOtp.updateOne({ _id: record._id }, { $set: { attempts } });
       return res.status(401).json({ ok: false, error: "Invalid code" });
     }
 
     const parent = await Parent.findOne({ email });
     if (!parent) {
-      pendingParentLogins.delete(email);
+      await PendingOtp.deleteOne({ _id: record._id });
       return res.status(404).json({ ok: false, error: "Account not found" });
     }
-    pendingParentLogins.delete(email);
+    await PendingOtp.deleteOne({ _id: record._id });
 
     const parent_token = jwt.sign(
       {
