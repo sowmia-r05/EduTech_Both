@@ -1,6 +1,9 @@
 const path = require("path");
 const { spawn } = require("child_process");
 
+// ✅ Process-wide Python concurrency limiter (verify path: src/utils/pythonSpawnLimiter.js)
+const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
+
 /**
  * Runs the Python Gemini subject-feedback generator.
  *
@@ -18,10 +21,15 @@ const { spawn } = require("child_process");
  * ✅ FIX: Python binary — was hardcoded "python" (fails on Windows with code 9009)
  *         Now uses cross-platform detection: "py" on Windows, "python3" on Linux/Render
  *         Can be overridden via PYTHON_BIN or SUBJECT_FEEDBACK_PYTHON env var
+ *
+ * ✅ NEW: The spawn runs through runWithPythonLimit — shares the SAME process-wide
+ *         pool as every other AI feature (MAX_CONCURRENT_PYTHON). When the pool +
+ *         wait-queue are full it rejects with PythonBusyError (status 503) instead
+ *         of forking another process and risking an OOM kill on a small instance.
  * ═══════════════════════════════════════════════════════
  */
 function runSubjectFeedbackPython(payload) {
-  return new Promise((resolve, reject) => {
+  return runWithPythonLimit(() => new Promise((resolve, reject) => {
     const script = path.join(
       __dirname,
       "..",
@@ -137,7 +145,7 @@ function runSubjectFeedbackPython(payload) {
       } catch (_) {}
       reject(new Error(`Failed to send payload to python: ${e.message}`));
     }
-  });
+  }));
 }
 
 module.exports = { runSubjectFeedbackPython };

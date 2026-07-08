@@ -3,6 +3,9 @@ const path = require("path");
 const { spawn } = require("child_process");
 const Result = require("../models/result");
 
+// ✅ Process-wide Python concurrency limiter (verify path: src/utils/pythonSpawnLimiter.js)
+const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
+
 // NOTE: Python dependencies are installed at BUILD time
 // (see nixpacks.toml / Render build command: `pip install -r requirements.txt`).
 // Do NOT install them at runtime — it slows the first request and can hang/fail
@@ -61,6 +64,12 @@ function inferSubjectFromQuizName(quizName) {
  * - generates Gemini feedback
  * - writes back into the SAME result doc:
  *     performance_analysis, ai_feedback, ai_feedback_meta
+ *
+ * ✅ The spawn runs through runWithPythonLimit — shares the SAME process-wide
+ *    pool as every other AI feature (MAX_CONCURRENT_PYTHON). When the pool +
+ *    wait-queue are full it rejects with PythonBusyError (status 503). The
+ *    CALLER of runResultFeedback should catch that and surface a 503 (see note
+ *    at the bottom) rather than a generic 500.
  */
 async function runResultFeedback({ response_id }) {
   if (!response_id) throw new Error("response_id required");
@@ -108,7 +117,7 @@ async function runResultFeedback({ response_id }) {
     subject,
   });
 
-  return new Promise((resolve, reject) => {
+  return runWithPythonLimit(() => new Promise((resolve, reject) => {
     const p = spawn("python", [script], {
       stdio: ["ignore", "pipe", "pipe"],
       env,
@@ -123,7 +132,7 @@ async function runResultFeedback({ response_id }) {
       if (code !== 0) return reject(new Error(err || `Python exit code ${code}`));
       resolve({ ok: true, output: out.trim(), subject, quiz_name });
     });
-  });
+  }));
 }
 
 module.exports = {
