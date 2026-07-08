@@ -24,6 +24,12 @@
  *      valid {...} block from stdout instead of hard JSON.parse(). This prevents
  *      ai_feedback_meta from getting stuck on status="error" when Python prints
  *      any warnings, pip output, or deprecation notices before the JSON.
+ *   5. NEW: both Python spawns run through runWithPythonLimit — a process-wide
+ *      concurrency cap (MAX_CONCURRENT_PYTHON) with a bounded wait-queue
+ *      (MAX_PYTHON_QUEUE). When pool + queue are full the spawn rejects with
+ *      PythonBusyError (status 503) instead of forking another process and
+ *      OOM-killing the instance. On a busy pool a submission is marked "error"
+ *      by the catch blocks below (visible failure) rather than crashing the box.
  */
 
 const { spawn } = require("child_process");
@@ -38,6 +44,9 @@ const {
 } = require("./emailNotifications");
 
 const { triggerCumulativeFeedback } = require("./cumulativeFeedbackService");
+
+// ✅ Process-wide Python concurrency limiter (verify path: src/utils/pythonSpawnLimiter.js)
+const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
 
 // ─── Config ───
 const BACKEND_ROOT = path.resolve(__dirname, "../..");
@@ -73,9 +82,12 @@ const activeAttempts = new Set();
 // New code: tries direct parse first, then extracts last {...} block
 //   → handles pip output, deprecation warnings, debug prints
 //   → only rejects if truly no JSON found at all
+//
+// ✅ Wrapped in runWithPythonLimit — the spawn only happens once a slot is
+//    free; rejects with PythonBusyError (503) if pool + queue are both full.
 // ─────────────────────────────────────────────────────────────
 function runPythonScript(scriptPath, inputData, timeoutMs = FEEDBACK_TIMEOUT_MS) {
-  return new Promise((resolve, reject) => {
+  return runWithPythonLimit(() => new Promise((resolve, reject) => {
     const child = spawn(PYTHON_BIN, [scriptPath], {
       cwd: BACKEND_ROOT,
       env: { ...process.env },
@@ -131,15 +143,18 @@ function runPythonScript(scriptPath, inputData, timeoutMs = FEEDBACK_TIMEOUT_MS)
 
     child.stdin.write(JSON.stringify(inputData));
     child.stdin.end();
-  });
+  }));
 }
 
 // ─────────────────────────────────────────────────────────────
 // Python runner — Writing only (runs as module so imports work)
 // Same robust JSON parser applied here too
+//
+// ✅ Wrapped in runWithPythonLimit — shares the SAME pool as the MCQ runner,
+//    so total concurrent Python across all features is bounded by one ceiling.
 // ─────────────────────────────────────────────────────────────
 function runWritingPythonModule(inputData, timeoutMs = FEEDBACK_TIMEOUT_MS) {
-  return new Promise((resolve, reject) => {
+  return runWithPythonLimit(() => new Promise((resolve, reject) => {
     const child = spawn(PYTHON_BIN, ["-m", "ai.gemini_writing_eval"], {
       cwd: BACKEND_ROOT,
       env: { ...process.env },
@@ -188,7 +203,7 @@ function runWritingPythonModule(inputData, timeoutMs = FEEDBACK_TIMEOUT_MS) {
 
     child.stdin.write(JSON.stringify(inputData));
     child.stdin.end();
-  });
+  }));
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -506,6 +521,7 @@ async function triggerAiFeedback(params) {
         result = await runWritingPythonModule(payload);
         console.log(`🐍 Writing Python result: success=${result?.success}, has_result=${!!result?.result}`);
       } catch (pythonErr) {
+        // Includes PythonBusyError (503) when the pool + queue are full.
         console.error(`❌ Writing Python FULL ERROR: ${pythonErr.message}`);
         result = { success: false, error: pythonErr.message };
       }
@@ -529,6 +545,7 @@ async function triggerAiFeedback(params) {
       try {
         result = await runPythonScript(SUBJECT_FEEDBACK_SCRIPT, payload);
       } catch (pythonErr) {
+        // Includes PythonBusyError (503) when the pool + queue are full.
         console.warn(`⚠️ Subject feedback Python failed: ${pythonErr.message}`);
         result = { success: false, error: `Subject feedback failed: ${pythonErr.message}` };
       }
