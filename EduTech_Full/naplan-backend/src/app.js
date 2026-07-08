@@ -54,6 +54,10 @@ const sanitizeMongo = require("./middleware/sanitizeMongo");
 const app = express();
 app.set("trust proxy", 1);
 
+// Skip rate limiting under jest so integration tests (many requests, one IP)
+// don't trip 429s. No effect in dev/production.
+const skipInTest = () => process.env.NODE_ENV === "test";
+
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(
   helmet({
@@ -183,7 +187,7 @@ const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const writingRoutes = require("./routes/writingRoutes");
 const catalogRoutes = require("./routes/catalogRoutes");
-const otpAuth = require("./routes/otpAuth");
+const otpAuth = require("./routes/otpAuth"); // ⚠️ LEGACY (FlexiQuiz) — pending deletion, see note
 const parentRoutes = require("./routes/parentRoutes");
 const googleAuthRoutes = require("./routes/googleAuthRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
@@ -227,6 +231,7 @@ const apiLimiter = rateLimit({
   message: { error: "Too many API requests", retryAfter: "60 seconds" },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInTest,
 });
 
 const authLimiter = rateLimit({
@@ -235,6 +240,7 @@ const authLimiter = rateLimit({
   message: { error: "Too many authentication requests. Please wait a minute." },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInTest,
 });
 
 const otpLimiter = rateLimit({
@@ -244,6 +250,7 @@ const otpLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  skip: skipInTest,
 });
 
 const childLoginLimiter = rateLimit({
@@ -253,6 +260,7 @@ const childLoginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  skip: skipInTest,
 });
 
 app.use("/api", apiLimiter);
@@ -265,9 +273,10 @@ app.use("/api/auth", sessionRoutes);
 
 // ─── Parent routes ────────────────────────────────────────────────────────────
 app.use("/api/parents", parentRoutes);
-app.use("/api/parents/auth/send-otp",   otpLimiter);
-app.use("/api/parents/auth/verify-otp", otpLimiter);
-app.use("/api/parents/auth/login-otp",  otpLimiter);
+app.use("/api/parents/auth/send-otp",         otpLimiter);
+app.use("/api/parents/auth/verify-otp",       otpLimiter);
+app.use("/api/parents/auth/login-otp",        otpLimiter);
+app.use("/api/parents/auth/verify-login-otp", otpLimiter);
 app.use("/api/parents/auth", authLimiter, parentAuthRoutes);
 app.use("/api/parents/auth", authLimiter, googleAuthRoutes);
 
@@ -311,6 +320,7 @@ const chatGlobalLimiter = rateLimit({
   message: { error: "Chat is busy right now. Please try again in a moment." },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInTest,
 });
 
 app.use("/api/quizzes", chatGlobalLimiter, quizChatRoute);
@@ -334,6 +344,7 @@ const uploadsLimiter = rateLimit({
   message: { error: "Too many image requests, please slow down." },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInTest,
 });
 
 const UPLOAD_IMG_TYPES = {
