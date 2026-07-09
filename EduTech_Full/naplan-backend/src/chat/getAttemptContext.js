@@ -3,29 +3,16 @@
 // Loads a student's attempt so the AI tutor can answer "why did I get Q3 wrong?"
 // WITHOUT asking the student which question they mean.
 //
-// ✅ REWRITE: uses the same Mongoose models as the rest of the app, joins the
-//    real `questions` collection by quiz_ids, and reads attempt.answers as an
-//    ARRAY.
-//
-// 👉 QUESTION-NUMBER FIX (this bug):
-//    The previous version pushed wrong-answer entries with NO `question_number`,
-//    so the tutor prompt printed "Qundefined" and had to fall back to a second,
-//    array-position-numbered list that counted the Reading passage as "Q1" —
-//    producing the off-by-one ("ask Q3, get Q4").
-//
-//    Now we assign `question_number` to match what the student sees ON SCREEN.
-//    The player (NativeQuizPlayer) numbers only ANSWERABLE questions — it skips
-//    the free_text passage (see `answerableQuestions`). So we do the same: walk
-//    the questions in `order`, skip the passage, and use a running counter as
-//    the on-screen number. We also return `all_questions` (every answerable
-//    question, with is_correct), not just the wrong ones, so the tutor can talk
-//    about questions the student got right too.
+// 👉 QUESTION-NUMBER FIX:
+//    `question_number` is the ON-SCREEN number: the position among answerable
+//    (non-passage) questions, in `order`. This mirrors the player's
+//    `answerableQuestions` numbering, so "Q3" here === "Q3" the student saw.
+//    That rule now lives in the shared helper orderAnswerableQuestions() so the
+//    backend and the frontend player can't drift off-by-one.
 //
 // 👉 CACHE FIX:
-//    The L1 memory cache was an unbounded `new Map()` — every attempt ever looked
-//    up stayed in memory for the life of the process, slowly growing until the
-//    instance OOM-crashed. It is now a bounded LRUCache (max entries + TTL), so
-//    memory is capped no matter how many distinct attempts are requested.
+//    The L1 memory cache is a bounded LRUCache (max entries + TTL), so memory is
+//    capped no matter how many distinct attempts are requested.
 
 const QuizAttempt = require("../models/quizAttempt");
 const Quiz        = require("../models/quiz");
@@ -33,10 +20,11 @@ const Question    = require("../models/question");
 const Child       = require("../models/child");
 
 // ✅ Bounded LRU cache (verify path: src/utils/lruCache.js)
-// max 500 attempts, 5-min TTL. The LRU now owns expiry, so we store `data`
-// directly instead of wrapping it with a manual { data, expiresAt }.
 const { LRUCache } = require("../utils/lruCache");
 const cache = new LRUCache({ max: 500, ttlMs: 5 * 60 * 1000 });
+
+// ✅ Shared question-ordering helper (single source of truth for on-screen numbers)
+const { orderAnswerableQuestions } = require("../utils/quizHelpers");
 
 // Note: the second arg (db) is accepted but ignored, so existing call sites like
 // getAttemptContext(attempt_id, db) keep working without any change.
@@ -64,21 +52,14 @@ async function getAttemptContext(attemptId, _db) {
     if (a && a.question_id) answersById[a.question_id] = a;
   }
 
-  // ── Build the numbered question list ───────────────────────
-  // `question_number` is the ON-SCREEN number: the position among answerable
-  // (non-passage) questions, in `order`. This exactly mirrors the player's
-  // `answerableQuestions` numbering, so "Q3" here === "Q3" the student saw.
+  // ── Canonical on-screen ordering (passage skipped, running number) ──
+  // `numbered` is [{ question, question_number }] for answerable questions only.
+  const { numbered, passage } = orderAnswerableQuestions(questions);
+
   const allQuestions   = [];
   const wrongQuestions = [];
-  let qNum = 0;
 
-  for (const q of questions || []) {
-    // The player does NOT number the free_text passage — neither do we.
-    // (Skipping it here is what keeps our numbers aligned with the screen.)
-    if (q.type === "free_text") continue;
-
-    qNum += 1; // ← on-screen question number
-
+  for (const { question: q, question_number } of numbered) {
     const ans = answersById[q.question_id];
 
     const chosen = (q.options || [])
@@ -95,29 +76,22 @@ async function getAttemptContext(attemptId, _db) {
       "No answer";
 
     const entry = {
-      question_number: qNum,
-      question_id:     q.question_id,
-      question_text:   q.text || q.question_text || "",
-      child_answer:    childAnswer,
-      correct_answer:  correct.join(", ") || "",
-      is_correct:      isCorrect,
-      topic:           q.categories?.[0]?.name || "",
+      question_number,
+      question_id:    q.question_id,
+      question_text:  q.text || q.question_text || "",
+      child_answer:   childAnswer,
+      correct_answer: correct.join(", ") || "",
+      is_correct:     isCorrect,
+      topic:          q.categories?.[0]?.name || "",
     };
 
     // Every answerable question goes into all_questions (answered or not) so the
     // numbering stays contiguous and the tutor can see the whole quiz.
     allQuestions.push(entry);
 
-    // wrong_questions keeps its original meaning (answered + incorrect) for the
-    // Python agent path that still reads it. Same object reference — carries the
-    // question_number too, for free.
+    // wrong_questions keeps its original meaning (answered + incorrect).
     if (ans && !isCorrect) wrongQuestions.push(entry);
   }
-
-  // Reading passage (if any) so the tutor can refer back to the text
-  const passage = (questions || []).find(
-    (q) => q.type === "free_text" || q.type === "writing"
-  );
 
   const data = {
     attempt_id:      attemptId,
