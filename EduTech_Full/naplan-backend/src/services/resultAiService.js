@@ -6,55 +6,13 @@ const Result = require("../models/result");
 // ✅ Process-wide Python concurrency limiter (verify path: src/utils/pythonSpawnLimiter.js)
 const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
 
+// ✅ Shared subject-normalization helper (single source of truth)
+const { inferSubjectFromQuizName } = require("../utils/quizHelpers");
+
 // NOTE: Python dependencies are installed at BUILD time
 // (see nixpacks.toml / Render build command: `pip install -r requirements.txt`).
 // Do NOT install them at runtime — it slows the first request and can hang/fail
 // on the request path if the network is unavailable.
-
-function normalizeQuizName(s) {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/[_\-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * ✅ Extract subject from quiz_name text.
- * Returns one of:
- * - Numeracy
- * - Numeracy_with_calculator
- * - Language_convention
- * - Reading
- * - Writing
- * - "" (unknown)
- */
-function inferSubjectFromQuizName(quizName) {
-  const q = normalizeQuizName(quizName);
-
-  // Most specific first
-  if (
-    q.includes("numeracy with calculator") ||
-    q.includes("with calculator") ||
-    q.includes("calculator")
-  ) {
-    return "Numeracy_with_calculator";
-  }
-
-  if (
-    q.includes("language convention") ||
-    q.includes("language conventions") ||
-    q.includes("conventions")
-  ) {
-    return "Language_convention";
-  }
-
-  if (q.includes("numeracy")) return "Numeracy";
-  if (q.includes("reading")) return "Reading";
-  if (q.includes("writing")) return "Writing";
-
-  return "";
-}
 
 /**
  * Runs the Subject/Result feedback Python script for ONE response_id.
@@ -68,8 +26,8 @@ function inferSubjectFromQuizName(quizName) {
  * ✅ The spawn runs through runWithPythonLimit — shares the SAME process-wide
  *    pool as every other AI feature (MAX_CONCURRENT_PYTHON). When the pool +
  *    wait-queue are full it rejects with PythonBusyError (status 503). The
- *    CALLER of runResultFeedback should catch that and surface a 503 (see note
- *    at the bottom) rather than a generic 500.
+ *    CALLER of runResultFeedback should catch that and surface a 503 rather
+ *    than a generic 500.
  */
 async function runResultFeedback({ response_id }) {
   if (!response_id) throw new Error("response_id required");
@@ -83,6 +41,7 @@ async function runResultFeedback({ response_id }) {
     console.warn("⚠️ Could not fetch quiz_name to infer subject:", e.message);
   }
 
+  // ✅ now from the shared helper
   const subject = inferSubjectFromQuizName(quiz_name);
 
   // ✅ Your python script path (unchanged)
@@ -137,5 +96,7 @@ async function runResultFeedback({ response_id }) {
 
 module.exports = {
   runResultFeedback,
-  inferSubjectFromQuizName, // optional export for testing
+  // Re-exported from the shared helper so existing imports of this symbol
+  // (e.g. tests) keep working after the move.
+  inferSubjectFromQuizName,
 };
