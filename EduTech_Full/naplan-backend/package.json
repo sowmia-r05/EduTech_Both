@@ -13,7 +13,6 @@
   "type": "commonjs",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1009.0",
-    "@sendgrid/mail": "^8.1.6",
     "axios": "^1.13.5",
     "bcrypt": "^6.0.0",
     "body-parser": "^2.2.2",
@@ -29,8 +28,6 @@
     "mongodb": "^7.0.0",
     "mongoose": "^9.1.5",
     "multer": "^2.1.0",
-    "nodemailer": "^9.0.3",
-    "resend": "^6.9.2",
     "stripe": "^20.4.0"
   },
   "devDependencies": {
