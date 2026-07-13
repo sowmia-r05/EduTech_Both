@@ -1,13 +1,29 @@
 /**
- * services/cumulativeFeedbackService.js  (v4 — stale-lock fix)
+ * services/cumulativeFeedbackService.js  (v5 — Python spawn limiter wired)
  *
- * FIXES in v4:
- *   - Export clearRunningLock() so the route can release a stale in-memory lock
- *     after a server restart leaves a "generating" doc stuck in MongoDB.
- *   - generateForSubject() now records a `generating_started_at` timestamp in the
- *     DB so the route can detect truly stale docs via `updatedAt`.
- *   - triggerCumulativeFeedback() always removes the child from runningChildren in
- *     its finally block (was already true, kept for clarity).
+ * CHANGE IN v5 (the only change from v4):
+ *   - runPython() is now wrapped in runWithPythonLimit(). Previously this file
+ *     forked Python with NO concurrency cap, which defeated the limiter that
+ *     aiFeedbackService / resultAiService / subjectFeedbackService already use.
+ *
+ *     Why this mattered: aiFeedbackService fires triggerCumulativeFeedback()
+ *     via setImmediate() after EVERY successful submission. A burst of quiz
+ *     submissions therefore produced a burst of UNCAPPED cumulative-feedback
+ *     spawns running alongside the capped ones. Each Python process is
+ *     ~150–300MB; on a 512MB Render instance, three at once is death.
+ *
+ *     Now all Python spawns across the whole app share ONE ceiling
+ *     (MAX_CONCURRENT_PYTHON) with a bounded wait-queue (MAX_PYTHON_QUEUE).
+ *
+ *   - When the pool + queue are both full, runWithPythonLimit rejects with
+ *     PythonBusyError. That rejection is caught by the existing try/catch in
+ *     generateForSubject(), which marks the doc status="error" with the message.
+ *     So a busy pool = a visible, recoverable failure — NOT a dead instance.
+ *
+ * FIXES from v4 (unchanged):
+ *   - clearRunningLock() exported so the route can release a stale in-memory lock
+ *   - generateForSubject() bumps updatedAt so the route can detect stale docs
+ *   - triggerCumulativeFeedback() always releases the lock in its finally block
  *
  * DATA SOURCE RULES (unchanged):
  *   - MCQ (Reading/Numeracy/Language) → QuizAttempts collection
@@ -22,6 +38,9 @@ const CumulativeFeedback = require("../models/cumulativeFeedback");
 const QuizAttempt = require("../models/quizAttempt");
 const Writing = require("../models/writing");
 const Child = require("../models/child");
+
+// ✅ NEW v5: process-wide Python concurrency limiter (src/utils/pythonSpawnLimiter.js)
+const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
 
 // ─── Config ───
 const PYTHON_BIN =
@@ -168,9 +187,18 @@ async function fetchAllTestsForChild(childId) {
 
 // ─────────────────────────────────────────────────────────────
 // Run Python Gemini cumulative script
+//
+// ✅ v5: wrapped in runWithPythonLimit. The spawn only happens once a slot is
+//    free. If the pool AND the wait-queue are both full, this rejects with
+//    PythonBusyError (err.code === "PYTHON_BUSY", err.status === 503) BEFORE
+//    forking anything — which is what keeps the 512MB box alive under a burst.
+//
+//    The rejection propagates to generateForSubject()'s catch block, which
+//    records status="error" on the CumulativeFeedback doc. Visible failure,
+//    not a crashed instance.
 // ─────────────────────────────────────────────────────────────
 function runPython(payload) {
-  return new Promise((resolve, reject) => {
+  return runWithPythonLimit(() => new Promise((resolve, reject) => {
     const child = spawn(PYTHON_BIN, [CUMULATIVE_SCRIPT], {
       env: { ...process.env },
     });
@@ -223,7 +251,7 @@ function runPython(payload) {
 
     child.stdin.write(JSON.stringify(payload));
     child.stdin.end();
-  });
+  }));
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -290,7 +318,14 @@ async function generateForSubject({ childId, subject, tests, displayName, yearLe
     return { success: true };
 
   } catch (err) {
-    console.error(`❌ Cumulative feedback error: child=${childId} subject=${subject}: ${err.message}`);
+    // ✅ v5: this now also catches PythonBusyError (503) from the limiter.
+    // A busy pool marks the doc "error" and moves on — it does NOT fork a
+    // process and it does NOT take the instance down.
+    if (err.code === "PYTHON_BUSY") {
+      console.warn(`🚦 Python pool busy — cumulative feedback deferred: child=${childId} subject=${subject}`);
+    } else {
+      console.error(`❌ Cumulative feedback error: child=${childId} subject=${subject}: ${err.message}`);
+    }
 
     await CumulativeFeedback.findOneAndUpdate(
       { child_id: childId, subject },
@@ -352,6 +387,10 @@ async function triggerCumulativeFeedback(childId) {
 
     console.log(`📋 Subjects to generate for child ${childIdStr}: ${subjectsToGenerate.join(", ")}`);
 
+    // NOTE: this loop is intentionally SEQUENTIAL (await inside for...of).
+    // Each iteration takes one limiter slot, runs, and releases it before the
+    // next begins — so a single child never occupies more than one Python slot
+    // at a time, no matter how many subjects they have.
     for (const subject of subjectsToGenerate) {
       await generateForSubject({
         childId,
@@ -392,5 +431,5 @@ module.exports = {
   getCumulativeFeedback,
   generateForSubject,
   fetchAllTestsForChild,
-  clearRunningLock,           // ← NEW export for route-level stale recovery
+  clearRunningLock,           // ← export for route-level stale recovery
 };

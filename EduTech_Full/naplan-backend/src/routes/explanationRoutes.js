@@ -7,6 +7,34 @@
  * POST /api/attempts/:attemptId/chat
  *   → Child sends a follow-up chat message about one question
  *   → Calls ai/gemini_explanation.py with mode="chat"
+ *
+ * ═══════════════════════════════════════════════════════════════════════
+ * CHANGE: replaced this file's PRIVATE Python limiter with the SHARED one.
+ *
+ * This file used to define its own pool:
+ *
+ *     const MAX_CONCURRENT_PYTHON = Number(process.env.MAX_CONCURRENT_PYTHON || 3);
+ *     let activePython = 0;              // ← its own counter
+ *     const pythonQueue = [];            // ← its own queue
+ *
+ * That was worse than having no limiter, because it looked safe but wasn't:
+ *
+ *   1. TWO INDEPENDENT POOLS. This counter had no idea about the counter in
+ *      utils/pythonSpawnLimiter.js (used by aiFeedbackService, resultAiService,
+ *      subjectFeedbackService, cumulativeFeedbackService). Real concurrency was
+ *      shared_pool + this_pool. With MAX_CONCURRENT_PYTHON=1 you could still get
+ *      2 simultaneous Python processes — one from each pool.
+ *
+ *   2. DEFAULT OF 3. On a 512MB Render instance, 3 × ~250MB = OOM.
+ *
+ *   3. UNBOUNDED QUEUE. pythonQueue.push(resolve) never rejected. Under a burst,
+ *      waiters piled up in memory and requests hung indefinitely instead of
+ *      failing fast.
+ *
+ * Now every Python spawn in the app shares ONE ceiling (MAX_CONCURRENT_PYTHON)
+ * and ONE bounded wait-queue (MAX_PYTHON_QUEUE). When both are full, the chat
+ * route returns a clean 503 instead of forking another process.
+ * ═══════════════════════════════════════════════════════════════════════
  */
 
 const express = require("express");
@@ -18,6 +46,10 @@ const QuizAttempt = require("../models/quizAttempt");
 const Question = require("../models/question");
 const Child = require("../models/child");
 
+// ✅ Shared process-wide Python concurrency limiter.
+// Same module singleton used by every other AI feature.
+const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
+
 const router = express.Router();
 router.use(verifyToken, requireAuth);
 
@@ -25,36 +57,6 @@ const BACKEND_ROOT = path.resolve(__dirname, "../..");
 const EXPLANATION_SCRIPT = path.resolve(__dirname, "../../ai/gemini_explanation.py");
 const PYTHON_BIN = process.env.PYTHON_BIN || (process.platform === "win32" ? "py" : "python3");
 const TIMEOUT_MS = 120000; // 2 min
-
-// -------------------------------------------------------------
-// Concurrency cap for Python spawns (self-contained - no imports).
-// Limits how many Python processes run at once so a burst of chats
-// can't exhaust server memory. Default 3, override with
-// MAX_CONCURRENT_PYTHON in .env.
-// -------------------------------------------------------------
-const MAX_CONCURRENT_PYTHON = Number(process.env.MAX_CONCURRENT_PYTHON || 3);
-let activePython = 0;
-const pythonQueue = [];
-
-function acquirePythonSlot() {
-  return new Promise((resolve) => {
-    if (activePython < MAX_CONCURRENT_PYTHON) {
-      activePython++;
-      resolve();
-    } else {
-      pythonQueue.push(resolve);
-    }
-  });
-}
-
-function releasePythonSlot() {
-  activePython = Math.max(0, activePython - 1);
-  const next = pythonQueue.shift();
-  if (next) {
-    activePython++;
-    next();
-  }
-}
 
 // --- Raw Python runner (the spawn itself) ---
 function spawnExplanationScript(payload) {
@@ -96,14 +98,13 @@ function spawnExplanationScript(payload) {
   });
 }
 
-// --- Gated runner: waits for a free slot, always releases it ---
-async function runExplanationScript(payload) {
-  await acquirePythonSlot();
-  try {
-    return await spawnExplanationScript(payload);
-  } finally {
-    releasePythonSlot();
-  }
+// --- Gated runner: shared pool, bounded queue, always releases the slot ---
+//
+// runWithPythonLimit handles acquire/release for us (including on throw), and
+// rejects with PythonBusyError (err.code === "PYTHON_BUSY", err.status === 503)
+// BEFORE forking anything if the pool AND queue are both full.
+function runExplanationScript(payload) {
+  return runWithPythonLimit(() => spawnExplanationScript(payload));
 }
 
 // --- Helper: verify child owns this attempt ---
@@ -179,7 +180,7 @@ router.post("/attempts/:attemptId/explain", async (req, res) => {
 });
 
 // ===========================================================
-// POST /api/attempts/:attemptId/chat   (spawns Python - now capped)
+// POST /api/attempts/:attemptId/chat   (spawns Python — shared cap)
 // ===========================================================
 router.post("/attempts/:attemptId/chat", async (req, res) => {
   try {
@@ -251,6 +252,19 @@ router.post("/attempts/:attemptId/chat", async (req, res) => {
 
     return res.json({ reply: result.reply });
   } catch (err) {
+    // ✅ Pool + queue full → 503, NOT 500. This is the difference between
+    // "the server is busy, retry shortly" (correct, recoverable, and the
+    // frontend can back off) and "the server is broken" (misleading — and
+    // without the limiter, the box would simply have died instead).
+    if (err.code === "PYTHON_BUSY" || err.status === 503) {
+      console.warn(`🚦 Python pool busy — chat rejected for attempt ${req.params.attemptId}`);
+      res.set("Retry-After", "10");
+      return res.status(503).json({
+        error: "AI tutor is busy right now. Please try again in a moment.",
+        code: "PYTHON_BUSY",
+      });
+    }
+
     console.error("POST /chat error:", err.message);
     return res.status(500).json({ error: err.message });
   }
