@@ -1,28 +1,53 @@
+/**
+ * routes/sessionRoutes.js  (v2 — SECRET SEPARATION)
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 🔴 FIX
+ *
+ * BEFORE:
+ *     const JWT_SECRET = process.env.PARENT_JWT_SECRET || process.env.JWT_SECRET;
+ *     function decode(token) { return jwt.verify(token, JWT_SECRET); }
+ *
+ *   Two problems:
+ *   (a) This precedence is the OPPOSITE of middleware/auth.js, which used
+ *       JWT_SECRET || PARENT_JWT_SECRET. If both env vars were set and differed,
+ *       /session and /me disagreed about which tokens were valid.
+ *   (b) The SAME secret was used to decode both the parent cookie and the child
+ *       cookie, so the two audiences were interchangeable.
+ *
+ * AFTER: config/jwt.js. verifyParent() and verifyChild() each use their own
+ * secret and reject `typ` mismatches. One source of truth, shared with
+ * middleware/auth.js — they cannot drift apart again.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
 const router = require("express").Router();
-const jwt = require("jsonwebtoken");
 
-// ⚠️ Precedence must match token SIGNING and your auth middleware.
-// Your env validation treats PARENT_JWT_SECRET as primary — keep that order
-// everywhere (ideally export this from one shared config/jwt.js and import it).
-const JWT_SECRET = process.env.PARENT_JWT_SECRET || process.env.JWT_SECRET;
-
+const { verifyParent, verifyChild } = require("../config/jwt");
 const { verifyToken, requireAuth } = require("../middleware/auth");
 const connectDB = require("../config/db");
 const Child = require("../models/child");
 const Parent = require("../models/parent");
 
 /**
- * Single place the cookie-decode rules live, so /session can't drift from
- * the verifyToken middleware. Returns decoded claims or null (never throws).
- * When you add revocation, the ver/tokenVersion check belongs in verifyToken
- * (which /me uses); short access-token TTL is what protects /session.
+ * Soft decode helpers. Return decoded claims or null — never throw.
+ * Each checks the signature against the correct audience's secret.
  */
-function decode(token) {
+function decodeParent(token) {
   if (!token) return null;
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return verifyParent(token);
   } catch {
-    return null; // expired or invalid
+    return null; // expired, wrong audience, or bad signature
+  }
+}
+
+function decodeChild(token) {
+  if (!token) return null;
+  try {
+    return verifyChild(token);
+  } catch {
+    return null;
   }
 }
 
@@ -86,21 +111,24 @@ router.get("/me", verifyToken, requireAuth, async (req, res) => {
  * GET /api/auth/session
  * Soft probe: returns whichever sessions exist (parent, child, or both —
  * e.g. a parent viewing a child). No 401; missing/expired cookies are just
- * omitted. Shares decode() with /me so verification rules stay in one place.
+ * omitted.
+ *
+ * ✅ Each cookie is now verified against ITS OWN secret, so a parent cookie can
+ * never be reported as a child session (or vice versa).
  */
 router.get("/session", (req, res) => {
   const sessions = {};
 
-  const parent = decode(req.cookies?.parent_token);
+  const parent = decodeParent(req.cookies?.parent_token);
   if (parent) {
     sessions.parent = {
-      parentId: parent.parentId,
+      parentId: parent.parentId || parent.parent_id,
       email: parent.email,
       role: "parent",
     };
   }
 
-  const child = decode(req.cookies?.child_token);
+  const child = decodeChild(req.cookies?.child_token);
   if (child) {
     sessions.child = {
       childId: child.childId,
