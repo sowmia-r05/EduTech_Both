@@ -1,3 +1,43 @@
+/**
+ * src/routes/quizExplanationsRoute.js
+ *
+ * Admin bulk job: generate per-year explanations for every question in a quiz.
+ *
+ *   POST /api/admin/quizzes/:quizId/generate-explanations
+ *   GET  /api/admin/quizzes/:quizId/generate-explanations/status
+ *
+ * ═══════════════════════════════════════════════════════════════════════
+ * CHANGE: the Python spawn now goes through the SHARED limiter.
+ *
+ * Why this file mattered even though it was already sequential:
+ *
+ *   The for...of loop awaits each question, so this file never ran more than
+ *   ONE Python process at a time on its own. That looked safe — but it was
+ *   ungated against the SHARED pool. So an admin clicking "generate
+ *   explanations" while a class was submitting quizzes meant:
+ *
+ *       admin's 1 Python  +  students' N Python  =  N+1 concurrent
+ *
+ *   ...with nothing enforcing a total ceiling. On a 512MB Render instance,
+ *   two processes at ~250MB each is already the edge.
+ *
+ *   Now this job's spawn takes a slot from the same pool as everything else,
+ *   so the app-wide total can never exceed MAX_CONCURRENT_PYTHON.
+ *
+ * BACKOFF ON BUSY (the important bit for a batch job):
+ *
+ *   If the pool is full, runWithPythonLimit rejects with PythonBusyError.
+ *   For a user-facing route the right answer is "503, try again". For a
+ *   BACKGROUND BATCH job it is NOT — marking a question permanently `failed`
+ *   just because students happened to be busy at that moment would silently
+ *   leave holes in the content.
+ *
+ *   So on PYTHON_BUSY we wait and retry (up to MAX_BUSY_RETRIES), with
+ *   increasing delay. Student traffic always wins the slot; the admin job
+ *   simply takes longer. Only a genuine Python error counts as `failed`.
+ * ═══════════════════════════════════════════════════════════════════════
+ */
+
 const express = require("express");
 const { spawn } = require("child_process");
 const path = require("path");
@@ -5,16 +45,30 @@ const connectDB = require("../config/db");
 const Question = require("../models/question");
 const { verifyToken, requireAuth } = require("../middleware/auth");
 
+// ✅ Shared process-wide Python concurrency limiter
+const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
+
 const router = express.Router();
 
 const BACKEND_ROOT = path.resolve(__dirname, "../..");
 const PYTHON_BIN = process.env.PYTHON_BIN || (process.platform === "win32" ? "py" : "python3");
 const TIMEOUT_MS = 60000;
 
+// How many times a single question will wait-and-retry when the Python pool
+// is saturated by live student traffic, before being counted as failed.
+const MAX_BUSY_RETRIES = 5;
+const BUSY_RETRY_BASE_MS = 3000; // 3s, 6s, 9s, 12s, 15s
+
 // ✅ In-memory progress tracker — { quizId: { total, done, failed, status } }
+//    NOTE: this is a Map in process memory. It does NOT survive a Render
+//    restart or cold start — a job in flight will lose its progress record.
+//    Acceptable for an admin tool; move to MongoDB if that ever matters.
 const progressMap = new Map();
 
-function runExplainQuestion(question) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ─── Raw spawn (unchanged logic) ───
+function spawnExplainQuestion(question) {
   return new Promise((resolve, reject) => {
     const child = spawn(PYTHON_BIN, ["-m", "ai.gemini_explanation"], {
       cwd: BACKEND_ROOT,
@@ -54,6 +108,30 @@ function runExplainQuestion(question) {
     }));
     child.stdin.end();
   });
+}
+
+// ─── Gated + busy-retrying runner ───
+//
+// Takes a slot from the SHARED pool. If the pool + queue are full (because
+// students are actively submitting quizzes), waits and retries rather than
+// failing the question outright.
+async function runExplainQuestion(question) {
+  for (let attempt = 0; attempt <= MAX_BUSY_RETRIES; attempt++) {
+    try {
+      return await runWithPythonLimit(() => spawnExplainQuestion(question));
+    } catch (err) {
+      const isBusy = err.code === "PYTHON_BUSY" || err.status === 503;
+      if (!isBusy || attempt === MAX_BUSY_RETRIES) {
+        throw err; // real Python error, or we've waited long enough
+      }
+      const waitMs = BUSY_RETRY_BASE_MS * (attempt + 1);
+      console.warn(
+        `🚦 Python pool busy — retrying ${question.question_id} in ${waitMs}ms ` +
+        `(attempt ${attempt + 1}/${MAX_BUSY_RETRIES})`
+      );
+      await sleep(waitMs);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -116,12 +194,14 @@ router.post(
       res.json({ success: true, total: questions.length, status: "running" });
 
       // ✅ Run in background
-     // ✅ Run in background
       setImmediate(async () => {
         let done = 0, failed = 0;
         console.log(`🧠 Starting for quiz ${quizId} — ${questions.length} questions`);
         console.log(`🐍 Python: ${PYTHON_BIN} | Root: ${BACKEND_ROOT}`);
 
+        // Sequential by design: one question at a time. Combined with the
+        // shared limiter, this job can never hold more than one Python slot,
+        // so it degrades gracefully instead of starving live student traffic.
         for (const q of questions) {
           try {
             const qText = q.question_text || q.text || "";
@@ -143,7 +223,14 @@ router.post(
             }
           } catch (err) {
             failed++;
-            console.error(`❌ [${q.question_id}] threw:`, err.message);
+            if (err.code === "PYTHON_BUSY" || err.status === 503) {
+              console.error(
+                `❌ [${q.question_id}] gave up — Python pool stayed busy through ` +
+                `all ${MAX_BUSY_RETRIES} retries. Re-run this quiz when traffic is lower.`
+              );
+            } else {
+              console.error(`❌ [${q.question_id}] threw:`, err.message);
+            }
           }
 
           progressMap.set(quizId, {
