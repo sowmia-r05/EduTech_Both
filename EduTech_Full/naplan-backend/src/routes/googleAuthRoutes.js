@@ -29,11 +29,11 @@ const Parent = require("../models/parent");
 
 const router = express.Router();
 
-const PARENT_SECRET = process.env.PARENT_JWT_SECRET;
+const { signParent } = require("../config/jwt");
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 
 const { setAuthCookie } = require("../utils/setCookies");
-const PARENT_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000;
+const PARENT_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 
 /**
@@ -96,13 +96,6 @@ router.post("/google", async (req, res) => {
       });
     }
 
-    if (!PARENT_SECRET) {
-      return res.status(500).json({
-        ok: false,
-        error: "Server auth configuration missing (PARENT_JWT_SECRET)",
-      });
-    }
-
     const { credential } = req.body;
     if (!credential) {
       return res.status(400).json({ ok: false, error: "Google credential is required" });
@@ -157,17 +150,12 @@ router.post("/google", async (req, res) => {
     }
 
     // 3. Issue parent JWT (same format as OTP login)
-    const parent_token = jwt.sign(
-      {
-        typ: "parent",
-        role: "parent",
-        parent_id: parent._id.toString(),
-        parentId: parent._id.toString(),
-        email: parent.email,
-      },
-      PARENT_SECRET,
-      { expiresIn: "365d" }
-    );
+    const parent_token = signParent({
+      role:      "parent",
+      parent_id: parent._id.toString(),
+      parentId:  parent._id.toString(),
+      email:     parent.email,
+    });
     setAuthCookie(res, "parent_token", parent_token, PARENT_COOKIE_MAX_AGE);
 
     return res.json({

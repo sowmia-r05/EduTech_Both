@@ -46,7 +46,6 @@ const rateLimit = require("express-rate-limit");
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
-const path = require("path");
 const { s3, BUCKET } = require("./utils/s3Upload");
 const { GetObjectCommand } = require("@aws-sdk/client-s3");
 const sanitizeMongo = require("./middleware/sanitizeMongo");
@@ -62,7 +61,7 @@ const skipInTest = () => process.env.NODE_ENV === "test";
 app.use(
   helmet({
     crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: { policy: "cross-origin" }, // ✅ FIX — allows images to load cross-origin
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // allows images to load cross-origin
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -109,8 +108,6 @@ app.use(
 );
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
-// ─── CORS ─────────────────────────────────────────────────────────────────────
 const IS_DEV = process.env.NODE_ENV !== "production";
 
 // Build the static allow-list from env (comma-separated)
@@ -148,6 +145,9 @@ function isAllowedOrigin(origin) {
 console.log("✅ CORS allow-list:", allowedOrigins);
 console.log("✅ CORS allow-patterns:", allowedOriginPatterns.map(String));
 
+// NOTE (Express 5): do NOT add `app.options("*", cors())` — path-to-regexp v8
+// rejects a bare "*" and the server crashes on boot. The global cors()
+// middleware below already answers OPTIONS preflight with a 204.
 app.use(
   cors({
     origin(origin, callback) {
@@ -187,7 +187,7 @@ const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const writingRoutes = require("./routes/writingRoutes");
 const catalogRoutes = require("./routes/catalogRoutes");
-const otpAuth = require("./routes/otpAuth"); // ⚠️ LEGACY (FlexiQuiz) — pending deletion, see note
+const otpAuth = require("./routes/otpAuth"); // ⚠️ LEGACY (FlexiQuiz) — pending deletion
 const parentRoutes = require("./routes/parentRoutes");
 const googleAuthRoutes = require("./routes/googleAuthRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
@@ -200,7 +200,7 @@ const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
 const quizRoutes = require("./routes/quizRoutes");
 const availableQuizzesRoute = require("./routes/availableQuizzesRoute");
 const flashcardsRoute = require("./routes/flashcardsRoute");
-const explanationRoutes = require("./routes/explanationRoutes");  // ✅ ADD HERE (with other requires)
+const explanationRoutes = require("./routes/explanationRoutes");
 const cumulativeFeedbackRoutes = require("./routes/cumulativeFeedbackRoutes");
 const ocrRoute = require("./routes/ocrRoute");
 const sessionRoutes = require("./routes/sessionRoutes");
@@ -209,11 +209,8 @@ const regenerateAiRoute = require("./routes/regenerateAiRoute");
 const quizExplanationsRoute = require("./routes/quizExplanationsRoute");
 const quizChatRoute = require("./routes/quizChat");
 const quizAiRoutes = require("./routes/quizAiRoutes");
-const originalityRoutes = require("./routes/originalityRoutes");   // ✅ ADD THIS LINE
+const originalityRoutes = require("./routes/originalityRoutes");
 const aiImageRoutes = require("./routes/aiImageRoutes");
-
-
-
 
 const {
   secureLegacyResults,
@@ -224,7 +221,6 @@ const {
 app.use("/api", healthRoutes);
 
 // ─── Rate limiters ────────────────────────────────────────────────────────────
-
 const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 1000,
@@ -246,7 +242,9 @@ const authLimiter = rateLimit({
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
-  message: { error: "Too many OTP attempts. Please wait 15 minutes before trying again." },
+  message: {
+    error: "Too many OTP attempts. Please wait 15 minutes before trying again.",
+  },
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
@@ -263,6 +261,15 @@ const childLoginLimiter = rateLimit({
   skip: skipInTest,
 });
 
+const chatGlobalLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 100,
+  message: { error: "Chat is busy right now. Please try again in a moment." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipInTest,
+});
+
 app.use("/api", apiLimiter);
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
@@ -273,9 +280,9 @@ app.use("/api/auth", sessionRoutes);
 
 // ─── Parent routes ────────────────────────────────────────────────────────────
 app.use("/api/parents", parentRoutes);
-app.use("/api/parents/auth/send-otp",         otpLimiter);
-app.use("/api/parents/auth/verify-otp",       otpLimiter);
-app.use("/api/parents/auth/login-otp",        otpLimiter);
+app.use("/api/parents/auth/send-otp", otpLimiter);
+app.use("/api/parents/auth/verify-otp", otpLimiter);
+app.use("/api/parents/auth/login-otp", otpLimiter);
 app.use("/api/parents/auth/verify-login-otp", otpLimiter);
 app.use("/api/parents/auth", authLimiter, parentAuthRoutes);
 app.use("/api/parents/auth", authLimiter, googleAuthRoutes);
@@ -313,18 +320,10 @@ app.use("/api/tutor", tutorRoutes);
 app.use("/api", quizRoutes);
 app.use("/api", availableQuizzesRoute);
 app.use("/api", flashcardsRoute);
-app.use("/api", explanationRoutes);  // ✅ ADD HERE
-const chatGlobalLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 100,
-  message: { error: "Chat is busy right now. Please try again in a moment." },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: skipInTest,
-});
+app.use("/api", explanationRoutes);
+app.use("/api", quizExplanationsRoute); // ✅ FIX — was imported but never mounted
 
 app.use("/api/quizzes", chatGlobalLimiter, quizChatRoute);
-
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
 app.use("/api/payments", paymentRoutes);
@@ -420,7 +419,6 @@ app.use("/uploads", uploadsLimiter, async (req, res) => {
   }
 });
 
-
 // ─── Cron jobs ────────────────────────────────────────────────────────────────
 try {
   const {
@@ -445,6 +443,13 @@ try {
 //   console.warn("⚠️ Could not start copyright audit cron:", err.message);
 // }
 
+// ─── 404 handler ──────────────────────────────────────────────────────────────
+// Express 5: NO path argument. `app.use("*", ...)` or `app.all("*", ...)` will
+// crash on boot under path-to-regexp v8.
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
 // ─── Global error handler ─────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
@@ -457,4 +462,5 @@ app.use((err, req, res, next) => {
     ...(IS_DEV ? { detail: err.message } : {}),
   });
 });
+
 module.exports = app;
