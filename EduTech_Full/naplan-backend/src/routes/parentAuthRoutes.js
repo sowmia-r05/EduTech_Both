@@ -1,44 +1,56 @@
 /**
- * routes/parentAuthRoutes.js  (v2 — HARDENED)
+ * routes/parentAuthRoutes.js  (v3 — HARDENED)
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * FIXES APPLIED
+ * CARRIED OVER FROM v2 (unchanged, all still correct)
+ *   FIX-1  crypto.randomInt() instead of Math.random() for OTP generation.
+ *   FIX-2  OTP_SECRET required at boot; no "fallback" string.
+ *   FIX-3  crypto.timingSafeEqual() for hash comparison.
+ *   FIX-4  signParent() from config/jwt.js — no direct process.env reads.
+ *   FIX-5  TTL from config/jwt.js (default 7d), not a hardcoded 365d.
+ *   FIX-6  Cookie max-age derived from token TTL — cannot drift.
+ *   FIX-8  attempts counter persisted before early returns.
  *
- * FIX-1  generateOtp() used Math.random() — predictable. Now crypto.randomInt().
- *        Math.random() is seeded from a PRNG an attacker can model; a 6-digit
- *        OTP generated from it is not a real 1-in-a-million guess.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * NEW IN v3
  *
- * FIX-2  hashOtp() fell back to the literal string "fallback" when no secret was
- *        set. That silently downgraded every OTP hash to a known key. Now it
- *        requires OTP_SECRET and throws at boot if absent.
+ * FIX-9   ENUMERATION ORACLE. FIX-7 gave /login-otp an identical body for known
+ *         and unknown emails — but the 30s resend cooldown still returned 429,
+ *         and only ever for accounts that EXIST. Two calls in a row:
+ *             unknown email → 200, 200
+ *             known email   → 200, 429
+ *         That is a clean oracle; the generic message was worthless. The
+ *         cooldown now returns the SAME genericOk body — we simply decline to
+ *         send another email. The user-visible cost is nil (they weren't going
+ *         to get a second email anyway); the attacker learns nothing.
  *
- * FIX-3  OTP comparison used `!==` on hex strings — leaks position of first
- *        mismatched byte via timing. Now crypto.timingSafeEqual().
+ * FIX-10  SUSPENDED PARENTS COULD LOG IN. verify-login-otp issued a session
+ *         without ever checking parent.status. A suspended or soft-deleted
+ *         parent received a valid 7-day token. adminRoutes has always checked
+ *         status on login; this path never did.
  *
- * FIX-4  Read process.env.PARENT_JWT_SECRET directly, bypassing config/jwt.js
- *        and its audience-separation guarantee. Now uses signParent().
+ * FIX-11  email_verified / auth_provider were never written on OTP signup, even
+ *         though completing an OTP flow PROVES control of the address.
+ *         googleAuthRoutes reads auth_provider === "otp" to decide whether to
+ *         upgrade an account — it was reading a field nobody populated.
  *
- * FIX-5  Parent tokens were signed with expiresIn: "365d". A stolen token was
- *        valid for a year with no revocation path. TTL now comes from
- *        config/jwt.js (PARENT_JWT_TTL, default 7d). Set PARENT_JWT_TTL in the
- *        environment if you want longer sessions — 90d is a sane maximum.
+ * FIX-12  OTP LIFETIME ALIGNED TO THE UI. Backend allowed 10 minutes; the
+ *         frontend countdown (useOtpCountdown.js) runs for 5 and then tells the
+ *         user the code is dead. Users were requesting codes they didn't need.
+ *         Now 5 minutes everywhere, driven by OTP_EXPIRES_MIN, and the email
+ *         copy is generated from the same number instead of being hardcoded.
  *
- * FIX-6  PARENT_COOKIE_MAX_AGE was 356 days (typo for 365). Cookie lifetime is
- *        now derived from the token TTL, so they can never disagree again.
- *
- * FIX-7  /login-otp returned 404 "No account found with this email", letting an
- *        attacker enumerate registered emails. Now returns the same 200 response
- *        whether or not the account exists; the email is only sent if it does.
- *
- * FIX-8  attempts counter was not persisted before the expiry check, so a
- *        request that arrived just after expiry reset the counter for free.
+ * FIX-13  Resend reset `attempts` to 0, so 5 failed guesses + a 30s wait bought
+ *         5 more. The counter now CARRIES OVER across resends for the same
+ *         (email, purpose). The IP-based otpLimiter was doing all the real work
+ *         before this.
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * ⚠️ NOTE ON /send-otp (signup): it still returns 409 EMAIL_EXISTS. That is also
- *    an enumeration vector, but it is a deliberate UX tradeoff — a signup form
- *    that silently does nothing for an existing account is very confusing. If
- *    you want to close it, send a "you already have an account" email instead
- *    and return the same 200 as a fresh signup.
+ * ⚠️ /send-otp (signup) still returns 409 EMAIL_EXISTS. That IS an enumeration
+ *    vector, kept deliberately: a signup form that silently succeeds for an
+ *    existing account is genuinely confusing, and signup emails are typically
+ *    already known to the attacker. To close it, send a "you already have an
+ *    account" email and return the same 200 as a fresh signup.
  */
 
 const express = require("express");
@@ -51,15 +63,20 @@ const PendingOtp = require("../models/pendingOtp");
 const { sendBrevoEmail } = require("../services/brevoEmail");
 const { setAuthCookie, clearAuthCookie } = require("../utils/setCookies");
 
-// ✅ FIX-4: single source of truth for secrets, TTLs, audience separation.
+// Single source of truth for secrets, TTLs, audience separation.
 const { signParent, TTL } = require("../config/jwt");
 
-const OTP_TTL_MS = 10 * 60 * 1000;
+// ✅ FIX-12: one number, used by the expiry, the email copy, and the API
+// response. Default 5 to match the frontend countdown. Override with
+// OTP_EXPIRES_MIN — but change useOtpCountdown.js to match if you do.
+const OTP_EXPIRES_MIN = Math.max(1, Number(process.env.OTP_EXPIRES_MIN || 5));
+const OTP_TTL_MS = OTP_EXPIRES_MIN * 60 * 1000;
+
 const RESEND_COOLDOWN_MS = 30 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 
 // ─── OTP hashing secret ──────────────────────────────────────────────────────
-// ✅ FIX-2: fail loudly at boot, never silently fall back to a known string.
+// Fail loudly at boot, never silently fall back to a known string.
 (function validateOtpSecret() {
   const secret = process.env.OTP_SECRET;
   if (!secret) {
@@ -74,7 +91,6 @@ const MAX_OTP_ATTEMPTS = 5;
 })();
 
 // ─── Cookie lifetime tracks token lifetime ───────────────────────────────────
-// ✅ FIX-6: derived, not hand-typed. TTL.parent is a string like "7d".
 function ttlToMs(ttl) {
   const m = String(ttl || "7d").match(/^(\d+)\s*([smhd])$/);
   if (!m) return 7 * 24 * 60 * 60 * 1000; // safe default: 7 days
@@ -84,13 +100,17 @@ function ttlToMs(ttl) {
 }
 const PARENT_COOKIE_MAX_AGE = ttlToMs(TTL.parent);
 
+// Statuses that may hold a session. Anything else — suspended, deleted, or a
+// value added to the enum later — is denied by default.
+const LOGIN_ALLOWED_STATUSES = new Set(["active"]);
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function normalizeEmail(email) {
   if (!email || typeof email !== "string") return "";
   return email.trim().toLowerCase();
 }
 
-// ✅ FIX-1: cryptographically secure 6-digit code.
+// Cryptographically secure 6-digit code.
 function generateOtp() {
   return String(crypto.randomInt(100000, 1000000));
 }
@@ -102,7 +122,7 @@ function hashOtp(email, otp) {
     .digest("hex");
 }
 
-// ✅ FIX-3: constant-time comparison of two hex digests.
+// Constant-time comparison of two hex digests.
 function safeHashEqual(aHex, bHex) {
   if (typeof aHex !== "string" || typeof bHex !== "string") return false;
   const a = Buffer.from(aHex, "hex");
@@ -121,22 +141,26 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+// ✅ FIX-12: copy generated from OTP_EXPIRES_MIN, not hardcoded.
 async function sendOtpEmail(toEmail, otp) {
+  const mins = OTP_EXPIRES_MIN;
+  const plural = mins === 1 ? "minute" : "minutes";
   await sendBrevoEmail({
     toEmail,
     subject: "Your OTP Code",
-    text: `Your OTP is ${otp}. It expires in 10 minutes.`,
-    html: `<div style="font-family:Arial,sans-serif;line-height:1.5"><p>Your OTP for parent account verification is:</p><div style="font-size:24px;font-weight:bold;letter-spacing:2px">${otp}</div><p>This code expires in 10 minutes.</p></div>`,
+    text: `Your OTP is ${otp}. It expires in ${mins} ${plural}.`,
+    html:
+      `<div style="font-family:Arial,sans-serif;line-height:1.5">` +
+      `<p>Your OTP for parent account verification is:</p>` +
+      `<div style="font-size:24px;font-weight:bold;letter-spacing:2px">${otp}</div>` +
+      `<p>This code expires in ${mins} ${plural}.</p></div>`,
   });
 }
 
 /**
- * Issue a parent session: sign the token, set the httpOnly cookie, shape the
- * response body. One function so signup and login can never drift apart.
+ * Issue a parent session. One function so signup and login can never drift.
  */
 function issueParentSession(res, parent) {
-  // ✅ FIX-4 + FIX-5: signParent() uses PARENT_JWT_SECRET and TTL.parent,
-  // and stamps typ:"parent" so the token can't be replayed as another audience.
   const parent_token = signParent({
     role: "parent",
     parent_id: parent._id.toString(),
@@ -148,7 +172,7 @@ function issueParentSession(res, parent) {
 
   return {
     ok: true,
-    parent_token, // ⚠️ see migration note at the bottom of this file
+    parent_token, // ⚠️ see migration note 3 at the bottom
     parent: {
       parentId: parent._id,
       email: parent.email,
@@ -159,9 +183,41 @@ function issueParentSession(res, parent) {
 }
 
 /**
+ * Write (or overwrite) the pending OTP for an (email, purpose) pair.
+ *
+ * ✅ FIX-13: `attempts` is NOT reset here. Resetting it let an attacker buy 5
+ * fresh guesses for the price of a 30-second wait. The counter now persists for
+ * the life of the (email, purpose) row and is only cleared when the OTP is
+ * successfully consumed or the row is deleted.
+ */
+async function upsertPendingOtp({ email, purpose, otp, profile, now }) {
+  const set = {
+    email,
+    purpose,
+    codeHash: hashOtp(email, otp),
+    lastSentAt: new Date(now),
+    expiresAt: new Date(now + OTP_TTL_MS),
+  };
+  if (profile) set.profile = profile;
+
+  await PendingOtp.findOneAndUpdate(
+    { email, purpose },
+    {
+      $set: set,
+      // attempts only initialises on INSERT — a resend leaves it where it was.
+      $setOnInsert: { attempts: 0 },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+}
+
+/**
  * Shared OTP validation. Returns { ok: true, record } or { ok: false, status, body }.
- * ✅ FIX-8: the attempts counter is persisted before any early return that
- * isn't a hard delete, so an attacker can't reset it by racing the expiry.
+ *
+ * NOTE on expiry: Mongo's TTL sweeper only runs about once a minute, so an
+ * expired document can still be sitting in the collection. The explicit
+ * expiresAt check below is what actually enforces the deadline — the TTL index
+ * is garbage collection, not an expiry mechanism.
  */
 async function consumeOtp(email, otp, purpose) {
   const record = await PendingOtp.findOne({ email, purpose });
@@ -183,6 +239,8 @@ async function consumeOtp(email, otp, purpose) {
     };
   }
 
+  // Persist the attempt BEFORE any check that could early-return, so a client
+  // that races the expiry can't get a free guess.
   const attempts = (record.attempts || 0) + 1;
   await PendingOtp.updateOne({ _id: record._id }, { $set: { attempts } });
 
@@ -248,22 +306,13 @@ router.post("/send-otp", async (req, res) => {
     }
 
     const otp = generateOtp();
-
-    await PendingOtp.findOneAndUpdate(
-      { email, purpose: "signup" },
-      {
-        $set: {
-          email,
-          purpose: "signup",
-          codeHash: hashOtp(email, otp),
-          profile: { firstName, lastName },
-          attempts: 0,
-          lastSentAt: new Date(now),
-          expiresAt: new Date(now + OTP_TTL_MS),
-        },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
+    await upsertPendingOtp({
+      email,
+      purpose: "signup",
+      otp,
+      profile: { firstName, lastName },
+      now,
+    });
 
     await sendOtpEmail(email, otp);
     return res.json({
@@ -273,7 +322,6 @@ router.post("/send-otp", async (req, res) => {
     });
   } catch (err) {
     console.error("Parent send-otp failed:", err?.response?.data || err);
-    // Don't leak internals to the client.
     return res.status(500).json({ ok: false, error: "Failed to send OTP" });
   }
 });
@@ -296,6 +344,9 @@ router.post("/verify-otp", async (req, res) => {
 
     const { record } = result;
 
+    // ✅ FIX-11: completing the OTP flow proves control of this address, so
+    // record that. googleAuthRoutes reads auth_provider to decide whether to
+    // upgrade an account to Google — it needs this field to actually be set.
     const parent = await Parent.findOneAndUpdate(
       { email },
       {
@@ -304,12 +355,23 @@ router.post("/verify-otp", async (req, res) => {
           firstName: String(record.profile?.firstName || "").trim(),
           lastName: String(record.profile?.lastName || "").trim(),
           status: "active",
+          auth_provider: "otp",
+          email_verified: true,
         },
       },
       { new: true, upsert: true },
     );
 
     await PendingOtp.deleteOne({ _id: record._id });
+
+    // Belt and braces: if the row already existed and was suspended, do not
+    // hand out a session just because they proved they own the mailbox.
+    if (!LOGIN_ALLOWED_STATUSES.has(parent.status)) {
+      return res.status(403).json({
+        ok: false,
+        error: "This account is not active. Please contact support.",
+      });
+    }
 
     return res.json(issueParentSession(res, parent));
   } catch (err) {
@@ -335,9 +397,10 @@ router.post("/login-otp", async (req, res) => {
     if (!isValidEmail(email))
       return res.status(400).json({ ok: false, error: "Valid email is required" });
 
-    // ✅ FIX-7: the response below is IDENTICAL whether or not the account
-    // exists. An attacker cannot use this endpoint to discover which emails
-    // are registered. We only actually send mail when there's an account.
+    // ✅ FIX-9: EVERY path below this line returns exactly this body with a 200.
+    // No status code, no message, and no timing-visible branch may differ based
+    // on whether the account exists. The previous version leaked existence via a
+    // 429 on the resend cooldown — which only ever fired for real accounts.
     const genericOk = {
       ok: true,
       message: "If an account exists for that email, we've sent a login code.",
@@ -345,7 +408,12 @@ router.post("/login-otp", async (req, res) => {
     };
 
     const parent = await Parent.findOne({ email });
-    if (!parent) return res.json(genericOk);
+
+    // Unknown email, suspended account, deleted account → identical response.
+    // We just don't send anything.
+    if (!parent || !LOGIN_ALLOWED_STATUSES.has(parent.status)) {
+      return res.json(genericOk);
+    }
 
     const now = Date.now();
     const existing = await PendingOtp.findOne({ email, purpose: "login" });
@@ -353,28 +421,14 @@ router.post("/login-otp", async (req, res) => {
       existing?.lastSentAt &&
       now - new Date(existing.lastSentAt).getTime() < RESEND_COOLDOWN_MS
     ) {
-      return res.status(429).json({
-        ok: false,
-        error: "Please wait 30 seconds before requesting another code.",
-      });
+      // ✅ FIX-9: cooldown hit — decline to send, but say nothing different.
+      // The user was not going to receive a second email either way, so there is
+      // no UX cost; the attacker gets no signal.
+      return res.json(genericOk);
     }
 
     const otp = generateOtp();
-
-    await PendingOtp.findOneAndUpdate(
-      { email, purpose: "login" },
-      {
-        $set: {
-          email,
-          purpose: "login",
-          codeHash: hashOtp(email, otp),
-          attempts: 0,
-          lastSentAt: new Date(now),
-          expiresAt: new Date(now + OTP_TTL_MS),
-        },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
+    await upsertPendingOtp({ email, purpose: "login", otp, now });
 
     await sendOtpEmail(email, otp);
     return res.json(genericOk);
@@ -408,6 +462,17 @@ router.post("/verify-login-otp", async (req, res) => {
 
     await PendingOtp.deleteOne({ _id: result.record._id });
 
+    // ✅ FIX-10: status was never checked here. A suspended or soft-deleted
+    // parent who still had a valid code received a full 7-day session.
+    // Suspension has to mean something at the point a session is MINTED, not
+    // only at the point an account is created.
+    if (!LOGIN_ALLOWED_STATUSES.has(parent.status)) {
+      return res.status(403).json({
+        ok: false,
+        error: "This account is not active. Please contact support.",
+      });
+    }
+
     return res.json(issueParentSession(res, parent));
   } catch (err) {
     console.error("Parent verify-login-otp failed:", err);
@@ -426,23 +491,33 @@ module.exports = router;
 /* ═══════════════════════════════════════════════════════════════════════════
  * MIGRATION NOTES
  *
- * 1. TOKEN TTL. Parent tokens now expire per PARENT_JWT_TTL (config/jwt.js
- *    default: 7d). The old value was 365d. If weekly re-login is too aggressive
- *    for launch, set PARENT_JWT_TTL=90d in Render — but do NOT go back to a
- *    year. Long-lived tokens with no revocation are the single biggest auth
- *    risk in this codebase. The proper fix is a token_version field on the
- *    Parent model, checked in verifyToken, so you can invalidate on demand.
+ * 1. OTP LIFETIME IS NOW 5 MINUTES (was 10). This matches useOtpCountdown.js,
+ *    which was already counting down from 5 and telling users the code had
+ *    expired while the backend would still have accepted it. Override with
+ *    OTP_EXPIRES_MIN — but change the frontend to match if you do.
  *
- * 2. THIS DEPLOY LOGS EVERYONE OUT. Existing parent tokens were signed with
- *    expiresIn:"365d" and (possibly) a different secret. They will no longer
- *    verify. Expect a wave of re-logins. Ship it at a quiet hour.
+ * 2. TOKEN TTL. Parent tokens expire per PARENT_JWT_TTL (config/jwt.js default:
+ *    7d). The old value was 365d. If weekly re-login is too aggressive for
+ *    launch, set PARENT_JWT_TTL=90d in Render — but do NOT go back to a year.
+ *    The proper fix is a token_version field on the Parent model, checked in
+ *    verifyToken, exactly like the one now on the Admin model.
  *
- * 3. localStorage TOKEN. We still return parent_token in the body so the
- *    frontend can store it. That makes it XSS-stealable and undermines the
- *    httpOnly cookie set alongside it. End state: cookie only + GET /api/auth/me
- *    to rehydrate (sessionRoutes.js already supports this). Same migration as
- *    childAuthRoutes.js — do both at once.
+ * 3. THIS DEPLOY LOGS EVERYONE OUT. Existing parent tokens were signed with a
+ *    365d expiry and possibly a different secret. Ship it at a quiet hour.
  *
- * 4. OTP_SECRET IS NOW REQUIRED. This file throws at boot without it. Confirm
- *    it is set in Render before deploying, or the service will not start.
+ * 4. localStorage TOKEN. parent_token is still returned in the body so the
+ *    frontend can store it — which makes it XSS-stealable and undermines the
+ *    httpOnly cookie set alongside it. End state: cookie only, plus
+ *    GET /api/auth/me to rehydrate (sessionRoutes.js already supports this).
+ *    Same migration as childAuthRoutes.js — do both at once.
+ *
+ * 5. OTP_SECRET IS REQUIRED. This file throws at boot without it. Confirm it is
+ *    set in Render BEFORE deploying or the service will not start.
+ *
+ * 6. STILL OPEN — TIMING SIDE CHANNEL on /login-otp. A known-and-active email
+ *    does DB writes and an outbound Brevo call; an unknown one returns almost
+ *    immediately. The difference is measurable and re-leaks existence to a
+ *    patient attacker. Closing it properly means queueing the send and
+ *    returning immediately in both branches. Lower severity than the 429 oracle
+ *    this version fixes, but it is not zero.
  * ═══════════════════════════════════════════════════════════════════════════ */
