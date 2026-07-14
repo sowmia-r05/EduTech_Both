@@ -4,7 +4,7 @@
 
 const path             = require("path");
 const { setAuthCookie, clearAuthCookie } = require("../utils/setCookies");
-const ADMIN_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000;
+const ADMIN_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
 
 const express    = require("express");
 const jwt        = require("jsonwebtoken");
@@ -29,7 +29,7 @@ const { generateQuizExplanations, explanation_progress } = require("../utils/gen
 
 
 const router     = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
+const { signAdmin } = require("../config/jwt");
 
 // ═══════════════════════════════════════════════════════════
 // Rate limiter for login
@@ -147,11 +147,12 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
     admin.login_count   = (admin.login_count || 0) + 1;
     await admin.save();
 
-    const token = jwt.sign(
-      { adminId: admin._id, email: admin.email, name: admin.name, role: admin.role },
-      JWT_SECRET,
-      { expiresIn: "365d" },
-    );
+    const token = signAdmin({
+      adminId: admin._id.toString(),
+      email:   admin.email,
+      name:    admin.name,
+      role:    admin.role,
+    });
 
     setAuthCookie(res, "admin_token", token, ADMIN_COOKIE_MAX_AGE);
 
