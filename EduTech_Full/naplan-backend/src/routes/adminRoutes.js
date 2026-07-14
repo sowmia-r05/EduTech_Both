@@ -7,11 +7,11 @@ const { setAuthCookie, clearAuthCookie } = require("../utils/setCookies");
 const ADMIN_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
 
 const express    = require("express");
-const jwt        = require("jsonwebtoken");
 const bcrypt     = require("bcrypt");
 const { v4: uuidv4 } = require("uuid");
 const multer     = require("multer");
 const rateLimit  = require("express-rate-limit");
+const MongoRateLimitStore = require("../utils/mongoRateLimitStore");
 
 const { requireAdmin }  = require("../middleware/adminAuth");
 const Admin             = require("../models/admin");
@@ -40,6 +40,7 @@ const adminLoginLimiter = rateLimit({
   message:         { error: "Too many login attempts. Try again in 15 minutes." },
   standardHeaders: true,
   legacyHeaders:   false,
+  store:           new MongoRateLimitStore({ prefix: "adminlogin" }),
 });
 
 // ═══════════════════════════════════════════════════════════
