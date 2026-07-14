@@ -49,6 +49,7 @@ const cookieParser = require("cookie-parser");
 const { s3, BUCKET } = require("./utils/s3Upload");
 const { GetObjectCommand } = require("@aws-sdk/client-s3");
 const sanitizeMongo = require("./middleware/sanitizeMongo");
+const MongoRateLimitStore = require("./utils/mongoRateLimitStore"); // ✅ ADDED
 
 const app = express();
 app.set("trust proxy", 1);
@@ -221,6 +222,28 @@ const {
 app.use("/api", healthRoutes);
 
 // ─── Rate limiters ────────────────────────────────────────────────────────────
+//
+// STORE CHOICE — this matters, and the split is deliberate:
+//
+//   MemoryStore (default) is a plain object inside the Node process. Render's
+//   free tier spins the service down after ~15 min idle and cold-starts on the
+//   next request, so EVERY counter resets. Deploys and OOM restarts reset it
+//   too. And with more than one instance, each process counts separately, so
+//   the real limit becomes N × max.
+//
+//   • Abuse throttles (apiLimiter, chatGlobalLimiter, uploadsLimiter) STAY on
+//     MemoryStore. They fire on huge volumes of ordinary traffic; a Mongo
+//     round-trip per request would hammer the M0 free tier, and a reset on
+//     restart costs us nothing.
+//
+//   • Security controls (authLimiter, otpLimiter, childLoginLimiter, plus
+//     adminLoginLimiter over in routes/adminRoutes.js) get the Mongo-backed
+//     store. For these, a counter reset IS the vulnerability — an attacker just
+//     waits for a spin-down and gets a fresh set of attempts.
+//
+//   Every limiter needs its OWN `prefix`. Two limiters sharing a prefix share
+//   (and corrupt) each other's counters.
+
 const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 1000,
@@ -236,6 +259,7 @@ const authLimiter = rateLimit({
   message: { error: "Too many authentication requests. Please wait a minute." },
   standardHeaders: true,
   legacyHeaders: false,
+  store: new MongoRateLimitStore({ prefix: "auth" }), // ✅ ADDED
   skip: skipInTest,
 });
 
@@ -248,6 +272,7 @@ const otpLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  store: new MongoRateLimitStore({ prefix: "otp" }), // ✅ ADDED
   skip: skipInTest,
 });
 
@@ -258,6 +283,7 @@ const childLoginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  store: new MongoRateLimitStore({ prefix: "childlogin" }), // ✅ ADDED
   skip: skipInTest,
 });
 
@@ -273,6 +299,11 @@ const chatGlobalLimiter = rateLimit({
 app.use("/api", apiLimiter);
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
+// ⚠️ otpAuth is legacy (FlexiQuiz-era) and keeps its OTP codes in an in-process
+//    Map — so every pending OTP is destroyed on restart. parentAuthRoutes already
+//    does OTP correctly via the PendingOtp Mongo model. Confirm the frontend does
+//    not call /api/auth/otp/request or /api/auth/otp/verify, then delete this file
+//    and the line below. See the grep in the chat.
 app.use("/api/auth", authLimiter, otpAuth);
 app.use("/api/auth/child-login", childLoginLimiter);
 app.use("/api/auth", authLimiter, childAuthRoutes);
