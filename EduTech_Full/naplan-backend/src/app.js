@@ -188,7 +188,6 @@ const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const writingRoutes = require("./routes/writingRoutes");
 const catalogRoutes = require("./routes/catalogRoutes");
-const otpAuth = require("./routes/otpAuth"); // ⚠️ LEGACY (FlexiQuiz) — pending deletion
 const parentRoutes = require("./routes/parentRoutes");
 const googleAuthRoutes = require("./routes/googleAuthRoutes");
 const parentAuthRoutes = require("./routes/parentAuthRoutes");
@@ -304,7 +303,6 @@ app.use("/api", apiLimiter);
 //    does OTP correctly via the PendingOtp Mongo model. Confirm the frontend does
 //    not call /api/auth/otp/request or /api/auth/otp/verify, then delete this file
 //    and the line below. See the grep in the chat.
-app.use("/api/auth", authLimiter, otpAuth);
 app.use("/api/auth/child-login", childLoginLimiter);
 app.use("/api/auth", authLimiter, childAuthRoutes);
 app.use("/api/auth", sessionRoutes);
@@ -408,8 +406,16 @@ app.use("/uploads", uploadsLimiter, async (req, res) => {
   }
 
   // Cross-origin headers so the child/parent dashboards can load these
+// Reflect the caller's origin from the allow-list instead of "*", reusing the
+  // same isAllowedOrigin() the CORS middleware uses. Vary:Origin is required —
+  // this route sets a 1-year immutable Cache-Control, so without it a shared
+  // cache would replay one origin's ACAO header to everyone.
+  const origin = req.headers.origin;
+  if (origin && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Vary", "Origin");
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-  res.setHeader("Access-Control-Allow-Origin", "*");
 
   const s3Key = "uploads/" + rel; // e.g. "uploads/2026-03/image.jpg"
 
