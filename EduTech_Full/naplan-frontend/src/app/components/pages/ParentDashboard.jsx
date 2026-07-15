@@ -1086,7 +1086,11 @@ function EditChildModal({ child, onClose, onSave, loading }) {
     }
     if (emailNotifications !== (child.email_notifications ?? false)) updates.email_notifications = emailNotifications;
     if (Object.keys(updates).length === 0) return setError("No changes to save");
-    await onSave(child._id, updates);
+    try {
+      await onSave(child._id, updates);
+    } catch (err) {
+      setError(err?.message || "Failed to save changes");
+    }
   };
 
   return (
