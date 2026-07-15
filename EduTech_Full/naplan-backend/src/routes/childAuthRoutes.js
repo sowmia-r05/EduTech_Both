@@ -80,7 +80,6 @@ router.post("/child-login", async (req, res) => {
 
     return res.json({
       ok: true,
-      token,
       child: {
         childId: child._id.toString(),
         parentId: child.parent_id.toString(),

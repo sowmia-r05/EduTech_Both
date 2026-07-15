@@ -43,6 +43,7 @@ dns.setDefaultResultOrder("ipv4first");
 // ─── Requires ─────────────────────────────────────────────────────────────────
 const express = require("express");
 const rateLimit = require("express-rate-limit");
+const { ipKeyGenerator } = require("express-rate-limit");
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
@@ -295,6 +296,18 @@ const chatGlobalLimiter = rateLimit({
   skip: skipInTest,
 });
 
+// Per-user throttle for OCR handwriting. Abuse throttle → MemoryStore (default),
+// NOT the Mongo store. Keyed on child ID (falls back to IP) so it's per-user.
+// OCR calls Gemini Vision (slow, ~45s, costs tokens), so keep it tight.
+const ocrLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 15,
+  message: { error: "Too many handwriting uploads. Please wait a few minutes and try again." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => String(req.childId || req.user?.id || ipKeyGenerator(req.ip)),
+  skip: skipInTest,
+});
 app.use("/api", apiLimiter);
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
@@ -358,7 +371,7 @@ app.use("/api/quizzes", chatGlobalLimiter, quizChatRoute);
 app.use("/api/payments", paymentRoutes);
 
 // ─── OCR ──────────────────────────────────────────────────────────────────────
-app.use("/api/ocr", ocrRoute);
+app.use("/api/ocr", ocrLimiter, ocrRoute);
 
 // ─── S3 image proxy (HARDENED) ───────────────────────────────────────────────
 // Serves /uploads/... by streaming from S3/MinIO.

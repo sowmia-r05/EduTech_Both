@@ -1226,7 +1226,7 @@ router.post("/quizzes/:quizId/generate-explanations", adminOnly, async (req, res
 });
 
 // ✅ Poll generation progress
-router.get("/quizzes/:quizId/generate-explanations/status", async (req, res) => {
+router.get("/quizzes/:quizId/generate-explanations/status", adminOnly, async (req, res) => {
   const progress = explanation_progress[req.params.quizId];
   if (!progress) return res.json({ status: "idle" });
   return res.json(progress);

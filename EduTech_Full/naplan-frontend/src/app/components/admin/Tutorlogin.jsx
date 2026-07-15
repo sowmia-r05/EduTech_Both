@@ -39,12 +39,15 @@ export default function TutorLogin() {
       if (!res.ok) throw new Error(data.error || "Login failed");
 
       // Only allow tutors on this page
+      // Only allow tutors on this page
       if (data.admin?.role !== "tutor") {
         throw new Error("This login is for tutors only. Admins should use the admin login.");
       }
 
-      localStorage.setItem("tutor_token", data.token);
-      localStorage.setItem("tutor_info",  JSON.stringify(data.admin));
+      // Session is the httpOnly admin_token cookie set by the server above
+      // (credentials:"include"). Do NOT store the JWT in localStorage — XSS-readable.
+      // Keep the non-sensitive profile only, for display.
+      try { localStorage.setItem("tutor_info", JSON.stringify(data.admin)); } catch {}
       navigate(`${ADMIN_PATH}/tutor/dashboard`);
     } catch (err) {
       setError(err.message);
