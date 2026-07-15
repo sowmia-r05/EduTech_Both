@@ -23,7 +23,6 @@
  */
 
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const connectDB = require("../config/db");
 const Parent = require("../models/parent");
 

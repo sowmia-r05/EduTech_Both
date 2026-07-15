@@ -1,110 +1,82 @@
 /**
- * middleware/adminAuth.js  (v3 — SECRET SEPARATION + REVOCATION)
+ * middleware/adminAuth.js  (v2 — SECRET SEPARATION + REVOCATION)
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * v2 fixed the SECRET (admin tokens no longer share a key with parent/child).
- * v3 adds REVOCATION — the second half of A15.
+ * 🔴 FIX-1 — THE CRITICAL ONE. This file verified admin tokens with:
  *
- * THE PROBLEM v3 SOLVES:
- *   A JWT is a bearer token. Once issued, it is valid until it expires, full
- *   stop. There is no server-side "log this person out" — the server doesn't
- *   keep a list of live tokens. So today, if you fire an admin or a laptop is
- *   stolen, your ONLY option is to wait for expiry. With the old 365d TTL that
- *   meant a year. With 12h it means 12 hours. Better, but still not "now".
+ *     const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
  *
- * THE FIX — TWO LAYERS:
+ *   ...the PARENT secret. Two consequences:
  *
- *   Layer 1: PER-ADMIN token_version
- *     Every admin doc carries an integer `token_version` (default 0). It is
- *     stamped into the JWT as `ver` at sign time. On every request we compare
- *     the token's `ver` against the CURRENT value in the DB. Increment the DB
- *     value -> every token that admin holds is instantly dead.
- *     Use: fire someone, or an individual account is compromised.
+ *   (a) BROKEN. adminRoutes.js now signs with signAdmin() → ADMIN_JWT_SECRET.
+ *       Signed with one key, verified with another → every admin request 401s.
  *
- *   Layer 2: GLOBAL ADMIN_TOKEN_EPOCH (env var, no DB, no deploy)
- *     A number in the environment, stamped into every token as `epoch`. Bump it
- *     in Render -> EVERY admin token everywhere dies on the next request.
- *     Use: "the admin secret may have leaked, kill everything, right now."
- *     This works even if MongoDB is down.
+ *   (b) INSECURE. Before that change, admin and parent tokens shared a secret,
+ *       so anyone who obtained the parent secret could forge an ADMIN token.
+ *       config/jwt.js exists specifically to make that impossible: the highest-
+ *       privilege role must not be compromised by a leak of the lowest.
  *
- * THE COST:
- *   Layer 1 is one indexed findById() per admin request. Admin traffic is a
- *   handful of people, so this is free. We deliberately do NOT do this for
- *   parent/child tokens — that would be a DB hit on every quiz request, and on
- *   Atlas M0 that hurts. For parents/children, the short TTL (7d/1d) is the
- *   control. That is a considered trade-off, not an oversight.
+ *   Now uses verifyAdmin() from config/jwt.js, which checks the signature
+ *   against ADMIN_JWT_SECRET *and* rejects a typ mismatch.
  *
- * WHAT WE DID *NOT* BUILD, ON PURPOSE:
- *   Refresh tokens. They exist to make 5-15 minute access tokens tolerable.
- *   Our TTLs are 12h/7d/1d — nobody is annoyed by those. Refresh tokens would
- *   add rotation, reuse-detection and a token store for zero security gain.
+ * ✅ FIX-2 — TOKEN REVOCATION. A JWT is self-contained: once signed it is valid
+ *   until it expires, no matter what happens to the account. Suspending an admin
+ *   did nothing; a leaked token could not be killed. We now re-read the admin on
+ *   every request and reject if:
+ *       • the account no longer exists
+ *       • the account is suspended or pending
+ *       • token_version has moved on (password change, suspension, or an
+ *         explicit revokeTokens() call)
+ *
+ *   COST: one indexed findById per authenticated admin request. Fine at admin
+ *   volumes. Do NOT copy this to parent/child middleware without thinking about
+ *   the read load — that path serves every student request.
+ *
+ * ✅ FIX-3 — the role is read from the DATABASE, not the token. A token minted
+ *   while someone was an admin kept saying "admin" after they were demoted to
+ *   tutor. The DB is the authority.
+ *
+ * ⚠️ SAME BUG STILL LIVES IN routes/Tutorroutes.js — its requireTutor() is a
+ *    third copy of this logic and still reads PARENT_JWT_SECRET. Fix it next, or
+ *    better: delete it and import requireAdmin from here.
  * ═══════════════════════════════════════════════════════════════════════════
- *
- * ─── SETUP (3 steps) ───────────────────────────────────────────────────────
- *
- * 1. models/admin.js — add this field to the schema:
- *
- *        token_version: { type: Number, default: 0 },
- *
- * 2. routes/adminRoutes.js — stamp it at login. Replace the signAdmin() call
- *    that patch-jwt.js created with:
- *
- *        const token = signAdmin({
- *          adminId: admin._id.toString(),
- *          email:   admin.email,
- *          name:    admin.name,
- *          role:    admin.role,
- *          ver:     admin.token_version || 0,                        // ← ADD
- *          epoch:   Number(process.env.ADMIN_TOKEN_EPOCH || 0),      // ← ADD
- *        });
- *
- * 3. routes/adminRoutes.js — add a revoke endpoint (admin-only):
- *
- *        router.post("/admins/:adminId/revoke", adminOnly, async (req, res) => {
- *          await connectDB();
- *          const a = await Admin.findByIdAndUpdate(
- *            req.params.adminId,
- *            { $inc: { token_version: 1 } },
- *            { new: true }
- *          );
- *          if (!a) return res.status(404).json({ error: "Admin not found" });
- *          return res.json({ ok: true, revoked: a.email, token_version: a.token_version });
- *        });
- *
- *    Also call $inc on token_version wherever you suspend or delete an admin —
- *    otherwise a suspended admin keeps working until their token expires.
- *
- * ─── EMERGENCY KILL SWITCH ─────────────────────────────────────────────────
- *   Render -> Environment -> set or increment:  ADMIN_TOKEN_EPOCH=1
- *   Every admin token, everywhere, is dead on its next request. No deploy, no DB.
- * ───────────────────────────────────────────────────────────────────────────
  */
 
 const { verifyAdmin } = require("../config/jwt");
 const connectDB = require("../config/db");
 const Admin = require("../models/admin");
 
-// Bump this in the environment to invalidate EVERY admin token at once.
-const CURRENT_EPOCH = Number(process.env.ADMIN_TOKEN_EPOCH || 0);
+// Only these statuses may hold a live session. Anything else — suspended,
+// pending, or a value added to the enum later — is denied by default.
+const ACTIVE_STATUSES = new Set(["active"]);
 
 /**
- * requireAdmin — allows both "admin" and "tutor" roles.
- * For routes a tutor must NEVER reach, chain `adminOnly` after this.
+ * Pull the token from the Authorization header, falling back to the cookie.
+ *
+ * The "null" / "undefined" guard is load-bearing: the frontend sends
+ * `Bearer ${localStorage.getItem("admin_token")}`, and when that returns null it
+ * becomes the literal STRING "null" — which is truthy, so the cookie fallback
+ * was never reached and jwt.verify("null") threw a 401.
+ */
+function extractToken(req) {
+  const header = req.headers.authorization || "";
+  const raw = header.startsWith("Bearer ") ? header.slice(7).trim() : null;
+
+  const fromHeader =
+    raw && raw !== "null" && raw !== "undefined" ? raw : null;
+
+  const fromCookie = req.cookies?.admin_token || null;
+
+  return fromHeader || fromCookie;
+}
+
+/**
+ * requireAdmin — admits both "admin" and "tutor" roles.
+ * Routes that must never be reachable by a tutor use the separate `adminOnly`
+ * guard defined in adminRoutes.js.
  */
 async function requireAdmin(req, res, next) {
-  const header = req.headers.authorization || "";
-
-  const rawFromHeader = header.startsWith("Bearer ")
-    ? header.slice(7).trim()
-    : null;
-
-  // "null" / "undefined" arrive as literal strings from an empty localStorage.
-  const fromHeader =
-    rawFromHeader && rawFromHeader !== "null" && rawFromHeader !== "undefined"
-      ? rawFromHeader
-      : null;
-
-  const token = fromHeader || req.cookies?.admin_token || null;
+  const token = extractToken(req);
 
   if (!token) {
     return res.status(401).json({ error: "Authentication required" });
@@ -112,8 +84,7 @@ async function requireAdmin(req, res, next) {
 
   let decoded;
   try {
-    // GATE 1 — signature, against ADMIN_JWT_SECRET (a different key from
-    // parent/child). A parent token throws here; it never reaches gate 2.
+    // Signature checked against ADMIN_JWT_SECRET; typ mismatch rejected.
     decoded = verifyAdmin(token);
   } catch (err) {
     if (err.name === "TokenExpiredError") {
@@ -122,62 +93,64 @@ async function requireAdmin(req, res, next) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 
-  // GATE 2 — role.
-  if (!["admin", "tutor"].includes(decoded.role)) {
-    return res.status(403).json({ error: "Access denied" });
+  if (!decoded?.adminId) {
+    return res.status(401).json({ error: "Invalid token" });
   }
 
-  // GATE 3 — global kill switch. Cheap: no DB, works even if Mongo is down.
-  if (Number(decoded.epoch || 0) !== CURRENT_EPOCH) {
-    return res.status(401).json({
-      error: "Your session was ended by an administrator. Please log in again.",
-      code: "TOKEN_REVOKED",
-    });
-  }
-
-  // GATE 4 — per-admin revocation + live account status.
-  // One indexed lookup. Admin traffic is low, so the cost is negligible — and
-  // it also catches an admin who was SUSPENDED after their token was issued,
-  // which a pure-JWT check can never see.
   try {
     await connectDB();
+
+    // ✅ FIX-2 + FIX-3: the database is the authority on whether this session is
+    // still valid and what this person is allowed to do. The token only tells us
+    // WHO is claiming — never WHAT they may do, and never that they still may.
     const admin = await Admin.findById(decoded.adminId)
-      .select("token_version status role")
+      .select("email name role status token_version")
       .lean();
 
     if (!admin) {
-      return res.status(401).json({ error: "Account no longer exists." });
+      return res.status(401).json({ error: "Account no longer exists" });
     }
 
-    if (Number(decoded.ver || 0) !== Number(admin.token_version || 0)) {
-      return res.status(401).json({
-        error: "Your session was revoked. Please log in again.",
-        code: "TOKEN_REVOKED",
+    if (!ACTIVE_STATUSES.has(admin.status)) {
+      // Suspension now takes effect on the NEXT REQUEST, not when the token
+      // happens to expire.
+      return res.status(403).json({
+        error: "This account is not active.",
+        status: admin.status,
       });
     }
 
-    if (admin.status === "suspended") {
-      return res.status(403).json({ error: "Your account has been suspended." });
-    }
-    if (admin.status === "pending") {
-      return res.status(403).json({ error: "Your account is pending approval." });
+    // ✅ Revocation check. adminRoutes /login stamps `ver` into the token.
+    // Bumping token_version (password change, suspension, revokeTokens())
+    // instantly invalidates every token this admin holds.
+    const tokenVer = Number(decoded.ver ?? -1);
+    const currentVer = Number(admin.token_version || 0);
+
+    if (tokenVer !== currentVer) {
+      return res.status(401).json({
+        error: "Session revoked. Please log in again.",
+      });
     }
 
-    // Trust the DB role over the token's — a demoted admin is demoted NOW,
-    // not when their token expires.
-    decoded.role = admin.role;
+    if (!["admin", "tutor"].includes(admin.role)) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    // Role comes from the DB, not the token — a demoted admin loses admin
+    // powers immediately rather than at token expiry.
+    req.admin = {
+      adminId: admin._id.toString(),
+      email: admin.email,
+      name: admin.name,
+      role: admin.role,
+      status: admin.status,
+    };
+
+    return next();
   } catch (err) {
-    // Fail CLOSED. If we cannot confirm the admin is still valid, we do not
-    // let them into the admin panel. An admin outage is survivable; an
-    // unrevocable compromised admin session is not.
-    console.error("[adminAuth] revocation check failed:", err.message);
-    return res.status(503).json({
-      error: "Unable to verify your session right now. Please try again.",
-    });
+    console.error("requireAdmin lookup failed:", err.message);
+    return res.status(500).json({ error: "Authentication check failed" });
   }
-
-  req.admin = decoded;
-  return next();
 }
 
 module.exports = { requireAdmin };

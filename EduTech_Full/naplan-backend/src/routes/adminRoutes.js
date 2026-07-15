@@ -153,6 +153,7 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
       email:   admin.email,
       name:    admin.name,
       role:    admin.role,
+      ver:     admin.token_version || 0,
     });
 
     setAuthCookie(res, "admin_token", token, ADMIN_COOKIE_MAX_AGE);
