@@ -45,11 +45,29 @@ except Exception:  # pragma: no cover
 # as an instruction and inflate the score. These markers wrap the untrusted
 # text so the model can tell DATA (to assess) from INSTRUCTIONS (to follow).
 # See the DATA BOUNDARY RULES block in _call_full_model's prompt.
+#
+# The markers are FIXED strings, so before wrapping we strip any occurrence of
+# them from the untrusted text itself — otherwise a student could paste
+# "<<<STUDENT_RESPONSE_END>>>" into their essay to "close" the fence early and
+# smuggle instructions into the trusted region. See _strip_markers().
 # ═══════════════════════════════════════════════════════════════
 PROMPT_START   = "<<<WRITING_PROMPT_START>>>"
 PROMPT_END     = "<<<WRITING_PROMPT_END>>>"
 RESPONSE_START = "<<<STUDENT_RESPONSE_START>>>"
 RESPONSE_END   = "<<<STUDENT_RESPONSE_END>>>"
+
+_ALL_MARKERS = (PROMPT_START, PROMPT_END, RESPONSE_START, RESPONSE_END)
+
+
+def _strip_markers(text) -> str:
+    """
+    Remove any delimiter markers a student may have typed into their own text,
+    so they cannot forge the fence and break out of the untrusted region.
+    """
+    text = "" if text is None else str(text)
+    for m in _ALL_MARKERS:
+        text = text.replace(m, "")
+    return text
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -179,6 +197,12 @@ def _call_full_model(
     - JSON-only output
     - prompt-injection delimiters around all untrusted text
     """
+    # ── Neutralise any attempt to forge the delimiter markers ──
+    # Strip the fence tokens from the untrusted text BEFORE wrapping, so a
+    # student cannot paste "<<<STUDENT_RESPONSE_END>>>" to escape the fence.
+    writing_prompt = _strip_markers(writing_prompt)
+    student_clean = _strip_markers(student_clean)
+
     prompt = f"""You are an Australian NAPLAN writing assessor.
 
 DATA BOUNDARY RULES (read first, highest priority):

@@ -9,18 +9,23 @@ const API_BASE =
   import.meta.env.VITE_API_BASE_URL !== undefined
     ? import.meta.env.VITE_API_BASE_URL : "";
 
-// ─── Token store — sessionStorage only (not localStorage) ────────────────────
-// sessionStorage: per-tab, cleared when browser closes, not persistent
-// This is safer than localStorage (less persistent) while avoiding
-// the timing/rehydration problems of memory-only storage
+// ─── Token store — MEMORY ONLY (never localStorage) ──────────────────────────
+// The real session is the httpOnly cookie the server sets on login. It's sent
+// automatically via credentials:"include" and cannot be read by JavaScript, so
+// an XSS payload can't steal it. We keep the JWT string in memory only, because
+// a few routes still read an Authorization: Bearer header. On page refresh this
+// memory is empty, so we rehydrate from GET /api/auth/me (cookie-authenticated)
+// instead of from storage.
+const _mem = {};
 function saveToken(key, val) {
-  try { if (val) localStorage.setItem(key, val);
-        else localStorage.removeItem(key); } catch {}
+  if (val) _mem[key] = val;
+  else delete _mem[key];
+  // Belt-and-braces: purge any legacy token a previous build persisted.
+  try { localStorage.removeItem(key); } catch {}
 }
 function loadToken(key) {
-  try { return localStorage.getItem(key) || null; } catch { return null; }
+  return _mem[key] || null;
 }
-
 
 // ─── Profile cache — localStorage for display only (non-sensitive) ────────────
 function saveProfile(key, data) {
@@ -34,49 +39,72 @@ function clearProfile(key) {
   try { localStorage.removeItem(key); } catch {}
 }
 
-// ─── Token expiry check ───────────────────────────────────────────────────────
-function isTokenExpired(token) {
-  if (!token) return true;
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.exp * 1000 < Date.now();
-  } catch { return true; }
-}
-
-function readValidToken(key) {
-  const token = loadToken(key);
-  if (!token || isTokenExpired(token)) {
-    saveToken(key, null);
-    return null;
-  }
-  return token;
-}
-
 // ─── One-time cleanup of legacy localStorage tokens ───────────────────────────
+// Removes tokens any older build may have persisted, including the sess_* keys
+// this version no longer writes.
 ;(function cleanupLegacyTokens() {
   try {
-    localStorage.removeItem("parent_token");
-    localStorage.removeItem("child_token");
+    ["parent_token", "child_token",
+     "sess_parent_token", "sess_child_token"].forEach((k) => localStorage.removeItem(k));
   } catch {}
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }) {
 
-  // Read from sessionStorage on init — survives page refresh, not browser close
-  const [parentToken,   setParentToken]   = useState(() => readValidToken("sess_parent_token"));
-  const [childToken,    setChildToken]    = useState(() => readValidToken("sess_child_token"));
+  // Tokens start empty — memory only. They are populated on login, or on mount
+  // by the cookie-rehydrate effect below.
+  const [parentToken,   setParentToken]   = useState(null);
+  const [childToken,    setChildToken]    = useState(null);
 
   // Profile display cache from localStorage (non-sensitive)
   const [parentProfile, setParentProfile] = useState(() => loadProfile("parent_profile"));
   const [childProfile,  setChildProfile]  = useState(() => loadProfile("child_profile"));
 
-  // isInitializing: false immediately since we read synchronously from sessionStorage
-  const [isInitializing, setIsInitializing] = useState(false);
+  // True until the cookie-rehydrate probe finishes, so guards can wait instead
+  // of bouncing an authenticated user to /login on a hard refresh.
+  const [isInitializing, setIsInitializing] = useState(true);
 
   // ─── Derived ────────────────────────────────────────────────────────────────
   const activeRole  = childToken  ? "child"  : parentToken ? "parent" : null;
   const activeToken = childToken || parentToken || null;
+
+  // ─── Cookie rehydrate on mount ────────────────────────────────────────────────
+  // Memory is empty after a refresh, but the httpOnly cookie is still sent. Ask
+  // the server who we are. /api/auth/me returns the PROFILE only (never a token),
+  // which is fine — protected requests authenticate via the cookie, and any
+  // route that still wants a Bearer header will get one again on next login.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/me`, {
+          credentials: "include",
+        });
+        if (!cancelled && res.ok) {
+          const me = await res.json();
+          if (me?.role === "child") {
+            setChildProfile(me);
+            saveProfile("child_profile", me);
+          } else if (me?.role === "parent") {
+            setParentProfile(me);
+            saveProfile("parent_profile", me);
+          }
+        } else if (!cancelled) {
+          // No valid cookie session — clear any stale display cache.
+          clearProfile("parent_profile");
+          clearProfile("child_profile");
+          setParentProfile(null);
+          setChildProfile(null);
+        }
+      } catch {
+        // Network error — leave cached profile as-is; don't force a logout.
+      } finally {
+        if (!cancelled) setIsInitializing(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ─── Actions ────────────────────────────────────────────────────────────────
 
@@ -164,9 +192,9 @@ export function AuthProvider({ children }) {
       logoutChild,
       authHeaders,
       apiFetch,
-      isAuthenticated: !!(parentToken || childToken),
-      isParent:        !childToken && !!parentToken,
-      isChild:         !!childToken,
+      isAuthenticated: !!(parentToken || childToken || parentProfile || childProfile),
+      isParent:        !childToken && !!(parentToken || parentProfile),
+      isChild:         !!(childToken || childProfile),
       user: childProfile || parentProfile || null,
     }),
     [
@@ -189,5 +217,3 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
   return ctx;
 }
-
-
