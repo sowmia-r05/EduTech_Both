@@ -1,11 +1,10 @@
 /**
- * QuizDetailPage.jsx — v4 (AI image generation added)
+ * QuizDetailPage.jsx — v5 (COOKIE AUTH)
  *
- * CHANGES FROM v3:
- *   ✅ Import AIImageGenerator
- *   ✅ showAiGen state inside QuestionEditor
- *   ✅ ✨ AI button next to Upload button in Image URL row
- *   ✅ <AIImageGenerator /> modal rendered at end of QuestionEditor
+ * CHANGES FROM v4:
+ *   ✅ adminFetch sends credentials:"include" — no Authorization header
+ *   ✅ getAdminRole() deleted; role now read from GET /api/admin/me
+ *   ✅ All three upload calls use the cookie instead of a Bearer token
  *
  * Place at: src/app/components/admin/QuizDetailPage.jsx
  */
@@ -51,25 +50,14 @@ function stripHtml(html) {
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
+// Session is the httpOnly admin_token cookie — nothing to read from storage.
+// The cookie is sent automatically by credentials:"include".
 function adminFetch(url, opts = {}) {
-  const token = localStorage.getItem("admin_token");
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    ...(opts.headers || {}),
-  };
+  const headers = { ...(opts.headers || {}) };
   if (!headers["Content-Type"] && typeof opts.body === "string") {
     headers["Content-Type"] = "application/json";
   }
-  return fetch(`${API}${url}`, { ...opts, headers });
-}
-
-function getAdminRole() {
-  try {
-    const token = localStorage.getItem("admin_token");
-    if (!token) return null;
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.role || null;
-  } catch { return null; }
+  return fetch(`${API}${url}`, { ...opts, credentials: "include", headers });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -256,12 +244,12 @@ function FileUploadButton({ onUploaded, accept = "image/*", label = "Upload" }) 
     if (!file) return;
     setUploading(true);
     try {
-      const token = localStorage.getItem("admin_token");
       const fd = new FormData();
       fd.append("file", file);
+      // No headers object: the browser must set the multipart boundary itself.
       const res = await fetch(`${API}/api/admin/upload`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: fd,
       });
       if (!res.ok) {
@@ -734,7 +722,7 @@ function BulkMoveModal({ questionIds, currentQuizId, onClose, onMoved }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// QuestionEditor — UPDATED WITH ✨ AI BUTTON
+// QuestionEditor
 // ═══════════════════════════════════════════════════════════════
 function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const [form, setForm] = useState({
@@ -777,7 +765,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
   const [selectionToolbar, setSelectionToolbar] = useState(null);
   const editorRef = useRef(null);
   const [showRawHtml, setShowRawHtml] = useState(false);
-  const [showAiGen, setShowAiGen] = useState(false); // ✨ AI modal state
+  const [showAiGen, setShowAiGen] = useState(false);
 
   const syncFromEditor = () => {
     if (editorRef.current) {
@@ -1049,7 +1037,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
               <>
                 <option value="category_drop">Category Drop — sort into boxes</option>
                 <option value="line_match">Line Match — draw lines to connect</option>
-                <option value="drag_drop_cards">Drag & Drop Cards — modern card style</option>
+                <option value="drag_drop_cards">Drag &amp; Drop Cards — modern card style</option>
                 <option value="tap_to_pair">Tap to Pair — tap left then right</option>
               </>
             )}
@@ -1070,9 +1058,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* IMAGE URL ROW — NOW WITH ✨ AI BUTTON                       */}
-      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* IMAGE URL ROW */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">Image URL</label>
         <div className="flex items-center gap-2">
@@ -1081,7 +1067,6 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
             className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
           <FileUploadButton accept="image/*,.pdf" label="Upload" onUploaded={(url) => setForm((f) => ({ ...f, image_url: url }))} />
 
-          {/* ✨ NEW — AI Generate button */}
           <button
             type="button"
             onClick={() => setShowAiGen(true)}
@@ -1276,7 +1261,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
                           try {
                             const res = await fetch(`${API}/api/admin/upload`, {
                               method: "POST",
-                              headers: { Authorization: `Bearer ${localStorage.getItem("admin_token")}` },
+                              credentials: "include",
                               body: formData,
                             });
                             if (!res.ok) {
@@ -1434,7 +1419,16 @@ export default function QuizDetailPage() {
     }
   };
 
-  const adminRole = getAdminRole();
+  // Role comes from the server (cookie-authenticated), not a decoded local token.
+  const [adminRole, setAdminRole] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    adminFetch("/api/admin/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setAdminRole(d?.admin?.role || null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   const canVerify = ["admin", "tutor"].includes(adminRole);
 
   const fetchDetail = useCallback(async () => {

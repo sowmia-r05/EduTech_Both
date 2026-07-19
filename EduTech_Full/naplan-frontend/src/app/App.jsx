@@ -63,26 +63,14 @@ function RequireNoChild({ children }) {
   return children;
 }
 
-// Only admin role redirects to dashboard on register guard
-function isAdminLoggedIn() {
-  const token = localStorage.getItem("admin_token");
-  if (!token) return false;
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    if (payload.exp * 1000 < Date.now()) return false;
-    return payload.role === "admin";
-  } catch {
-    return false;
-  }
-}
-
+// The admin session is an httpOnly cookie that JavaScript cannot read, so
+// there is no local token to decode here. An invite token is now the only
+// thing gating this page; the register endpoint itself validates it, and
+// RequireAdmin guards every real admin route.
 function AdminRegisterGuard() {
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get("invite") || "";
 
-  if (isAdminLoggedIn()) {
-    return <Navigate to={`${ADMIN_PATH}/dashboard`} replace />;
-  }
   if (!inviteToken) {
     return <Navigate to={ADMIN_PATH} replace />;
   }

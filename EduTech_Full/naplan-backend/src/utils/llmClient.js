@@ -17,9 +17,27 @@
  *
  * For auto-fallback (recommended in production):
  *   const llm = createLLMClientWithFallback();
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * SECURITY NOTE — systemPrompt IS A TRUST BOUNDARY
+ *
+ *   Callers reasonably assume `systemPrompt` carries more authority than
+ *   `prompt`. That assumption used to hold on four providers and silently fail
+ *   on two: gemini and ollama flattened both into a single string, so switching
+ *   LLM_PROVIDER changed the security posture without changing any calling code.
+ *   Gemini was both the DEFAULT and the production provider — i.e. the one live
+ *   path was the weakest one.
+ *
+ *   Gemini now uses its native `systemInstruction` field. Ollama's /api/generate
+ *   has no system channel at all, so it still flattens — that is an API
+ *   limitation, not a bug, and it makes ollama the wrong provider for anything
+ *   handling untrusted input.
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 
 // ─── Provider: Gemini ────────────────────────────────────────
+// ✅ systemPrompt goes in `systemInstruction`, NOT concatenated into the user
+//    turn. See the security note above.
 async function geminiGenerate({ prompt, temperature = 0.4, maxTokens = 4000, systemPrompt }) {
   const apiKey = process.env.LLM_API_KEY || process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("Gemini: no API key set (GEMINI_API_KEY or LLM_API_KEY)");
@@ -27,18 +45,21 @@ async function geminiGenerate({ prompt, temperature = 0.4, maxTokens = 4000, sys
   const model = process.env.LLM_MODEL || "gemini-2.0-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-  const finalPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
+  const body = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { temperature, maxOutputTokens: maxTokens },
+  };
+  if (systemPrompt) {
+    body.systemInstruction = { parts: [{ text: systemPrompt }] };
+  }
 
   const res = await fetch(url, {
     method: "POST",
     headers: {
-    "Content-Type": "application/json",
-    "x-goog-api-key": apiKey,                         
-  },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: finalPrompt }] }],
-      generationConfig: { temperature, maxOutputTokens: maxTokens },
-    }),
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -184,6 +205,11 @@ async function togetherGenerate({ prompt, temperature = 0.4, maxTokens = 4000, s
 // ─── Provider: Ollama (self-hosted OPEN-SOURCE) ──────────────
 // Run models locally: https://ollama.com
 // No API key needed. Set OLLAMA_BASE_URL if not on localhost.
+//
+// ⚠️ /api/generate has NO system channel — systemPrompt must be concatenated
+//    into the prompt, so there is no privileged instruction region. Do not use
+//    this provider for anything that puts untrusted (child-authored) text into
+//    `prompt`. Trusted admin content generation only.
 async function ollamaGenerate({ prompt, temperature = 0.4, maxTokens = 4000, systemPrompt }) {
   const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
   const model = process.env.LLM_MODEL || "llama3.2";

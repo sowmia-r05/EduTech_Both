@@ -37,8 +37,7 @@ export default function AdminLogin() {
       if (!res.ok) throw new Error(data.error || "Login failed");
 
       // Store token + profile in localStorage for quick access
-      localStorage.setItem("admin_token", data.token);
-      if (data.admin) localStorage.setItem("admin_info", JSON.stringify(data.admin));
+       if (data.admin) localStorage.setItem("admin_info", JSON.stringify(data.admin));
 
       navigate(`${ADMIN_PATH}/dashboard`);
     } catch (err) {
