@@ -173,9 +173,9 @@ router.post("/attempts/:attemptId/explain", async (req, res) => {
 
     return res.json({ success: true, explanations });
 
-  } catch (err) {
-    console.error("POST /explain error:", err.message);
-    return res.status(500).json({ error: err.message });
+} catch (err) {
+    req.log.error({ err }, "explain route failed");
+    return res.status(500).json({ error: "Could not load explanations. Please try again." });
   }
 });
 
