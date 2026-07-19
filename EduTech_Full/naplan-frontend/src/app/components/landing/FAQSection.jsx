@@ -1,6 +1,5 @@
-import { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
-import { motion } from 'framer-motion'
+// src/app/components/landing/FAQSection.jsx
+import { ChevronDown, BookOpen } from 'lucide-react'
 
 const FAQS = [
   {
@@ -17,13 +16,11 @@ const FAQS = [
   },
   {
     question: 'Is writing feedback included?',
-    answer: 'Yes, AI-powered feedback is included for writing tasks.'
+    answer: 'Yes — writing tasks are marked by AI (Google Gemini), not a human teacher. See our full parent guide for details.'
   }
 ]
 
 export default function FAQSection() {
-  const [openIndex, setOpenIndex] = useState(null)
-
   return (
     <section id="faq" className="py-24 bg-white scroll-mt-28">
       <div className="mx-auto max-w-4xl px-6 text-center">
@@ -34,27 +31,39 @@ export default function FAQSection() {
 
         <div className="space-y-4 text-left">
           {FAQS.map((faq, idx) => (
-            <motion.div
+            <details
               key={idx}
-              onClick={() => setOpenIndex(openIndex === idx ? null : idx)}
-              className="border rounded-xl border-gray-200 p-5 cursor-pointer hover:shadow-sm transition"
+              className="group border rounded-xl border-gray-200 p-5 cursor-pointer hover:shadow-sm transition"
             >
-              <div className="flex justify-between items-center">
+              <summary className="flex justify-between items-center marker:content-['']">
                 <h3 className="text-lg font-semibold text-gray-800">
                   {faq.question}
                 </h3>
-                <ChevronDown
-                  className={`h-5 w-5 transition-transform ${
-                    openIndex === idx ? 'rotate-180' : ''
-                  }`}
-                />
-              </div>
-
-              {openIndex === idx && (
-                <p className="mt-3 text-gray-600">{faq.answer}</p>
-              )}
-            </motion.div>
+                <ChevronDown className="h-5 w-5 transition-transform group-open:rotate-180" />
+              </summary>
+              <p className="mt-3 text-gray-600">{faq.answer}</p>
+            </details>
           ))}
+        </div>
+
+        {/* ── CTA: guide visitors to the full parent guide (/help) ── */}
+        <div className="mt-12 rounded-2xl border border-indigo-100 bg-indigo-50 px-6 py-8">
+          <div className="flex flex-col items-center gap-3">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100">
+              <BookOpen className="h-6 w-6 text-indigo-600" />
+            </span>
+            <h3 className="text-xl font-bold text-gray-900">New here? Read the Parent Guide</h3>
+            <p className="max-w-md text-sm text-gray-600">
+              A step-by-step walkthrough — from creating your account to reading your
+              child&apos;s first results — plus answers to every common question.
+            </p>
+            <a
+              href="#/help"
+              className="mt-2 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-indigo-700"
+            >
+              Open Parent Guide &amp; FAQ →
+            </a>
+          </div>
         </div>
 
       </div>

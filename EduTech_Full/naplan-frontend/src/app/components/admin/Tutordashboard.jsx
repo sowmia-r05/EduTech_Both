@@ -1186,7 +1186,7 @@ export default function TutorDashboard() {
                             <p className="text-[10px] text-amber-500 font-bold mb-0.5">Explanation</p>
                             <div
                               className="text-xs text-amber-400/80 prose prose-sm max-w-none"
-                                dangerouslySetInnerHTML={{ __html: q.explanation }}
+                                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(q.explanation) }}
                               />
                           </div>
                         )}

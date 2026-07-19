@@ -47,7 +47,7 @@ export default function Navbar() {
   const links = [
     { id: "home", label: "Home" },
     { id: "why", label: "Why Choose Us" },
-    { id: "pricing", label: "Pricing"},
+    { id: "pricing", label: "Pricing" },
     { id: "faq", label: "FAQ" },
   ];
 
@@ -72,7 +72,7 @@ export default function Navbar() {
           </div>
 
           {/* Desktop Links */}
-          <nav className="hidden md:flex items-center gap-10 font-medium">
+          <nav className="hidden lg:flex items-center gap-10 font-medium">
             {links.map((item) => (
               <ScrollLink
                 key={item.id}
@@ -92,7 +92,7 @@ export default function Navbar() {
           </nav>
 
           {/* Desktop Buttons */}
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden lg:flex items-center gap-6">
             <button
               onClick={handleLoginClick}
               className="text-gray-600 hover:text-indigo-600 transition"
@@ -109,14 +109,14 @@ export default function Navbar() {
           </div>
 
           {/* Mobile Menu Button */}
-          <button className="md:hidden" onClick={() => setOpen(!open)}>
+          <button className="lg:hidden" onClick={() => setOpen(!open)}>
             {open ? <X /> : <Menu />}
           </button>
         </div>
 
         {/* Mobile Menu */}
         {open && (
-          <div className="md:hidden bg-white border-t border-gray-100 px-6 py-6 space-y-6">
+          <div className="lg:hidden bg-white border-t border-gray-100 px-6 py-6 space-y-6">
             {links.map((item) => (
               <ScrollLink
                 key={item.id}

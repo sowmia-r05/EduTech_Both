@@ -1,14 +1,19 @@
 /**
- * jobs/weeklyProgressCron.js
+ * jobs/weeklyProgressEmail.js
  *
  * In-process weekly cron for progress emails.
  * Runs inside server.js — no extra Render service needed.
+ *
+ * ✅ MULTI-INSTANCE: the tick is gated by amILeader(). With >= 2 instances,
+ *    every instance runs this timer, so without the gate each parent would
+ *    receive N copies of the same email. Only the lease holder sends.
  */
 
 const Child = require("../models/child");
 const Parent = require("../models/parent");
 const QuizAttempt = require("../models/quizAttempt");
 const { sendWeeklyProgressEmail } = require("../services/emailNotifications");
+const { amILeader } = require("../utils/cronLeader");
 
 function scheduleWeekly() {
   // Check every hour if it's time to send
@@ -22,6 +27,11 @@ function scheduleWeekly() {
 
     // Run on Sunday 10pm UTC (= Monday 8am AEST)
     if (utcDay !== 0 || utcHour !== 22) return;
+
+    // ✅ Only the elected leader sends. Checked BEFORE lastRunDate so a
+    //    follower never burns its own daily flag — if leadership moves to
+    //    this instance later, it can still run.
+    if (!amILeader()) return;
 
     // Prevent running twice in the same day
     const today = now.toISOString().slice(0, 10);
@@ -122,7 +132,7 @@ function scheduleWeekly() {
     }
   }, INTERVAL);
 
-  console.log("⏰ Weekly progress email cron scheduled (Monday 8am AEST)");
+  console.log("⏰ Weekly progress email cron scheduled (Monday 8am AEST, leader-gated)");
 }
 
 module.exports = { scheduleWeekly };

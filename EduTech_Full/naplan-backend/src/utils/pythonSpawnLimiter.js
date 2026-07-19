@@ -12,7 +12,7 @@
 //   MAX_CONCURRENT_PYTHON  (default 1)   — how many may run at once
 //   MAX_PYTHON_QUEUE       (default 10)  — how many may wait before we shed load
 
-const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_PYTHON || "1", 10);
+const MAX_CONCURRENT  = parseInt(process.env.MAX_CONCURRENT_PYTHON || "1", 10);
 const MAX_QUEUE       = parseInt(process.env.MAX_PYTHON_QUEUE || "10", 10);
 
 class PythonBusyError extends Error {
