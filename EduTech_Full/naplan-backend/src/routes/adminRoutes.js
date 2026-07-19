@@ -85,15 +85,8 @@ router.post("/register", async (req, res) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: "Valid email is required" });
     }
-    if (!password || password.length < 12) {
-      return res.status(400).json({ error: "Password must be at least 12 characters" });
-    }
-    if (!/[A-Z]/.test(password)) {
-      return res.status(400).json({ error: "Password must contain at least one uppercase letter" });
-    }
-    if (!/[0-9]/.test(password)) {
-      return res.status(400).json({ error: "Password must contain at least one number" });
-    }
+    const pwError = validatePassword(password);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     const existing = await Admin.findOne({ email });
     if (existing) {
@@ -103,9 +96,13 @@ router.post("/register", async (req, res) => {
     invite.used = true;
     await invite.save();
 
-    const password_hash = await bcrypt.hash(password, 12);
-    const admin = await Admin.create({ email, name, password_hash, role: "admin", status: "active" });
-
+    // Pass the RAW password — models/admin.js pre-save hook hashes it.
+    // Single hashing path across every call site.
+    const admin = await Admin.create({
+      email, name,
+      password_hash: password,
+      role: "admin", status: "active",
+    });
     return res.status(201).json({
       ok: true,
       message: "Account created. You can now log in.",
@@ -371,9 +368,8 @@ router.post("/tutors", async (req, res) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: "Valid email is required" });
     }
-    if (!password || password.length < 8) {
-      return res.status(400).json({ error: "Password must be at least 8 characters" });
-    }
+    const pwError = validatePassword(password);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     const existing = await Admin.findOne({ email });
     if (existing) return res.status(409).json({ error: "An account with this email already exists" });
@@ -435,9 +431,8 @@ router.patch("/tutors/:tutorId/edit", async (req, res) => {
     tutor.name = String(name).trim();
 
     if (password) {
-      if (String(password).length < 8) {
-        return res.status(400).json({ error: "Password must be at least 8 characters" });
-      }
+      const pwError = validatePassword(password);
+      if (pwError) return res.status(400).json({ error: pwError });
       tutor.password_hash = String(password);
     }
 

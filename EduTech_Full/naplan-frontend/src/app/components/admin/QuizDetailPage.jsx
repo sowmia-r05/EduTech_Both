@@ -18,6 +18,13 @@ import CollapsibleImageResize from "./CollapsibleImageResize";
 import CollapsibleTextStyle, { buildTextStyle } from "./Collapsibletextstyle";
 import DOMPurify from "dompurify";
 
+// Editor allowlist: keeps the rich-text formatting the toolbar produces,
+// plus the audio/video/img embeds the editor explicitly supports.
+const EDITOR_CLEAN = {
+  ADD_TAGS: ["audio", "video", "source"],
+  ADD_ATTR: ["controls", "preload", "loop", "muted", "poster", "playsinline"],
+};
+const cleanHtml = (html) => DOMPurify.sanitize(String(html || ""), EDITOR_CLEAN);
 
 // ─── formatTimestamp ──────────────────────────────────────────────────────────
 function formatTimestamp(iso) {
@@ -791,7 +798,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
       if (/^<(audio|video|img)[^>]*>(\s*<\/(audio|video)>)?$/i.test(trimmed)) {
         html = `<p><br></p>${trimmed}<p><br></p>`;
       }
-      editorRef.current.innerHTML = html;
+      editorRef.current.innerHTML = cleanHtml(html);
     }
   }, []);
 
@@ -949,7 +956,7 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
             value={form.text}
             onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
             onBlur={() => {
-              if (editorRef.current) editorRef.current.innerHTML = form.text;
+              if (editorRef.current) editorRef.current.innerHTML = cleanHtml(form.text);
             }}
             className="w-full bg-slate-900 border border-slate-600 rounded-b-lg px-3 py-2 text-xs text-white font-mono outline-none focus:ring-2 focus:ring-indigo-500"
           />
@@ -960,7 +967,6 @@ function QuestionEditor({ question, quizRandomizeOptions, onSave, onCancel }) {
             suppressContentEditableWarning
             onInput={syncFromEditor}
             onBlur={syncFromEditor}
-            dangerouslySetInnerHTML={undefined}
             className="w-full min-h-[80px] bg-slate-900 border border-slate-600 rounded-b-lg px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
             style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
           />
