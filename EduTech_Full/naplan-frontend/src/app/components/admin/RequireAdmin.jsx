@@ -47,7 +47,7 @@ export default function RequireAdmin({ children }) {
 
   // Still verifying the cookie session — render nothing (or a spinner) so we
   // don't flash-redirect an authenticated admin on a hard refresh.
-  if (allowed === null) return null;
+  if (allowed === null) return <WakingUpLoader onRetry={() => window.location.reload()} />;
 
   if (!allowed) {
     // Clear any stale display cache a previous build left behind.
