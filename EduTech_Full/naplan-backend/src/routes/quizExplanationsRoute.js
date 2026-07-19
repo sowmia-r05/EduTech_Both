@@ -3,13 +3,33 @@
  *
  * Admin bulk job: generate per-year explanations for every question in a quiz.
  *
- *   POST /api/admin/quizzes/:quizId/generate-explanations
- *   GET  /api/admin/quizzes/:quizId/generate-explanations/status
+ * ⚠️ ACTUAL MOUNTED PATHS — this router is mounted in app.js as
+ *      app.use("/api", quizExplanationsRoute);
+ *    ...NOT "/api/admin". So the real URLs are:
+ *
+ *      POST /api/quizzes/:quizId/generate-explanations
+ *      GET  /api/quizzes/:quizId/generate-explanations/status
+ *
+ *    The old header claimed "/api/admin/..." which was wrong and is what
+ *    masked the auth bug below.
  *
  * ═══════════════════════════════════════════════════════════════════════
- * CHANGE: the Python spawn now goes through the SHARED limiter.
+ * SECURITY FIX: guards changed from `verifyToken, requireAuth` to
+ * `requireAdmin`.
  *
- * Why this file mattered even though it was already sequential:
+ *   verifyToken/requireAuth is the CHILD/PARENT auth chain. Because this
+ *   router sits under the bare "/api" prefix, any logged-in child could POST
+ *   to this endpoint and kick off an unbounded per-question Python/Gemini
+ *   batch over an entire quiz. On a 512MB Render box with
+ *   MAX_CONCURRENT_PYTHON=1 that is both a denial-of-service against live
+ *   quiz submissions and an uncapped Gemini spend vector.
+ *
+ *   requireAdmin verifies against ADMIN_JWT_SECRET and checks token_version,
+ *   matching every other admin generation route.
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * ═══════════════════════════════════════════════════════════════════════
+ * The Python spawn goes through the SHARED limiter.
  *
  *   The for...of loop awaits each question, so this file never ran more than
  *   ONE Python process at a time on its own. That looked safe — but it was
@@ -43,7 +63,9 @@ const { spawn } = require("child_process");
 const path = require("path");
 const connectDB = require("../config/db");
 const Question = require("../models/question");
-const { verifyToken, requireAuth } = require("../middleware/auth");
+
+// ✅ SECURITY FIX: admin guard, not the child/parent chain.
+const { requireAdmin } = require("../middleware/adminAuth");
 
 // ✅ Shared process-wide Python concurrency limiter
 const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
@@ -135,13 +157,12 @@ async function runExplainQuestion(question) {
 }
 
 // ═══════════════════════════════════════════════════
-// GET /api/admin/quizzes/:quizId/generate-explanations/status
+// GET /api/quizzes/:quizId/generate-explanations/status
 // ✅ Frontend polls this to check progress
 // ═══════════════════════════════════════════════════
 router.get(
   "/quizzes/:quizId/generate-explanations/status",
-  verifyToken,
-  requireAuth,
+  requireAdmin,
   (req, res) => {
     const progress = progressMap.get(req.params.quizId);
     if (!progress) {
@@ -152,12 +173,11 @@ router.get(
 );
 
 // ═══════════════════════════════════════════════════
-// POST /api/admin/quizzes/:quizId/generate-explanations
+// POST /api/quizzes/:quizId/generate-explanations
 // ═══════════════════════════════════════════════════
 router.post(
   "/quizzes/:quizId/generate-explanations",
-  verifyToken,
-  requireAuth,
+  requireAdmin,
   async (req, res) => {
     try {
       await connectDB();

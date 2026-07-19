@@ -1,5 +1,5 @@
 /**
- * services/aiFeedbackService.js  (v2 — robust Python JSON parser)
+ * services/aiFeedbackService.js  (v3 — cross-instance atomic lock)
  *
  * DATA STORAGE RULES (enforced by isWriting flag):
  *   - Non-writing (MCQ/Reading/Numeracy/Language): saved to QuizAttempt ONLY
@@ -17,19 +17,31 @@
  *   Writing: queued → generating → done | error  (in Writing collection)
  *
  * FIXES:
- *   1. In-memory lock prevents duplicate triggerAiFeedback calls for same attempt
+ *   1. NEW v3: Cross-instance duplicate guard. The old in-memory Set only
+ *      stopped duplicates within ONE process — useless behind a load balancer
+ *      with >= 2 instances, where the same submission hitting two instances
+ *      would run the whole pipeline twice (double Gemini spend + a race on the
+ *      doc). Now triggerAiFeedback acquires the attempt with an ATOMIC Mongo
+ *      findOneAndUpdate that flips ai_feedback_meta.status → "generating" only
+ *      if it isn't already generating (or the lock has gone stale). Whoever
+ *      wins the flip owns the job; every other caller gets null and bails.
+ *      This is what makes the web tier safe to run stateless with >= 2
+ *      instances. No Redis required — the status transition IS the lock, and
+ *      generated_at is its heartbeat.
  *   2. QuizAttempt snapshot is fetched BEFORE Python runs (safe from deletion)
  *   3. question_text is enriched from Question collection BEFORE building payload
- *   4. NEW v2: runPythonScript() uses robust JSON extraction — extracts the last
+ *   4. runPythonScript() uses robust JSON extraction — extracts the last
  *      valid {...} block from stdout instead of hard JSON.parse(). This prevents
  *      ai_feedback_meta from getting stuck on status="error" when Python prints
  *      any warnings, pip output, or deprecation notices before the JSON.
- *   5. NEW: both Python spawns run through runWithPythonLimit — a process-wide
+ *   5. Both Python spawns run through runWithPythonLimit — a process-wide
  *      concurrency cap (MAX_CONCURRENT_PYTHON) with a bounded wait-queue
  *      (MAX_PYTHON_QUEUE). When pool + queue are full the spawn rejects with
  *      PythonBusyError (status 503) instead of forking another process and
  *      OOM-killing the instance. On a busy pool a submission is marked "error"
  *      by the catch blocks below (visible failure) rather than crashing the box.
+ *      NOTE: this pool is PER-INSTANCE by design — each box guards its own RAM.
+ *      Global Python concurrency = MAX_CONCURRENT_PYTHON × instance_count.
  */
 
 const { spawn } = require("child_process");
@@ -67,21 +79,65 @@ console.log(`📁 Backend root: ${BACKEND_ROOT}`);
 console.log(`🔑 GEMINI_API_KEY set: ${!!process.env.GEMINI_API_KEY}`);
 
 // ─────────────────────────────────────────────────────────────
-// FIX 1: In-memory lock — prevents double-trigger race condition
+// FIX 1 (v3): Cross-instance duplicate guard via an ATOMIC Mongo lock.
+//
+// The old in-memory `Set` only stopped duplicates within ONE process. Behind a
+// load balancer with >= 2 instances, the same submission hitting two instances
+// would run the whole pipeline twice (double Gemini spend + a race on the doc).
+//
+// acquireAttemptLock() atomically flips ai_feedback_meta.status → "generating"
+// ONLY if it isn't already generating (or the existing lock is older than
+// LOCK_STALE_MS, i.e. a crashed run). Whoever wins the flip owns the job;
+// everyone else gets null and bails. No Redis needed — Atlas gives us the
+// atomicity for free.
+//
+// generated_at doubles as the lock heartbeat. We reuse it (rather than a new
+// field) so this keeps working even if ai_feedback_meta is a strict subdocument
+// that would silently strip an unknown field.
+//
+// The lock is SELF-RELEASING: writing any terminal status (done|error), or
+// deleting the writing QuizAttempt, means the doc no longer matches
+// status="generating", so the next call re-acquires cleanly. A run that dies
+// without writing either is reclaimed automatically after LOCK_STALE_MS.
 // ─────────────────────────────────────────────────────────────
-const activeAttempts = new Set();
+const LOCK_STALE_MS = FEEDBACK_TIMEOUT_MS + 60000; // 3 min — longer than the Python timeout
+
+async function acquireAttemptLock(attemptId) {
+  const staleBefore = new Date(Date.now() - LOCK_STALE_MS);
+
+  const locked = await QuizAttempt.findOneAndUpdate(
+    {
+      attempt_id: attemptId,
+      $or: [
+        { "ai_feedback_meta.status": { $ne: "generating" } },
+        { "ai_feedback_meta.generated_at": { $lt: staleBefore } },
+        { "ai_feedback_meta.generated_at": { $exists: false } },
+      ],
+    },
+    {
+      $set: {
+        "ai_feedback_meta.status": "generating",
+        "ai_feedback_meta.status_message": "Generating AI feedback...",
+        "ai_feedback_meta.generated_at": new Date(), // heartbeat
+      },
+    },
+    { new: true }
+  ).lean();
+
+  return locked; // null → someone else owns it (or the attempt doesn't exist)
+}
 
 // ─────────────────────────────────────────────────────────────
 // Python runner — MCQ subject feedback
 //
-// ✅ FIX v2: Robust JSON parser
-// Old code: resolve(JSON.parse(stdout))
-//   → crashes if Python prints ANY log line before the JSON
-//   → catch block sets status="error", nothing saved to QuizAttempt
+// Robust JSON parser:
+//   Old code: resolve(JSON.parse(stdout))
+//     → crashes if Python prints ANY log line before the JSON
+//     → catch block sets status="error", nothing saved to QuizAttempt
 //
-// New code: tries direct parse first, then extracts last {...} block
-//   → handles pip output, deprecation warnings, debug prints
-//   → only rejects if truly no JSON found at all
+//   New code: tries direct parse first, then extracts last {...} block
+//     → handles pip output, deprecation warnings, debug prints
+//     → only rejects if truly no JSON found at all
 //
 // ✅ Wrapped in runWithPythonLimit — the spawn only happens once a slot is
 //    free; rejects with PythonBusyError (503) if pool + queue are both full.
@@ -265,6 +321,9 @@ function buildWritingFeedbackPayload({ quizName, yearLevel, enrichedAnswers }) {
 //
 // Called ONLY when isWriting === false
 // Stores: ai_feedback, ai_feedback_meta, performance_analysis, status="ai_done"
+//
+// Writing a terminal status here also RELEASES the distributed lock, because
+// the doc no longer matches status="generating".
 // ─────────────────────────────────────────────────────────────
 async function updateAttemptWithFeedback(attemptId, feedbackResult) {
   const update = {};
@@ -302,7 +361,8 @@ async function updateAttemptWithFeedback(attemptId, feedbackResult) {
 // Save AI result to Writing collection (WRITING ONLY)
 //
 // Called ONLY when isWriting === true
-// After saving, the QuizAttempt is DELETED — writing data lives here permanently
+// After saving, the QuizAttempt is DELETED — writing data lives here permanently.
+// Deleting the QuizAttempt also releases the distributed lock for that attempt.
 // ─────────────────────────────────────────────────────────────
 async function saveWritingToCollection({
   attemptId, quizId, quizName, yearLevel, childId,
@@ -461,25 +521,17 @@ async function syncWritingAttempt(params) {
 async function triggerAiFeedback(params) {
   const { attemptId, isWriting } = params;
 
-  // FIX 1: Prevent duplicate execution for the same attempt
-  if (activeAttempts.has(attemptId)) {
-    console.warn(`⚠️ triggerAiFeedback already running for ${attemptId} — skipping duplicate`);
+  // FIX 1 (v3): Atomically acquire the attempt. If another call — on this or any
+  // other instance — is already generating (and its lock isn't stale), we get
+  // null and bail. This single op also performs the "mark generating" that the
+  // old code did in a separate, non-atomic updateOne.
+  const lock = await acquireAttemptLock(attemptId);
+  if (!lock) {
+    console.warn(`⚠️ triggerAiFeedback: lock held for ${attemptId} (already generating or attempt missing) — skipping duplicate`);
     return;
   }
-  activeAttempts.add(attemptId);
 
   try {
-    // Mark as generating in QuizAttempt first (applies to both paths at this stage)
-    await QuizAttempt.updateOne(
-      { attempt_id: attemptId },
-      {
-        $set: {
-          "ai_feedback_meta.status": "generating",
-          "ai_feedback_meta.status_message": "Generating AI feedback...",
-        },
-      }
-    );
-
     let result;
 
     if (isWriting) {
@@ -527,6 +579,7 @@ async function triggerAiFeedback(params) {
       }
 
       // Save to Writing collection — QuizAttempt deleted inside saveWritingToCollection
+      // (which also releases the distributed lock for this attempt).
       await saveWritingToCollection({
         ...params,
         feedbackResult: result,
@@ -550,7 +603,8 @@ async function triggerAiFeedback(params) {
         result = { success: false, error: `Subject feedback failed: ${pythonErr.message}` };
       }
 
-      // Save ai_feedback + ai_feedback_meta + performance_analysis to QuizAttempt
+      // Save ai_feedback + ai_feedback_meta + performance_analysis to QuizAttempt.
+      // Writing a terminal status (done|error) here releases the distributed lock.
       await updateAttemptWithFeedback(attemptId, result);
     }
 
@@ -572,7 +626,10 @@ async function triggerAiFeedback(params) {
   } catch (err) {
     console.error(`❌ AI feedback failed for attempt ${attemptId}:`, err.message);
 
-    // Only update QuizAttempt on error for MCQ — writing QuizAttempt may already be deleted
+    // Only update QuizAttempt on error for MCQ — writing QuizAttempt may already
+    // be deleted. Writing "error" (a non-generating status) also RELEASES the
+    // distributed lock. A run that dies before writing any terminal status is
+    // reclaimed automatically after LOCK_STALE_MS, so no finally/unlock is needed.
     if (!isWriting) {
       await QuizAttempt.updateOne(
         { attempt_id: attemptId },
@@ -585,8 +642,6 @@ async function triggerAiFeedback(params) {
         }
       ).catch(() => {});
     }
-  } finally {
-    activeAttempts.delete(attemptId);
   }
 }
 

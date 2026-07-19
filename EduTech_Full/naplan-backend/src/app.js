@@ -185,6 +185,7 @@ app.use(sanitizeMongo);
 
 // ─── Route imports ────────────────────────────────────────────────────────────
 const healthRoutes = require("./routes/healthRoutes");
+const supportRoutes = require("./routes/supportRoutes"); 
 const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const writingRoutes = require("./routes/writingRoutes");
@@ -220,7 +221,7 @@ const {
 
 // ─── Health check (no rate limit, no auth) ───────────────────────────────────
 app.use("/api", healthRoutes);
-
+app.use("/api/support", supportRoutes); 
 // ─── Rate limiters ────────────────────────────────────────────────────────────
 //
 // STORE CHOICE — this matters, and the split is deliberate:
@@ -470,6 +471,17 @@ app.use("/uploads", uploadsLimiter, async (req, res) => {
 });
 
 // ─── Cron jobs ────────────────────────────────────────────────────────────────
+// ─── Cron jobs ────────────────────────────────────────────────────────────────
+// Elect ONE cron leader across instances FIRST. The cron ticks are gated by
+// amILeader(); without this call amILeader() stays false and NO crons run,
+// even on a single instance.
+try {
+  const { startCronLeadership } = require("./utils/cronLeader");
+  startCronLeadership();
+} catch (err) {
+  console.warn("⚠️ Could not start cron leadership:", err.message);
+}
+
 try {
   const {
     setupExpiredAttemptCleanup,
@@ -499,6 +511,10 @@ try {
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
+
+// ─── Sentry error handler ─────────────────────────────────────────────────────
+const Sentry = require("@sentry/node");
+Sentry.setupExpressErrorHandler(app);
 
 // ─── Global error handler ─────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars

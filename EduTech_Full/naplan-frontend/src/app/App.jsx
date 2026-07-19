@@ -12,6 +12,7 @@ import NotFound from "@/app/components/pages/NotFound";
 import FreeTrialPage from "@/app/components/landing/FreeTrialPage";
 import TermsPage from "@/app/components/pages/TermsPage";
 import PrivacyPage from "@/app/components/pages/PrivacyPage";
+import ParentGuideFAQ from "@/app/components/pages/ParentGuideFAQ";
 import ParentCreatePage from "@/app/components/pages/ParentCreatePage";
 import ParentVerifyPage from "@/app/components/pages/ParentVerifyPage";
 import ParentLoginPage from "@/app/components/pages/ParentLoginPage";
@@ -30,6 +31,7 @@ import RequireTutor   from "@/app/components/admin/RequireTutor";
 import { useAuth } from "@/app/context/AuthContext";
 import IdleTimeoutProvider from "./components/auth/IdleTimeoutProvider";
 import ChildIdleTimeoutProvider from "./components/auth/ChildIdleTimeoutProvider";
+import SupportWidget from "@/app/components/support/SupportWidget";
 import { Analytics } from "@vercel/analytics/react";
 
 
@@ -96,6 +98,7 @@ export default function AppRoutes() {
         <Route path="/free-trial" element={<FreeTrialPage />} />
         <Route path="/terms"   element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/help"    element={<WithFooter><ParentGuideFAQ /></WithFooter>} />
         <Route path="/bundles" element={<WithFooter><BundleSelectionPage /></WithFooter>} />
 
         {/* ─── Parent Auth ─── */}
@@ -179,6 +182,10 @@ export default function AppRoutes() {
 
       <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
       </Routes>
+
+      {/* ─── Global support widget (shows on every page) ─── */}
+      <SupportWidget />
+
       <Analytics />
     </AuthProvider>
   );

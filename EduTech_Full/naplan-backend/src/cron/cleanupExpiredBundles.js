@@ -2,15 +2,23 @@
  * cron/cleanupExpiredBundles.js
  * ✅ Issue #4: Checks expired purchases hourly and downgrades children.
  * Place in: naplan-backend/src/cron/cleanupExpiredBundles.js
+ *
+ * ✅ MULTI-INSTANCE: the tick is gated by amILeader(). With >= 2 instances,
+ *    only the current cron leader runs the downgrade pass; the others tick and
+ *    return immediately. See utils/cronLeader.js.
  */
 const Purchase = require("../models/purchase");
 const Child = require("../models/child");
 const QuizCatalog = require("../models/quizCatalog");
 const connectDB = require("../config/db");
+const { amILeader } = require("../utils/cronLeader");
 
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 async function cleanupExpiredBundles() {
+  // ✅ Only the elected cron leader does the work.
+  if (!amILeader()) return;
+
   try {
     await connectDB();
     const now = new Date();
@@ -64,10 +72,13 @@ async function cleanupExpiredBundles() {
 }
 
 function setupBundleExpiryCleanup() {
-  cleanupExpiredBundles();
+  // Delayed first run so cron leadership can settle before the check (an
+  // immediate run would always skip on a fresh boot).
+  setTimeout(cleanupExpiredBundles, 8000);
+
   const interval = setInterval(cleanupExpiredBundles, CLEANUP_INTERVAL_MS);
   if (interval.unref) interval.unref();
-  console.log("⏰ Bundle expiry cleanup cron started (every 1 hour)");
+  console.log("⏰ Bundle expiry cleanup cron started (every 1 hour, leader-gated)");
   return interval;
 }
 

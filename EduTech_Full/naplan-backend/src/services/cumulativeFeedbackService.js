@@ -1,29 +1,42 @@
 /**
- * services/cumulativeFeedbackService.js  (v5 — Python spawn limiter wired)
+ * services/cumulativeFeedbackService.js  (v6 — cross-instance atomic lock)
  *
- * CHANGE IN v5 (the only change from v4):
- *   - runPython() is now wrapped in runWithPythonLimit(). Previously this file
- *     forked Python with NO concurrency cap, which defeated the limiter that
- *     aiFeedbackService / resultAiService / subjectFeedbackService already use.
+ * CHANGE IN v6 (the only change from v5):
+ *   - The in-memory `runningChildren` Set is GONE. It only prevented duplicate
+ *     regens within ONE process — useless behind a load balancer with >= 2
+ *     instances, where two submissions for the same child (or one submission
+ *     double-firing across instances) both passed the Set check and both ran
+ *     the FULL subject loop. Each loop is up to 5 Gemini calls, so that was a
+ *     straight doubling of spend plus a race on every CumulativeFeedback doc.
  *
- *     Why this mattered: aiFeedbackService fires triggerCumulativeFeedback()
- *     via setImmediate() after EVERY successful submission. A burst of quiz
- *     submissions therefore produced a burst of UNCAPPED cumulative-feedback
- *     spawns running alongside the capped ones. Each Python process is
- *     ~150–300MB; on a 512MB Render instance, three at once is death.
+ *   - Replaced with a DISTRIBUTED lock stored in the CumulativeFeedback
+ *     collection on a sentinel document (subject === LOCK_SUBJECT "__lock__").
+ *     acquireChildLock() atomically flips that doc's status → "generating" only
+ *     if it isn't already held (or the hold is older than LOCK_STALE_MS, i.e. a
+ *     crashed run). Whoever wins owns the regen; every other trigger — on this
+ *     or any other instance — fails to acquire and skips. Released in the
+ *     finally block. No Redis needed; Atlas gives us the atomicity for free.
  *
- *     Now all Python spawns across the whole app share ONE ceiling
- *     (MAX_CONCURRENT_PYTHON) with a bounded wait-queue (MAX_PYTHON_QUEUE).
+ *   - The lock spans the WHOLE subject loop (acquire at top, release at end),
+ *     so Overall + Reading + Writing + Numeracy + Language can never double-run.
  *
- *   - When the pool + queue are both full, runWithPythonLimit rejects with
- *     PythonBusyError. That rejection is caught by the existing try/catch in
- *     generateForSubject(), which marks the doc status="error" with the message.
- *     So a busy pool = a visible, recoverable failure — NOT a dead instance.
+ *   REQUIREMENTS / NOTES:
+ *     • There MUST be a unique index on { child_id, subject } (you already rely
+ *       on it — every findOneAndUpdate here upserts on that key). The lock uses
+ *       it: a duplicate-key error on acquire is treated as "already locked".
+ *     • The sentinel doc (subject "__lock__") is filtered OUT of
+ *       getCumulativeFeedback(), so the frontend never sees it. Any OTHER code
+ *       that reads CumulativeFeedback directly should also skip subject
+ *       === "__lock__".
  *
- * FIXES from v4 (unchanged):
- *   - clearRunningLock() exported so the route can release a stale in-memory lock
- *   - generateForSubject() bumps updatedAt so the route can detect stale docs
- *   - triggerCumulativeFeedback() always releases the lock in its finally block
+ * FIXES from v5 (unchanged behaviour, now DB-backed):
+ *   - clearRunningLock() still exported for route-level stale recovery — it now
+ *     releases the DB lock instead of clearing the old in-memory Set.
+ *   - generateForSubject() bumps updatedAt so the route can detect stale docs.
+ *
+ * v5 (unchanged):
+ *   - runPython() wrapped in runWithPythonLimit() — one process-wide Python
+ *     ceiling (MAX_CONCURRENT_PYTHON) shared with every other AI feature.
  *
  * DATA SOURCE RULES (unchanged):
  *   - MCQ (Reading/Numeracy/Language) → QuizAttempts collection
@@ -39,7 +52,7 @@ const QuizAttempt = require("../models/quizAttempt");
 const Writing = require("../models/writing");
 const Child = require("../models/child");
 
-// ✅ NEW v5: process-wide Python concurrency limiter (src/utils/pythonSpawnLimiter.js)
+// ✅ v5: process-wide Python concurrency limiter (src/utils/pythonSpawnLimiter.js)
 const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
 
 // ─── Config ───
@@ -55,19 +68,80 @@ const TIMEOUT_MS = Number(process.env.CUMULATIVE_FEEDBACK_TIMEOUT_MS || 60000);
 
 const SUBJECTS = ["Overall", "Reading", "Writing", "Numeracy", "Language"];
 
-// In-memory lock: prevent simultaneous runs for same child
-const runningChildren = new Set();
+// ─────────────────────────────────────────────────────────────
+// v6: Cross-instance distributed lock (replaces the in-memory Set)
+//
+// Held on a sentinel CumulativeFeedback doc: { child_id, subject: "__lock__" }.
+// status === "generating" means locked; anything else (or a stale updatedAt)
+// means free. Reuses the existing "generating"/"done" status values so it can't
+// trip a status enum, and reuses Mongoose's updatedAt as the staleness clock.
+//
+// LOCK_STALE_MS is generous on purpose: the whole loop can legitimately take a
+// few minutes (up to 5 sequential Python calls), so we must never yank a lock
+// that's still live. A crashed run therefore holds the lock for up to this long
+// — which is harmless here, because cumulative feedback re-triggers on the next
+// submission anyway.
+// ─────────────────────────────────────────────────────────────
+const LOCK_SUBJECT = "__lock__";
+const LOCK_STALE_MS = Number(process.env.CUMULATIVE_LOCK_STALE_MS || 10 * 60 * 1000); // 10 min
+
+async function acquireChildLock(childId) {
+  const staleBefore = new Date(Date.now() - LOCK_STALE_MS);
+  try {
+    const locked = await CumulativeFeedback.findOneAndUpdate(
+      {
+        child_id: childId,
+        subject: LOCK_SUBJECT,
+        $or: [
+          { status: { $ne: "generating" } },
+          { updatedAt: { $lt: staleBefore } },
+          { updatedAt: { $exists: false } },
+        ],
+      },
+      {
+        $set: {
+          child_id: childId,
+          subject: LOCK_SUBJECT,
+          status: "generating",
+          status_message: "Cumulative feedback in progress (lock held)",
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    return !!locked;
+  } catch (err) {
+    // Duplicate key (E11000): the lock doc exists AND our filter didn't match
+    // it — i.e. another instance holds a LIVE lock and the upsert tried to
+    // insert a second one. That's exactly "busy": refuse.
+    if (err && (err.code === 11000 || err.codeName === "DuplicateKey")) {
+      return false;
+    }
+    // Any other error — don't run unprotected. Log and refuse; next submission
+    // will retrigger.
+    console.error(`❌ acquireChildLock error for child ${childId}: ${err.message}`);
+    return false;
+  }
+}
+
+async function releaseChildLock(childId) {
+  try {
+    await CumulativeFeedback.updateOne(
+      { child_id: childId, subject: LOCK_SUBJECT },
+      { $set: { status: "done", status_message: "Idle" } }
+    );
+  } catch (err) {
+    console.warn(`⚠️ releaseChildLock failed for child ${childId}: ${err.message}`);
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 // clearRunningLock — called by the route when it detects a stale
-// "generating" doc whose server-side lock was lost (e.g. restart)
+// "generating" doc whose lock needs manual release. Now DB-backed.
 // ─────────────────────────────────────────────────────────────
-function clearRunningLock(childId) {
-  const key = String(childId);
-  if (runningChildren.has(key)) {
-    console.warn(`🔓 Clearing stale runningChildren lock for child ${key}`);
-    runningChildren.delete(key);
-  }
+async function clearRunningLock(childId) {
+  console.warn(`🔓 Clearing cumulative-feedback lock for child ${childId}`);
+  await releaseChildLock(childId);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -349,12 +423,16 @@ async function generateForSubject({ childId, subject, tests, displayName, yearLe
 async function triggerCumulativeFeedback(childId) {
   const childIdStr = String(childId);
 
-  if (runningChildren.has(childIdStr)) {
-    console.log(`⏳ Cumulative feedback already running for child ${childIdStr}, skipping`);
+  // ✅ v6: cross-instance atomic lock (replaces the in-memory runningChildren Set).
+  // Only ONE regen per child runs at a time across ALL instances. A second
+  // trigger — here or on another box — fails to acquire and skips. A crashed
+  // run's lock is reclaimed after LOCK_STALE_MS.
+  const acquired = await acquireChildLock(childId);
+  if (!acquired) {
+    console.log(`⏳ Cumulative feedback already running for child ${childIdStr} (lock held) — skipping`);
     return;
   }
 
-  runningChildren.add(childIdStr);
   console.log(`🤖 Starting cumulative feedback for child ${childIdStr}`);
 
   try {
@@ -406,21 +484,28 @@ async function triggerCumulativeFeedback(childId) {
   } catch (err) {
     console.error(`❌ triggerCumulativeFeedback failed for child ${childIdStr}:`, err.message);
   } finally {
-    // Always release the lock — even if Python crashed or server error occurred
-    runningChildren.delete(childIdStr);
+    // ✅ v6: always release the distributed lock — even on crash, early return,
+    // or server error inside the try.
+    await releaseChildLock(childId);
   }
 }
 
 // ─────────────────────────────────────────────────────────────
 // Fetch existing cumulative feedback docs for a child
+//
+// ✅ v6: the internal "__lock__" sentinel is excluded so it never reaches the UI.
 // ─────────────────────────────────────────────────────────────
 async function getCumulativeFeedback(childId) {
-  const docs = await CumulativeFeedback.find({ child_id: childId })
+  const docs = await CumulativeFeedback.find({
+    child_id: childId,
+    subject: { $ne: LOCK_SUBJECT },
+  })
     .select("-__v")
     .lean();
 
   const map = {};
   for (const doc of docs) {
+    if (doc.subject === LOCK_SUBJECT) continue; // belt & suspenders
     map[doc.subject] = doc;
   }
   return map;
@@ -431,5 +516,5 @@ module.exports = {
   getCumulativeFeedback,
   generateForSubject,
   fetchAllTestsForChild,
-  clearRunningLock,           // ← export for route-level stale recovery
+  clearRunningLock,           // ← export for route-level stale recovery (now DB-backed)
 };

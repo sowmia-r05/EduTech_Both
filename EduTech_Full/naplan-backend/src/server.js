@@ -5,6 +5,8 @@
 // + explicit 0.0.0.0 bind so Render's port scan can detect the open port
 //
 // Place in: naplan-backend/src/server.js (replaces existing file)
+require("./instrument");
+
 
 const app = require("./app");
 const connectDB = require("./config/db");

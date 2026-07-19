@@ -1,13 +1,21 @@
 // src/chat/getChildHistory.js
+//
+// 👉 CACHE FIX:
+//    The L1 memory cache was a plain `new Map()` with a TTL but NO size cap —
+//    every distinct childId added an entry that was only evicted lazily on the
+//    next read, so the map grew for the life of the process. It is now a bounded
+//    LRUCache (max entries + TTL), matching getAttemptContext.js, so memory is
+//    capped no matter how many distinct children are requested.
 
-const cache  = new Map();
-const TTL_MS = 10 * 60 * 1000; // 10 minutes
+// ✅ Bounded LRU cache (verify path: src/utils/lruCache.js)
+const { LRUCache } = require("../utils/lruCache");
+const cache = new LRUCache({ max: 500, ttlMs: 10 * 60 * 1000 }); // 10 minutes
 
 async function getChildHistory(childId, db) {
 
-  // ── L1: Node memory cache ──────────────────────
+  // ── L1: Node memory cache (bounded, TTL-managed by LRUCache) ──
   const hit = cache.get(childId);
-  if (hit && hit.expiresAt > Date.now()) return hit.data;
+  if (hit) return hit;
 
   // ── Guard ──────────────────────────────────────
   if (!db) return null;
@@ -102,7 +110,8 @@ async function getChildHistory(childId, db) {
   lines.push("\n=== END HISTORY ===");
   const data = lines.join("\n");
 
-  cache.set(childId, { data, expiresAt: Date.now() + TTL_MS });
+  // TTL is handled inside LRUCache — store the string directly.
+  cache.set(childId, data);
   return data;
 }
 

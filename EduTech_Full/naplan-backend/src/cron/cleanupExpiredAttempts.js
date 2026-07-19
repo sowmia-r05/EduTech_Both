@@ -9,19 +9,25 @@
  *   - Network disconnected during a timed quiz
  *   - Client-side timer failed to trigger auto-submit
  *
- * Usage:
- *   Call setupExpiredAttemptCleanup() once at server startup (in app.js or server.js)
+ * ✅ MULTI-INSTANCE: the tick is gated by amILeader(). With >= 2 instances,
+ *    only the current cron leader actually runs the cleanup; the others tick
+ *    and return immediately. See utils/cronLeader.js.
  *
- *   const { setupExpiredAttemptCleanup } = require("./cron/cleanupExpiredAttempts");
- *   setupExpiredAttemptCleanup();
+ * Usage:
+ *   Call setupExpiredAttemptCleanup() once at server startup (in app.js).
+ *   startCronLeadership() must also be called once at startup.
  */
 
 const QuizAttempt = require("../models/quizAttempt");
 const connectDB = require("../config/db");
+const { amILeader } = require("../utils/cronLeader");
 
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 async function cleanupExpiredAttempts() {
+  // ✅ Only the elected cron leader does the work.
+  if (!amILeader()) return;
+
   try {
     await connectDB();
 
@@ -75,8 +81,10 @@ async function cleanupExpiredAttempts() {
 }
 
 function setupExpiredAttemptCleanup() {
-  // Run once immediately on startup
-  cleanupExpiredAttempts();
+  // Run once shortly after startup. Delayed (not immediate) so the cron
+  // leadership heartbeat has time to settle — otherwise this first run would
+  // always see amILeader() === false and skip.
+  setTimeout(cleanupExpiredAttempts, 8000);
 
   // Then run periodically
   const interval = setInterval(cleanupExpiredAttempts, CLEANUP_INTERVAL_MS);
@@ -84,7 +92,7 @@ function setupExpiredAttemptCleanup() {
   // Allow cleanup on process exit (don't keep process alive)
   if (interval.unref) interval.unref();
 
-  console.log("⏰ Expired attempt cleanup cron started (every 5 min)");
+  console.log("⏰ Expired attempt cleanup cron started (every 5 min, leader-gated)");
   return interval;
 }
 
