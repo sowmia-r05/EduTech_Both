@@ -100,7 +100,7 @@ function userKey(prefix) {
       req.user?.childId ||
       req.user?.parentId ||
       req.user?.parent_id;
-    return id ? `${prefix}:${id}` : ipKeyGenerator(req);
+   return id ? `${prefix}:${id}` : ipKeyGenerator(req.ip);
   };
 }
 
