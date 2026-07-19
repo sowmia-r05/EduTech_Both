@@ -14,7 +14,7 @@
  */
 
 const express = require("express");
-const { requireAdmin } = require("../middleware/adminAuth");
+const { requireAdmin, adminOnly } = require("../middleware/adminAuth");
 const connectDB = require("../config/db");
 const QuizAttempt = require("../models/quizAttempt");
 const Child = require("../models/child");
@@ -23,6 +23,10 @@ const { triggerAiFeedback } = require("../services/aiFeedbackService");
 
 const router = express.Router();
 router.use(requireAdmin);
+
+// No tutor may reach any AI-feedback route: they expose children's attempt data
+// and every retry spends Gemini tokens.
+router.use(adminOnly);
 
 const NATIVE_RETRIABLE = ["error", "pending", "queued", "generating"];
 const MAX_BULK_RETRY = 50;

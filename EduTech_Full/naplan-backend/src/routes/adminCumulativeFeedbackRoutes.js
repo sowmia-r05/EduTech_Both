@@ -25,7 +25,7 @@
 
 const express = require("express");
 const mongoose = require("mongoose");
-const { requireAdmin } = require("../middleware/adminAuth");
+const { requireAdmin, adminOnly } = require("../middleware/adminAuth");
 const connectDB = require("../config/db");
 
 const Child = require("../models/child");
@@ -38,6 +38,7 @@ const {
 
 const router = express.Router();
 router.use(requireAdmin);
+router.use(adminOnly);
 
 // ─── In-memory flag: prevent concurrent backfill runs ─────────
 let backfillRunning = false;

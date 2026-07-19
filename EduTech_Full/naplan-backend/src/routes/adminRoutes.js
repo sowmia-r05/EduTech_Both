@@ -13,7 +13,7 @@ const multer     = require("multer");
 const rateLimit  = require("express-rate-limit");
 const MongoRateLimitStore = require("../utils/mongoRateLimitStore");
 
-const { requireAdmin }  = require("../middleware/adminAuth");
+const { requireAdmin, adminOnly } = require("../middleware/adminAuth");
 const Admin             = require("../models/admin");
 const AdminInvite       = require("../models/adminInvite");
 const Quiz              = require("../models/quiz");
@@ -158,9 +158,8 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
 
     setAuthCookie(res, "admin_token", token, ADMIN_COOKIE_MAX_AGE);
 
-    return res.json({
+     return res.json({
       ok: true,
-      token,
       admin: { name: admin.name, email: admin.email, role: admin.role, status: admin.status },
     });
   } catch (err) {
@@ -196,13 +195,6 @@ router.get("/template", (req, res) => {
 // ─── Admin-only guard ────────────────────────────────────────────────────────
 // requireAdmin (below) admits BOTH "admin" and "tutor" roles. adminOnly blocks
 // tutors, for routes that must never be reachable by a tutor token.
-function adminOnly(req, res, next) {
-  if (req.admin?.role !== "admin") {
-    return res.status(403).json({ error: "Admin access required" });
-  }
-  next();
-}
-
 router.use(requireAdmin);
 
 // GET /api/admin/me
@@ -550,7 +542,7 @@ router.post("/upload", adminOnly, (req, res) => {
 // QUIZ ROUTES
 // ═══════════════════════════════════════════════════════════
 
-router.get("/quizzes", async (req, res) => {
+router.get("/quizzes", adminOnly, async (req, res) => {
   try {
     await connectDB();
     const quizzes = await Quiz.find()
@@ -627,7 +619,7 @@ router.patch("/quizzes/:quizId", adminOnly, async (req, res) => {
   }
 });
 
-router.get("/quizzes/:quizId/export", async (req, res) => {
+router.get("/quizzes/:quizId/export", adminOnly, async (req, res) => {
   try {
     await connectDB();
     let quiz = await Quiz.findOne({ quiz_id: req.params.quizId }).lean();

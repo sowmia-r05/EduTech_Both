@@ -1,5 +1,5 @@
 /**
- * middleware/adminAuth.js  (v2 — SECRET SEPARATION + REVOCATION)
+ * middleware/adminAuth.js  (v3 — SECRET SEPARATION + REVOCATION + SHARED adminOnly)
  *
  * ═══════════════════════════════════════════════════════════════════════════
  * 🔴 FIX-1 — THE CRITICAL ONE. This file verified admin tokens with:
@@ -36,6 +36,11 @@
  *   while someone was an admin kept saying "admin" after they were demoted to
  *   tutor. The DB is the authority.
  *
+ * ✅ FIX-4 — adminOnly now lives HERE and is exported. It used to be a private
+ *   function inside adminRoutes.js, which meant adminAiFeedbackRoutes.js and
+ *   adminCumulativeFeedbackRoutes.js had no way to use it — so every route in
+ *   those files was reachable by a tutor token. One definition, one place.
+ *
  * ⚠️ SAME BUG STILL LIVES IN routes/Tutorroutes.js — its requireTutor() is a
  *    third copy of this logic and still reads PARENT_JWT_SECRET. Fix it next, or
  *    better: delete it and import requireAdmin from here.
@@ -53,10 +58,11 @@ const ACTIVE_STATUSES = new Set(["active"]);
 /**
  * Pull the token from the Authorization header, falling back to the cookie.
  *
- * The "null" / "undefined" guard is load-bearing: the frontend sends
+ * The "null" / "undefined" guard is load-bearing: older frontend builds sent
  * `Bearer ${localStorage.getItem("admin_token")}`, and when that returns null it
  * becomes the literal STRING "null" — which is truthy, so the cookie fallback
- * was never reached and jwt.verify("null") threw a 401.
+ * was never reached and jwt.verify("null") threw a 401. The current frontend is
+ * cookie-only, but the guard stays for any client still on an old bundle.
  */
 function extractToken(req) {
   const header = req.headers.authorization || "";
@@ -72,8 +78,8 @@ function extractToken(req) {
 
 /**
  * requireAdmin — admits both "admin" and "tutor" roles.
- * Routes that must never be reachable by a tutor use the separate `adminOnly`
- * guard defined in adminRoutes.js.
+ * Routes that must never be reachable by a tutor add the `adminOnly` guard
+ * exported from this file.
  */
 async function requireAdmin(req, res, next) {
   const token = extractToken(req);
@@ -153,4 +159,27 @@ async function requireAdmin(req, res, next) {
   }
 }
 
-module.exports = { requireAdmin };
+/**
+ * adminOnly — role gate that sits AFTER requireAdmin in a route chain.
+ *
+ * requireAdmin admits both "admin" and "tutor". Any route a tutor must never
+ * reach gets this second guard. It reads req.admin.role, which requireAdmin
+ * loaded from the DATABASE — not the token — so a demoted admin is blocked on
+ * their very next request, not at token expiry.
+ *
+ * Usage:
+ *   router.use(requireAdmin);
+ *   router.use(adminOnly);                       // gate the whole router
+ *   router.get("/quizzes", adminOnly, handler);  // gate one route
+ *
+ * NOTE: adminOnly is meaningless without requireAdmin ahead of it — req.admin
+ * would be undefined and every request would 403.
+ */
+function adminOnly(req, res, next) {
+  if (req.admin?.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+}
+
+module.exports = { requireAdmin, adminOnly };

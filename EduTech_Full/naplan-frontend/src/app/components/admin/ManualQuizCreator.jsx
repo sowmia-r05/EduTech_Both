@@ -17,12 +17,9 @@ import FreeTextPreview from "./FreeTextPreview";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
+// Session is the httpOnly admin_token cookie — nothing to read from storage.
 function adminFetch(url, opts = {}) {
-  const token = localStorage.getItem("admin_token");
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    ...(opts.headers || {}),
-  };
+  const headers = { ...(opts.headers || {}) };
 
   // Default JSON content-type only if body is a string (we JSON.stringify below)
   if (!headers["Content-Type"] && typeof opts.body === "string") {
@@ -31,6 +28,7 @@ function adminFetch(url, opts = {}) {
 
   return fetch(`${API}${url}`, {
     ...opts,
+    credentials: "include",
     headers,
   });
 }
