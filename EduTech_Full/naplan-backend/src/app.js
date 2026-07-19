@@ -43,14 +43,13 @@ dns.setDefaultResultOrder("ipv4first");
 // ─── Requires ─────────────────────────────────────────────────────────────────
 const express = require("express");
 const rateLimit = require("express-rate-limit");
-const { ipKeyGenerator } = require("express-rate-limit");
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const { s3, BUCKET } = require("./utils/s3Upload");
 const { GetObjectCommand } = require("@aws-sdk/client-s3");
 const sanitizeMongo = require("./middleware/sanitizeMongo");
-const MongoRateLimitStore = require("./utils/mongoRateLimitStore"); // ✅ ADDED
+const MongoRateLimitStore = require("./utils/mongoRateLimitStore");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -167,6 +166,20 @@ app.use(
 
 app.use(cookieParser());
 
+// ─── Request context — must precede metrics and all routers ──────────────────
+// Assigns req.id and req.log (a pino child logger stamped with that id), and
+// echoes x-request-id back. errorHandler returns the same id to the client, so
+// a user-reported error can be grepped straight out of the Render logs.
+const requestContext = require("./utils/requestContext");
+app.use(requestContext);
+
+// ─── Request metrics ─────────────────────────────────────────────────────────
+// Must precede the body parsers and every router so that 413s (oversize
+// payload, rejected by express.json), 429s (rate limiters) and 404s are all
+// counted.
+const metricsMiddleware = require("./middleware/metricsMiddleware");
+app.use(metricsMiddleware);
+
 // ── Stripe webhook — must be registered BEFORE express.json() ────────────────
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 
@@ -185,7 +198,7 @@ app.use(sanitizeMongo);
 
 // ─── Route imports ────────────────────────────────────────────────────────────
 const healthRoutes = require("./routes/healthRoutes");
-const supportRoutes = require("./routes/supportRoutes"); 
+const supportRoutes = require("./routes/supportRoutes");
 const examRoutes = require("./routes/examRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const writingRoutes = require("./routes/writingRoutes");
@@ -221,7 +234,7 @@ const {
 
 // ─── Health check (no rate limit, no auth) ───────────────────────────────────
 app.use("/api", healthRoutes);
-app.use("/api/support", supportRoutes); 
+
 // ─── Rate limiters ────────────────────────────────────────────────────────────
 //
 // STORE CHOICE — this matters, and the split is deliberate:
@@ -244,6 +257,9 @@ app.use("/api/support", supportRoutes);
 //
 //   Every limiter needs its OWN `prefix`. Two limiters sharing a prefix share
 //   (and corrupt) each other's counters.
+//
+//   NOTE: OCR has NO limiter here. Its limiters live inside routes/ocrRoute.js,
+//   mounted after verifyToken so they key on verified identity rather than IP.
 
 const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
@@ -260,7 +276,7 @@ const authLimiter = rateLimit({
   message: { error: "Too many authentication requests. Please wait a minute." },
   standardHeaders: true,
   legacyHeaders: false,
-  store: new MongoRateLimitStore({ prefix: "auth" }), // ✅ ADDED
+  store: new MongoRateLimitStore({ prefix: "auth" }),
   skip: skipInTest,
 });
 
@@ -273,7 +289,7 @@ const otpLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  store: new MongoRateLimitStore({ prefix: "otp" }), // ✅ ADDED
+  store: new MongoRateLimitStore({ prefix: "otp" }),
   skip: skipInTest,
 });
 
@@ -284,7 +300,7 @@ const childLoginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  store: new MongoRateLimitStore({ prefix: "childlogin" }), // ✅ ADDED
+  store: new MongoRateLimitStore({ prefix: "childlogin" }),
   skip: skipInTest,
 });
 
@@ -297,26 +313,10 @@ const chatGlobalLimiter = rateLimit({
   skip: skipInTest,
 });
 
-// Per-user throttle for OCR handwriting. Abuse throttle → MemoryStore (default),
-// NOT the Mongo store. Keyed on child ID (falls back to IP) so it's per-user.
-// OCR calls Gemini Vision (slow, ~45s, costs tokens), so keep it tight.
-const ocrLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000,
-  max: 15,
-  message: { error: "Too many handwriting uploads. Please wait a few minutes and try again." },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => String(req.childId || req.user?.id || ipKeyGenerator(req.ip)),
-  skip: skipInTest,
-});
 app.use("/api", apiLimiter);
+app.use("/api/support", supportRoutes);
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
-// ⚠️ otpAuth is legacy (FlexiQuiz-era) and keeps its OTP codes in an in-process
-//    Map — so every pending OTP is destroyed on restart. parentAuthRoutes already
-//    does OTP correctly via the PendingOtp Mongo model. Confirm the frontend does
-//    not call /api/auth/otp/request or /api/auth/otp/verify, then delete this file
-//    and the line below. See the grep in the chat.
 app.use("/api/auth/child-login", childLoginLimiter);
 app.use("/api/auth", authLimiter, childAuthRoutes);
 app.use("/api/auth", sessionRoutes);
@@ -364,7 +364,7 @@ app.use("/api", quizRoutes);
 app.use("/api", availableQuizzesRoute);
 app.use("/api", flashcardsRoute);
 app.use("/api", explanationRoutes);
-app.use("/api", quizExplanationsRoute); // ✅ FIX — was imported but never mounted
+app.use("/api", quizExplanationsRoute);
 
 app.use("/api/quizzes", chatGlobalLimiter, quizChatRoute);
 
@@ -372,7 +372,9 @@ app.use("/api/quizzes", chatGlobalLimiter, quizChatRoute);
 app.use("/api/payments", paymentRoutes);
 
 // ─── OCR ──────────────────────────────────────────────────────────────────────
-app.use("/api/ocr", ocrLimiter, ocrRoute);
+// Rate limiting lives INSIDE ocrRoute.js (ocrBurstLimit + ocrRateLimit), mounted
+// after verifyToken so it keys on verified identity rather than IP.
+app.use("/api/ocr", ocrRoute);
 
 // ─── S3 image proxy (HARDENED) ───────────────────────────────────────────────
 // Serves /uploads/... by streaming from S3/MinIO.
@@ -419,8 +421,8 @@ app.use("/uploads", uploadsLimiter, async (req, res) => {
     return res.status(400).json({ error: "Unsupported image type" });
   }
 
-  // Cross-origin headers so the child/parent dashboards can load these
-// Reflect the caller's origin from the allow-list instead of "*", reusing the
+  // Cross-origin headers so the child/parent dashboards can load these.
+  // Reflect the caller's origin from the allow-list instead of "*", reusing the
   // same isAllowedOrigin() the CORS middleware uses. Vary:Origin is required —
   // this route sets a 1-year immutable Cache-Control, so without it a shared
   // cache would replay one origin's ACAO header to everyone.
@@ -471,39 +473,39 @@ app.use("/uploads", uploadsLimiter, async (req, res) => {
 });
 
 // ─── Cron jobs ────────────────────────────────────────────────────────────────
-// ─── Cron jobs ────────────────────────────────────────────────────────────────
 // Elect ONE cron leader across instances FIRST. The cron ticks are gated by
 // amILeader(); without this call amILeader() stays false and NO crons run,
 // even on a single instance.
-try {
-  const { startCronLeadership } = require("./utils/cronLeader");
-  startCronLeadership();
-} catch (err) {
-  console.warn("⚠️ Could not start cron leadership:", err.message);
-}
+//
+// Skipped entirely when DISABLE_CRONS=true so that `require("./app")` is
+// side-effect-free under Jest. Without this, integration tests hang on the
+// open interval handles and the cleanup jobs mutate test data mid-run.
+if (process.env.DISABLE_CRONS !== "true") {
+  try {
+    const { startCronLeadership } = require("./utils/cronLeader");
+    startCronLeadership();
+  } catch (err) {
+    console.warn("⚠️ Could not start cron leadership:", err.message);
+  }
 
-try {
-  const {
-    setupExpiredAttemptCleanup,
-  } = require("./cron/cleanupExpiredAttempts");
-  setupExpiredAttemptCleanup();
-} catch (err) {
-  console.warn("⚠️ Could not start expired attempt cleanup cron:", err.message);
-}
+  try {
+    const {
+      setupExpiredAttemptCleanup,
+    } = require("./cron/cleanupExpiredAttempts");
+    setupExpiredAttemptCleanup();
+  } catch (err) {
+    console.warn("⚠️ Could not start expired attempt cleanup cron:", err.message);
+  }
 
-try {
-  const { setupBundleExpiryCleanup } = require("./cron/cleanupExpiredBundles");
-  setupBundleExpiryCleanup();
-} catch (err) {
-  console.warn("⚠️ Could not start bundle expiry cleanup cron:", err.message);
+  try {
+    const { setupBundleExpiryCleanup } = require("./cron/cleanupExpiredBundles");
+    setupBundleExpiryCleanup();
+  } catch (err) {
+    console.warn("⚠️ Could not start bundle expiry cleanup cron:", err.message);
+  }
+} else {
+  console.log("⏸️  Crons disabled (DISABLE_CRONS=true)");
 }
-
-// try {
-//   const { scheduleCopyrightCheck } = require("./jobs/copyrightCheckCron");
-//   scheduleCopyrightCheck();
-// } catch (err) {
-//   console.warn("⚠️ Could not start copyright audit cron:", err.message);
-// }
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 // Express 5: NO path argument. `app.use("*", ...)` or `app.all("*", ...)` will
@@ -517,16 +519,9 @@ const Sentry = require("@sentry/node");
 Sentry.setupExpressErrorHandler(app);
 
 // ─── Global error handler ─────────────────────────────────────────────────────
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  const status = err.status || err.statusCode || 500;
-  console.error(`[Error] ${req.method} ${req.path} — ${err.message}`);
-  if (IS_DEV) console.error(err.stack);
-
-  res.status(status).json({
-    error: status === 500 ? "Internal server error" : err.message || "Error",
-    ...(IS_DEV ? { detail: err.message } : {}),
-  });
-});
+// Logs full detail server-side with the request id; returns only a safe message
+// plus that id to the client. See src/middleware/errorHandler.js.
+const errorHandler = require("./middleware/errorHandler");
+app.use(errorHandler);
 
 module.exports = app;

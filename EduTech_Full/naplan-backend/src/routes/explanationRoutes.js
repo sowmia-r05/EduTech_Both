@@ -247,7 +247,8 @@ router.post("/attempts/:attemptId/chat", async (req, res) => {
     const result = await runExplanationScript(payload);
 
     if (!result.success) {
-      return res.status(500).json({ error: result.error || "Chat failed" });
+      req.log.error({ pythonError: result.error }, "explanation script returned failure");
+      return res.status(500).json({ error: "Chat failed. Please try again." });
     }
 
     return res.json({ reply: result.reply });
@@ -265,8 +266,8 @@ router.post("/attempts/:attemptId/chat", async (req, res) => {
       });
     }
 
-    console.error("POST /chat error:", err.message);
-    return res.status(500).json({ error: err.message });
+    req.log.error({ err }, "explanation chat failed");
+    return res.status(500).json({ error: "AI tutor error. Please try again." });
   }
 });
 
