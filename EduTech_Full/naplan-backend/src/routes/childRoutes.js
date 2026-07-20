@@ -221,6 +221,17 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       return res.status(400).json({ error: "PIN must be exactly 6 digits" });
     }
 
+    // APP 3/5 — a child account cannot exist without recorded guardian consent.
+    // Enforced server-side: the frontend tick-box is a UX affordance, not a
+    // control. Must be strictly true — "true", 1 and "on" are rejected so the
+    // stored record reflects a deliberate affirmative act.
+    if (req.body.parental_consent !== true) {
+      return res.status(400).json({
+        error: "Parental consent is required to create a child profile.",
+        code: "CONSENT_REQUIRED",
+      });
+    }
+
     const existing = await Child.findOne({ username });
     if (existing) return res.status(409).json({ error: "Username already taken" });
 
@@ -231,7 +242,11 @@ router.post("/", verifyToken, requireParent, async (req, res) => {
       year_level,
       pin_hash: pin,
       status:       "trial",
-       email_notifications: req.body.email_notifications === true,
+      email_notifications: req.body.email_notifications === true,
+      // Recorded only after the strict `=== true` check above. The timestamp is
+      // the evidentiary part — a boolean alone can't show when consent was given.
+      parental_consent:    true,
+      parental_consent_at: new Date(),
     });
     await child.save();
 
