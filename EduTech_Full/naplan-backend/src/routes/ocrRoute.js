@@ -6,6 +6,12 @@
  *   - Gemini Flash is FREE (generous free tier, no billing needed)
  *   - Gemini Vision is excellent at handwriting OCR
  *   - No more 429 rate limit errors from OpenAI
+ * ⚠️ BILLING TIER IS A COMPLIANCE CONTROL, NOT A COST CHOICE.
+ *    This endpoint sends photographs of children's handwritten work to Google.
+ *    On the UNPAID Gemini API tier, Google's terms permit using submitted
+ *    content to improve its products, with human review. On the PAID tier they
+ *    do not. The project behind GEMINI_API_KEY must have billing enabled.
+ *    Do not "save money" by moving this key back to a free-tier project.
  *
  * 👉 FIX (v4): neat, careful handwriting was being rejected as "printed text".
  *    Now: transcribe whenever there is readable text; only reject genuine
@@ -186,7 +192,7 @@ router.post("/handwriting", ocrBurstLimit, ocrRateLimit, async (req, res) => {
 
     // ── Call Gemini Vision ──
     const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
       {
         // ✅ v5: instructions live HERE, not beside the image.
         systemInstruction: {
@@ -243,7 +249,10 @@ router.post("/handwriting", ocrBurstLimit, ocrRateLimit, async (req, res) => {
         },
       },
       {
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
         timeout: 45000,
       },
     );
