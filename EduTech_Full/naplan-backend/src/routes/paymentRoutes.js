@@ -40,21 +40,48 @@ const PROVISION_LOCK_TTL_MS = 2 * 60 * 1000;
 // will legitimately differ from amount_cents — compare against amount_subtotal
 // (or store the discounted expected amount) instead.
 // ────────────────────────────────────────────
+// ────────────────────────────────────────────
+// Shared helper: verify Stripe-reported amount/currency against our record.
+//
+// We assert against session.amount_subtotal, NOT amount_total.
+//   amount_subtotal = sum of the line items WE constructed, before discounts,
+//                     shipping, and (when tax_behavior is "exclusive") tax.
+//   amount_total    = what the customer actually paid, after all of the above.
+//
+// amount_subtotal is derived from the unit_amount our own server sent to Stripe,
+// so it remains the correct integrity check once automatic tax or promotion
+// codes are enabled. amount_total legitimately diverges in those cases.
+//
+// Older sessions (created before this change) may not carry amount_subtotal —
+// fall back to amount_total, which is equivalent when there is no tax/discount.
+// ────────────────────────────────────────────
 function verifyPaymentAmount(purchase, session) {
   const expected = Number(purchase.amount_cents);
-  const charged = Number(session.amount_total);
   const expectedCurrency = (purchase.currency || "aud").toLowerCase();
   const chargedCurrency = (session.currency || "").toLowerCase();
 
+  const subtotalRaw = Number(session.amount_subtotal);
+  const totalRaw = Number(session.amount_total);
+  const base = Number.isFinite(subtotalRaw) ? subtotalRaw : totalRaw;
+
+  const details = session.total_details || {};
+  const tax = Number(details.amount_tax || 0);
+  const discount = Number(details.amount_discount || 0);
+
   const amountMismatch =
-    Number.isFinite(expected) && Number.isFinite(charged) && expected !== charged;
+    Number.isFinite(expected) && Number.isFinite(base) && expected !== base;
   const currencyMismatch = chargedCurrency && expectedCurrency !== chargedCurrency;
 
-  if (amountMismatch || currencyMismatch) {
+  // Guard: a 100%-off promotion code would provision a paid bundle for free.
+  // Reject unless you deliberately issue full-discount coupons.
+  const paidNothing = Number.isFinite(totalRaw) && totalRaw <= 0;
+
+  if (amountMismatch || currencyMismatch || paidNothing) {
     return {
       ok: false,
       reason:
-        `Amount/currency mismatch: charged ${charged} ${chargedCurrency}, ` +
+        `Amount/currency mismatch: subtotal ${base}, total ${totalRaw} ` +
+        `${chargedCurrency} (tax ${tax}, discount ${discount}), ` +
         `expected ${expected} ${expectedCurrency}`,
     };
   }
@@ -140,6 +167,7 @@ async function markPaidAndProvision({ purchase, session }) {
         ...(session?.payment_intent
           ? { stripe_payment_intent: session.payment_intent }
           : {}),
+        ...(session?.invoice ? { stripe_invoice_id: session.invoice } : {}),
       },
     },
     { new: true },
@@ -278,12 +306,20 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
             description:
               bundle.description ||
               `${bundle.bundle_name} for ${children.length} child(ren)`,
+            // txcd_10103001 = SaaS – educational services.
+            // Confirm at stripe.com/docs/tax/tax-codes.
+            tax_code: "txcd_10103001",
           },
           unit_amount: bundle.price_cents,
+          // AU consumer pricing is GST-inclusive: the parent pays exactly
+          // bundle.price_cents and GST is extracted from inside it, so
+          // amount_subtotal still equals our stored amount_cents.
+          tax_behavior: "inclusive",
         },
         quantity: children.length,
       },
     ];
+   
 
     // Create Stripe Checkout session
     const FRONTEND_URL = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
@@ -293,6 +329,29 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
       payment_method_types: ["card"],
       line_items: lineItems,
       mode: "payment",
+      automatic_tax: { enabled: true },
+      // REQUIRED when passing an existing `customer` with automatic_tax on —
+      // Stripe 400s if it can't write back the address it derives at checkout.
+      customer_update: { address: "auto", name: "auto" },
+      billing_address_collection: "required",
+      // ACL proof-of-transaction: a Stripe payment receipt carries no ABN field.
+      // An invoice does — and itemises the GST component once tax is live.
+      invoice_creation: {
+        enabled: true,
+        invoice_data: {
+          description: `${bundle.bundle_name} — NAPLAN PREP practice pack`,
+          account_tax_ids: process.env.STRIPE_ACCOUNT_TAX_ID
+            ? [process.env.STRIPE_ACCOUNT_TAX_ID]
+            : undefined,
+          footer:
+            "Kai Solutions — naplan.kaisolutions.ai. " +
+            "Retain this invoice as your proof of transaction.",
+          metadata: {
+            bundle_id: purchase.bundle_id,
+            parent_id: parentId.toString(),
+          },
+        },
+      },
       success_url: `${FRONTEND_URL}#/parent-dashboard?payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${FRONTEND_URL}#/parent-dashboard?payment=cancelled`,
       metadata: {
@@ -613,8 +672,10 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
             description:
               bundle.description ||
               `${bundle.bundle_name} for ${children.length} child(ren)`,
+            tax_code: "txcd_10103001",
           },
           unit_amount: bundle.price_cents,
+          tax_behavior: "inclusive",
         },
         quantity: children.length,
       },
@@ -628,6 +689,29 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
       payment_method_types: ["card"],
       line_items: lineItems,
       mode: "payment",
+      automatic_tax: { enabled: true },
+      // REQUIRED when passing an existing `customer` with automatic_tax on —
+      // Stripe 400s if it can't write back the address it derives at checkout.
+      customer_update: { address: "auto", name: "auto" },
+      billing_address_collection: "required",
+      // ACL proof-of-transaction: a Stripe payment receipt carries no ABN field.
+      // An invoice does — and itemises the GST component once tax is live.
+      invoice_creation: {
+        enabled: true,
+        invoice_data: {
+          description: `${bundle.bundle_name} — NAPLAN PREP practice pack`,
+          account_tax_ids: process.env.STRIPE_ACCOUNT_TAX_ID
+            ? [process.env.STRIPE_ACCOUNT_TAX_ID]
+            : undefined,
+          footer:
+            "Kai Solutions — naplan.kaisolutions.ai. " +
+            "Retain this invoice as your proof of transaction.",
+          metadata: {
+            bundle_id: bundle_id,
+            parent_id: parentId.toString(),
+          },
+        },
+      },
       success_url: `${FRONTEND_URL}#/parent-dashboard?payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${FRONTEND_URL}#/parent-dashboard?payment=cancelled`,
       metadata: {
