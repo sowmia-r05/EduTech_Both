@@ -21,6 +21,10 @@ const PurchaseSchema = new mongoose.Schema(
     // Stripe
     stripe_session_id: { type: String, unique: true, sparse: true },
     stripe_payment_intent: { type: String, default: null },
+    // Set by markPaidAndProvision from session.invoice when invoice_creation
+    // is enabled. Lets support fetch the hosted invoice URL on request rather
+    // than asking parents to find the email — the ACL proof of transaction.
+    stripe_invoice_id: { type: String, default: null },
     amount_cents: { type: Number, required: true },
     currency: { type: String, default: "aud" },
 

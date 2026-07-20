@@ -1,12 +1,13 @@
-/**
- * src/routes/paymentRoutes.js
- *
- * POST /api/payments/checkout              → Create Stripe Checkout session (Parent JWT)
- * POST /api/payments/webhook               → Stripe webhook (signature verified, no JWT)
- * GET  /api/payments/history               → Parent's purchase history (Parent JWT)
- * GET  /api/payments/verify/:sessionId     → Verify payment + return purchase details (Parent JWT)
- * POST /api/payments/retry/:purchaseId     → Retry payment for failed/pending purchase (Parent JWT)
- */
+// ────────────────────────────────────────────
+// Shared helper: verify Stripe-reported amount/currency against our record.
+// session.amount_total is in the smallest currency unit (cents), same as amount_cents.
+// Returns { ok: true } when they match, or { ok: false, reason } on mismatch.
+//
+// NOTE: strict equality is only valid while checkout has NO coupons/promo codes
+// and NO tax. If you enable allow_promotion_codes or automatic tax, amount_total
+// will legitimately differ from amount_cents — compare against amount_subtotal
+// (or store the discounted expected amount) instead.
+// ────────────────────────────────────────────
 
 const router = require("express").Router();
 // Pin the API version so outbound Stripe calls have a stable request/response
@@ -334,6 +335,17 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
       // Stripe 400s if it can't write back the address it derives at checkout.
       customer_update: { address: "auto", name: "auto" },
       billing_address_collection: "required",
+      // Mandatory tick-box before payment completes. Requires the ToS URL in
+      // Dashboard → Settings → Checkout, or session creation fails.
+      consent_collection: { terms_of_service: "required" },
+      custom_text: {
+        terms_of_service_acceptance: {
+          message:
+            "I agree to the [Terms of Service and Refund Policy]" +
+            "(https://naplan.kaisolutions.ai/#/refund-policy). " +
+            "Access is granted immediately on payment.",
+        },
+      },
       // ACL proof-of-transaction: a Stripe payment receipt carries no ABN field.
       // An invoice does — and itemises the GST component once tax is live.
       invoice_creation: {
@@ -347,7 +359,7 @@ router.post("/checkout", verifyToken, requireParent, async (req, res) => {
             "Kai Solutions — naplan.kaisolutions.ai. " +
             "Retain this invoice as your proof of transaction.",
           metadata: {
-            bundle_id: purchase.bundle_id,
+            bundle_id: bundle_id,
             parent_id: parentId.toString(),
           },
         },
@@ -694,8 +706,17 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
       // Stripe 400s if it can't write back the address it derives at checkout.
       customer_update: { address: "auto", name: "auto" },
       billing_address_collection: "required",
-      // ACL proof-of-transaction: a Stripe payment receipt carries no ABN field.
-      // An invoice does — and itemises the GST component once tax is live.
+      // Mandatory tick-box before payment completes. Requires the ToS URL in
+      // Dashboard → Settings → Checkout, or session creation fails.
+      consent_collection: { terms_of_service: "required" },
+      custom_text: {
+        terms_of_service_acceptance: {
+          message:
+            "I agree to the [Terms of Service and Refund Policy]" +
+            "(https://naplan.kaisolutions.ai/#/refund-policy). " +
+            "Access is granted immediately on payment.",
+        },
+      },
       invoice_creation: {
         enabled: true,
         invoice_data: {
@@ -707,7 +728,7 @@ router.post("/retry/:purchaseId", verifyToken, requireParent, async (req, res) =
             "Kai Solutions — naplan.kaisolutions.ai. " +
             "Retain this invoice as your proof of transaction.",
           metadata: {
-            bundle_id: bundle_id,
+            bundle_id: purchase.bundle_id,
             parent_id: parentId.toString(),
           },
         },
