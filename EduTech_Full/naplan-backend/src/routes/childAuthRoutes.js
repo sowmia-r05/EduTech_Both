@@ -68,6 +68,13 @@ router.post("/child-login", async (req, res) => {
 
     // signChild() stamps typ:"child", signs with SECRETS.child, expires per TTL.child.
     // No secret is read from process.env here — config/jwt.js owns that.
+     if (child.parental_consent !== true) {
+      return res.status(403).json({
+        error:
+          "This profile needs a parent or guardian to confirm consent before it can be used. Please ask them to sign in and complete it.",
+        code: "CONSENT_REQUIRED",
+      });
+    }
     const token = signChild({
       role: "child",
       childId: child._id.toString(),
