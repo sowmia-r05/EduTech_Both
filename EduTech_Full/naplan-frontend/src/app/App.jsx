@@ -31,7 +31,10 @@ import RequireTutor   from "@/app/components/admin/RequireTutor";
 import { useAuth } from "@/app/context/AuthContext";
 import IdleTimeoutProvider from "./components/auth/IdleTimeoutProvider";
 import ChildIdleTimeoutProvider from "./components/auth/ChildIdleTimeoutProvider";
-import SupportWidget from "@/app/components/support/SupportWidget";
+// ✅ CHANGED: the support widget is no longer global. SupportWidgetGate wraps
+//    it in a route allowlist (landing, /parent/create, /parent-dashboard) so it
+//    can never float over a child's dashboard or a live quiz.
+import SupportWidgetGate from "@/app/components/support/SupportWidgetGate";
 import { Analytics } from "@vercel/analytics/react";
 
 
@@ -171,8 +174,10 @@ export default function AppRoutes() {
       <Route path="*" element={<WithFooter><NotFound /></WithFooter>} />
       </Routes>
 
-      {/* ─── Global support widget (shows on every page) ─── */}
-      <SupportWidget />
+      {/* ─── Support widget — landing, /parent/create, /parent-dashboard only ───
+           Edit the allowlist in components/support/SupportWidgetGate.jsx, not
+           here. Sits outside <Routes> on purpose so it survives navigation. */}
+      <SupportWidgetGate />
 
       <Analytics />
     </AuthProvider>
