@@ -1,8 +1,8 @@
 /**
- * routes/childAuthRoutes.js  (v2 — SECRET SEPARATION)
+ * routes/childAuthRoutes.js  (v3 — SECRET SEPARATION + LOGIN STAMPING)
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * 🔴 FIX
+ * 🔴 FIX (v2)
  *
  * BEFORE:
  *     const JWT_SECRET = process.env.JWT_SECRET || process.env.PARENT_JWT_SECRET;
@@ -20,6 +20,44 @@
  * AFTER: signChild() from config/jwt.js. It uses SECRETS.child, stamps
  * typ:"child", and takes its lifetime from TTL.child — one source of truth.
  * The cookie max-age is derived from the same TTL so they cannot drift.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ✅ NEW (v3) — LOGIN STAMPING (ENGAGE-1)
+ *
+ *   Records last_login_at + login_count on every successful child login.
+ *
+ *   WHY: without it, "the parent bought this and the child never opened it"
+ *   and "the child logs in every day but never finishes a quiz" are the same
+ *   row in the database — a Child with zero QuizAttempt documents. They are
+ *   opposite failures needing opposite responses (onboarding fix vs. quiz-flow
+ *   fix), and you cannot tell them apart retrospectively. The field has to
+ *   exist before the data it would have captured.
+ *
+ *   THREE DELIBERATE CHOICES:
+ *
+ *   1. updateOne(), NOT child.save(). The Child schema has a pre("save") hook
+ *      that bcrypt-hashes pin_hash. It is guarded by isModified(), so a save()
+ *      here would probably be safe today — but "probably safe, guarded by a
+ *      hook in another file" is exactly the kind of coupling that breaks
+ *      silently later and locks a child out of their own account. updateOne()
+ *      bypasses the hook entirely and is a single atomic field write.
+ *
+ *   2. Fire-and-forget with a catch. An analytics write must NEVER be able to
+ *      fail a login. If Mongo hiccups on the stamp, the child still gets in and
+ *      we log the miss. Do not await this in a way that can throw into the
+ *      401/500 path.
+ *
+ *   3. Stamped AFTER the consent gate, not before. A login that is rejected for
+ *      missing parental consent is not a login — counting it would inflate
+ *      engagement with sessions that never reached the product, and would
+ *      record activity against a profile that is not lawfully usable yet.
+ *
+ *   ⚠️ RETENTION: last_login_at / login_count are personal data about a minor
+ *      and are in scope for the retention policy (Tracker row RETENTION) and
+ *      the deletion endpoint (DATA-DEL). They are stored as a single
+ *      most-recent timestamp, NOT an append-only session history — a full log
+ *      of when a child was online is more data than this feature needs.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
@@ -44,11 +82,17 @@ const CHILD_COOKIE_MAX_AGE = ttlToMs(TTL.child);
 /**
  * POST /api/auth/child-login
  * Body: { username, pin }
- * Returns: { ok, token, child: { childId, username, displayName, yearLevel, status } }
+ * Returns: { ok, child: { childId, parentId, username, displayName, yearLevel, status } }
  *
- * NOTE: `token` is returned in the body as well as set as an httpOnly cookie.
- * Removing it from the body previously logged children out on refresh, because
- * the frontend cleared the parent token and had no child token to store.
+ * The session is carried ONLY by the httpOnly `child_token` cookie. The token
+ * is deliberately NOT returned in the response body — that was removed as part
+ * of LS-TOKEN, because a body-returned token exists to be put in localStorage,
+ * and any XSS then yields full account takeover. The frontend reads session
+ * state from GET /api/auth/me instead.
+ *
+ * (The v2 header note claiming the token is "returned in the body as well" was
+ * stale — the code had already stopped doing that. Corrected here so a future
+ * edit doesn't "restore" it.)
  */
 router.post("/child-login", async (req, res) => {
   try {
@@ -66,15 +110,30 @@ router.post("/child-login", async (req, res) => {
     const valid = await child.comparePin(pin);
     if (!valid) return res.status(401).json({ error: "Invalid username or PIN" });
 
-    // signChild() stamps typ:"child", signs with SECRETS.child, expires per TTL.child.
-    // No secret is read from process.env here — config/jwt.js owns that.
-     if (child.parental_consent !== true) {
+    // APP 3/5 — a profile without recorded guardian consent is not usable,
+    // even with correct credentials. Gate runs before any session is issued.
+    if (child.parental_consent !== true) {
       return res.status(403).json({
         error:
           "This profile needs a parent or guardian to confirm consent before it can be used. Please ask them to sign in and complete it.",
         code: "CONSENT_REQUIRED",
       });
     }
+
+    // ── ENGAGE-1: stamp the login ──────────────────────────────────────────
+    // Non-blocking. A failure here must not cost the child their session.
+    Child.updateOne(
+      { _id: child._id },
+      { $set: { last_login_at: new Date() }, $inc: { login_count: 1 } },
+    ).catch((stampErr) => {
+      console.error(
+        "[child-login] last_login_at stamp failed:",
+        stampErr && stampErr.message,
+      );
+    });
+
+    // signChild() stamps typ:"child", signs with SECRETS.child, expires per
+    // TTL.child. No secret is read from process.env here — config/jwt.js owns that.
     const token = signChild({
       role: "child",
       childId: child._id.toString(),

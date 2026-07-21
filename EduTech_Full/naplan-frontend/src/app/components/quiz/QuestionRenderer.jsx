@@ -306,6 +306,10 @@ function ShortAnswerQuestion({ question, answer, onAnswer, textStyle }) {
         value={text}
         onChange={(e) => onAnswer({ text: e.target.value })}
         placeholder="Type your answer here..."
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="off"
+        autoComplete="off"
         className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-base text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
         style={textStyle}
       />
@@ -501,6 +505,13 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
                 value={text}
                 onChange={(e) => onAnswer({ text: e.target.value })}
                 rows={8}
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                autoComplete="off"
+                data-gramm="false"
+                data-gramm_editor="false"
+                data-enable-grammarly="false"
                 className="w-full px-5 py-4 text-base text-slate-800 leading-relaxed resize-y outline-none placeholder:text-slate-400"
                 style={textStyle}
               />
@@ -530,6 +541,13 @@ function WritingQuestion({ question, answer, onAnswer, yearLevel, subject, onUpl
           onChange={(e) => onAnswer({ text: e.target.value })}
           placeholder="Write your answer here..."
           rows={12}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
+          autoComplete="off"
+          data-gramm="false"
+          data-gramm_editor="false"
+          data-enable-grammarly="false"
           className="w-full px-5 py-4 text-base text-slate-800 leading-relaxed resize-y outline-none min-h-[200px] placeholder:text-slate-400"
           style={textStyle}
         />
