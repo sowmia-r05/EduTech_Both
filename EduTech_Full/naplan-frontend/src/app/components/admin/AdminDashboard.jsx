@@ -15,6 +15,7 @@ import QuizSettingsExtras from "./QuizSettingsExtras";
 import ManualQuizCreator  from "./ManualQuizCreator";
 import AssignTutorsModal  from "./AssignTutorsModal";
 import OriginalityChecker from "./OriginalityChecker";  
+import AnalyticsTab       from "./AnalyticsTab";
 import { ADMIN_PATH }     from "@/app/App";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
@@ -677,6 +678,7 @@ export default function AdminDashboard() {
             { id: "bundles", label: "Bundles"        },
             { id: "tutors",  label: "👤 Tutors"      },
             { id: "originality", label: "🛡️ Originality" },
+            { id: "analytics", label: "📊 Analytics" },
           ].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -692,6 +694,7 @@ export default function AdminDashboard() {
         {tab === "bundles" && <BundlesTab bundles={bundles} loading={bundlesLoading} quizzes={quizzes} onRefresh={fetchBundles} />}
         {tab === "tutors"  && <TutorsTab quizzes={quizzes} verificationSummary={verificationSummary} />}
         {tab === "originality" && <OriginalityChecker />} 
+        {tab === "analytics" && <AnalyticsTab adminFetch={adminFetch} />}
 
         {tab === "quizzes" && (
           <>

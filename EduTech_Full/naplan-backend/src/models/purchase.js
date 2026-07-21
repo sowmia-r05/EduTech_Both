@@ -46,6 +46,7 @@ const PurchaseSchema = new mongoose.Schema(
 
     // Expiry
     expires_at: { type: Date, default: null },
+    erased_at: { type: Date, default: null },
   },
   { timestamps: true, versionKey: false },
 );

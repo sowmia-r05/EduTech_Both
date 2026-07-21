@@ -209,6 +209,7 @@ const parentAuthRoutes = require("./routes/parentAuthRoutes");
 const childRoutes = require("./routes/childRoutes");
 const childAuthRoutes = require("./routes/childAuthRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const privacyRoutes = require("./routes/privacyRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const tutorRoutes = require("./routes/Tutorroutes");
 const adminAiFeedbackRoutes = require("./routes/adminAiFeedbackRoutes");
@@ -226,6 +227,7 @@ const quizChatRoute = require("./routes/quizChat");
 const quizAiRoutes = require("./routes/quizAiRoutes");
 const originalityRoutes = require("./routes/originalityRoutes");
 const aiImageRoutes = require("./routes/aiImageRoutes");
+const analyticsRoutes = require("./routes/analyticsRoutes");
 
 const {
   secureLegacyResults,
@@ -352,6 +354,8 @@ app.get("/", (req, res) => {
 });
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
+// analytics FIRST — see note below on why order is load-bearing here
+app.use("/api/admin/analytics", analyticsRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
 app.use("/api/admin", quizAiRoutes);
@@ -370,6 +374,13 @@ app.use("/api/quizzes", chatGlobalLimiter, quizChatRoute);
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
 app.use("/api/payments", paymentRoutes);
+
+// ─── Privacy / right to erasure (APP 11.2) ───────────────────────────────────
+// DELETE /api/privacy/child/:childId  and  DELETE /api/privacy/account.
+// Both irreversible; account deletion requires a typed email confirmation.
+// authLimiter applies because these are as destructive as a credential change
+// and should not be spammable — 10 per 11 min is far above legitimate use.
+app.use("/api/privacy", authLimiter, privacyRoutes);
 
 // ─── OCR ──────────────────────────────────────────────────────────────────────
 // Rate limiting lives INSIDE ocrRoute.js (ocrBurstLimit + ocrRateLimit), mounted

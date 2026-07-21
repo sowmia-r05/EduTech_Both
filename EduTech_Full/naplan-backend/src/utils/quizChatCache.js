@@ -13,6 +13,10 @@
  * purely as METADATA for later feedback analysis — it never affects matching,
  * which is by question similarity + quizId only.
  *
+ * ⚠️ Because that payload names a child, these points are PERSONAL INFORMATION
+ *    held by a third party (Qdrant Cloud, eu-west-2). deletePointsByChild()
+ *    below is what makes the APP 11.2 erasure endpoint complete.
+ *
  * The collection is auto-created on first use, sized to whatever dimension the
  * Gemini embedding returns — so no manual dimension config is needed.
  *
@@ -138,4 +142,38 @@ async function storeCache(quizId, embedding, meta = {}) {
   return { stored: true, id: point.id };
 }
 
-module.exports = { embedQuestion, checkCache, storeCache, COLLECTION, THRESHOLD };
+/**
+ * Delete every cached point whose payload names this child.
+ *
+ * storeCache() writes childId/childName/yearLevel into the payload, which makes
+ * these points personal information subject to APP 11.2 erasure. Deleted by
+ * FILTER rather than by ID, because point IDs are random UUIDs we never record.
+ *
+ * NOTE: filtering on childId needs a payload index, or Qdrant falls back to a
+ * full scan (correct, just slow). Create it once against your cluster:
+ *   PUT /collections/quiz_chat_cache/index
+ *   { "field_name": "childId", "field_schema": "keyword" }
+ */
+async function deletePointsByChild(childId) {
+  const res = await qFetch(`/collections/${COLLECTION}/points/delete`, {
+    method: "POST",
+    body: JSON.stringify({
+      filter: { must: [{ key: "childId", match: { value: String(childId) } }] },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`Qdrant delete ${res.status}: ${err.slice(0, 200)}`);
+  }
+  return { deleted: true };
+}
+
+module.exports = {
+  embedQuestion,
+  checkCache,
+  storeCache,
+  deletePointsByChild,
+  COLLECTION,
+  THRESHOLD,
+};
