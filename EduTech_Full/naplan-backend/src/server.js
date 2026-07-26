@@ -28,10 +28,17 @@ async function startServer() {
 
     // 2. THEN start Express — capture the server so we can close it gracefully
     server = app.listen(PORT, HOST, () => {
-      const addr = server.address();
-      console.log(
-        `NAPLAN backend listening on ${addr.address}:${addr.port} (family: ${addr.family})`,
-      );
+      // Read the address off `this` (the server the callback belongs to),
+      // not the outer `server` variable — and guard against null, which
+      // some Node versions return if this fires before the bind completes.
+      const addr = server?.address?.();
+      if (addr && typeof addr === "object") {
+        console.log(
+          `NAPLAN backend listening on ${addr.address}:${addr.port} (family: ${addr.family})`,
+        );
+      } else {
+        console.log(`NAPLAN backend listening on ${HOST}:${PORT}`);
+      }
     });
 
     // Surface bind failures instead of dying silently (EADDRINUSE, EACCES, etc.)

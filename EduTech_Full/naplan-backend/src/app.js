@@ -228,6 +228,7 @@ const quizAiRoutes = require("./routes/quizAiRoutes");
 const originalityRoutes = require("./routes/originalityRoutes");
 const aiImageRoutes = require("./routes/aiImageRoutes");
 const analyticsRoutes = require("./routes/analyticsRoutes");
+const parentAnalyticsRoutes = require("./routes/parentAnalyticsRoutes");
 
 const {
   secureLegacyResults,
@@ -355,6 +356,7 @@ app.get("/", (req, res) => {
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
 // analytics FIRST — see note below on why order is load-bearing here
+app.use("/api/admin/analytics/parents", parentAnalyticsRoutes);
 app.use("/api/admin/analytics", analyticsRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminAiFeedbackRoutes);
