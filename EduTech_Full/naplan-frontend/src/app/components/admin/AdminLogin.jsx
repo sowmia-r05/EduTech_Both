@@ -1,9 +1,18 @@
 /**
  * AdminLogin.jsx
- * Updated: uses ADMIN_PATH constant — no hardcoded /admin paths
+ *
+ * Admin-only login. Uses the shared /api/admin/login endpoint (tutors use the
+ * same route via Tutorlogin.jsx) and relies on the httpOnly `admin_token`
+ * cookie the server sets — credentials:"include" is what makes that work
+ * across the naplan → naplanapi subdomain hop.
+ *
+ * Role gate: /api/admin/login admits both "admin" and "tutor". Without the
+ * check below, a tutor signing in here would be navigated to the admin
+ * dashboard, then bounced straight back by RequireAdmin's own role check —
+ * with no error shown. Mirrors the guard in Tutorlogin.jsx.
  */
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ADMIN_PATH } from "@/app/App";
 
@@ -15,7 +24,12 @@ export default function AdminLogin() {
   const [password,     setPassword]     = useState("");
   const [error,        setError]        = useState("");
   const [loading,      setLoading]      = useState(false);
+  const [wakingUp,     setWakingUp]     = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const wakeTimer = useRef(null);
+
+  // Clear the cold-start timer if the component unmounts mid-request.
+  useEffect(() => () => clearTimeout(wakeTimer.current), []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,24 +39,62 @@ export default function AdminLogin() {
     if (!trimmedEmail) { setError("Enter your email");    return; }
     if (!password)      { setError("Enter your password"); return; }
 
+    // Drop any profile left behind by a previous session before we try again.
+    try { localStorage.removeItem("admin_info"); } catch {}
+
     try {
       setLoading(true);
-      const res  = await fetch(`${API}/api/admin/login`, {
+      // Render free tier sleeps after ~15 min idle; the first request of the
+      // day can take 30-60s. Say so rather than leaving a silent spinner.
+      wakeTimer.current = setTimeout(() => setWakingUp(true), 6000);
+
+      const res = await fetch(`${API}/api/admin/login`, {
         method:      "POST",
         headers:     { "Content-Type": "application/json" },
-        credentials: "include",   // sends/receives httpOnly cookie
+        credentials: "include",   // sends/receives the httpOnly cookie
         body:        JSON.stringify({ email: trimmedEmail, password }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Login failed");
 
-      // Store token + profile in localStorage for quick access
-       if (data.admin) localStorage.setItem("admin_info", JSON.stringify(data.admin));
+      // Do NOT call res.json() directly. A cold start, proxy timeout or
+      // rate-limit page returns HTML, and the SyntaxError from parsing it
+      // would surface to the user as "Unexpected token '<'".
+      const raw = await res.text();
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch { data = {}; }
+
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error("Too many attempts. Please wait a few minutes and try again.");
+        }
+        throw new Error(data.error || `Login failed (${res.status})`);
+      }
+
+      // Admins only. Tutors have their own page and their own dashboard.
+      if (data.admin?.role !== "admin") {
+        throw new Error(
+          "This login is for admins only. Tutors should use the tutor login page."
+        );
+      }
+
+      // The session IS the httpOnly cookie. Keep only the non-sensitive
+      // profile for display — never a token, which would be XSS-readable.
+      localStorage.setItem("admin_info", JSON.stringify(data.admin));
 
       navigate(`${ADMIN_PATH}/dashboard`);
     } catch (err) {
-      setError(err.message);
+      const msg = (err?.message || "").toLowerCase();
+      if (
+        msg === "load failed" ||
+        msg.includes("failed to fetch") ||
+        msg.includes("networkerror")
+      ) {
+        setError("Couldn't reach the server. Check your connection and try again.");
+      } else {
+        setError(err.message || "Login failed");
+      }
     } finally {
+      clearTimeout(wakeTimer.current);
+      setWakingUp(false);
       setLoading(false);
     }
   };
@@ -130,6 +182,13 @@ export default function AdminLogin() {
               </span>
             ) : "Sign In"}
           </button>
+
+          {wakingUp && (
+            <p className="text-xs text-slate-400 text-center">
+              Waking up the server — this can take up to a minute on the first
+              request of the day.
+            </p>
+          )}
         </form>
 
         <p className="text-xs text-slate-500 text-center mt-4">
