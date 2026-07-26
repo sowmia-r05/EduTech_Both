@@ -50,7 +50,11 @@ const Child = require("../models/child");
 const QuizAttempt = require("../models/quizAttempt");
 const Writing = require("../models/writing");
 
-const { adminOnly } = require("../middleware/adminAuth");
+const { requireAdmin, adminOnly } = require("../middleware/adminAuth");
+
+// requireAdmin loads req.admin from the DB; adminOnly then checks the role.
+// Without requireAdmin ahead of it, adminOnly 403s every request.
+router.use(requireAdmin);
 const {
   ATTEMPT_STATUS,
   FEEDBACK_STATUS,

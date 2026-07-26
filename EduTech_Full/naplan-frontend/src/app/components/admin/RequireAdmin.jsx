@@ -16,6 +16,7 @@
 import { useState, useEffect } from "react";
 import { Navigate } from "react-router-dom";
 import { ADMIN_PATH } from "@/app/App";
+import WakingUpLoader from "@/app/components/ui/WakingUpLoader";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -45,9 +46,11 @@ export default function RequireAdmin({ children }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Still verifying the cookie session — render nothing (or a spinner) so we
+  // Still verifying the cookie session — show the cold-start loader so we
   // don't flash-redirect an authenticated admin on a hard refresh.
-  if (allowed === null) return <WakingUpLoader onRetry={() => window.location.reload()} />;
+  if (allowed === null) {
+    return <WakingUpLoader onRetry={() => window.location.reload()} />;
+  }
 
   if (!allowed) {
     // Clear any stale display cache a previous build left behind.
