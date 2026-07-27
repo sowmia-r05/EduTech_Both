@@ -1,12 +1,21 @@
 /**
- * QuizUploader.jsx  (v3 — SIMPLE FORMAT SUPPORT)
+ * QuizUploader.jsx  (v4 — COOKIE AUTH)
  *
- * FIXES IN THIS VERSION:
- *   ✅ FIX 1: parseFlexiQuiz now sets correct: true/false on each option
- *   ✅ FIX 2: handleSubmit maps correct field from correct_answer labels as safety net
- *   ✅ NEW:   Supports "simple" questions-only format (single Questions sheet,
- *             columns: question_text, type, option_a…option_d, correct_answer,
- *             points, category, image_url, explanation — no Quiz Info sheet needed)
+ * CHANGES FROM v3:
+ *   ✅ getAuthToken() deleted. The session is the httpOnly admin_token cookie;
+ *      JavaScript cannot read it, so the old localStorage lookup always
+ *      returned null and the pre-flight check blocked every upload with
+ *      "You are not authenticated."
+ *   ✅ adminFetch now sends credentials:"include" and no Authorization header,
+ *      matching QuizDetailPage.jsx and ManualQuizCreator.jsx.
+ *   ✅ The pre-flight token check in handleSubmit is gone. The server decides;
+ *      the existing 401/403 handling surfaces a genuinely expired session.
+ *
+ * Retained from v3:
+ *   • parseFlexiQuiz sets correct: true/false on each option
+ *   • handleSubmit maps the correct field from correct_answer labels
+ *   • "simple" questions-only format support
+ *   • matching-question option_id/match pairs preserved through upload
  *
  * Place in: src/app/components/admin/QuizUploader.jsx
  */
@@ -16,26 +25,14 @@ import * as XLSX from "xlsx";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
-function getAuthToken() {
-  return (
-    localStorage.getItem("admin_token") ||
-    localStorage.getItem("token") ||
-    localStorage.getItem("authToken") ||
-    localStorage.getItem("accessToken") ||
-    sessionStorage.getItem("admin_token") ||
-    sessionStorage.getItem("token") ||
-    sessionStorage.getItem("authToken") ||
-    null
-  );
-}
-
+// Session is the httpOnly admin_token cookie — nothing to read from storage.
+// The cookie is sent automatically by credentials:"include".
 function adminFetch(url, opts = {}) {
-  const token = getAuthToken();
-  if (!token) console.error("❌ No auth token found!");
-  return fetch(`${API}${url}`, {
-    ...opts,
-    headers: { ...opts.headers, Authorization: `Bearer ${token}` },
-  });
+  const headers = { ...(opts.headers || {}) };
+  if (!headers["Content-Type"] && typeof opts.body === "string") {
+    headers["Content-Type"] = "application/json";
+  }
+  return fetch(`${API}${url}`, { ...opts, credentials: "include", headers });
 }
 
 function stripHtml(html) {
@@ -298,18 +295,18 @@ function parseCustomTemplate(workbook) {
   dataRows.forEach((row, idx) => {
     const rowNum = idx + 3;
     const q = {
-  _rowNum: rowNum,
-  question_text: String(row.question_text || "").trim(),
-  type: String(row.type || "").trim().toLowerCase(),
-  display_style: String(row.display_style || "").trim().toLowerCase() || null,  // ← ADD
-  options: [],
-  correct_answer: String(row.correct_answer || "").trim(),
-  points: parseInt(row.points) || 1,
-  category: String(row.category || "").trim(),
-  image_url: String(row.image_url || "").trim(),
-  explanation: String(row.explanation || "").trim(),
-  voice_url:  String(row.voice_url || "").trim(),
-};
+      _rowNum: rowNum,
+      question_text: String(row.question_text || "").trim(),
+      type: String(row.type || "").trim().toLowerCase(),
+      display_style: String(row.display_style || "").trim().toLowerCase() || null,
+      options: [],
+      correct_answer: String(row.correct_answer || "").trim(),
+      points: parseInt(row.points) || 1,
+      category: String(row.category || "").trim(),
+      image_url: String(row.image_url || "").trim(),
+      explanation: String(row.explanation || "").trim(),
+      voice_url:  String(row.voice_url || "").trim(),
+    };
 
     if (!q.question_text) { errors.push(`Row ${rowNum}: Missing question text`); return; }
     if (!validTypes.includes(q.type)) {
@@ -332,7 +329,7 @@ function parseCustomTemplate(workbook) {
       }
     });
 
-     if (q.type === "free_text") {
+    if (q.type === "free_text") {
       q.correct_answer = "";
     } else if (q.type === "short_answer") {
       q.options = [];
@@ -382,7 +379,7 @@ function parseCustomTemplate(workbook) {
 }
 
 /* ═══════════════════════════════════════════════════════
-   ✅ NEW: Parse "simple" questions-only format
+   Parse "simple" questions-only format
    Single "Questions" sheet, no "Quiz Info" sheet.
    Expected columns:
      question_text | type | option_a | option_b | option_c | option_d
@@ -425,24 +422,24 @@ function parseSimpleTemplate(workbook, fileName) {
     (row) => row.question_text && !String(row.question_text).startsWith("The question text")
   );
 
- const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer", "matching"];
+  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer", "matching"];
   const questions  = [];
 
   dataRows.forEach((row, idx) => {
     const rowNum = idx + 2; // row 1 = header, row 2 = first data row
     const q = {
-  _rowNum:        rowNum,
-  question_text:  String(row.question_text  || "").trim(),
-  type:           String(row.type           || "radio_button").trim().toLowerCase(),
-  display_style:  String(row.display_style  || "").trim().toLowerCase() || null,  // ← ADD
-  options:        [],
-  correct_answer: String(row.correct_answer || "").trim(),
-  points:         parseInt(row.points)      || 1,
-  category:       String(row.category       || "").trim(),
-  image_url:      String(row.image_url      || "").trim(),
-  explanation:    String(row.explanation    || "").trim(),
-  voice_url:      String(row.voice_url      || "").trim(),
-};
+      _rowNum:        rowNum,
+      question_text:  String(row.question_text  || "").trim(),
+      type:           String(row.type           || "radio_button").trim().toLowerCase(),
+      display_style:  String(row.display_style  || "").trim().toLowerCase() || null,
+      options:        [],
+      correct_answer: String(row.correct_answer || "").trim(),
+      points:         parseInt(row.points)      || 1,
+      category:       String(row.category       || "").trim(),
+      image_url:      String(row.image_url      || "").trim(),
+      explanation:    String(row.explanation    || "").trim(),
+      voice_url:      String(row.voice_url      || "").trim(),
+    };
 
     if (!q.question_text) { errors.push(`Row ${rowNum}: Missing question text`); return; }
     if (!validTypes.includes(q.type)) {
@@ -518,8 +515,8 @@ function parseSimpleTemplate(workbook, fileName) {
    ═══════════════════════════════════════════════════════ */
 function parseExcel(workbook, fileName) {
   const format = detectFormat(workbook);
-  if (format === "custom")    return { ...parseCustomTemplate(workbook),           format: "custom"    };
-  if (format === "simple")    return { ...parseSimpleTemplate(workbook, fileName),  format: "simple"    }; // ✅ NEW
+  if (format === "custom")    return { ...parseCustomTemplate(workbook),            format: "custom"    };
+  if (format === "simple")    return { ...parseSimpleTemplate(workbook, fileName),  format: "simple"    };
   if (format === "flexiquiz") return { ...parseFlexiQuiz(workbook, fileName),       format: "flexiquiz" };
   return {
     quizMeta: null, questions: [],
@@ -535,14 +532,14 @@ function parseExcel(workbook, fileName) {
 
 function Badge({ type }) {
   const styles = {
-  radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-  free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
-  short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  matching:       "bg-teal-500/10 text-teal-400 border-teal-500/20",
-};
+    radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+    free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
+    short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    matching:       "bg-teal-500/10 text-teal-400 border-teal-500/20",
+  };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>
       {type}
@@ -597,13 +594,6 @@ export default function QuizUploader({ onUploadSuccess }) {
       return;
     }
 
-    const token = getAuthToken();
-    if (!token) {
-      setUploadError("You are not authenticated. Please log out and log in again.");
-      setStep("preview");
-      return;
-    }
-
     try {
       const res = await adminFetch("/api/admin/quizzes/upload", {
         method: "POST",
@@ -629,22 +619,22 @@ export default function QuizUploader({ onUploadSuccess }) {
               .map((s) => s.trim())
               .filter(Boolean);
             return {
-  question_text:  q.question_text,
-  type:           q.type,
-  display_style:  q.display_style || null,
-  options: q.type === "matching"
-  ? (q.options || []).map((opt) => ({
-      option_id: opt.option_id,
-      text:      opt.text,
-      match:     opt.match,   // ✅ explicitly preserved — was silently dropped if backend strips unknowns
-      correct:   true,
-    }))
-  : (q.options || []).map((opt) => ({
-      ...opt,
-      correct:
-        opt.correct === true ||
-        correctLabels.includes((opt.label || "").toUpperCase()),
-    })),
+              question_text:  q.question_text,
+              type:           q.type,
+              display_style:  q.display_style || null,
+              options: q.type === "matching"
+                ? (q.options || []).map((opt) => ({
+                    option_id: opt.option_id,
+                    text:      opt.text,
+                    match:     opt.match,   // ✅ explicitly preserved
+                    correct:   true,
+                  }))
+                : (q.options || []).map((opt) => ({
+                    ...opt,
+                    correct:
+                      opt.correct === true ||
+                      correctLabels.includes((opt.label || "").toUpperCase()),
+                  })),
               correct_answer: q.correct_answer,
               points:         q.points,
               category:       q.category,
@@ -701,7 +691,6 @@ export default function QuizUploader({ onUploadSuccess }) {
           </div>
         </div>
 
-        {/* ✅ Updated to mention 3 supported formats */}
         <div className="bg-indigo-900/20 border border-indigo-800/50 rounded-xl p-4">
           <p className="text-sm text-indigo-300 font-medium mb-1">📎 Supports three formats:</p>
           <ul className="text-xs text-indigo-400/80 space-y-1 ml-4">
@@ -801,7 +790,6 @@ export default function QuizUploader({ onUploadSuccess }) {
                 <li key={i} className="text-sm text-red-300 flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span> {e}</li>
               ))}
             </ul>
-            <p className="text-xs text-red-400/70 mt-3">Fix these errors in your Excel file and re-upload.</p>
           </div>
         )}
 
@@ -809,147 +797,176 @@ export default function QuizUploader({ onUploadSuccess }) {
           <div className="bg-red-900/30 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3">{uploadError}</div>
         )}
 
-        {meta && (
+        {/* ── Editable metadata (simple / flexiquiz formats need review) ── */}
+        {editMeta ? (
+          <div className="bg-slate-900 border border-amber-700/40 rounded-xl p-5 space-y-4">
+            <div>
+              <h3 className="text-sm font-medium text-amber-300">Confirm quiz details</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                This file had no Quiz Info sheet, so these were guessed from the filename. Check them before uploading.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-slate-400 mb-1">Quiz name</label>
+                <input
+                  type="text"
+                  value={editMeta.quiz_name}
+                  onChange={(e) => setEditMeta({ ...editMeta, quiz_name: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Year level</label>
+                <select
+                  value={editMeta.year_level || ""}
+                  onChange={(e) => setEditMeta({ ...editMeta, year_level: parseInt(e.target.value) || 0 })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select…</option>
+                  {[3, 5, 7, 9].map((y) => <option key={y} value={y}>Year {y}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Subject</label>
+                <select
+                  value={editMeta.subject || ""}
+                  onChange={(e) => setEditMeta({ ...editMeta, subject: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select…</option>
+                  {["Maths", "Reading", "Writing", "Language conventions"].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Tier</label>
+                <select
+                  value={editMeta.tier || "A"}
+                  onChange={(e) => setEditMeta({ ...editMeta, tier: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {["A", "B", "C"].map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Time limit (min)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editMeta.time_limit_minutes ?? ""}
+                  onChange={(e) => setEditMeta({ ...editMeta, time_limit_minutes: e.target.value ? parseInt(e.target.value) : null })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Difficulty</label>
+                <select
+                  value={editMeta.difficulty || ""}
+                  onChange={(e) => setEditMeta({ ...editMeta, difficulty: e.target.value || null })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Not set</option>
+                  {["easy", "medium", "hard"].map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Set number</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editMeta.set_number ?? 1}
+                  onChange={(e) => setEditMeta({ ...editMeta, set_number: parseInt(e.target.value) || 1 })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!editMeta.is_trial}
+                    onChange={(e) => setEditMeta({ ...editMeta, is_trial: e.target.checked })}
+                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Trial quiz
+                </label>
+              </div>
+            </div>
+          </div>
+        ) : (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Quiz Info</h3>
-              {(parsed.format === "flexiquiz" || parsed.format === "simple") && (
-                <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-                  ✏️ Review & edit before uploading
-                </span>
+            <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4">Quiz Info</h3>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+              <div><span className="text-slate-500">Name: </span><span className="text-white font-medium">{meta?.quiz_name}</span></div>
+              <div><span className="text-slate-500">Year: </span><span className="text-white font-medium">{meta?.year_level}</span></div>
+              <div><span className="text-slate-500">Subject: </span><span className="text-white font-medium">{meta?.subject}</span></div>
+              <div><span className="text-slate-500">Tier: </span><span className="text-white font-medium">{meta?.tier}</span></div>
+              {meta?.time_limit_minutes && (
+                <div><span className="text-slate-500">Time: </span><span className="text-white font-medium">{meta.time_limit_minutes} min</span></div>
+              )}
+              {meta?.difficulty && (
+                <div><span className="text-slate-500">Difficulty: </span><span className="text-white font-medium">{meta.difficulty}</span></div>
               )}
             </div>
-
-            {editMeta ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Quiz Name *</label>
-                  <input type="text" value={editMeta.quiz_name}
-                    onChange={(e) => setEditMeta((m) => ({ ...m, quiz_name: e.target.value }))}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Year Level *</label>
-                  <select value={editMeta.year_level}
-                    onChange={(e) => setEditMeta((m) => ({ ...m, year_level: parseInt(e.target.value) || 0 }))}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <option value={0}>Select...</option>
-                    <option value={3}>Year 3</option>
-                    <option value={5}>Year 5</option>
-                    <option value={7}>Year 7</option>
-                    <option value={9}>Year 9</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Subject *</label>
-                  <select value={editMeta.subject}
-                    onChange={(e) => setEditMeta((m) => ({ ...m, subject: e.target.value }))}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <option value="">Select...</option>
-                    <option value="Maths">Maths</option>
-                    <option value="Reading">Reading</option>
-                    <option value="Writing">Writing</option>
-                    <option value="Language conventions">Language conventions</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Tier</label>
-                  <select value={editMeta.tier}
-                    onChange={(e) => setEditMeta((m) => ({ ...m, tier: e.target.value }))}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <option value="A">A</option>
-                    <option value="B">B</option>
-                    <option value="C">C</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Time Limit (min)</label>
-                  <input type="number" value={editMeta.time_limit_minutes || ""}
-                    onChange={(e) => setEditMeta((m) => ({ ...m, time_limit_minutes: e.target.value ? parseInt(e.target.value) : null }))}
-                    placeholder="No limit"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Difficulty</label>
-                  <select value={editMeta.difficulty || ""}
-                    onChange={(e) => setEditMeta((m) => ({ ...m, difficulty: e.target.value || null }))}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <option value="">Auto</option>
-                    <option value="easy">Easy</option>
-                    <option value="medium">Medium</option>
-                    <option value="hard">Hard</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">🔊 Voice / Audio URL</label>
-                  <input type="url" value={editMeta.voice_url || ""}
-                    onChange={(e) => setEditMeta((m) => ({ ...m, voice_url: e.target.value || null }))}
-                    placeholder="https://... .mp3 / .wav"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">🎬 Video URL</label>
-                  <input type="url" value={editMeta.video_url || ""}
-                    onChange={(e) => setEditMeta((m) => ({ ...m, video_url: e.target.value || null }))}
-                    placeholder="https://... YouTube / .mp4"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div><span className="text-slate-500">Name:</span>    <span className="text-white font-medium ml-1">{meta.quiz_name    || "—"}</span></div>
-                <div><span className="text-slate-500">Year:</span>    <span className="text-white font-medium ml-1">{meta.year_level  || "—"}</span></div>
-                <div><span className="text-slate-500">Subject:</span> <span className="text-white font-medium ml-1">{meta.subject     || "—"}</span></div>
-                <div><span className="text-slate-500">Tier:</span>    <span className="text-white font-medium ml-1">{meta.tier        || "—"}</span></div>
-                {meta.time_limit_minutes && <div><span className="text-slate-500">Time:</span>       <span className="text-white ml-1">{meta.time_limit_minutes} min</span></div>}
-                {meta.difficulty         && <div><span className="text-slate-500">Difficulty:</span> <span className="text-white ml-1">{meta.difficulty}</span></div>}
-                {meta.voice_url          && <div><span className="text-slate-500">🔊 Voice:</span>  <span className="text-indigo-400 ml-1 truncate text-xs">{meta.voice_url}</span></div>}
-                {meta.video_url          && <div><span className="text-slate-500">🎬 Video:</span>  <span className="text-indigo-400 ml-1 truncate text-xs">{meta.video_url}</span></div>}
-              </div>
-            )}
           </div>
         )}
 
-        {parsed.questions.length > 0 && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-800">
-              <h3 className="text-sm font-medium text-slate-300">Questions Preview ({parsed.questions.length})</h3>
-            </div>
-            <div className="overflow-x-auto max-h-96">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-slate-900">
-                  <tr className="border-b border-slate-800">
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase w-10">#</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase">Question</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase w-32">Type</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase w-24">Options</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase w-20">Answer</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase w-28">Category</th>
+        {/* ── Questions preview table ── */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-800">
+            <h3 className="text-sm font-medium text-white">Questions Preview ({parsed.questions.length})</h3>
+          </div>
+          <div className="max-h-96 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-900">
+                <tr className="text-xs text-slate-500 uppercase tracking-wide">
+                  <th className="text-left font-medium px-5 py-3 w-10">#</th>
+                  <th className="text-left font-medium px-2 py-3">Question</th>
+                  <th className="text-left font-medium px-2 py-3 w-32">Type</th>
+                  <th className="text-left font-medium px-2 py-3 w-20">Options</th>
+                  <th className="text-left font-medium px-2 py-3 w-20">Answer</th>
+                  <th className="text-left font-medium px-2 py-3 w-48">Category</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parsed.questions.map((q, i) => (
+                  <tr key={i} className="border-t border-slate-800/60">
+                    <td className="px-5 py-3 text-slate-500">{i + 1}</td>
+                    <td className="px-2 py-3 text-slate-200">
+                      {q.question_text.length > 70 ? q.question_text.slice(0, 70) + "…" : q.question_text}
+                    </td>
+                    <td className="px-2 py-3"><Badge type={q.type} /></td>
+                    <td className="px-2 py-3 text-slate-400">{q.options?.length || 0}</td>
+                    <td className="px-2 py-3 text-emerald-400 font-medium">{q.correct_answer || "—"}</td>
+                    <td className="px-2 py-3 text-slate-400">{q.category || "—"}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {parsed.questions.map((q, i) => (
-                    <tr key={i} className="hover:bg-slate-800/30">
-                      <td className="px-4 py-2.5 text-slate-500">{i + 1}</td>
-                      <td className="px-4 py-2.5 text-white max-w-xs truncate" title={q.question_text}>{q.question_text}</td>
-                      <td className="px-4 py-2.5"><Badge type={q.type} /></td>
-                      <td className="px-4 py-2.5 text-slate-400">{q.options.length || "—"}</td>
-                      <td className="px-4 py-2.5 text-emerald-400 font-mono">{q.correct_answer || "—"}</td>
-                      <td className="px-4 py-2.5 text-slate-400 truncate" title={q.category}>{q.category || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
 
         <div className="flex items-center gap-3">
-          <button onClick={handleSubmit} disabled={hasErrors || parsed.questions.length === 0}
-            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors">
+          <button
+            onClick={handleSubmit}
+            disabled={hasErrors}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+          >
             Upload {parsed.questions.length} Questions
           </button>
-          <button onClick={resetAll} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition-colors">
+          <button
+            onClick={resetAll}
+            className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition-colors"
+          >
             Cancel
           </button>
         </div>
@@ -962,9 +979,10 @@ export default function QuizUploader({ onUploadSuccess }) {
   // ═══════════════════════════════════════
   if (step === "uploading") {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <div className="w-10 h-10 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-        <p className="mt-4 text-slate-400">Uploading quiz and questions...</p>
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <span className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-slate-400">Uploading {parsed?.questions.length} questions…</p>
+        <p className="text-xs text-slate-500">This can take up to a minute on a cold start.</p>
       </div>
     );
   }
@@ -974,22 +992,26 @@ export default function QuizUploader({ onUploadSuccess }) {
   // ═══════════════════════════════════════
   if (step === "done") {
     return (
-      <div className="bg-emerald-900/20 border border-emerald-800 rounded-xl p-8 text-center">
-        <div className="w-14 h-14 rounded-full bg-emerald-600/20 flex items-center justify-center mx-auto mb-4">
-          <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-          </svg>
+      <div className="space-y-6">
+        <div className="bg-emerald-900/20 border border-emerald-800 rounded-xl p-6 text-center">
+          <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          </div>
+          <h3 className="text-base font-semibold text-white mb-1">Upload successful</h3>
+          <p className="text-sm text-slate-300">{uploadResult?.quiz_name}</p>
+          <p className="text-xs text-slate-500 mt-2">
+            {uploadResult?.question_count} questions · Quiz ID {uploadResult?.quiz_id}
+          </p>
         </div>
-        <h3 className="text-lg font-semibold text-emerald-300">Quiz Uploaded Successfully!</h3>
-        <p className="text-sm text-emerald-400/70 mt-1">
-          {uploadResult?.quiz_name || "Quiz"} — {uploadResult?.question_count || parsed?.questions?.length || 0} questions saved.
-        </p>
-        <div className="flex items-center justify-center gap-3 mt-6">
-          <button onClick={resetAll} className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition-colors">
-            Upload Another
-          </button>
-          <button onClick={() => onUploadSuccess?.()} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors">
-            View All Quizzes
+
+        <div className="flex items-center justify-center">
+          <button
+            onClick={resetAll}
+            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Upload Another Quiz
           </button>
         </div>
       </div>
