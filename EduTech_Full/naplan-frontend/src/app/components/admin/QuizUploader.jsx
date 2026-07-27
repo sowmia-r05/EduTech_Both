@@ -1,12 +1,25 @@
 /**
- * QuizUploader.jsx  (v3 — SIMPLE FORMAT SUPPORT)
+ * QuizUploader.jsx  (v4 — COOKIE AUTH)
  *
  * FIXES IN THIS VERSION:
- *   ✅ FIX 1: parseFlexiQuiz now sets correct: true/false on each option
- *   ✅ FIX 2: handleSubmit maps correct field from correct_answer labels as safety net
- *   ✅ NEW:   Supports "simple" questions-only format (single Questions sheet,
- *             columns: question_text, type, option_a…option_d, correct_answer,
- *             points, category, image_url, explanation — no Quiz Info sheet needed)
+ *   ✅ FIX 3 (NEW): Auth migrated from localStorage to the httpOnly admin_token
+ *      cookie. This component was missed when the rest of the admin UI moved
+ *      over (compare ManualQuizCreator.jsx, which was already converted).
+ *
+ *      It read the token from localStorage, found nothing there, and aborted
+ *      with "You are not authenticated" BEFORE contacting the server — so every
+ *      upload failed even while the admin was correctly logged in. An httpOnly
+ *      cookie is deliberately invisible to JavaScript; the only correct move is
+ *      credentials:"include" and letting the browser attach it.
+ *
+ *      Two changes: getAuthToken() deleted, and the pre-flight token check in
+ *      handleSubmit removed. The server is the only thing that can meaningfully
+ *      authenticate the request.
+ *
+ * PREVIOUS FIXES (unchanged):
+ *   ✅ FIX 1: parseFlexiQuiz sets correct: true/false on each option
+ *   ✅ FIX 2: handleSubmit maps correct field from correct_answer labels
+ *   ✅ Supports "simple" questions-only format
  *
  * Place in: src/app/components/admin/QuizUploader.jsx
  */
@@ -16,25 +29,14 @@ import * as XLSX from "xlsx";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 
-function getAuthToken() {
-  return (
-    localStorage.getItem("admin_token") ||
-    localStorage.getItem("token") ||
-    localStorage.getItem("authToken") ||
-    localStorage.getItem("accessToken") ||
-    sessionStorage.getItem("admin_token") ||
-    sessionStorage.getItem("token") ||
-    sessionStorage.getItem("authToken") ||
-    null
-  );
-}
-
+// Session is the httpOnly admin_token cookie — nothing to read from storage.
+// credentials:"include" makes the browser attach it on cross-subdomain calls
+// (naplan.kaisolutions.ai → naplanapi.kaisolutions.ai).
 function adminFetch(url, opts = {}) {
-  const token = getAuthToken();
-  if (!token) console.error("❌ No auth token found!");
   return fetch(`${API}${url}`, {
     ...opts,
-    headers: { ...opts.headers, Authorization: `Bearer ${token}` },
+    credentials: "include",
+    headers: { ...(opts.headers || {}) },
   });
 }
 
@@ -301,7 +303,7 @@ function parseCustomTemplate(workbook) {
   _rowNum: rowNum,
   question_text: String(row.question_text || "").trim(),
   type: String(row.type || "").trim().toLowerCase(),
-  display_style: String(row.display_style || "").trim().toLowerCase() || null,  // ← ADD
+  display_style: String(row.display_style || "").trim().toLowerCase() || null,
   options: [],
   correct_answer: String(row.correct_answer || "").trim(),
   points: parseInt(row.points) || 1,
@@ -382,7 +384,7 @@ function parseCustomTemplate(workbook) {
 }
 
 /* ═══════════════════════════════════════════════════════
-   ✅ NEW: Parse "simple" questions-only format
+   Parse "simple" questions-only format
    Single "Questions" sheet, no "Quiz Info" sheet.
    Expected columns:
      question_text | type | option_a | option_b | option_c | option_d
@@ -434,7 +436,7 @@ function parseSimpleTemplate(workbook, fileName) {
   _rowNum:        rowNum,
   question_text:  String(row.question_text  || "").trim(),
   type:           String(row.type           || "radio_button").trim().toLowerCase(),
-  display_style:  String(row.display_style  || "").trim().toLowerCase() || null,  // ← ADD
+  display_style:  String(row.display_style  || "").trim().toLowerCase() || null,
   options:        [],
   correct_answer: String(row.correct_answer || "").trim(),
   points:         parseInt(row.points)      || 1,
@@ -519,7 +521,7 @@ function parseSimpleTemplate(workbook, fileName) {
 function parseExcel(workbook, fileName) {
   const format = detectFormat(workbook);
   if (format === "custom")    return { ...parseCustomTemplate(workbook),           format: "custom"    };
-  if (format === "simple")    return { ...parseSimpleTemplate(workbook, fileName),  format: "simple"    }; // ✅ NEW
+  if (format === "simple")    return { ...parseSimpleTemplate(workbook, fileName),  format: "simple"    };
   if (format === "flexiquiz") return { ...parseFlexiQuiz(workbook, fileName),       format: "flexiquiz" };
   return {
     quizMeta: null, questions: [],
@@ -597,12 +599,10 @@ export default function QuizUploader({ onUploadSuccess }) {
       return;
     }
 
-    const token = getAuthToken();
-    if (!token) {
-      setUploadError("You are not authenticated. Please log out and log in again.");
-      setStep("preview");
-      return;
-    }
+    // ✅ FIX 3: No client-side auth pre-check. The admin_token cookie is httpOnly
+    // and therefore unreadable from JS — any check here can only ever fail. The
+    // server authenticates the request and returns 401/403 if the session is bad,
+    // which is handled below.
 
     try {
       const res = await adminFetch("/api/admin/quizzes/upload", {
@@ -701,7 +701,7 @@ export default function QuizUploader({ onUploadSuccess }) {
           </div>
         </div>
 
-        {/* ✅ Updated to mention 3 supported formats */}
+        {/* Supports 3 formats */}
         <div className="bg-indigo-900/20 border border-indigo-800/50 rounded-xl p-4">
           <p className="text-sm text-indigo-300 font-medium mb-1">📎 Supports three formats:</p>
           <ul className="text-xs text-indigo-400/80 space-y-1 ml-4">
@@ -815,7 +815,7 @@ export default function QuizUploader({ onUploadSuccess }) {
               <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Quiz Info</h3>
               {(parsed.format === "flexiquiz" || parsed.format === "simple") && (
                 <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-                  ✏️ Review & edit before uploading
+                  ✏️ Review &amp; edit before uploading
                 </span>
               )}
             </div>
@@ -931,7 +931,7 @@ export default function QuizUploader({ onUploadSuccess }) {
                   {parsed.questions.map((q, i) => (
                     <tr key={i} className="hover:bg-slate-800/30">
                       <td className="px-4 py-2.5 text-slate-500">{i + 1}</td>
-                      <td className="px-4 py-2.5 text-white max-w-xs truncate" title={q.question_text}>{q.question_text}</td>
+                      <td className="px-4 py-2.5 text-white max-w-xs truncate" title={stripHtml(q.question_text)}>{stripHtml(q.question_text)}</td>
                       <td className="px-4 py-2.5"><Badge type={q.type} /></td>
                       <td className="px-4 py-2.5 text-slate-400">{q.options.length || "—"}</td>
                       <td className="px-4 py-2.5 text-emerald-400 font-mono">{q.correct_answer || "—"}</td>
