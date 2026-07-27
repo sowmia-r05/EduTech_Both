@@ -1,45 +1,46 @@
-const IS_PROD = process.env.NODE_ENV === "production";
+/**
+ * utils/setCookies.js
+ *
+ * Cross-subdomain cookie helper.
+ * Frontend: naplan.kaisolutions.ai   API: naplanapi.kaisolutions.ai
+ *
+ * Production requires:
+ *   domain   = .kaisolutions.ai  → without it the cookie is host-only and the
+ *                                  browser won't attach it to requests from
+ *                                  the frontend subdomain
+ *   sameSite = "none"            → required for cross-origin XHR
+ *   secure   = true              → mandatory whenever sameSite is "none"
+ *
+ * IS_PROD no longer depends on NODE_ENV alone. If NODE_ENV is unset on the
+ * host, the old code silently fell back to dev cookie settings and every
+ * authenticated request 401'd. Render sets RENDER=true automatically, so that
+ * is the reliable signal. Localhost has none of these set and stays on dev.
+ */
 
-// ═══════════════════════════════════════════════════════════════════════════
-// CROSS-SUBDOMAIN COOKIE CONFIG
-//
-// Frontend is naplan.kaisolutions.ai, API is naplanapi.kaisolutions.ai —
-// different hosts. Two things were wrong for that topology:
-//
-//   1. NO `domain` → the cookie is host-only, scoped to naplanapi. The browser
-//      will not attach it to a request initiated from naplan. Setting the
-//      shared parent domain (.kaisolutions.ai) makes both subdomains see it.
-//
-//   2. sameSite: "lax" → lax only sends the cookie on same-site top-level
-//      navigations, not on cross-origin XHR/fetch. "none" is required for XHR
-//      across subdomains, and "none" is only accepted alongside Secure=true.
-//
-// This never surfaced before because the frontend was authenticating with a
-// Bearer token from localStorage; the cookie was set but never actually used.
-// Once the token leaves localStorage, cookie auth has to genuinely work.
-//
-// Dev stays on lax with no domain — localhost is same-origin and cannot use
-// Secure cookies over http.
-//
-// The API server must also send:
-//   Access-Control-Allow-Credentials: true
-//   Access-Control-Allow-Origin: <exact origin>   ← "*" silently kills cookies
-// ═══════════════════════════════════════════════════════════════════════════
+const IS_PROD =
+  process.env.NODE_ENV === "production" ||
+  !!process.env.RENDER ||
+  !!process.env.COOKIE_DOMAIN;
+
 const COOKIE_DOMAIN = IS_PROD
   ? process.env.COOKIE_DOMAIN || ".kaisolutions.ai"
   : undefined;
 
 const DEFAULT_SAMESITE = IS_PROD ? "none" : "lax";
 
+// Printed once at boot. Check this in the Render logs to confirm the
+// resolved config without guessing at env vars.
+console.log("[cookies] resolved config:", {
+  IS_PROD,
+  NODE_ENV: process.env.NODE_ENV || "(unset)",
+  RENDER: process.env.RENDER || "(unset)",
+  domain: COOKIE_DOMAIN || "(host-only)",
+  sameSite: DEFAULT_SAMESITE,
+  secure: IS_PROD,
+});
+
 /**
  * Sets an auth token as an httpOnly cookie.
- * @param {Response} res     - Express response object
- * @param {string}   name    - Cookie name, e.g. "parent_token" or "rt"
- * @param {string}   token   - Token string (JWT for access; opaque for refresh)
- * @param {number}   maxAge  - Milliseconds until expiry
- * @param {object}   [opts]
- * @param {string}   [opts.path="/"]       - use "/api/auth" for refresh tokens
- * @param {string}   [opts.sameSite]       - defaults to "none" in prod, "lax" in dev
  */
 function setAuthCookie(res, name, token, maxAge, { path = "/", sameSite = DEFAULT_SAMESITE } = {}) {
   res.cookie(name, token, {
@@ -53,10 +54,8 @@ function setAuthCookie(res, name, token, maxAge, { path = "/", sameSite = DEFAUL
 }
 
 /**
- * Clears an auth cookie. MUST pass the same `path`/`sameSite` used when setting —
- * and the domain must match too, which is why it is applied here automatically.
- * Any attribute mismatch makes clearCookie silently no-op and logout won't
- * actually log out.
+ * Clears an auth cookie. Attributes MUST match those used when setting, or
+ * clearCookie silently no-ops and logout doesn't log out.
  */
 function clearAuthCookie(res, name, { path = "/", sameSite = DEFAULT_SAMESITE } = {}) {
   res.clearCookie(name, {
