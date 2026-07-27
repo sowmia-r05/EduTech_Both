@@ -1,282 +1,1022 @@
 /**
- * scripts/uploadQuiz.js
+ * QuizUploader.jsx  (v4 — COOKIE AUTH)
  *
- * Uploads a quiz workbook straight to the API from the command line.
+ * CHANGES FROM v3:
+ *   ✅ getAuthToken() deleted. The session is the httpOnly admin_token cookie;
+ *      JavaScript cannot read it, so the old localStorage lookup always
+ *      returned null and the pre-flight check blocked every upload with
+ *      "You are not authenticated."
+ *   ✅ adminFetch now sends credentials:"include" and no Authorization header,
+ *      matching QuizDetailPage.jsx and ManualQuizCreator.jsx.
+ *   ✅ The pre-flight token check in handleSubmit is gone. The server decides;
+ *      the existing 401/403 handling surfaces a genuinely expired session.
  *
- * WHY THIS EXISTS
- * The admin UI's QuizUploader component reads its auth token from
- * localStorage, which is empty since the move to httpOnly cookies. Until that
- * fix is deployed, the browser path is blocked. This script does the same job
- * from Node: it logs in, captures the admin_token cookie, parses the workbook,
- * and POSTs to /api/admin/quizzes/upload. Nothing in the browser is involved.
+ * Retained from v3:
+ *   • parseFlexiQuiz sets correct: true/false on each option
+ *   • handleSubmit maps the correct field from correct_answer labels
+ *   • "simple" questions-only format support
+ *   • matching-question option_id/match pairs preserved through upload
  *
- * It is also useful permanently — bulk-importing twenty workbooks from a shell
- * loop beats twenty rounds of click-and-wait.
- *
- * USAGE
- *   cd naplan-backend
- *   node scripts/uploadQuiz.js "C:\path\to\Year_5_Reading_Set_2.xlsx"
- *
- * It will prompt for your admin email and password. Nothing is stored.
- *
- * Requires Node 18+ (built-in fetch). Uses exceljs, already a dependency.
+ * Place in: src/app/components/admin/QuizUploader.jsx
  */
 
-const path = require("path");
-const readline = require("readline");
-const ExcelJS = require("exceljs");
+import { useState, useRef } from "react";
+import * as XLSX from "xlsx";
 
-const API = process.env.UPLOAD_API_BASE || "https://naplanapi.kaisolutions.ai";
+const API = import.meta.env.VITE_API_BASE_URL || "";
 
-const VALID_TYPES = [
-  "radio_button", "picture_choice", "free_text",
-  "checkbox", "writing", "short_answer", "matching",
-];
-
-// ── prompt helpers ───────────────────────────────────────────
-function ask(question, { hidden = false } = {}) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    if (!hidden) {
-      rl.question(question, (a) => { rl.close(); resolve(a.trim()); });
-      return;
-    }
-    // Suppress echo for password entry
-    const onData = (char) => {
-      if (["\n", "\r", "\u0004"].includes(char.toString())) {
-        process.stdin.removeListener("data", onData);
-      } else {
-        process.stdout.write("\x1B[2K\x1B[200D" + question + "*".repeat(rl.line.length));
-      }
-    };
-    process.stdin.on("data", onData);
-    rl.question(question, (a) => {
-      rl.close();
-      process.stdout.write("\n");
-      resolve(a.trim());
-    });
-  });
-}
-
-// ── workbook parsing (mirrors parseCustomTemplate in QuizUploader.jsx) ──
-function cellText(row, headerIndex, name) {
-  const idx = headerIndex[name];
-  if (!idx) return "";
-  const v = row.getCell(idx).value;
-  if (v === null || v === undefined) return "";
-  if (typeof v === "object") {
-    if (v.richText) return v.richText.map((t) => t.text).join("");
-    if (v.text) return String(v.text);
-    if (v.result !== undefined) return String(v.result);
-    return "";
+// Session is the httpOnly admin_token cookie — nothing to read from storage.
+// The cookie is sent automatically by credentials:"include".
+function adminFetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (!headers["Content-Type"] && typeof opts.body === "string") {
+    headers["Content-Type"] = "application/json";
   }
-  return String(v);
+  return fetch(`${API}${url}`, { ...opts, credentials: "include", headers });
 }
 
-async function parseWorkbook(filePath) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(filePath);
+function stripHtml(html) {
+  if (!html) return "";
+  return String(html)
+    .replace(/<img[^>]*>/gi, "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  const infoSheet = wb.getWorksheet("Quiz Info");
-  const qSheet = wb.getWorksheet("Questions");
-  if (!infoSheet) throw new Error(`No "Quiz Info" sheet found in ${path.basename(filePath)}`);
-  if (!qSheet) throw new Error(`No "Questions" sheet found in ${path.basename(filePath)}`);
+function extractImageUrl(html) {
+  if (!html) return "";
+  const match = String(html).match(/src=["']([^"']+)["']/i);
+  return match ? match[1] : "";
+}
 
-  // Quiz Info: two columns, Field | Value
-  const meta = {};
-  infoSheet.eachRow((row, n) => {
-    if (n === 1) return;
-    const field = String(row.getCell(1).value || "").trim();
-    const value = row.getCell(2).value;
-    if (field && value !== null && value !== undefined && value !== "") {
-      meta[field] = String(value).trim();
+// ─────────────────────────────────────────────────────────────
+// FORMAT DETECTION
+// Priority: custom (Questions + Quiz Info) → simple (Questions only)
+//           → flexiquiz → unknown
+// ─────────────────────────────────────────────────────────────
+function detectFormat(workbook) {
+  const names = workbook.SheetNames;
+
+  // 1. Full custom template: requires BOTH sheets
+  if (names.includes("Questions") && names.includes("Quiz Info")) return "custom";
+
+  // 2. Simple questions-only sheet (no Quiz Info)
+  if (names.includes("Questions")) {
+    const sheet = workbook.Sheets["Questions"];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    const header = (rows[0] || []).map((h) => String(h || "").toLowerCase());
+    if (header.includes("question_text") && header.includes("option_a")) return "simple";
+  }
+
+  // 3. FlexiQuiz export
+  for (const name of names) {
+    const sheet = workbook.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    const headerRow = rows[1] || rows[0] || [];
+    const headerStr = headerRow.map((h) => String(h || "").toLowerCase()).join("|");
+    if (headerStr.includes("question text") && headerStr.includes("option 1 text")) {
+      return "flexiquiz";
+    }
+  }
+
+  return "unknown";
+}
+
+/* ═══════════════════════════════════════════════════════
+   Parse FlexiQuiz export format
+   ✅ FIX 1: Each option now has correct: true/false
+   ═══════════════════════════════════════════════════════ */
+function parseFlexiQuiz(workbook, fileName) {
+  const errors = [];
+
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+  let headerRowIdx = -1;
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    const rowStr = (rows[i] || []).map((c) => String(c || "")).join("|").toLowerCase();
+    if (rowStr.includes("question text") && rowStr.includes("option 1 text")) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+  if (headerRowIdx === -1) {
+    errors.push("Could not find FlexiQuiz header row.");
+    return { quizMeta: null, questions: [], errors };
+  }
+
+  const headers = rows[headerRowIdx].map((h) => String(h || "").trim());
+
+  const colIdx = {};
+  headers.forEach((h, i) => {
+    const lower = h.toLowerCase().replace(/\n/g, " ");
+    if (lower.startsWith("question text")) colIdx.question_text = i;
+    if (lower.startsWith("question type")) colIdx.question_type = i;
+    if (lower.startsWith("question points")) colIdx.question_points = i;
+    if (lower.startsWith("question feedback")) colIdx.question_feedback = i;
+    if (lower.startsWith("question categories")) colIdx.categories = i;
+    for (let n = 1; n <= 10; n++) {
+      if (lower === `option ${n} text`) colIdx[`opt${n}_text`] = i;
+      if (lower === `option ${n} correct` || lower === `option ${n}\ncorrect`) colIdx[`opt${n}_correct`] = i;
     }
   });
 
-  const quiz = {
-    quiz_name:          meta.quiz_name || "",
-    year_level:         parseInt(meta.year_level) || 0,
-    subject:            meta.subject || "",
-    tier:               meta.tier || "A",
-    time_limit_minutes: meta.time_limit_minutes ? parseInt(meta.time_limit_minutes) : null,
-    difficulty:         meta.difficulty || null,
-    set_number:         parseInt(meta.set_number) || 1,
-    is_trial:           String(meta.is_trial || "").toLowerCase() === "true",
-    voice_url:          meta.voice_url || null,
-    video_url:          meta.video_url || null,
+  const baseName = fileName.replace(/\.[^.]+$/, "").replace(/[_-]/g, " ");
+  const yearMatch = baseName.match(/year\s*(\d)/i);
+  const yearLevel = yearMatch ? parseInt(yearMatch[1]) : 0;
+
+  let subject = "";
+  const lowerName = baseName.toLowerCase();
+  if (lowerName.includes("numeracy") || lowerName.includes("math")) subject = "Maths";
+  else if (lowerName.includes("reading")) subject = "Reading";
+  else if (lowerName.includes("writing")) subject = "Writing";
+  else if (lowerName.includes("language") || lowerName.includes("convention") || lowerName.includes("grammar")) subject = "Language conventions";
+
+  const quizMeta = {
+    quiz_name: baseName.replace(/\b\w/g, (c) => c.toUpperCase()),
+    year_level: yearLevel,
+    subject: subject,
+    tier: "A",
+    time_limit_minutes: null,
+    difficulty: null,
+    set_number: 1,
+    is_trial: false,
+    _needsReview: true,
+    voice_url: null,
+    video_url: null,
   };
 
-  const errors = [];
-  if (!quiz.quiz_name) errors.push("quiz_name is required");
-  if (![3, 5, 7, 9].includes(quiz.year_level)) errors.push("year_level must be 3, 5, 7 or 9");
-  if (!["Maths", "Reading", "Writing", "Language conventions"].includes(quiz.subject)) {
-    errors.push(`subject must be Maths, Reading, Writing or Language conventions (got "${quiz.subject}")`);
+  const questions = [];
+  for (let r = headerRowIdx + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const rawText = row[colIdx.question_text];
+    if (!rawText || !String(rawText).trim()) continue;
+
+    const rawStr = String(rawText).trim();
+    if (/^v=\d/.test(rawStr) || rawStr.length < 5) continue;
+
+    const questionText = stripHtml(rawStr);
+    const imageUrl = extractImageUrl(rawStr);
+    const rawType = String(row[colIdx.question_type] || "").toLowerCase();
+    const feedback = stripHtml(String(row[colIdx.question_feedback] || ""));
+    const categories = String(row[colIdx.categories] || "").trim();
+
+    if (!rawType) continue;
+
+    let type = "radio_button";
+    if (rawType.includes("multiple") || rawType.includes("checkbox")) type = "checkbox";
+    else if (rawType.includes("free") || rawType.includes("essay") || rawType.includes("text")) type = "free_text";
+    else if (rawType.includes("picture") || rawType.includes("image")) type = "picture_choice";
+
+    const options = [];
+    let correctAnswer = [];
+    let hasImageOptions = false;
+
+    for (let n = 1; n <= 10; n++) {
+      const optRaw = row[colIdx[`opt${n}_text`]];
+      if (optRaw === undefined || optRaw === null) continue;
+
+      const optStr = String(optRaw).trim();
+      if (!optStr) continue;
+
+      const cleanText = stripHtml(optStr);
+      const optImage = extractImageUrl(optStr);
+
+      if (!cleanText && !optImage) continue;
+      if (optImage && !cleanText) hasImageOptions = true;
+
+      const label = String.fromCharCode(64 + options.length + 1);
+      const isCorrectRaw = String(row[colIdx[`opt${n}_correct`]] || "").toLowerCase();
+
+      // ✅ FIX 1: Determine correct boolean BEFORE pushing to options
+      const isCorrectBool = isCorrectRaw === "yes" || isCorrectRaw === "true" || isCorrectRaw === "1";
+
+      options.push({
+        label,
+        text: cleanText || "[Image]",
+        image_url: optImage || null,
+        correct: isCorrectBool,
+      });
+
+      if (isCorrectBool) {
+        correctAnswer.push(label);
+      }
+    }
+
+    if (hasImageOptions && type === "radio_button") type = "picture_choice";
+
+    const q = {
+      _rowNum: r + 1,
+      question_text: questionText,
+      type,
+      options,
+      correct_answer: correctAnswer.join(","),
+      points: parseInt(row[colIdx.question_points]) || 1,
+      category: categories,
+      image_url: imageUrl,
+      explanation: feedback,
+      voice_url:   "",
+    };
+
+    if (type !== "free_text") {
+      if (options.length < 2) { errors.push(`Row ${r + 1}: MCQ needs at least 2 options`); continue; }
+      if (correctAnswer.length === 0) { errors.push(`Row ${r + 1}: No correct answer marked for "${questionText.substring(0, 40)}..."`); continue; }
+    }
+
+    questions.push(q);
   }
 
-  // Questions: map header names to column numbers
-  const headerIndex = {};
-  qSheet.getRow(1).eachCell((cell, col) => {
-    const name = String(cell.value || "").trim().toLowerCase();
-    if (name) headerIndex[name] = col;
-  });
+  if (questions.length === 0 && errors.length === 0) {
+    errors.push("No questions found in the file.");
+  }
 
+  return { quizMeta, questions, errors };
+}
+
+/* ═══════════════════════════════════════════════════════
+   Parse our custom template format
+   (requires both "Questions" and "Quiz Info" sheets)
+   ═══════════════════════════════════════════════════════ */
+function parseCustomTemplate(workbook) {
+  const errors = [];
+
+  const infoSheet = workbook.Sheets["Quiz Info"];
+  if (!infoSheet) {
+    errors.push("Missing 'Quiz Info' sheet. Please use the provided template.");
+    return { quizMeta: null, questions: [], errors };
+  }
+
+  const infoRows = XLSX.utils.sheet_to_json(infoSheet, { header: 1 });
+  const meta = {};
+  for (let i = 1; i < infoRows.length; i++) {
+    const [field, value] = infoRows[i] || [];
+    if (field && value !== undefined && value !== "") {
+      meta[String(field).trim()] = String(value).trim();
+    }
+  }
+
+  const quizMeta = {
+    quiz_name: meta.quiz_name || "",
+    year_level: parseInt(meta.year_level) || 0,
+    subject: meta.subject || "",
+    tier: meta.tier || "A",
+    time_limit_minutes: meta.time_limit_minutes ? parseInt(meta.time_limit_minutes) : null,
+    difficulty: meta.difficulty || null,
+    set_number: parseInt(meta.set_number) || 1,
+    is_trial: String(meta.is_trial || "").toLowerCase().trim() === "true",
+    voice_url: meta.voice_url || null,
+    video_url: meta.video_url || null,
+  };
+
+  if (!quizMeta.quiz_name) errors.push("Quiz name is required (Quiz Info sheet)");
+  if (![3, 5, 7, 9].includes(quizMeta.year_level)) errors.push("Year level must be 3, 5, 7, or 9");
+  if (!["Maths", "Reading", "Writing", "Language conventions"].includes(quizMeta.subject)) {
+    errors.push("Subject must be Maths, Reading, Writing, or Language conventions");
+  }
+
+  const qSheet = workbook.Sheets["Questions"];
+  if (!qSheet) {
+    errors.push("Missing 'Questions' sheet. Please use the provided template.");
+    return { quizMeta, questions: [], errors };
+  }
+
+  const qRows = XLSX.utils.sheet_to_json(qSheet, { defval: "" });
+  const dataRows = qRows.filter(
+    (row) => row.question_text && !String(row.question_text).startsWith("The question text")
+  );
+
+  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer", "matching"];
   const questions = [];
-  qSheet.eachRow((row, n) => {
-    if (n === 1) return;
 
-    const question_text = cellText(row, headerIndex, "question_text").trim();
-    if (!question_text) return;
+  dataRows.forEach((row, idx) => {
+    const rowNum = idx + 3;
+    const q = {
+      _rowNum: rowNum,
+      question_text: String(row.question_text || "").trim(),
+      type: String(row.type || "").trim().toLowerCase(),
+      display_style: String(row.display_style || "").trim().toLowerCase() || null,
+      options: [],
+      correct_answer: String(row.correct_answer || "").trim(),
+      points: parseInt(row.points) || 1,
+      category: String(row.category || "").trim(),
+      image_url: String(row.image_url || "").trim(),
+      explanation: String(row.explanation || "").trim(),
+      voice_url:  String(row.voice_url || "").trim(),
+    };
 
-    const type = (cellText(row, headerIndex, "type") || "radio_button").trim().toLowerCase();
-    if (!VALID_TYPES.includes(type)) {
-      errors.push(`Row ${n}: invalid type "${type}"`);
+    if (!q.question_text) { errors.push(`Row ${rowNum}: Missing question text`); return; }
+    if (!validTypes.includes(q.type)) {
+      errors.push(`Row ${rowNum}: Invalid type "${q.type}". Must be: ${validTypes.join(", ")}`);
       return;
     }
 
-    const correct_answer = cellText(row, headerIndex, "correct_answer").trim().toUpperCase();
-    const correctLabels = correct_answer.split(",").map((s) => s.trim()).filter(Boolean);
-
-    const options = [];
-    for (const letter of ["a", "b", "c", "d", "e"]) {
-      const text = cellText(row, headerIndex, `option_${letter}`).trim();
-      const image = cellText(row, headerIndex, `option_${letter}_image`).trim();
+    const correctLabels = q.correct_answer.split(",").map((s) => s.trim());
+    ["a", "b", "c", "d", "e"].forEach((letter) => {
+      const text = String(row[`option_${letter}`] || "").trim();
+      const image = String(row[`option_${letter}_image`] || "").trim();
       if (text || image) {
         const label = letter.toUpperCase();
-        options.push({
+        q.options.push({
           label,
           text,
           image_url: image || null,
           correct: correctLabels.includes(label),
         });
       }
-    }
+    });
 
-    if (type !== "free_text" && type !== "short_answer" && type !== "writing") {
-      if (options.length < 2) { errors.push(`Row ${n}: needs at least 2 options`); return; }
-      if (!correct_answer) { errors.push(`Row ${n}: missing correct_answer`); return; }
-      const labels = options.map((o) => o.label);
-      for (const a of correctLabels) {
-        if (!labels.includes(a)) {
-          errors.push(`Row ${n}: correct_answer "${a}" does not match options (${labels.join(",")})`);
+    if (q.type === "free_text") {
+      q.correct_answer = "";
+    } else if (q.type === "short_answer") {
+      q.options = [];
+    } else if (q.type === "matching") {
+      // Build pairs from option_a..d (left) + match_a..d (right)
+      q.options = [];
+      ["a","b","c","d"].forEach((letter) => {
+        const left  = String(row[`option_${letter}`] || "").trim();
+        const right = String(row[`match_${letter}`]  || "").trim();
+        if (left && right) {
+          q.options.push({
+            option_id: `pair_${Date.now()}_${letter}`,
+            text:    left,
+            match:   right,
+            correct: true,
+          });
+        }
+      });
+      q.correct_answer = "";
+      if (q.options.length < 2) {
+        errors.push(`Row ${rowNum}: Matching question needs at least 2 pairs (use option_a/match_a columns)`);
+        return;
+      }
+    } else {
+      if (q.options.length < 2) { errors.push(`Row ${rowNum}: MCQ needs at least 2 options`); return; }
+      if (!q.correct_answer) { errors.push(`Row ${rowNum}: Missing correct_answer`); return; }
+      const validLabels = q.options.map((o) => o.label);
+      const answerLetters = q.correct_answer.split(",").map((s) => s.trim());
+      for (const a of answerLetters) {
+        if (!validLabels.includes(a)) {
+          errors.push(`Row ${rowNum}: Correct answer "${a}" doesn't match options (${validLabels.join(",")})`);
         }
       }
-      if (type !== "checkbox" && correctLabels.length > 1) {
-        errors.push(`Row ${n}: ${type} can only have one correct answer`);
+      if (q.type !== "checkbox" && answerLetters.length > 1) {
+        errors.push(`Row ${rowNum}: radio_button can only have one correct answer`);
       }
     }
 
-    questions.push({
-      question_text,
-      type,
-      display_style: cellText(row, headerIndex, "display_style").trim().toLowerCase() || null,
-      options,
-      correct_answer,
-      points: parseInt(cellText(row, headerIndex, "points")) || 1,
-      category: cellText(row, headerIndex, "category").trim(),
-      image_url: cellText(row, headerIndex, "image_url").trim(),
-      explanation: cellText(row, headerIndex, "explanation").trim(),
-      voice_url: cellText(row, headerIndex, "voice_url").trim(),
-    });
+    questions.push(q);
   });
 
-  if (questions.length === 0) errors.push("No questions found in the Questions sheet");
+  if (questions.length === 0 && errors.length === 0) {
+    errors.push("No questions found in Questions sheet.");
+  }
 
-  return { quiz, questions, errors };
+  return { quizMeta, questions, errors };
 }
 
-// ── main ─────────────────────────────────────────────────────
-(async () => {
-  const filePath = process.argv[2];
-  if (!filePath) {
-    console.error("\nUsage: node scripts/uploadQuiz.js \"C:\\path\\to\\workbook.xlsx\"\n");
-    process.exit(1);
-  }
+/* ═══════════════════════════════════════════════════════
+   Parse "simple" questions-only format
+   Single "Questions" sheet, no "Quiz Info" sheet.
+   Expected columns:
+     question_text | type | option_a | option_b | option_c | option_d
+     correct_answer | points | category | image_url | explanation
+   Admin must confirm quiz name / year / subject before uploading.
+   ═══════════════════════════════════════════════════════ */
+function parseSimpleTemplate(workbook, fileName) {
+  const errors = [];
 
-  console.log(`\nAPI: ${API}`);
-  console.log(`File: ${filePath}\n`);
+  // Derive quiz name from filename — strip date suffix & extension
+  const guessedName = fileName
+    .replace(/\.(xlsx?|xls)$/i, "")
+    .replace(/_\d{8}_\d+$/, "")   // strip _20260316_010630
+    .replace(/_/g, " ")
+    .trim();
 
-  // 1. Parse first — no point logging in if the workbook is bad
-  let parsed;
-  try {
-    parsed = await parseWorkbook(filePath);
-  } catch (err) {
-    console.error(`Could not read the workbook: ${err.message}\n`);
-    process.exit(1);
-  }
+  // Infer year level from filename (e.g. "Year3", "year_5")
+  const yearMatch = fileName.match(/year\s*([3579])/i);
+  const guessedYear = yearMatch ? parseInt(yearMatch[1]) : 0;
 
-  const { quiz, questions, errors } = parsed;
+  const quizMeta = {
+    quiz_name:          guessedName,
+    year_level:         guessedYear,
+    subject:            "",     // admin must select
+    tier:               "A",
+    time_limit_minutes: null,
+    difficulty:         null,
+    set_number:         1,
+    is_trial:           false,
+    voice_url:          null,
+    video_url:          null,
+    _needsReview:       true,   // triggers the edit-before-upload UI
+  };
 
-  console.log(`Quiz:      ${quiz.quiz_name}`);
-  console.log(`Year:      ${quiz.year_level}   Subject: ${quiz.subject}   Set: ${quiz.set_number}`);
-  console.log(`Questions: ${questions.length}\n`);
+  const qSheet = workbook.Sheets["Questions"];
+  const qRows  = XLSX.utils.sheet_to_json(qSheet, { defval: "" });
 
-  if (errors.length) {
-    console.error(`${errors.length} validation error(s):`);
-    for (const e of errors) console.error(`  - ${e}`);
-    console.error("\nFix the workbook and try again.\n");
-    process.exit(1);
-  }
+  // Skip the instruction/header example row
+  const dataRows = qRows.filter(
+    (row) => row.question_text && !String(row.question_text).startsWith("The question text")
+  );
 
-  // 2. Log in and capture the cookie
-  const email = await ask("Admin email: ");
-  const password = await ask("Password: ", { hidden: true });
+  const validTypes = ["radio_button", "picture_choice", "free_text", "checkbox", "writing", "short_answer", "matching"];
+  const questions  = [];
 
-  console.log("\nLogging in...");
-  const loginRes = await fetch(`${API}/api/admin/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  dataRows.forEach((row, idx) => {
+    const rowNum = idx + 2; // row 1 = header, row 2 = first data row
+    const q = {
+      _rowNum:        rowNum,
+      question_text:  String(row.question_text  || "").trim(),
+      type:           String(row.type           || "radio_button").trim().toLowerCase(),
+      display_style:  String(row.display_style  || "").trim().toLowerCase() || null,
+      options:        [],
+      correct_answer: String(row.correct_answer || "").trim(),
+      points:         parseInt(row.points)      || 1,
+      category:       String(row.category       || "").trim(),
+      image_url:      String(row.image_url      || "").trim(),
+      explanation:    String(row.explanation    || "").trim(),
+      voice_url:      String(row.voice_url      || "").trim(),
+    };
 
-  const loginBody = await loginRes.json().catch(() => ({}));
-  if (!loginRes.ok) {
-    console.error(`Login failed (${loginRes.status}): ${loginBody.error || "unknown error"}\n`);
-    if (loginRes.status === 429) {
-      console.error("Rate limited — 5 attempts per 15 minutes. Wait, then retry.\n");
+    if (!q.question_text) { errors.push(`Row ${rowNum}: Missing question text`); return; }
+    if (!validTypes.includes(q.type)) {
+      errors.push(`Row ${rowNum}: Invalid type "${q.type}". Must be: ${validTypes.join(", ")}`);
+      return;
     }
-    process.exit(1);
-  }
 
-  // Node's fetch exposes multiple Set-Cookie headers via getSetCookie()
-  const rawCookies = typeof loginRes.headers.getSetCookie === "function"
-    ? loginRes.headers.getSetCookie()
-    : [loginRes.headers.get("set-cookie")].filter(Boolean);
+    const correctLabels = q.correct_answer.split(",").map((s) => s.trim());
+    ["a", "b", "c", "d", "e"].forEach((letter) => {
+      const text  = String(row[`option_${letter}`]       || "").trim();
+      const image = String(row[`option_${letter}_image`] || "").trim();
+      if (text || image) {
+        const label = letter.toUpperCase();
+        q.options.push({
+          label,
+          text,
+          image_url: image || null,
+          correct:   correctLabels.includes(label),
+        });
+      }
+    });
 
-  const cookieHeader = rawCookies
-    .map((c) => c.split(";")[0])
-    .filter((c) => c.startsWith("admin_token="))
-    .join("; ");
+    if (q.type === "free_text") {
+      q.correct_answer = "";
+    } else if (q.type === "short_answer") {
+      q.options = [];
+    } else if (q.type === "matching") {
+      q.options = [];
+      ["a","b","c","d"].forEach((letter) => {
+        const left  = String(row[`option_${letter}`] || "").trim();
+        const right = String(row[`match_${letter}`]  || "").trim();
+        if (left && right) {
+          q.options.push({
+            option_id: `pair_${Date.now()}_${letter}`,
+            text:    left,
+            match:   right,
+            correct: true,
+          });
+        }
+      });
+      q.correct_answer = "";
+      if (q.options.length < 2) {
+        errors.push(`Row ${rowNum}: Matching question needs at least 2 pairs (use option_a/match_a columns)`);
+        return;
+      }
+    } else {
+      if (q.options.length < 2) { errors.push(`Row ${rowNum}: MCQ needs at least 2 options`); return; }
+      if (!q.correct_answer)    { errors.push(`Row ${rowNum}: Missing correct_answer`); return; }
+      const validLabels   = q.options.map((o) => o.label);
+      const answerLetters = q.correct_answer.split(",").map((s) => s.trim());
+      for (const a of answerLetters) {
+        if (!validLabels.includes(a)) {
+          errors.push(`Row ${rowNum}: Correct answer "${a}" doesn't match options (${validLabels.join(",")})`);
+        }
+      }
+      if (q.type !== "checkbox" && answerLetters.length > 1) {
+        errors.push(`Row ${rowNum}: radio_button can only have one correct answer`);
+      }
+    }
 
-  if (!cookieHeader) {
-    console.error("Login succeeded but no admin_token cookie was returned. Cannot continue.\n");
-    process.exit(1);
-  }
-
-  console.log(`Logged in as ${loginBody.admin?.name || email} (${loginBody.admin?.role})\n`);
-
-  // 3. Upload
-  console.log(`Uploading ${questions.length} questions...`);
-  const upRes = await fetch(`${API}/api/admin/quizzes/upload`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Cookie: cookieHeader },
-    body: JSON.stringify({ quiz, questions }),
+    questions.push(q);
   });
 
-  const upBody = await upRes.json().catch(() => ({}));
-
-  if (!upRes.ok) {
-    console.error(`\nUpload failed (${upRes.status}): ${upBody.error || "unknown error"}\n`);
-    process.exit(1);
+  if (questions.length === 0 && errors.length === 0) {
+    errors.push("No questions found in Questions sheet.");
   }
 
-  console.log("\n=======================================");
-  console.log(" Upload successful");
-  console.log("=======================================");
-  console.log(`  Quiz name: ${upBody.quiz_name}`);
-  console.log(`  Quiz ID:   ${upBody.quiz_id}`);
-  console.log(`  Questions: ${upBody.question_count}`);
-  console.log("\nRefresh the admin dashboard to see it.\n");
-})().catch((err) => {
-  console.error(`\nUnexpected error: ${err.message}\n`);
-  process.exit(1);
-});
+  return { quizMeta, questions, errors };
+}
+
+/* ═══════════════════════════════════════════════════════
+   Main dispatcher
+   ═══════════════════════════════════════════════════════ */
+function parseExcel(workbook, fileName) {
+  const format = detectFormat(workbook);
+  if (format === "custom")    return { ...parseCustomTemplate(workbook),            format: "custom"    };
+  if (format === "simple")    return { ...parseSimpleTemplate(workbook, fileName),  format: "simple"    };
+  if (format === "flexiquiz") return { ...parseFlexiQuiz(workbook, fileName),       format: "flexiquiz" };
+  return {
+    quizMeta: null, questions: [],
+    errors: [
+      "Unrecognized file format. Please use one of:",
+      "• Our template (download from this page)",
+      "• A simple Questions-only sheet (columns: question_text, type, option_a…d, correct_answer, points, category, image_url, explanation)",
+      "• A FlexiQuiz export file (.xlsx)",
+    ],
+    format: "unknown",
+  };
+}
+
+function Badge({ type }) {
+  const styles = {
+    radio_button:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    picture_choice: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+    free_text:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    checkbox:       "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    writing:        "bg-pink-500/10 text-pink-400 border-pink-500/20",
+    short_answer:   "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    matching:       "bg-teal-500/10 text-teal-400 border-teal-500/20",
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${styles[type] || "bg-slate-500/10 text-slate-400"}`}>
+      {type}
+    </span>
+  );
+}
+
+export default function QuizUploader({ onUploadSuccess }) {
+  const [step,         setStep]         = useState("select");
+  const [file,         setFile]         = useState(null);
+  const [parsed,       setParsed]       = useState(null);
+  const [uploadError,  setUploadError]  = useState("");
+  const [uploadResult, setUploadResult] = useState(null);
+  const [editMeta,     setEditMeta]     = useState(null);
+  const fileRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    setUploadError("");
+    try {
+      const buf = await f.arrayBuffer();
+      const wb  = XLSX.read(buf, { type: "array" });
+      const result = parseExcel(wb, f.name);
+      setParsed(result);
+      if (result.quizMeta?._needsReview) {
+        setEditMeta({ ...result.quizMeta });
+      } else {
+        setEditMeta(null);
+      }
+      if (result.errors.length === 0 && result.questions.length > 0) {
+        setStep("preview");
+      }
+    } catch (err) {
+      setUploadError("Failed to read Excel file: " + err.message);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!parsed || parsed.errors.length > 0) return;
+    setStep("uploading");
+    setUploadError("");
+
+    const finalMeta = editMeta || parsed.quizMeta;
+
+    if (!finalMeta.quiz_name)  { setUploadError("Quiz name is required"); setStep("preview"); return; }
+    if (![3, 5, 7, 9].includes(finalMeta.year_level)) { setUploadError("Year level must be 3, 5, 7, or 9"); setStep("preview"); return; }
+    if (!["Maths", "Reading", "Writing", "Language conventions"].includes(finalMeta.subject)) {
+      setUploadError("Subject must be Maths, Reading, Writing, or Language conventions");
+      setStep("preview");
+      return;
+    }
+
+    try {
+      const res = await adminFetch("/api/admin/quizzes/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quiz: {
+            quiz_name:          finalMeta.quiz_name,
+            year_level:         finalMeta.year_level,
+            subject:            finalMeta.subject,
+            tier:               finalMeta.tier               || "A",
+            time_limit_minutes: finalMeta.time_limit_minutes || null,
+            difficulty:         finalMeta.difficulty         || null,
+            set_number:         finalMeta.set_number         || 1,
+            is_trial:           finalMeta.is_trial           || false,
+            voice_url:          finalMeta.voice_url          || null,
+            video_url:          finalMeta.video_url          || null,
+          },
+          // ✅ FIX 2: Safety net — ensure correct field is always set from correct_answer labels
+          questions: parsed.questions.map((q) => {
+            const correctLabels = (q.correct_answer || "")
+              .toUpperCase()
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+            return {
+              question_text:  q.question_text,
+              type:           q.type,
+              display_style:  q.display_style || null,
+              options: q.type === "matching"
+                ? (q.options || []).map((opt) => ({
+                    option_id: opt.option_id,
+                    text:      opt.text,
+                    match:     opt.match,   // ✅ explicitly preserved
+                    correct:   true,
+                  }))
+                : (q.options || []).map((opt) => ({
+                    ...opt,
+                    correct:
+                      opt.correct === true ||
+                      correctLabels.includes((opt.label || "").toUpperCase()),
+                  })),
+              correct_answer: q.correct_answer,
+              points:         q.points,
+              category:       q.category,
+              image_url:      q.image_url   || "",
+              explanation:    q.explanation || "",
+              voice_url:      q.voice_url   || "",
+            };
+          }),
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 403) throw new Error("Access denied (403). Your session may have expired — please log out and log in again.");
+        if (res.status === 401) throw new Error("Unauthorized (401). Please log out and log in again.");
+        throw new Error(body.error || `Upload failed (${res.status})`);
+      }
+
+      const data = await res.json();
+      setUploadResult(data);
+      setStep("done");
+      onUploadSuccess?.();
+    } catch (err) {
+      setUploadError(err.message);
+      setStep("preview");
+    }
+  };
+
+  const resetAll = () => {
+    setStep("select"); setFile(null); setParsed(null);
+    setUploadError(""); setUploadResult(null); setEditMeta(null);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  // ═══════════════════════════════════════
+  // STEP: SELECT FILE
+  // ═══════════════════════════════════════
+  if (step === "select") {
+    return (
+      <div className="space-y-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-white">Quiz Upload Template</h3>
+              <p className="text-xs text-slate-400 mt-1">Download, fill in your questions, then upload below.</p>
+            </div>
+            <a
+              href="https://docs.google.com/spreadsheets/d/1EdN6coi8VePzQI0oM9d6Yh9aul9sr_oL/edit?usp=sharing&ouid=107123046742355467108&rtpof=true&sd=true"
+              download="Quiz_Upload_Template.xlsx"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              ⬇ Download Template
+            </a>
+          </div>
+        </div>
+
+        <div className="bg-indigo-900/20 border border-indigo-800/50 rounded-xl p-4">
+          <p className="text-sm text-indigo-300 font-medium mb-1">📎 Supports three formats:</p>
+          <ul className="text-xs text-indigo-400/80 space-y-1 ml-4">
+            <li>• <span className="text-indigo-300">Our template</span> — download above (Questions + Quiz Info sheets)</li>
+            <li>• <span className="text-indigo-300">Simple questions sheet</span> — single Questions sheet with columns: question_text, type, option_a…d, correct_answer, points, category, image_url, explanation</li>
+            <li>• <span className="text-indigo-300">FlexiQuiz export</span> — upload directly, we'll auto-detect it</li>
+          </ul>
+        </div>
+
+        {file && parsed && (
+          <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
+                <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-white">{file.name}</p>
+                <p className="text-xs text-slate-400">
+                  {parsed.questions.length} questions parsed
+                  {parsed.format === "flexiquiz" && <span className="ml-2 text-indigo-400">(FlexiQuiz format detected)</span>}
+                  {parsed.format === "simple"    && <span className="ml-2 text-green-400">(Simple format detected)</span>}
+                </p>
+              </div>
+            </div>
+            <button onClick={resetAll} className="text-sm text-slate-400 hover:text-white transition-colors">Choose Different File</button>
+          </div>
+        )}
+
+        {parsed?.errors?.length > 0 && (
+          <div className="bg-red-900/20 border border-red-800 rounded-xl p-4">
+            <p className="text-sm font-medium text-red-400 mb-2">{parsed.errors.length} validation error{parsed.errors.length > 1 ? "s" : ""} found:</p>
+            <ul className="space-y-1">
+              {parsed.errors.map((e, i) => (
+                <li key={i} className="text-sm text-red-300 flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span> {e}</li>
+              ))}
+            </ul>
+            <p className="text-xs text-red-400/70 mt-3">Fix these errors in your Excel file and re-upload.</p>
+          </div>
+        )}
+
+        {uploadError && (
+          <div className="bg-red-900/30 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3">{uploadError}</div>
+        )}
+
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="quiz-file-upload"
+              className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer bg-slate-900/50 hover:bg-slate-900 hover:border-indigo-500/50 transition-colors">
+              <svg className="w-10 h-10 text-slate-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+              </svg>
+              <p className="text-sm text-slate-400"><span className="text-indigo-400 font-medium">Click to upload</span> or drag and drop</p>
+              <p className="text-xs text-slate-500 mt-1">.xlsx files — our template, simple questions sheet, or FlexiQuiz export</p>
+            </label>
+            <input id="quiz-file-upload" ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════
+  // STEP: PREVIEW
+  // ═══════════════════════════════════════
+  if (step === "preview" && parsed) {
+    const hasErrors = parsed.errors.length > 0;
+    const meta = editMeta || parsed.quizMeta;
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
+              <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">{file?.name}</p>
+              <p className="text-xs text-slate-400">
+                {parsed.questions.length} questions parsed
+                {parsed.format === "flexiquiz" && <span className="ml-2 text-indigo-400">(FlexiQuiz format)</span>}
+                {parsed.format === "simple"    && <span className="ml-2 text-green-400">(Simple format)</span>}
+              </p>
+            </div>
+          </div>
+          <button onClick={resetAll} className="text-sm text-slate-400 hover:text-white transition-colors">Choose Different File</button>
+        </div>
+
+        {hasErrors && (
+          <div className="bg-red-900/20 border border-red-800 rounded-xl p-4">
+            <p className="text-sm font-medium text-red-400 mb-2">{parsed.errors.length} validation error{parsed.errors.length > 1 ? "s" : ""} found:</p>
+            <ul className="space-y-1">
+              {parsed.errors.map((e, i) => (
+                <li key={i} className="text-sm text-red-300 flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span> {e}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {uploadError && (
+          <div className="bg-red-900/30 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3">{uploadError}</div>
+        )}
+
+        {/* ── Editable metadata (simple / flexiquiz formats need review) ── */}
+        {editMeta ? (
+          <div className="bg-slate-900 border border-amber-700/40 rounded-xl p-5 space-y-4">
+            <div>
+              <h3 className="text-sm font-medium text-amber-300">Confirm quiz details</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                This file had no Quiz Info sheet, so these were guessed from the filename. Check them before uploading.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-slate-400 mb-1">Quiz name</label>
+                <input
+                  type="text"
+                  value={editMeta.quiz_name}
+                  onChange={(e) => setEditMeta({ ...editMeta, quiz_name: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Year level</label>
+                <select
+                  value={editMeta.year_level || ""}
+                  onChange={(e) => setEditMeta({ ...editMeta, year_level: parseInt(e.target.value) || 0 })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select…</option>
+                  {[3, 5, 7, 9].map((y) => <option key={y} value={y}>Year {y}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Subject</label>
+                <select
+                  value={editMeta.subject || ""}
+                  onChange={(e) => setEditMeta({ ...editMeta, subject: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select…</option>
+                  {["Maths", "Reading", "Writing", "Language conventions"].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Tier</label>
+                <select
+                  value={editMeta.tier || "A"}
+                  onChange={(e) => setEditMeta({ ...editMeta, tier: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {["A", "B", "C"].map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Time limit (min)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editMeta.time_limit_minutes ?? ""}
+                  onChange={(e) => setEditMeta({ ...editMeta, time_limit_minutes: e.target.value ? parseInt(e.target.value) : null })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Difficulty</label>
+                <select
+                  value={editMeta.difficulty || ""}
+                  onChange={(e) => setEditMeta({ ...editMeta, difficulty: e.target.value || null })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Not set</option>
+                  {["easy", "medium", "hard"].map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Set number</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editMeta.set_number ?? 1}
+                  onChange={(e) => setEditMeta({ ...editMeta, set_number: parseInt(e.target.value) || 1 })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!editMeta.is_trial}
+                    onChange={(e) => setEditMeta({ ...editMeta, is_trial: e.target.checked })}
+                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Trial quiz
+                </label>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4">Quiz Info</h3>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+              <div><span className="text-slate-500">Name: </span><span className="text-white font-medium">{meta?.quiz_name}</span></div>
+              <div><span className="text-slate-500">Year: </span><span className="text-white font-medium">{meta?.year_level}</span></div>
+              <div><span className="text-slate-500">Subject: </span><span className="text-white font-medium">{meta?.subject}</span></div>
+              <div><span className="text-slate-500">Tier: </span><span className="text-white font-medium">{meta?.tier}</span></div>
+              {meta?.time_limit_minutes && (
+                <div><span className="text-slate-500">Time: </span><span className="text-white font-medium">{meta.time_limit_minutes} min</span></div>
+              )}
+              {meta?.difficulty && (
+                <div><span className="text-slate-500">Difficulty: </span><span className="text-white font-medium">{meta.difficulty}</span></div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Questions preview table ── */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-800">
+            <h3 className="text-sm font-medium text-white">Questions Preview ({parsed.questions.length})</h3>
+          </div>
+          <div className="max-h-96 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-900">
+                <tr className="text-xs text-slate-500 uppercase tracking-wide">
+                  <th className="text-left font-medium px-5 py-3 w-10">#</th>
+                  <th className="text-left font-medium px-2 py-3">Question</th>
+                  <th className="text-left font-medium px-2 py-3 w-32">Type</th>
+                  <th className="text-left font-medium px-2 py-3 w-20">Options</th>
+                  <th className="text-left font-medium px-2 py-3 w-20">Answer</th>
+                  <th className="text-left font-medium px-2 py-3 w-48">Category</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parsed.questions.map((q, i) => (
+                  <tr key={i} className="border-t border-slate-800/60">
+                    <td className="px-5 py-3 text-slate-500">{i + 1}</td>
+                    <td className="px-2 py-3 text-slate-200">
+                      {q.question_text.length > 70 ? q.question_text.slice(0, 70) + "…" : q.question_text}
+                    </td>
+                    <td className="px-2 py-3"><Badge type={q.type} /></td>
+                    <td className="px-2 py-3 text-slate-400">{q.options?.length || 0}</td>
+                    <td className="px-2 py-3 text-emerald-400 font-medium">{q.correct_answer || "—"}</td>
+                    <td className="px-2 py-3 text-slate-400">{q.category || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSubmit}
+            disabled={hasErrors}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Upload {parsed.questions.length} Questions
+          </button>
+          <button
+            onClick={resetAll}
+            className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════
+  // STEP: UPLOADING
+  // ═══════════════════════════════════════
+  if (step === "uploading") {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <span className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-slate-400">Uploading {parsed?.questions.length} questions…</p>
+        <p className="text-xs text-slate-500">This can take up to a minute on a cold start.</p>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════
+  // STEP: DONE
+  // ═══════════════════════════════════════
+  if (step === "done") {
+    return (
+      <div className="space-y-6">
+        <div className="bg-emerald-900/20 border border-emerald-800 rounded-xl p-6 text-center">
+          <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          </div>
+          <h3 className="text-base font-semibold text-white mb-1">Upload successful</h3>
+          <p className="text-sm text-slate-300">{uploadResult?.quiz_name}</p>
+          <p className="text-xs text-slate-500 mt-2">
+            {uploadResult?.question_count} questions · Quiz ID {uploadResult?.quiz_id}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-center">
+          <button
+            onClick={resetAll}
+            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Upload Another Quiz
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
