@@ -141,10 +141,17 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Both cookies must die. Clearing only the parent cookie left child_token
+    // alive server-side, so the next rehydrate probe resurrected the child.
     try {
-      await fetch(`${API_BASE}/api/parents/auth/logout`, {
-        method: "POST", credentials: "include",
-      });
+      await Promise.all([
+        fetch(`${API_BASE}/api/parents/auth/logout`, {
+          method: "POST", credentials: "include",
+        }),
+        fetch(`${API_BASE}/api/auth/child-logout`, {
+          method: "POST", credentials: "include",
+        }),
+      ]);
     } catch {}
     saveToken("sess_parent_token", null);
     saveToken("sess_child_token", null);
