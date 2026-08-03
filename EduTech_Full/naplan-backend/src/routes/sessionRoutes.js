@@ -61,6 +61,19 @@ function decodeChild(token) {
 router.get("/me", verifyToken, requireAuth, async (req, res) => {
   try {
     await connectDB();
+
+    // Honour an explicit role hint. Both cookies can be live on the same
+    // device; without this, parent_token always won and the child's profile
+    // could never be refreshed.
+    const want = req.query.role;
+    if (want === "child" || want === "parent") {
+      const picked = req.sessions?.[want];
+      if (!picked) {
+        return res.status(401).json({ error: `No ${want} session` });
+      }
+      req.user = picked;
+    }
+
     const { role, parentId, childId, parent_id } = req.user;
 
     if (role === "child") {
