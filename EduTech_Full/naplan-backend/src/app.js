@@ -405,12 +405,24 @@ const uploadsLimiter = rateLimit({
 });
 
 const UPLOAD_IMG_TYPES = {
-  png: "image/png",
-  jpg: "image/jpeg",
+  // images
+  png:  "image/png",
+  jpg:  "image/jpeg",
   jpeg: "image/jpeg",
   webp: "image/webp",
-  gif: "image/gif",
-  svg: "image/svg+xml",
+  gif:  "image/gif",
+  svg:  "image/svg+xml",
+  // audio  ← these were missing, which is why the MP3 returned 400
+  mp3:  "audio/mpeg",
+  wav:  "audio/wav",
+  ogg:  "audio/ogg",
+  m4a:  "audio/mp4",
+  // video
+  mp4:  "video/mp4",
+  webm: "video/webm",
+  mov:  "video/quicktime",
+  // documents
+  pdf:  "application/pdf",
 };
 
 app.use("/uploads", uploadsLimiter, async (req, res) => {
