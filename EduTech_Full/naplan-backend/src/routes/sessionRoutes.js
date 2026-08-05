@@ -1,23 +1,40 @@
 /**
- * routes/sessionRoutes.js  (v2 — SECRET SEPARATION)
+ * routes/sessionRoutes.js  (v3 — req.sessions POPULATED + /session DIAGNOSTICS)
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * 🔴 FIX
+ * 🔴 FIX A — /me?role= ALWAYS RETURNED 401
  *
  * BEFORE:
- *     const JWT_SECRET = process.env.PARENT_JWT_SECRET || process.env.JWT_SECRET;
- *     function decode(token) { return jwt.verify(token, JWT_SECRET); }
+ *     const picked = req.sessions?.[want];
+ *     if (!picked) return res.status(401).json({ error: `No ${want} session` });
  *
- *   Two problems:
- *   (a) This precedence is the OPPOSITE of middleware/auth.js, which used
- *       JWT_SECRET || PARENT_JWT_SECRET. If both env vars were set and differed,
- *       /session and /me disagreed about which tokens were valid.
- *   (b) The SAME secret was used to decode both the parent cookie and the child
- *       cookie, so the two audiences were interchangeable.
+ *   `req.sessions` was never assigned by ANY middleware. verifyToken in
+ *   middleware/auth.js sets req.user and nothing else. So `picked` was always
+ *   undefined and every /me?role=parent or /me?role=child returned 401 — even
+ *   with a valid cookie. Any frontend build that appends ?role= to the probe
+ *   gets a 401 on every page refresh, clears its cached profile, and the route
+ *   guard bounces the user to "/". That is a refresh-logout.
  *
- * AFTER: config/jwt.js. verifyParent() and verifyChild() each use their own
- * secret and reject `typ` mismatches. One source of truth, shared with
- * middleware/auth.js — they cannot drift apart again.
+ * AFTER: attachSessions middleware decodes BOTH cookies with their own secrets
+ * and populates req.sessions = { parent, child } before the handler runs. The
+ * ?role= hint now genuinely disambiguates.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 🔴 FIX B — /session RETURNED A BARE {} FOR THREE DIFFERENT CAUSES
+ *
+ *   `{}` meant all of: no cookie arrived, cookie arrived but failed signature
+ *   verification, and cookie genuinely expired. The frontend cannot tell a
+ *   broken cookie from a real logout, so it treats both as "log the user out".
+ *
+ * AFTER: a `_diag` block reports which. REMOVE `_diag` once the cause is
+ * identified — it leaks cookie names to the client.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * v2 NOTE RETAINED — SECRET SEPARATION
+ *
+ * verifyParent() and verifyChild() from config/jwt.js each use their own secret
+ * and reject `typ` mismatches, shared with middleware/auth.js so the two can
+ * never drift apart.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
@@ -52,13 +69,58 @@ function decodeChild(token) {
 }
 
 /**
+ * Normalise decoded claims into the same shape verifyToken produces on
+ * req.user, so downstream code can consume either interchangeably.
+ */
+function normaliseParent(claims) {
+  if (!claims) return null;
+  return {
+    role: "parent",
+    parentId: claims.parentId || claims.parent_id || null,
+    parent_id: claims.parent_id || claims.parentId || null,
+    email: claims.email || null,
+  };
+}
+
+function normaliseChild(claims) {
+  if (!claims) return null;
+  return {
+    role: "child",
+    childId: claims.childId || claims.child_id || null,
+    parentId: claims.parentId || claims.parent_id || null,
+    username: claims.username || null,
+    yearLevel: claims.yearLevel || null,
+  };
+}
+
+/**
+ * ✅ FIX A — the middleware that was missing.
+ *
+ * Populates req.sessions from BOTH cookies. Mounted on /me so the ?role= hint
+ * has something to read. Never throws and never 401s — verifyToken already
+ * handles the no-token case.
+ */
+function attachSessions(req, res, next) {
+  req.sessions = {
+    parent: normaliseParent(decodeParent(req.cookies?.parent_token)),
+    child: normaliseChild(decodeChild(req.cookies?.child_token)),
+  };
+  next();
+}
+
+/**
  * GET /api/auth/me
  * Returns the authenticated user's PROFILE from their httpOnly cookie.
- * Used by AuthContext on mount to rehydrate session without localStorage.
+ * Used by AuthContext to enrich the active role with fields /session omits
+ * (displayName, status, entitled_quiz_ids).
  * Does NOT return the token — the cookie is sent automatically via
  * credentials:"include", so the frontend never needs to hold it.
+ *
+ * Optional ?role=parent|child picks which cookie to read when both are live
+ * (a parent who has quick-logged-in as their child). Without the hint,
+ * verifyToken's default precedence applies.
  */
-router.get("/me", verifyToken, requireAuth, async (req, res) => {
+router.get("/me", verifyToken, requireAuth, attachSessions, async (req, res) => {
   try {
     await connectDB();
 
@@ -126,13 +188,16 @@ router.get("/me", verifyToken, requireAuth, async (req, res) => {
  * e.g. a parent viewing a child). No 401; missing/expired cookies are just
  * omitted.
  *
- * ✅ Each cookie is now verified against ITS OWN secret, so a parent cookie can
+ * ✅ Each cookie is verified against ITS OWN secret, so a parent cookie can
  * never be reported as a child session (or vice versa).
  */
 router.get("/session", (req, res) => {
   const sessions = {};
 
-  const parent = decodeParent(req.cookies?.parent_token);
+  const rawParent = req.cookies?.parent_token || null;
+  const rawChild = req.cookies?.child_token || null;
+
+  const parent = decodeParent(rawParent);
   if (parent) {
     sessions.parent = {
       parentId: parent.parentId || parent.parent_id,
@@ -141,7 +206,7 @@ router.get("/session", (req, res) => {
     };
   }
 
-  const child = decodeChild(req.cookies?.child_token);
+  const child = decodeChild(rawChild);
   if (child) {
     sessions.child = {
       childId: child.childId,
@@ -151,6 +216,24 @@ router.get("/session", (req, res) => {
       role: "child",
     };
   }
+
+  // ── ⚠️ TEMPORARY DIAGNOSTIC — DELETE THIS BLOCK ONCE DIAGNOSED ──────────
+  // An empty {} is ambiguous: no cookie arrived, cookie arrived but failed
+  // verification, or cookie expired. The frontend cannot distinguish a broken
+  // cookie from a real logout, so it logs the user out for all three.
+  //
+  // Read this in the Network tab, then remove — it exposes cookie names.
+  if (process.env.SESSION_DIAG === "true") {
+    sessions._diag = {
+      cookieNames: Object.keys(req.cookies || {}),
+      parentCookiePresent: !!rawParent,
+      childCookiePresent: !!rawChild,
+      parentVerified: !!parent,
+      childVerified: !!child,
+      origin: req.headers.origin || null,
+    };
+  }
+  // ────────────────────────────────────────────────────────────────────────
 
   res.json(sessions);
 });
