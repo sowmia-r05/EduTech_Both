@@ -43,28 +43,46 @@ console.log("[cookies] resolved config:", {
  * Sets an auth token as an httpOnly cookie.
  */
 function setAuthCookie(res, name, token, maxAge, { path = "/", sameSite = DEFAULT_SAMESITE } = {}) {
-  res.cookie(name, token, {
+  const options = {
     httpOnly: true,
     secure: IS_PROD,
     sameSite,
-    maxAge,
     path,
     ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
-  });
-}
+  };
 
+  res.cookie(name, token, { ...options, maxAge });
+
+  // Temporary — remove COOKIE_DEBUG from Render once auth is confirmed working.
+  if (process.env.COOKIE_DEBUG === "true") {
+    console.log(`[cookie:set] ${name}`, JSON.stringify({
+      ...options,
+      host: res.req?.hostname,
+      origin: res.req?.headers?.origin || null,
+    }));
+  }
+}
 /**
  * Clears an auth cookie. Attributes MUST match those used when setting, or
  * clearCookie silently no-ops and logout doesn't log out.
  */
 function clearAuthCookie(res, name, { path = "/", sameSite = DEFAULT_SAMESITE } = {}) {
-  res.clearCookie(name, {
+  const options = {
     httpOnly: true,
     secure: IS_PROD,
     sameSite,
     path,
     ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
-  });
+  };
+
+  res.clearCookie(name, options);
+
+  // Legacy host-only cookie from pre-domain deploys. Without this it survives
+  // logout and can resurrect a dead session on the next request.
+  if (COOKIE_DOMAIN) {
+    const { domain, ...hostOnly } = options;
+    res.clearCookie(name, hostOnly);
+  }
 }
 
 module.exports = { setAuthCookie, clearAuthCookie };
