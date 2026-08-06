@@ -9,6 +9,31 @@ const API_BASE =
   import.meta.env.VITE_API_BASE_URL !== undefined
     ? import.meta.env.VITE_API_BASE_URL : "";
 
+// ─── Network timeout ─────────────────────────────────────────────────────────
+// 🔴 INFINITE-SPINNER FIX
+//    fetch() has NO default timeout. /api/auth/me calls connectDB() then
+//    Parent.findById() — against an Atlas cluster in a different region than
+//    Render. When that connection stalls, the request hangs FOREVER: no error,
+//    no rejection, the await simply never settles.
+//
+//    The old rehydrate effect awaited fetchMe() BEFORE setIsInitializing(false),
+//    so a hung /me meant isInitializing stayed true permanently and
+//    RequireParent rendered <LoadingSpinner /> with nothing to break the cycle.
+//
+//    Every fetch below now aborts after REQUEST_TIMEOUT_MS. An abort throws,
+//    the catch returns "UNKNOWN"/null, and the flow continues normally.
+const REQUEST_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url, opts = {}, ms = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── Token store — MEMORY ONLY (never localStorage) ──────────────────────────
 const _mem = {};
 function saveToken(key, val) {
@@ -42,13 +67,14 @@ function clearProfile(key) {
 //
 // GET /api/auth/session decodes parent_token with the parent secret and
 // child_token with the child secret (verifyParent / verifyChild), reports
-// whichever exist, and never 401s.
+// whichever exist, and never 401s. It touches NO database, which is why it is
+// the only call the spinner is allowed to block on.
 //
 // "UNKNOWN" is load-bearing: 429 (rate limiter), 500 (cold Atlas), or
-// 502/503 (Render redeploy) is NOT a logout.
+// 502/503 (Render redeploy) is NOT a logout. A timeout is not a logout either.
 async function probeSession() {
   try {
-    const res = await fetch(`${API_BASE}/api/auth/session`, {
+    const res = await fetchWithTimeout(`${API_BASE}/api/auth/session`, {
       credentials: "include",
       cache: "no-store",
     });
@@ -57,16 +83,18 @@ async function probeSession() {
     if (!data || typeof data !== "object") return "UNKNOWN";
     return { parent: data.parent || null, child: data.child || null };
   } catch {
-    return "UNKNOWN"; // network blip — keep the cached profile
+    return "UNKNOWN"; // network blip, or aborted timeout — keep the cached profile
   }
 }
 
 // Enriches the ACTIVE role with the fuller profile /me returns (displayName,
 // status, entitled_quiz_ids) — fields /session deliberately omits.
 // Never clears anything: /session is the authority on what exists.
+//
+// This hits the DATABASE. It must never block the spinner.
 async function fetchMe() {
   try {
-    const res = await fetch(`${API_BASE}/api/auth/me`, {
+    const res = await fetchWithTimeout(`${API_BASE}/api/auth/me`, {
       credentials: "include",
       cache: "no-store",
     });
@@ -99,93 +127,105 @@ export function AuthProvider({ children }) {
   const activeToken = childToken || parentToken || null;
 
   // ─── Cookie rehydrate on mount ──────────────────────────────────────────────
-  // One /session call reports BOTH cookies correctly, then /me enriches the
-  // active role.
   //
-  // 🔴 REFRESH-LOGOUT FIX
-  //    /api/auth/session returns 200 {} when it cannot read a cookie. That
-  //    sails past the "UNKNOWN" guard and lands in the else-branch, which
-  //    wiped the cached profile — RequireParent then bounced the user to "/".
-  //    A single empty 200 is AMBIGUOUS, not proof of logout: a cold Render
-  //    instance, a dropped cookie on one request, or a mid-flight sliding-
-  //    session rotation all produce it for a perfectly live session.
+  // 🔴 FIX 1 — try/finally. setIsInitializing(false) is now UNCONDITIONAL.
+  //    Previously six separate early-returns each had to remember to call it,
+  //    and the post-fetchMe path could skip it entirely. The spinner can no
+  //    longer outlive this effect no matter which branch is taken or what
+  //    throws.
   //
-  //    We now only believe a logout after TWO clean empty 200s. Anything
-  //    else keeps the cached profile and the user stays on their page.
+  // 🔴 FIX 2 — fetchMe() is fire-and-forget. /session already returns
+  //    parentId, email and role, which is everything RequireParent needs to
+  //    let the user through. /me only ADDS display fields, so it now runs in
+  //    the background and merges when it lands. The dashboard paints as soon
+  //    as /session answers instead of waiting on a DB round trip.
+  //
+  // RETAINED — the two-empty-200s rule. /api/auth/session returns 200 {} when
+  //    it cannot read a cookie, and a single empty 200 is AMBIGUOUS, not proof
+  //    of logout: a cold Render instance, a dropped cookie on one request, or a
+  //    mid-flight sliding-session rotation all produce it for a live session.
+  //    Only two clean empty 200s are believed.
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
-      const sess = await probeSession();
-      if (cancelled) return;
-
-      if (sess === "UNKNOWN") {
-        // Server unhealthy — this is NOT a logout. Keep both cached profiles.
-        setIsInitializing(false);
-        return;
-      }
-
-      const hadCache = !!(loadProfile("parent_profile") || loadProfile("child_profile"));
-      let confirmed = sess;
-
-      if (hadCache && !sess.parent && !sess.child) {
-        await new Promise((r) => setTimeout(r, 600));
+      try {
+        const sess = await probeSession();
         if (cancelled) return;
 
-        const retry = await probeSession();
-        if (cancelled) return;
-
-        if (retry === "UNKNOWN") {
-          // Still can't tell — keep the cached profiles rather than logging out.
-          setIsInitializing(false);
+        if (sess === "UNKNOWN") {
+          // Server unhealthy or timed out — NOT a logout. Keep cached profiles.
           return;
         }
 
-        confirmed = retry;
+        const hadCache = !!(loadProfile("parent_profile") || loadProfile("child_profile"));
+        let confirmed = sess;
 
-        if (!confirmed.parent && !confirmed.child) {
-          // Two clean 200s with no session. Now we believe it.
+        if (hadCache && !sess.parent && !sess.child) {
+          await new Promise((r) => setTimeout(r, 600));
+          if (cancelled) return;
+
+          const retry = await probeSession();
+          if (cancelled) return;
+
+          if (retry === "UNKNOWN") {
+            // Still can't tell — keep the cached profiles rather than logging out.
+            return;
+          }
+
+          confirmed = retry;
+
+          if (!confirmed.parent && !confirmed.child) {
+            // Two clean 200s with no session. Now we believe it.
+            clearProfile("parent_profile");
+            clearProfile("child_profile");
+            setParentProfile(null);
+            setChildProfile(null);
+            return;
+          }
+        }
+
+        if (confirmed.parent) {
+          const next = { role: "parent", ...confirmed.parent };
+          setParentProfile(next);
+          saveProfile("parent_profile", next);
+        } else {
           clearProfile("parent_profile");
-          clearProfile("child_profile");
           setParentProfile(null);
+        }
+
+        if (confirmed.child) {
+          const next = { role: "child", ...confirmed.child };
+          setChildProfile(next);
+          saveProfile("child_profile", next);
+        } else {
+          clearProfile("child_profile");
           setChildProfile(null);
-          setIsInitializing(false);
-          return;
         }
-      }
 
-      if (confirmed.parent) {
-        const next = { role: "parent", ...confirmed.parent };
-        setParentProfile(next);
-        saveProfile("parent_profile", next);
-      } else {
-        clearProfile("parent_profile");
-        setParentProfile(null);
-      }
-
-      if (confirmed.child) {
-        const next = { role: "child", ...confirmed.child };
-        setChildProfile(next);
-        saveProfile("child_profile", next);
-      } else {
-        clearProfile("child_profile");
-        setChildProfile(null);
-      }
-
-      // Enrich whichever role is active. Merged, never replaced wholesale.
-      if (confirmed.parent || confirmed.child) {
-        const me = await fetchMe();
-        if (cancelled) return;
-        if (me?.role === "child") {
-          setChildProfile((prev) => ({ ...(prev || {}), ...me }));
-          saveProfile("child_profile", { ...(loadProfile("child_profile") || {}), ...me });
-        } else if (me?.role === "parent") {
-          setParentProfile((prev) => ({ ...(prev || {}), ...me }));
-          saveProfile("parent_profile", { ...(loadProfile("parent_profile") || {}), ...me });
+        // ── Background enrichment — deliberately NOT awaited ──────────────────
+        // A hung or slow /me can no longer hold the spinner hostage. If it
+        // never returns, the user simply keeps the /session-derived profile.
+        if (confirmed.parent || confirmed.child) {
+          fetchMe()
+            .then((me) => {
+              if (cancelled || !me) return;
+              if (me.role === "child") {
+                setChildProfile((prev) => ({ ...(prev || {}), ...me }));
+                saveProfile("child_profile", { ...(loadProfile("child_profile") || {}), ...me });
+              } else if (me.role === "parent") {
+                setParentProfile((prev) => ({ ...(prev || {}), ...me }));
+                saveProfile("parent_profile", { ...(loadProfile("parent_profile") || {}), ...me });
+              }
+            })
+            .catch(() => {}); // enrichment is optional — never fatal
         }
+      } finally {
+        // Runs on EVERY path: success, early return, timeout, or thrown error.
+        if (!cancelled) setIsInitializing(false);
       }
-
-      setIsInitializing(false);
     })();
+
     return () => { cancelled = true; };
   }, []);
 
@@ -234,12 +274,15 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     // Both cookies must die. Clearing only the parent cookie left child_token
     // alive server-side, so the next rehydrate probe resurrected the child.
+    //
+    // Timeout-wrapped: a hung logout request used to leave the button spinning
+    // and the local state uncleared. Local cleanup now always runs.
     try {
       await Promise.all([
-        fetch(`${API_BASE}/api/parents/auth/logout`, {
+        fetchWithTimeout(`${API_BASE}/api/parents/auth/logout`, {
           method: "POST", credentials: "include",
         }),
-        fetch(`${API_BASE}/api/auth/child-logout`, {
+        fetchWithTimeout(`${API_BASE}/api/auth/child-logout`, {
           method: "POST", credentials: "include",
         }),
       ]);
@@ -256,7 +299,7 @@ export function AuthProvider({ children }) {
 
   const logoutChild = useCallback(async () => {
     try {
-      await fetch(`${API_BASE}/api/auth/child-logout`, {
+      await fetchWithTimeout(`${API_BASE}/api/auth/child-logout`, {
         method: "POST", credentials: "include",
       });
     } catch {}
