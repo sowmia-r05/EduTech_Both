@@ -18,6 +18,31 @@
  *
  * Place in: src/app/components/auth/GoogleSignInButton.jsx
  * ═══════════════════════════════════════════════════════════════
+ *
+ * 🔴 FIX — REFRESH-LOGOUT AFTER GOOGLE SIGN-IN
+ *
+ * The POST to /api/parents/auth/google was missing `credentials: "include"`.
+ *
+ * googleAuthRoutes.js DOES call setAuthCookie(res, "parent_token", ...) and the
+ * response genuinely carries a Set-Cookie header. But on a cross-origin request
+ * (naplan.kaisolutions.ai → naplanapi.kaisolutions.ai) the browser SILENTLY
+ * DISCARDS Set-Cookie unless the request opted in with credentials:"include".
+ * No console warning, no network error — the header is simply dropped.
+ *
+ * The login still LOOKED successful, because the route also returns
+ * parent_token + parent in the response body, and loginParent() caches the
+ * profile to localStorage. So navigation worked fine.
+ *
+ * Then on refresh: AuthContext's probeSession() hits GET /api/auth/session with
+ * no cookie → server returns {} → clearProfile("parent_profile") runs →
+ * isParent goes false → RequireParent renders <Navigate to="/" replace />.
+ *
+ * That is the refresh-logout. Public routes (create/login pages) sit outside
+ * the guard, which is why they survived a refresh and dashboards did not.
+ *
+ * ⚠️ AFTER DEPLOYING: existing sessions are NOT retroactively fixed. Log out
+ *    fully, then sign in with Google again to actually receive the cookie.
+ * ═══════════════════════════════════════════════════════════════
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -56,6 +81,15 @@ export default function GoogleSignInButton({ onSuccess, onError, disabled = fals
   const [loading, setLoading] = useState(false);
   const [gsiReady, setGsiReady] = useState(false);
 
+  // ── Callback ref ────────────────────────────────────────────────────────────
+  // google.accounts.id.initialize() is called ONCE inside a useEffect with an
+  // empty dep array, so it permanently captures whatever handleCredentialResponse
+  // was on that first render — along with the onSuccess/onError props from that
+  // render. If the parent re-renders with new handlers (ParentLoginPage rebuilds
+  // them via useCallback with a `redirect` dep), Google would still invoke the
+  // stale ones. Routing through a ref keeps GSI pointed at the current handler.
+  const handlerRef = useRef(null);
+
   // Send Google credential to our backend
   const handleCredentialResponse = async (response) => {
     if (!response?.credential) {
@@ -67,6 +101,7 @@ export default function GoogleSignInButton({ onSuccess, onError, disabled = fals
     try {
       const res = await fetch(`${API_BASE}/api/parents/auth/google`, {
         method: "POST",
+        credentials: "include", // 🔴 THE FIX — without this the browser drops Set-Cookie
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ credential: response.credential }),
       });
@@ -86,6 +121,9 @@ export default function GoogleSignInButton({ onSuccess, onError, disabled = fals
     }
   };
 
+  // Keep the ref pointing at the latest closure on every render.
+  handlerRef.current = handleCredentialResponse;
+
   // Initialize Google button
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) {
@@ -101,7 +139,7 @@ export default function GoogleSignInButton({ onSuccess, onError, disabled = fals
 
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
-          callback: handleCredentialResponse,
+          callback: (response) => handlerRef.current?.(response),
           auto_select: false,
           cancel_on_tap_outside: true,
         });
