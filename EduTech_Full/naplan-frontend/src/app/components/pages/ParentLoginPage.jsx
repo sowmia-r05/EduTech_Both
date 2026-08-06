@@ -5,7 +5,12 @@
 //   ✅ handleVerifyOtp now checks for redirect param and navigates accordingly
 //   ✅ "Create Account" button preserves redirect param
 //   ✅ "Create one" link at bottom also preserves redirect param
-//   Everything else is IDENTICAL to the original.
+//   🔴 credentials: "include" added to BOTH fetch helpers — without it the
+//      browser DISCARDS the Set-Cookie header on a cross-origin response.
+//      parent_token was never stored, so every page refresh logged the user
+//      out and RequireParent bounced them to the welcome page.
+//   🔴 setLoading(true) added to handleVerifyOtp — the finally block cleared a
+//      flag nothing ever set, so the Verify button never showed its spinner.
 
 import { useState, useMemo, useCallback } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
@@ -35,6 +40,7 @@ const looksLikeEmail = (e) => {
 async function requestLoginOtp(email) {
   const res = await fetch(`${API_BASE}/api/parents/auth/login-otp`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: normalizeEmail(email) }),
   });
@@ -46,6 +52,7 @@ async function requestLoginOtp(email) {
 async function verifyLoginOtp(email, otp) {
   const res = await fetch(`${API_BASE}/api/parents/auth/verify-login-otp`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: normalizeEmail(email), otp }),
   });
@@ -171,6 +178,7 @@ export default function ParentLoginPage() {
     if (!/^\d{6}$/.test(cleanOtp)) { setError("Please enter a valid 6-digit code."); return; }
 
     try {
+    setLoading(true);
     const res = await verifyLoginOtp(email, cleanOtp);
 
     // ✅ Support both approaches:
