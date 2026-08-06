@@ -31,6 +31,39 @@ import FreeTrialOnboarding from "@/app/components/dashboardComponents/FreeTrialO
 import ChildDataConsentPolicy from "@/app/components/ChildDataConsentPolicy";
 import DashboardHeader from "@/app/components/layout/DashboardHeader";
 
+/* ═══════════════════════════════════════════════════════════════
+ * 🔴 RELOAD FIX — "Loading…" overlay never cleared after a refresh
+ *
+ * `parentToken` in AuthContext is MEMORY-ONLY. It is null after every
+ * page reload, by design (cookie-only auth — no JWT in localStorage).
+ *
+ * BEFORE:
+ *     const loadChildren = useCallback(async (silent = false) => {
+ *       if (!parentToken) return;              // ← bailed here on reload
+ *       try { setLoading(true); ... }
+ *       finally { setLoading(false); }         // ← never reached
+ *     }, [parentToken]);
+ *
+ *     useEffect(() => {
+ *       if (!parentToken) return;              // ← and bailed here too
+ *       loadChildren(); loadPayments();
+ *     }, [loadChildren, loadPayments]);
+ *
+ *   `loading` starts as `true`, nothing ever set it false, so
+ *   <LoadingOverlay /> covered the dashboard forever. It only worked on a
+ *   click-through from login, when the token was still in memory.
+ *
+ * AFTER: every gate is derived from the PROFILE (`isParent`), never from a
+ * token. The token is still passed to the api-* helpers, but it is now
+ * optional — those helpers all send `credentials: "include"`, so the
+ * httpOnly cookie carries the auth. When the token is null the
+ * Authorization header is simply omitted.
+ *
+ * Same fix applied to: loadPayments, the mount effect, the retry-payment
+ * handler and the cancel-payment handler (both silently no-opped after a
+ * reload for exactly the same reason).
+ * ═══════════════════════════════════════════════════════════════ */
+
 // ═══════════════════════════════════════════════════════════════
 //  PURPLE DESIGN TOKENS
 // ═══════════════════════════════════════════════════════════════
@@ -605,7 +638,10 @@ function RetryConfirmModal({ payment, onConfirm, onCancel, loading, error, paren
   const [cancelled,    setCancelled]    = useState(false);
 
   const handleCancelPayment = async () => {
-    if (!payment?._id || !parentToken) return;
+    // 🔴 RELOAD FIX: was `if (!payment?._id || !parentToken) return;`
+    // parentToken is null after a refresh, so this button silently did
+    // nothing. The cookie authenticates the request — the token is optional.
+    if (!payment?._id) return;
     try {
       setCancelling(true);
       setCancelError(null);
@@ -756,7 +792,9 @@ function PaymentHistory({ payments: initialPayments = [], parentToken }) {
   const hasFilter = activeStatus !== "All";
 
   const handleRetryConfirm = async () => {
-    if (!retryTarget?._id || !parentToken) return;
+    // 🔴 RELOAD FIX: was `if (!retryTarget?._id || !parentToken) return;`
+    // Same silent no-op after a refresh. Cookie carries the auth.
+    if (!retryTarget?._id) return;
     try {
       setRetryLoading(true); setRetryError(null);
       const result = await retryPayment(parentToken, retryTarget._id);
@@ -1248,7 +1286,9 @@ function BundleSelectionModal({ child, bundles, loadingBundleId, onSelect, onClo
 export default function ParentDashboard() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { parentToken, parentProfile, logout } = useAuth();
+  // 🔴 RELOAD FIX: `isParent` added. It is profile-driven and survives a
+  // refresh; `parentToken` does not.
+  const { parentToken, parentProfile, isParent, isInitializing, logout } = useAuth();
 
   const [rawChildren,           setRawChildren]           = useState([]);
   const [rawPayments,           setRawPayments]           = useState([]);
@@ -1293,8 +1333,12 @@ export default function ParentDashboard() {
   const CACHE_TTL_MS = 60_000;
 
   // ── Data loading ─────────────────────────────────────────────
+  // 🔴 RELOAD FIX: the `if (!parentToken) return;` bail is GONE. It sat
+  // above the try/finally, so on a refresh setLoading(false) never ran and
+  // the overlay stayed up forever. `parentToken` is still passed through —
+  // when it is null the api-children helpers simply omit the Authorization
+  // header and the httpOnly cookie authenticates the request instead.
 const loadChildren = useCallback(async (silent = false) => {
-  if (!parentToken) return;
   try {
     if (!silent) setLoading(true);
 
@@ -1406,8 +1450,8 @@ const loadChildren = useCallback(async (silent = false) => {
 
 
 
+      // 🔴 RELOAD FIX: `if (!parentToken) return;` removed here too.
       const loadPayments = useCallback(async () => {
-        if (!parentToken) return;
         try {
           const data = await fetchPurchaseHistory(parentToken);
           setRawPayments(Array.isArray(data) ? data : []);
@@ -1416,10 +1460,15 @@ const loadChildren = useCallback(async (silent = false) => {
         }
       }, [parentToken]);
 
-      useEffect(() => { 
-        if (!parentToken) return;
-        loadChildren(); loadPayments();
-      }, [loadChildren, loadPayments]);
+      // 🔴 RELOAD FIX: gate on the PROFILE, not the token. `isInitializing`
+      // is checked so we don't fire before AuthContext has settled; once it
+      // has, `isParent` is true for a live session even with no token.
+      useEffect(() => {
+        if (isInitializing) return;
+        if (!isParent) { setLoading(false); return; }
+        loadChildren();
+        loadPayments();
+      }, [isInitializing, isParent, loadChildren, loadPayments]);
 
       useEffect(() => {
         const handleVisibility = () => {
@@ -1574,7 +1623,10 @@ const handleViewChild = (child) => {
       const res = await fetch(`${API_BASE}/api/children/${childId}`, {
         credentials: "include",
         headers: {
-          Authorization: `Bearer ${parentToken}`,
+          // 🔴 RELOAD FIX: only send the header when a token actually exists.
+          // Previously this sent the literal string "Bearer null" after a
+          // refresh, which some middleware treats as a malformed credential.
+          ...(parentToken ? { Authorization: `Bearer ${parentToken}` } : {}),
           Accept: "application/json",
         },
       });
@@ -1602,7 +1654,7 @@ const handleViewChild = (child) => {
         {error && (
           <div style={{ background: "#FFF1F2", border: "1px solid #FECDD3", borderRadius: "12px", padding: "14px 18px", marginBottom: "24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
             <span style={{ fontSize: "14px", color: "#BE123C", fontWeight: 600, flex: 1 }}>{error}</span>
-            <button onClick={loadChildren} style={{ background: "#BE123C", color: "#fff", border: "none", borderRadius: "8px", padding: "10px 18px", cursor: "pointer", fontSize: "14px", fontWeight: 600, minHeight: "44px", whiteSpace: "nowrap" }}>Try Again</button>
+            <button onClick={() => loadChildren()} style={{ background: "#BE123C", color: "#fff", border: "none", borderRadius: "8px", padding: "10px 18px", cursor: "pointer", fontSize: "14px", fontWeight: 600, minHeight: "44px", whiteSpace: "nowrap" }}>Try Again</button>
           </div>
         )}
 
