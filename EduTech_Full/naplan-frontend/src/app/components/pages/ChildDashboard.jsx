@@ -16,6 +16,24 @@ import DashboardHeader from "@/app/components/layout/DashboardHeader";
 import ChildAvatarMenu from "@/app/components/ui/ChildAvatarMenu";
 import { BookOpen, PenLine, Hash, Languages, Library, ClipboardList, BarChart2 } from "lucide-react";
 
+/* ═════════════════════════════════════════════════════════════════════════════
+   🔴 FIX — BLANK DASHBOARD AFTER REFRESH / TAB REOPEN
+
+   ROOT CAUSE: every data loader was gated behind
+       const activeToken = childToken || parentToken;
+   Both of those are MEMORY-ONLY in AuthContext and are ALWAYS null after a page
+   refresh. So on every F5 the guards fired:
+       if (!activeToken || !childId) { setLoading(false); return; }
+   and the page rendered its empty state instantly — All (0), no stars, no
+   streak, "Welcome back, Student!". Nothing was slow; nothing was fetched.
+
+   THE FIX: auth is cookie-based. Every request already sends
+   credentials:"include", and the server reads parent_token / child_token from
+   httpOnly cookies. The bearer token was never required. All loaders now gate
+   on childId alone, and role is read from the cookie-derived isParent/isChild
+   flags rather than from tokens that do not survive a reload.
+   ═════════════════════════════════════════════════════════════════════════════ */
+
 /* ─── Subject helpers ─── */
 function inferSubject(quizName) {
   const q = (quizName || "").toLowerCase();
@@ -192,12 +210,18 @@ export default function ChildDashboard() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation ();
-  const { childToken, childProfile, parentToken, logoutChild, logout, isInitializing } = useAuth();
-  
+  // ✅ isParent / isChild are cookie-derived and survive a refresh.
+  //    childToken / parentToken are memory-only and do NOT.
+  const { childToken, childProfile, parentToken, isParent, isChild, logoutChild, logout, isInitializing } = useAuth();
+
 
   const childId     = location.state?.childId || childProfile?.childId;
   const activeToken = childToken || parentToken;
-  const isParentViewing = !childToken && !!parentToken;
+
+  // ✅ FIXED: was `!childToken && !!parentToken`, which is false for everyone
+  //    after a refresh because both tokens are null. That disabled the redirect
+  //    below and stranded parents on a blank child dashboard.
+  const isParentViewing = isParent && !isChild;
 
   useEffect(() => {
     if (!isInitializing && isParentViewing && !childId){
@@ -299,9 +323,12 @@ const [sortConfig,  setSortConfig]  = useState(() => readFilter("cd_sortConfig",
   ["cd_subjectFilter","cd_search","cd_sortConfig","cd_historySubject","cd_historySearch",
    "cd_historyScore","cd_historyDate","cd_historySort","cd_historyPage"]
     .forEach(k => { try { sessionStorage.removeItem(k); } catch {} });
-  if (childToken) logoutChild(); else logout();
+  // ✅ FIXED: was `if (childToken)`. After a refresh childToken is null, so a
+  //    child pressing Log Out fired the full logout() and killed the parent
+  //    cookie too.
+  if (isChild) logoutChild(); else logout();
   navigate("/");
-}, [childToken, logoutChild, logout, navigate]);
+}, [isChild, logoutChild, logout, navigate]);
 
   useEffect(() => {
     assertAllowedParams(searchParams, navigate, isParentViewing);
@@ -348,7 +375,10 @@ const [sortConfig,  setSortConfig]  = useState(() => readFilter("cd_sortConfig",
 
 
 
-    if (isParentViewing && parentToken && childId) {
+    // ✅ FIXED: `parentToken` removed from this condition. It is null after a
+    //    refresh, so the child's name, entitlements and status were never
+    //    loaded for a parent viewing a child. Auth travels by cookie.
+    if (isParentViewing && childId) {
       try {
         const children = await fetchChildrenSummaries(parentToken);
         const match = children.find(
@@ -375,16 +405,18 @@ const [sortConfig,  setSortConfig]  = useState(() => readFilter("cd_sortConfig",
   } else if (childProfile) {
     setChildEntitledQuizIds(childProfile.entitled_quiz_ids || []);
   }
-}, [location.state, childProfile, parentToken, childId, navigate]);
+}, [location.state, childProfile, parentToken, isParentViewing, childId, navigate]);
 
 
 
 
   useEffect(() => { resolveChildInfo(); }, [resolveChildInfo]);
 
-  /* ─── Load available quizzes (original) ─── */
+  /* ─── Load available quizzes ─── */
 useEffect(() => {
-  if (!activeToken || !childId) {
+  // ✅ FIXED: was `if (!activeToken || !childId)`. activeToken is always null
+  //    after a refresh, so the catalog never loaded and the table showed (0).
+  if (!childId) {
     setQuizzesLoading(false);
     return;
   }
@@ -406,9 +438,10 @@ useEffect(() => {
 
 
 
-  /* ─── refreshData (original) ─── */
+  /* ─── refreshData ─── */
 const refreshData = useCallback(async () => {
-  if (!activeToken || !childId) return;
+  // ✅ FIXED: activeToken guard removed — see note above.
+  if (!childId) return;
   const [results, writingDocs] = await Promise.all([
     fetchChildResults(activeToken, childId).catch(() => []),
     fetchChildWriting(activeToken, childId).catch(() => []),
@@ -439,9 +472,11 @@ const refreshData = useCallback(async () => {
 }, [activeToken, childId]);
 
 
-  /* ─── Initial load (original) ─── */
+  /* ─── Initial load ─── */
 useEffect(() => {
-  if (!activeToken || !childId) { setLoading(false); return; }
+  // ✅ FIXED: activeToken guard removed — this is the guard that produced the
+  //    blank "Welcome back, Student!" dashboard on every refresh.
+  if (!childId) { setLoading(false); return; }
   setLoading(true);
   Promise.all([
     fetchChildResults(activeToken, childId).catch(() => []),
@@ -708,7 +743,7 @@ useEffect(() => {
 
 
 
-  /* ─── handleViewResult (original) ─── */
+  /* ─── handleViewResult ─── */
   const handleViewResult = useCallback(async (item) => {
     const rid = item.response_id || item.attempt_id; if (!rid) return;
     setResultLoading(true);
@@ -740,7 +775,11 @@ useEffect(() => {
           response_id: rid,
           quiz_id: data.quiz_id || item.quiz_id,
           subject: item.subject || data.subject || "",
-          violations: result.proctoring?.violations ?? 0,
+          // ✅ FIXED: was `result.proctoring` — there is no `result` variable in
+          //    this scope. That ReferenceError threw on EVERY successful fetch
+          //    and silently dropped into the catch block below, which is why
+          //    results rendered with 0 points and an empty topic breakdown.
+          violations: data.proctoring?.violations ?? 0,
         },
         quizName: item.name || data.quiz_name || "Quiz",
       };
@@ -787,7 +826,6 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
 
 
   /* ─── handleQuizClose (original) ─── */
-  /* ─── handleQuizClose (original) ─── */
   const handleQuizClose = useCallback((result) => {
     setActiveQuiz(null);
     refreshData();
@@ -809,7 +847,7 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
           ai_status:       result.ai_status || "queued",
           attempt_id:      result.attempt_id,
           response_id:     result.attempt_id || result.response_id,
-          quiz_id:         result.quiz_id || activeQuiz?.quiz_id || activeQuiz?.id,  // ← ADD THIS LINE
+          quiz_id:         result.quiz_id || activeQuiz?.quiz_id || activeQuiz?.id,
           subject:         result.subject || (isWritingSubject ? "Writing" : ""),
         },
         quizName: result.quiz_name || activeQuiz?.name || activeQuiz?.quiz_name || "Quiz",
@@ -826,7 +864,10 @@ const handleViewAIFeedback = useCallback((attemptId, subject, name) => {
   const yearLevel    = childInfo?.year_level   || childProfile?.yearLevel    || null;
   const motivation   = getDailyMotivation();
   const timeGreeting = getTimeGreeting();
-  const viewerType   = childToken && !isParentViewing ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
+  // ✅ FIXED: was `childToken && !isParentViewing`. childToken is null after a
+  //    refresh, so a real child was labelled "parent" and TrialGateOverlay
+  //    showed them the wrong upgrade messaging.
+  const viewerType   = isChild ? "child" : isParentViewing ? "parent_viewing_child" : "parent";
 
   /* ─── Shared nav ─── */
   const sharedNav = (isOnAnalyticsPage = false, onBackOverride = null) => (

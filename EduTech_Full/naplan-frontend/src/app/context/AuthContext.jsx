@@ -9,19 +9,50 @@ const API_BASE =
   import.meta.env.VITE_API_BASE_URL !== undefined
     ? import.meta.env.VITE_API_BASE_URL : "";
 
+// ═════════════════════════════════════════════════════════════════════════════
+// 🔴 FIX — PARENT LANDS ON THE CHILD DASHBOARD AFTER REOPENING A TAB
+//
+// BEFORE:
+//     isParent: !childProfile && !!parentProfile,
+//     isChild:  !!childProfile,
+//
+//   Role was decided by localStorage. localStorage survives tab close, browser
+//   close, and reboot. Any `child_profile` left behind by an earlier child
+//   login on that browser made isChild TRUE and — because of the !childProfile
+//   term — forced isParent FALSE, even with a valid parent cookie and a cached
+//   parent_profile. WelcomePage then sent the parent to /child-dashboard, which
+//   rendered "Welcome back, Student!" with every field blank because there was
+//   no child session behind it.
+//
+//   cleanupLegacyTokens() never removed it: it clears four TOKEN keys and does
+//   not touch child_profile. logoutChild() clears it, but closing a tab is not
+//   a logout, so it persisted indefinitely.
+//
+//   probeSession() would normally correct this, but when it returns "UNKNOWN"
+//   (timeout, 500, cold Render instance) it deliberately keeps cached profiles
+//   to avoid a false logout — leaving the stale key in charge of routing.
+//
+// AFTER: a `session_role` key is the ONLY thing that grants a role. It is
+//   written in exactly three places — loginParent, loginChild, and a CONFIRMED
+//   /session response. A stale profile blob cannot write it, so it cannot imply
+//   a role. Profiles are now display data only.
+//
+//   This satisfies both requirements at once:
+//     • No auto-logout — on "UNKNOWN" the last SERVER-CONFIRMED role is kept,
+//       so a server blip never moves or logs out the user.
+//     • No wrong dashboard — only the server can grant a role, so leftover
+//       localStorage can never route a parent into a child session.
+//
+// SECURITY NOTE: this also closes a real gap. Previously anyone could type a
+//   child_profile object into DevTools → Local Storage and render the child
+//   dashboard. Role now traces back to a cookie the server verified. On a
+//   platform serving minors that distinction matters.
+// ═════════════════════════════════════════════════════════════════════════════
+
 // ─── Network timeout ─────────────────────────────────────────────────────────
-// 🔴 INFINITE-SPINNER FIX
-//    fetch() has NO default timeout. /api/auth/me calls connectDB() then
-//    Parent.findById() — against an Atlas cluster in a different region than
-//    Render. When that connection stalls, the request hangs FOREVER: no error,
-//    no rejection, the await simply never settles.
-//
-//    The old rehydrate effect awaited fetchMe() BEFORE setIsInitializing(false),
-//    so a hung /me meant isInitializing stayed true permanently and
-//    RequireParent rendered <LoadingSpinner /> with nothing to break the cycle.
-//
-//    Every fetch below now aborts after REQUEST_TIMEOUT_MS. An abort throws,
-//    the catch returns "UNKNOWN"/null, and the flow continues normally.
+// fetch() has NO default timeout. A stalled request hangs forever: no error,
+// no rejection, the await simply never settles — which is what pinned the
+// spinner on screen indefinitely.
 const REQUEST_TIMEOUT_MS = 8000;
 
 async function fetchWithTimeout(url, opts = {}, ms = REQUEST_TIMEOUT_MS) {
@@ -42,7 +73,9 @@ function saveToken(key, val) {
   try { localStorage.removeItem(key); } catch {}
 }
 
-// ─── Profile cache — localStorage for display only (non-sensitive) ────────────
+// ─── Profile cache — localStorage, DISPLAY ONLY ──────────────────────────────
+// These fill in names and avatars so the UI does not flash empty while
+// /session is in flight. They no longer decide anything.
 function saveProfile(key, data) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
 }
@@ -54,44 +87,66 @@ function clearProfile(key) {
   try { localStorage.removeItem(key); } catch {}
 }
 
-// ─── One-time cleanup of legacy localStorage tokens ───────────────────────────
-;(function cleanupLegacyTokens() {
+// ─── Session role — THE authority for routing ────────────────────────────────
+// "parent" | "child" | null. Written ONLY by login actions and by a confirmed
+// /session response.
+const ROLE_KEY = "session_role";
+
+function saveRole(role) {
+  try {
+    if (role) localStorage.setItem(ROLE_KEY, role);
+    else localStorage.removeItem(ROLE_KEY);
+  } catch {}
+}
+function loadRole() {
+  try {
+    const r = localStorage.getItem(ROLE_KEY);
+    return r === "parent" || r === "child" ? r : null;
+  } catch { return null; }
+}
+
+// ─── Boot cleanup ─────────────────────────────────────────────────────────────
+// Drops legacy token keys, and reconciles profiles against session_role so an
+// orphaned profile from a previous session cannot linger. This is what
+// immediately un-sticks a browser currently trapped on the child dashboard.
+;(function bootCleanup() {
   try {
     ["parent_token", "child_token",
      "sess_parent_token", "sess_child_token"].forEach((k) => localStorage.removeItem(k));
+
+    const role = loadRole();
+    // A child profile with no confirmed child role is a leftover — the exact
+    // artefact that was hijacking routing. Same rule for a parent profile.
+    if (role !== "child")  clearProfile("child_profile");
+    if (role === null)     clearProfile("parent_profile");
   } catch {}
 })();
 
 // ─── Session probe ────────────────────────────────────────────────────────────
 // Returns: { parent, child } | "UNKNOWN"
 //
-// GET /api/auth/session decodes parent_token with the parent secret and
-// child_token with the child secret (verifyParent / verifyChild), reports
-// whichever exist, and never 401s. It touches NO database, which is why it is
-// the only call the spinner is allowed to block on.
+// GET /api/auth/session verifies parent_token with the parent secret and
+// child_token with the child secret, reports whichever exist, and never 401s.
+// It touches NO database, so it is the only call the route guards block on.
 //
-// "UNKNOWN" is load-bearing: 429 (rate limiter), 500 (cold Atlas), or
-// 502/503 (Render redeploy) is NOT a logout. A timeout is not a logout either.
+// "UNKNOWN" is load-bearing: 429, 500, 502/503, or a timeout is NOT a logout.
 async function probeSession() {
   try {
     const res = await fetchWithTimeout(`${API_BASE}/api/auth/session`, {
       credentials: "include",
       cache: "no-store",
     });
-    if (!res.ok) return "UNKNOWN";   // /session never 401s — a failure is server-side
+    if (!res.ok) return "UNKNOWN";
     const data = await res.json().catch(() => null);
     if (!data || typeof data !== "object") return "UNKNOWN";
     return { parent: data.parent || null, child: data.child || null };
   } catch {
-    return "UNKNOWN"; // network blip, or aborted timeout — keep the cached profile
+    return "UNKNOWN";
   }
 }
 
-// Enriches the ACTIVE role with the fuller profile /me returns (displayName,
-// status, entitled_quiz_ids) — fields /session deliberately omits.
-// Never clears anything: /session is the authority on what exists.
-//
-// This hits the DATABASE. It must never block the spinner.
+// Enriches the active role with the fuller profile /me returns. This one DOES
+// hit the database, so it never blocks the spinner.
 async function fetchMe() {
   try {
     const res = await fetchWithTimeout(`${API_BASE}/api/auth/me`, {
@@ -108,43 +163,22 @@ async function fetchMe() {
 // ─────────────────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }) {
 
-  const [parentToken,   setParentToken]   = useState(null);
-  const [childToken,    setChildToken]    = useState(null);
+  const [parentToken, setParentToken] = useState(null);
+  const [childToken,  setChildToken]  = useState(null);
 
   const [parentProfile, setParentProfile] = useState(() => loadProfile("parent_profile"));
   const [childProfile,  setChildProfile]  = useState(() => loadProfile("child_profile"));
 
-  const [isInitializing, setIsInitializing] = useState(true);
+  // The routing authority. Seeded from the last server-confirmed role so a
+  // reopened tab restores the correct dashboard instantly, with no flash and
+  // no auto-logout.
+  const [sessionRole, setSessionRole] = useState(() => loadRole());
 
-  // ─── Derived ────────────────────────────────────────────────────────────────
-  // Tokens are memory-only and are ALWAYS null after a page refresh — and the
-  // login response body no longer carries one at all, so they are null even
-  // immediately after a successful login. Profiles are the session evidence.
-  const activeRole =
-    (childToken  || childProfile)  ? "child"  :
-    (parentToken || parentProfile) ? "parent" : null;
+  const [isInitializing, setIsInitializing] = useState(true);
 
   const activeToken = childToken || parentToken || null;
 
   // ─── Cookie rehydrate on mount ──────────────────────────────────────────────
-  //
-  // 🔴 FIX 1 — try/finally. setIsInitializing(false) is now UNCONDITIONAL.
-  //    Previously six separate early-returns each had to remember to call it,
-  //    and the post-fetchMe path could skip it entirely. The spinner can no
-  //    longer outlive this effect no matter which branch is taken or what
-  //    throws.
-  //
-  // 🔴 FIX 2 — fetchMe() is fire-and-forget. /session already returns
-  //    parentId, email and role, which is everything RequireParent needs to
-  //    let the user through. /me only ADDS display fields, so it now runs in
-  //    the background and merges when it lands. The dashboard paints as soon
-  //    as /session answers instead of waiting on a DB round trip.
-  //
-  // RETAINED — the two-empty-200s rule. /api/auth/session returns 200 {} when
-  //    it cannot read a cookie, and a single empty 200 is AMBIGUOUS, not proof
-  //    of logout: a cold Render instance, a dropped cookie on one request, or a
-  //    mid-flight sliding-session rotation all produce it for a live session.
-  //    Only two clean empty 200s are believed.
   useEffect(() => {
     let cancelled = false;
 
@@ -154,36 +188,48 @@ export function AuthProvider({ children }) {
         if (cancelled) return;
 
         if (sess === "UNKNOWN") {
-          // Server unhealthy or timed out — NOT a logout. Keep cached profiles.
+          // Server unreachable or slow. NOT a logout, and NOT a reason to move
+          // the user. Keep the last confirmed role exactly as it is.
           return;
         }
 
-        const hadCache = !!(loadProfile("parent_profile") || loadProfile("child_profile"));
+        const hadRole = !!loadRole();
         let confirmed = sess;
 
-        if (hadCache && !sess.parent && !sess.child) {
+        // A single empty 200 is ambiguous — a cold instance, a dropped cookie,
+        // or a mid-flight sliding-session rotation all produce it for a live
+        // session. Only two clean empty 200s are believed.
+        if (hadRole && !sess.parent && !sess.child) {
           await new Promise((r) => setTimeout(r, 600));
           if (cancelled) return;
 
           const retry = await probeSession();
           if (cancelled) return;
 
-          if (retry === "UNKNOWN") {
-            // Still can't tell — keep the cached profiles rather than logging out.
-            return;
-          }
-
+          if (retry === "UNKNOWN") return;
           confirmed = retry;
 
           if (!confirmed.parent && !confirmed.child) {
-            // Two clean 200s with no session. Now we believe it.
             clearProfile("parent_profile");
             clearProfile("child_profile");
+            saveRole(null);
             setParentProfile(null);
             setChildProfile(null);
+            setSessionRole(null);
             return;
           }
         }
+
+        // ── The server has spoken. Cookies decide the role. ──────────────────
+        // Child wins when both cookies are live: that is a parent who has
+        // switched into a child session, and logoutChild() drops them back to
+        // parent without a re-login.
+        const nextRole = confirmed.child ? "child"
+                       : confirmed.parent ? "parent"
+                       : null;
+
+        saveRole(nextRole);
+        setSessionRole(nextRole);
 
         if (confirmed.parent) {
           const next = { role: "parent", ...confirmed.parent };
@@ -203,10 +249,9 @@ export function AuthProvider({ children }) {
           setChildProfile(null);
         }
 
-        // ── Background enrichment — deliberately NOT awaited ──────────────────
-        // A hung or slow /me can no longer hold the spinner hostage. If it
-        // never returns, the user simply keeps the /session-derived profile.
-        if (confirmed.parent || confirmed.child) {
+        // Background enrichment — deliberately NOT awaited, so a slow database
+        // call can never hold the route guards on a spinner.
+        if (nextRole) {
           fetchMe()
             .then((me) => {
               if (cancelled || !me) return;
@@ -218,10 +263,11 @@ export function AuthProvider({ children }) {
                 saveProfile("parent_profile", { ...(loadProfile("parent_profile") || {}), ...me });
               }
             })
-            .catch(() => {}); // enrichment is optional — never fatal
+            .catch(() => {});
         }
       } finally {
         // Runs on EVERY path: success, early return, timeout, or thrown error.
+        // The spinner cannot outlive this effect.
         if (!cancelled) setIsInitializing(false);
       }
     })();
@@ -231,8 +277,7 @@ export function AuthProvider({ children }) {
 
   // ─── Actions ────────────────────────────────────────────────────────────────
   // `token` is optional — the server sets an httpOnly cookie and returns no
-  // token in the body. Callers still pass res.token (undefined); that is fine.
-  // The PROFILE is what establishes the session.
+  // token in the body. The PROFILE plus session_role establish the session.
 
   const loginParent = useCallback((token, profile) => {
     if (profile === undefined && token && typeof token === "object") {
@@ -252,6 +297,9 @@ export function AuthProvider({ children }) {
     setChildToken(null);
     setChildProfile(null);
     clearProfile("child_profile");
+
+    saveRole("parent");
+    setSessionRole("parent");
   }, []);
 
   const loginChild = useCallback((token, profile) => {
@@ -269,14 +317,13 @@ export function AuthProvider({ children }) {
     }
     // parentProfile stays — the parent cookie is untouched and logoutChild()
     // drops straight back to it without a re-login.
+    saveRole("child");
+    setSessionRole("child");
   }, []);
 
   const logout = useCallback(async () => {
     // Both cookies must die. Clearing only the parent cookie left child_token
     // alive server-side, so the next rehydrate probe resurrected the child.
-    //
-    // Timeout-wrapped: a hung logout request used to leave the button spinning
-    // and the local state uncleared. Local cleanup now always runs.
     try {
       await Promise.all([
         fetchWithTimeout(`${API_BASE}/api/parents/auth/logout`, {
@@ -291,10 +338,12 @@ export function AuthProvider({ children }) {
     saveToken("sess_child_token", null);
     clearProfile("parent_profile");
     clearProfile("child_profile");
+    saveRole(null);
     setParentToken(null);
     setChildToken(null);
     setParentProfile(null);
     setChildProfile(null);
+    setSessionRole(null);
   }, []);
 
   const logoutChild = useCallback(async () => {
@@ -307,7 +356,11 @@ export function AuthProvider({ children }) {
     clearProfile("child_profile");
     setChildToken(null);
     setChildProfile(null);
-    // parentProfile survives — parent is active again immediately.
+
+    // Drop back to parent if that cookie is still live, otherwise fully out.
+    const backToParent = !!loadProfile("parent_profile");
+    saveRole(backToParent ? "parent" : null);
+    setSessionRole(backToParent ? "parent" : null);
   }, []);
 
   const authHeaders = useCallback(
@@ -335,7 +388,7 @@ export function AuthProvider({ children }) {
       childToken,
       parentProfile,
       childProfile,
-      activeRole,
+      activeRole: sessionRole,
       activeToken,
       isInitializing,
       loginParent,
@@ -345,20 +398,24 @@ export function AuthProvider({ children }) {
       authHeaders,
       apiFetch,
 
-      // ── Role flags — profile-driven and MUTUALLY EXCLUSIVE ────────────────
-      isAuthenticated: !!(parentProfile || childProfile),
-      isParent:        !childProfile && !!parentProfile,
-      isChild:         !!childProfile,
+      // ── Role flags — driven by the SERVER-CONFIRMED role ──────────────────
+      // No longer derived from localStorage profile blobs, so a leftover
+      // child_profile can never route a parent to the child dashboard.
+      isAuthenticated: !!sessionRole,
+      isParent:        sessionRole === "parent",
+      isChild:         sessionRole === "child",
 
       // Child active while the parent cookie is still alive — lets the UI offer
       // "switch back to parent" without a re-login.
-      hasParentBehindChild: !!(childProfile && parentProfile),
+      hasParentBehindChild: sessionRole === "child" && !!parentProfile,
 
-      user: childProfile || parentProfile || null,
+      user: sessionRole === "child" ? childProfile
+          : sessionRole === "parent" ? parentProfile
+          : null,
     }),
     [
       parentToken, childToken, parentProfile, childProfile,
-      activeRole, activeToken, isInitializing,
+      sessionRole, activeToken, isInitializing,
       loginParent, loginChild, logout, logoutChild,
       authHeaders, apiFetch,
     ]
