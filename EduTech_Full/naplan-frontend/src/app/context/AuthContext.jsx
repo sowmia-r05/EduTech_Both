@@ -40,29 +40,17 @@ function clearProfile(key) {
 // ─── Session probe ────────────────────────────────────────────────────────────
 // Returns: { parent, child } | "UNKNOWN"
 //
-// 🔴 REPLACES probeRole(). The previous version called:
-//        GET /api/auth/me?role=parent
-//        GET /api/auth/me?role=child
-//    …but routes/sessionRoutes.js `/me` NEVER READS req.query.role. It reads
-//    req.user.role, set by verifyToken from whichever cookie it picked. Both
-//    calls therefore hit the same endpoint and returned the SAME answer.
+// GET /api/auth/session decodes parent_token with the parent secret and
+// child_token with the child secret (verifyParent / verifyChild), reports
+// whichever exist, and never 401s.
 //
-//    Consequence: on a parent-only device, probeRole("child") returned the
-//    PARENT profile, and setChildProfile(parentProfile) ran. isChild went true
-//    and the parent was routed to the child dashboard. Both profiles held the
-//    same object. The ?role= param looked like it disambiguated the two roles;
-//    it was never wired up server-side.
-//
-//    GET /api/auth/session is the endpoint that actually does this. It decodes
-//    parent_token with the parent secret and child_token with the child secret
-//    (verifyParent / verifyChild), reports whichever exist, and never 401s.
-//
-// "UNKNOWN" stays load-bearing: 429 (rate limiter), 500 (cold Atlas), or
+// "UNKNOWN" is load-bearing: 429 (rate limiter), 500 (cold Atlas), or
 // 502/503 (Render redeploy) is NOT a logout.
 async function probeSession() {
   try {
     const res = await fetch(`${API_BASE}/api/auth/session`, {
       credentials: "include",
+      cache: "no-store",
     });
     if (!res.ok) return "UNKNOWN";   // /session never 401s — a failure is server-side
     const data = await res.json().catch(() => null);
@@ -78,7 +66,10 @@ async function probeSession() {
 // Never clears anything: /session is the authority on what exists.
 async function fetchMe() {
   try {
-    const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: "include" });
+    const res = await fetch(`${API_BASE}/api/auth/me`, {
+      credentials: "include",
+      cache: "no-store",
+    });
     if (!res.ok) return null;
     return await res.json().catch(() => null);
   } catch {
@@ -110,6 +101,17 @@ export function AuthProvider({ children }) {
   // ─── Cookie rehydrate on mount ──────────────────────────────────────────────
   // One /session call reports BOTH cookies correctly, then /me enriches the
   // active role.
+  //
+  // 🔴 REFRESH-LOGOUT FIX
+  //    /api/auth/session returns 200 {} when it cannot read a cookie. That
+  //    sails past the "UNKNOWN" guard and lands in the else-branch, which
+  //    wiped the cached profile — RequireParent then bounced the user to "/".
+  //    A single empty 200 is AMBIGUOUS, not proof of logout: a cold Render
+  //    instance, a dropped cookie on one request, or a mid-flight sliding-
+  //    session rotation all produce it for a perfectly live session.
+  //
+  //    We now only believe a logout after TWO clean empty 200s. Anything
+  //    else keeps the cached profile and the user stays on their page.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -122,8 +124,37 @@ export function AuthProvider({ children }) {
         return;
       }
 
-      if (sess.parent) {
-        const next = { role: "parent", ...sess.parent };
+      const hadCache = !!(loadProfile("parent_profile") || loadProfile("child_profile"));
+      let confirmed = sess;
+
+      if (hadCache && !sess.parent && !sess.child) {
+        await new Promise((r) => setTimeout(r, 600));
+        if (cancelled) return;
+
+        const retry = await probeSession();
+        if (cancelled) return;
+
+        if (retry === "UNKNOWN") {
+          // Still can't tell — keep the cached profiles rather than logging out.
+          setIsInitializing(false);
+          return;
+        }
+
+        confirmed = retry;
+
+        if (!confirmed.parent && !confirmed.child) {
+          // Two clean 200s with no session. Now we believe it.
+          clearProfile("parent_profile");
+          clearProfile("child_profile");
+          setParentProfile(null);
+          setChildProfile(null);
+          setIsInitializing(false);
+          return;
+        }
+      }
+
+      if (confirmed.parent) {
+        const next = { role: "parent", ...confirmed.parent };
         setParentProfile(next);
         saveProfile("parent_profile", next);
       } else {
@@ -131,8 +162,8 @@ export function AuthProvider({ children }) {
         setParentProfile(null);
       }
 
-      if (sess.child) {
-        const next = { role: "child", ...sess.child };
+      if (confirmed.child) {
+        const next = { role: "child", ...confirmed.child };
         setChildProfile(next);
         saveProfile("child_profile", next);
       } else {
@@ -141,7 +172,7 @@ export function AuthProvider({ children }) {
       }
 
       // Enrich whichever role is active. Merged, never replaced wholesale.
-      if (sess.parent || sess.child) {
+      if (confirmed.parent || confirmed.child) {
         const me = await fetchMe();
         if (cancelled) return;
         if (me?.role === "child") {
@@ -272,11 +303,6 @@ export function AuthProvider({ children }) {
       apiFetch,
 
       // ── Role flags — profile-driven and MUTUALLY EXCLUSIVE ────────────────
-      // 🔴 WAS: isParent: !childToken && !!(parentToken || parentProfile)
-      //    childToken is always null, so !childToken was always true — a
-      //    logged-in child reported isParent AND isChild at the same time.
-      //    Guards that test parent first threw children at /parent-dashboard,
-      //    which bounced them back. Keyed off childProfile, they can't collide.
       isAuthenticated: !!(parentProfile || childProfile),
       isParent:        !childProfile && !!parentProfile,
       isChild:         !!childProfile,
