@@ -1,5 +1,5 @@
 /**
- * services/aiFeedbackService.js  (v3 — cross-instance atomic lock)
+ * services/aiFeedbackService.js  (v5 — NO PYTHON IN THIS FILE)
  *
  * DATA STORAGE RULES (enforced by isWriting flag):
  *   - Non-writing (MCQ/Reading/Numeracy/Language): saved to QuizAttempt ONLY
@@ -16,36 +16,67 @@
  *   MCQ:     queued → generating → done | error  (in QuizAttempt)
  *   Writing: queued → generating → done | error  (in Writing collection)
  *
- * FIXES:
- *   1. NEW v3: Cross-instance duplicate guard. The old in-memory Set only
- *      stopped duplicates within ONE process — useless behind a load balancer
- *      with >= 2 instances, where the same submission hitting two instances
- *      would run the whole pipeline twice (double Gemini spend + a race on the
- *      doc). Now triggerAiFeedback acquires the attempt with an ATOMIC Mongo
+ * ═══════════════════════════════════════════════════════════════════════════
+ * v5 CHANGE — THE WRITING PATH NO LONGER FORKS PYTHON EITHER
+ *
+ * WHAT CHANGED
+ *   runWritingPythonModule() is GONE, along with the last spawn() in this file.
+ *   The writing branch now awaits services/geminiWritingEval.js, a faithful
+ *   Node port of ai/gemini_writing_eval.py (plus the parts of naplan_scoring.py,
+ *   text_cleaning.py and gemini_config.py it depended on).
+ *
+ *   With that, `spawn`, `PYTHON_BIN`, `BACKEND_ROOT`, `path` and
+ *   `runWithPythonLimit` are all unused here and have been removed.
+ *
+ * WHY
+ *   Both AI paths in this file used to fork a Python interpreter. Each fork
+ *   loads the interpreter plus the Gemini SDK (~150-200MB RSS), so
+ *   MAX_CONCURRENT_PYTHON had to be 1 on a small instance — one job at a time,
+ *   with a wait-queue of 10 before PythonBusyError/503. For writing that meant a
+ *   class of 30 students finishing an essay together would see most of them fail
+ *   to get feedback.
+ *
+ *   Each script's only network operation was a single HTTPS POST to
+ *   generativelanguage.googleapis.com. Node makes that call natively. With no
+ *   process to fork there is nothing to serialise, so feedback concurrency is
+ *   now bounded by the event loop and the Gemini API quota, not by RAM.
+ *
+ * WHAT DID NOT CHANGE
+ *   - Both payload builders are byte-identical.
+ *   - Both result shapes are identical, so updateAttemptWithFeedback(),
+ *     saveWritingToCollection() and every downstream reader are untouched.
+ *   - Prompts, scoring, band thresholds and fallbacks are ported verbatim.
+ *     Marks should not move.
+ *
+ * ⚠️ DO NOT DELETE utils/pythonSpawnLimiter.js
+ *   This file no longer imports it, but four other services still do:
+ *   subjectFeedbackService, resultAiService, cumulativeFeedbackService, and the
+ *   two explanation routes. They remain on Python and still need the shared
+ *   ceiling. Deleting the limiter would let those spawn unbounded and OOM the
+ *   instance.
+ *
+ *   Note the consequence of this change: submissions no longer consume Python
+ *   slots at all, so the tutor-chat and cumulative-feedback paths — unchanged
+ *   in themselves — should get noticeably faster under load, because they are
+ *   no longer queueing behind every quiz submission on the box.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * OTHER FIXES (retained from v3):
+ *   1. Cross-instance duplicate guard. The old in-memory Set only stopped
+ *      duplicates within ONE process — useless behind a load balancer with
+ *      >= 2 instances, where the same submission hitting two instances would
+ *      run the whole pipeline twice (double Gemini spend + a race on the doc).
+ *      triggerAiFeedback acquires the attempt with an ATOMIC Mongo
  *      findOneAndUpdate that flips ai_feedback_meta.status → "generating" only
  *      if it isn't already generating (or the lock has gone stale). Whoever
  *      wins the flip owns the job; every other caller gets null and bails.
  *      This is what makes the web tier safe to run stateless with >= 2
  *      instances. No Redis required — the status transition IS the lock, and
  *      generated_at is its heartbeat.
- *   2. QuizAttempt snapshot is fetched BEFORE Python runs (safe from deletion)
+ *   2. QuizAttempt snapshot is fetched BEFORE the AI call (safe from deletion)
  *   3. question_text is enriched from Question collection BEFORE building payload
- *   4. runPythonScript() uses robust JSON extraction — extracts the last
- *      valid {...} block from stdout instead of hard JSON.parse(). This prevents
- *      ai_feedback_meta from getting stuck on status="error" when Python prints
- *      any warnings, pip output, or deprecation notices before the JSON.
- *   5. Both Python spawns run through runWithPythonLimit — a process-wide
- *      concurrency cap (MAX_CONCURRENT_PYTHON) with a bounded wait-queue
- *      (MAX_PYTHON_QUEUE). When pool + queue are full the spawn rejects with
- *      PythonBusyError (status 503) instead of forking another process and
- *      OOM-killing the instance. On a busy pool a submission is marked "error"
- *      by the catch blocks below (visible failure) rather than crashing the box.
- *      NOTE: this pool is PER-INSTANCE by design — each box guards its own RAM.
- *      Global Python concurrency = MAX_CONCURRENT_PYTHON × instance_count.
  */
 
-const { spawn } = require("child_process");
-const path = require("path");
 const QuizAttempt = require("../models/quizAttempt");
 const Writing = require("../models/writing");
 const Child = require("../models/child");
@@ -57,33 +88,25 @@ const {
 
 const { triggerCumulativeFeedback } = require("./cumulativeFeedbackService");
 
-// ✅ Process-wide Python concurrency limiter (verify path: src/utils/pythonSpawnLimiter.js)
-const { runWithPythonLimit } = require("../utils/pythonSpawnLimiter");
+// ✅ v4: Node port of subject_feedback/gemini_subject_feedback.py (MCQ path).
+const { generateSubjectFeedback } = require("./geminiSubjectFeedback");
+
+// ✅ v5: Node port of ai/gemini_writing_eval.py (writing path).
+const { evaluateNaplanWriting } = require("./geminiWritingEval");
 
 // ─── Config ───
-const BACKEND_ROOT = path.resolve(__dirname, "../..");
-
-const SUBJECT_FEEDBACK_SCRIPT = path.resolve(
-  __dirname,
-  "../../subject_feedback/gemini_subject_feedback.py"
-);
-
-const PYTHON_BIN =
-  process.env.PYTHON_BIN || (process.platform === "win32" ? "py" : "python3");
-
+// FEEDBACK_TIMEOUT_MS is retained ONLY as the basis for LOCK_STALE_MS below.
+// The per-request timeouts now live inside each Gemini client module
+// (GEMINI_TIMEOUT_MS), since there is no longer a spawn to time out.
 const FEEDBACK_TIMEOUT_MS = 120000; // 2 min
 
 // ─── Startup diagnostic ───
-console.log(`🐍 Python binary: ${PYTHON_BIN}`);
-console.log(`📁 Backend root: ${BACKEND_ROOT}`);
 console.log(`🔑 GEMINI_API_KEY set: ${!!process.env.GEMINI_API_KEY}`);
+console.log(`⚡ MCQ feedback:     direct Node → Gemini (no subprocess)`);
+console.log(`⚡ Writing feedback: direct Node → Gemini (no subprocess)`);
 
 // ─────────────────────────────────────────────────────────────
-// FIX 1 (v3): Cross-instance duplicate guard via an ATOMIC Mongo lock.
-//
-// The old in-memory `Set` only stopped duplicates within ONE process. Behind a
-// load balancer with >= 2 instances, the same submission hitting two instances
-// would run the whole pipeline twice (double Gemini spend + a race on the doc).
+// FIX 1: Cross-instance duplicate guard via an ATOMIC Mongo lock.
 //
 // acquireAttemptLock() atomically flips ai_feedback_meta.status → "generating"
 // ONLY if it isn't already generating (or the existing lock is older than
@@ -100,7 +123,7 @@ console.log(`🔑 GEMINI_API_KEY set: ${!!process.env.GEMINI_API_KEY}`);
 // status="generating", so the next call re-acquires cleanly. A run that dies
 // without writing either is reclaimed automatically after LOCK_STALE_MS.
 // ─────────────────────────────────────────────────────────────
-const LOCK_STALE_MS = FEEDBACK_TIMEOUT_MS + 60000; // 3 min — longer than the Python timeout
+const LOCK_STALE_MS = FEEDBACK_TIMEOUT_MS + 60000; // 3 min — longer than any AI call
 
 async function acquireAttemptLock(attemptId) {
   const staleBefore = new Date(Date.now() - LOCK_STALE_MS);
@@ -121,6 +144,9 @@ async function acquireAttemptLock(attemptId) {
         "ai_feedback_meta.generated_at": new Date(), // heartbeat
       },
     },
+    // NOTE: `new: true` is deprecated in current Mongoose in favour of
+    // `returnDocument: "after"`. Swap it when you next touch this — it still
+    // works today but will break on the next Mongoose major.
     { new: true }
   ).lean();
 
@@ -128,142 +154,10 @@ async function acquireAttemptLock(attemptId) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Python runner — MCQ subject feedback
-//
-// Robust JSON parser:
-//   Old code: resolve(JSON.parse(stdout))
-//     → crashes if Python prints ANY log line before the JSON
-//     → catch block sets status="error", nothing saved to QuizAttempt
-//
-//   New code: tries direct parse first, then extracts last {...} block
-//     → handles pip output, deprecation warnings, debug prints
-//     → only rejects if truly no JSON found at all
-//
-// ✅ Wrapped in runWithPythonLimit — the spawn only happens once a slot is
-//    free; rejects with PythonBusyError (503) if pool + queue are both full.
-// ─────────────────────────────────────────────────────────────
-function runPythonScript(scriptPath, inputData, timeoutMs = FEEDBACK_TIMEOUT_MS) {
-  return runWithPythonLimit(() => new Promise((resolve, reject) => {
-    const child = spawn(PYTHON_BIN, [scriptPath], {
-      cwd: BACKEND_ROOT,
-      env: { ...process.env },
-      timeout: timeoutMs,
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-
-    child.on("close", (code) => {
-      if (code !== 0) {
-        return reject(new Error(`Python exited with code ${code}: ${stderr || stdout}`));
-      }
-
-      const text = String(stdout || "").trim();
-
-      if (!text) {
-        return reject(new Error(`Python returned empty output. stderr: ${stderr.slice(-1000)}`));
-      }
-
-      // Try direct parse first (clean output path)
-      try {
-        return resolve(JSON.parse(text));
-      } catch (_) {
-        // Fall back: extract the last valid {...} block
-        // Handles cases where Python prints log lines before the JSON
-        const start = text.lastIndexOf("{");
-        const end = text.lastIndexOf("}");
-        if (start !== -1 && end !== -1 && end > start) {
-          try {
-            return resolve(JSON.parse(text.slice(start, end + 1)));
-          } catch (e2) {
-            return reject(
-              new Error(
-                `Failed to parse Python output. ParseError: ${e2.message}. ` +
-                `Output tail: ${text.slice(-500)}`
-              )
-            );
-          }
-        }
-        return reject(
-          new Error(`No JSON found in Python output: ${text.slice(-500)}`)
-        );
-      }
-    });
-
-    child.on("error", (err) => {
-      reject(new Error(`Failed to spawn Python: ${err.message}`));
-    });
-
-    child.stdin.write(JSON.stringify(inputData));
-    child.stdin.end();
-  }));
-}
-
-// ─────────────────────────────────────────────────────────────
-// Python runner — Writing only (runs as module so imports work)
-// Same robust JSON parser applied here too
-//
-// ✅ Wrapped in runWithPythonLimit — shares the SAME pool as the MCQ runner,
-//    so total concurrent Python across all features is bounded by one ceiling.
-// ─────────────────────────────────────────────────────────────
-function runWritingPythonModule(inputData, timeoutMs = FEEDBACK_TIMEOUT_MS) {
-  return runWithPythonLimit(() => new Promise((resolve, reject) => {
-    const child = spawn(PYTHON_BIN, ["-m", "ai.gemini_writing_eval"], {
-      cwd: BACKEND_ROOT,
-      env: { ...process.env },
-      timeout: timeoutMs,
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-
-    child.on("close", (code) => {
-      if (code !== 0) {
-        return reject(new Error(`Python exited with code ${code}: ${stderr || stdout}`));
-      }
-
-      const text = String(stdout || "").trim();
-
-      if (!text) {
-        return reject(new Error(`Python returned empty output. stderr: ${stderr.slice(-1000)}`));
-      }
-
-      // Robust parse — same pattern as MCQ runner
-      try {
-        return resolve(JSON.parse(text));
-      } catch (_) {
-        const start = text.lastIndexOf("{");
-        const end = text.lastIndexOf("}");
-        if (start !== -1 && end !== -1 && end > start) {
-          try {
-            return resolve(JSON.parse(text.slice(start, end + 1)));
-          } catch (e2) {
-            return reject(
-              new Error(`Failed to parse Writing Python output: ${e2.message}\nTail: ${text.slice(-500)}`)
-            );
-          }
-        }
-        return reject(new Error(`No JSON in Writing Python output: ${text.slice(-500)}`));
-      }
-    });
-
-    child.on("error", (err) => {
-      reject(new Error(`Failed to spawn Python: ${err.message}`));
-    });
-
-    child.stdin.write(JSON.stringify(inputData));
-    child.stdin.end();
-  }));
-}
-
-// ─────────────────────────────────────────────────────────────
 // Payload builders
+//
+// UNCHANGED. Both still produce exactly the shapes the Python scripts read from
+// stdin; the Node modules accept the same objects as function arguments.
 // ─────────────────────────────────────────────────────────────
 function buildSubjectFeedbackPayload({
   attemptId, quizName, subject, yearLevel, score,
@@ -444,6 +338,7 @@ async function saveWritingToCollection({
     // Delete QuizAttempt — writing data now fully lives in Writing collection
     await QuizAttempt.deleteOne({ attempt_id: attemptId });
     console.log(`🗑️ QuizAttempt deleted for writing attempt ${attemptId}`);
+
     // ✅ Send quiz completion email to parent (respects email_notifications checkbox)
     ;(async () => {
       try {
@@ -455,7 +350,6 @@ async function saveWritingToCollection({
             band:      aiFeedback.overall?.band        || null,
             summary:   aiFeedback.overall?.summary     || null,
           } : null;
-
 
         await sendQuizCompletionEmail({
           parentEmail:    eligibility.parentEmail,
@@ -471,7 +365,6 @@ async function saveWritingToCollection({
         console.error("⚠️ Writing completion email failed:", emailErr.message);
       }
     })();
-
 
   } catch (err) {
     console.error(`❌ saveWritingToCollection failed for ${attemptId}:`, err.message);
@@ -521,7 +414,7 @@ async function syncWritingAttempt(params) {
 async function triggerAiFeedback(params) {
   const { attemptId, isWriting } = params;
 
-  // FIX 1 (v3): Atomically acquire the attempt. If another call — on this or any
+  // FIX 1: Atomically acquire the attempt. If another call — on this or any
   // other instance — is already generating (and its lock isn't stale), we get
   // null and bail. This single op also performs the "mark generating" that the
   // old code did in a separate, non-atomic updateOne.
@@ -537,9 +430,12 @@ async function triggerAiFeedback(params) {
     if (isWriting) {
       // ═══════════════════════════════════════════════════════
       // WRITING PATH → result goes to Writing collection ONLY
+      //
+      // ✅ v5: direct Node → Gemini. No spawn, no pool, no queue, no 503.
       // ═══════════════════════════════════════════════════════
 
-      // FIX 2: Fetch snapshot BEFORE Python runs
+      // FIX 2: Fetch snapshot BEFORE the AI call, because
+      // saveWritingToCollection() deletes the QuizAttempt afterwards.
       const attemptSnapshot = await QuizAttempt.findOne({ attempt_id: attemptId }).lean();
       if (!attemptSnapshot) {
         console.warn(`⚠️ triggerAiFeedback: QuizAttempt not found for ${attemptId}`);
@@ -569,13 +465,16 @@ async function triggerAiFeedback(params) {
 
       console.log(`🤖 Triggering writing AI feedback for attempt ${attemptId}`);
 
+      // evaluateNaplanWriting never throws — on failure it returns a degraded
+      // but structurally valid result (success:true with valid_response:false),
+      // exactly as the Python did. The try/catch is a guard against an
+      // unexpected programming error inside the module only.
       try {
-        result = await runWritingPythonModule(payload);
-        console.log(`🐍 Writing Python result: success=${result?.success}, has_result=${!!result?.result}`);
-      } catch (pythonErr) {
-        // Includes PythonBusyError (503) when the pool + queue are full.
-        console.error(`❌ Writing Python FULL ERROR: ${pythonErr.message}`);
-        result = { success: false, error: pythonErr.message };
+        result = await evaluateNaplanWriting(payload);
+        console.log(`⚡ Writing result: success=${result?.success}, has_result=${!!result?.result}`);
+      } catch (aiErr) {
+        console.error(`❌ Writing evaluation FULL ERROR: ${aiErr.message}`);
+        result = { success: false, error: aiErr.message };
       }
 
       // Save to Writing collection — QuizAttempt deleted inside saveWritingToCollection
@@ -591,16 +490,20 @@ async function triggerAiFeedback(params) {
       // ═══════════════════════════════════════════════════════
       // MCQ PATH → result goes to QuizAttempt ONLY
       // (Reading, Numeracy, Language, any non-writing subject)
+      //
+      // ✅ v4: direct Node → Gemini. No spawn, no pool, no queue, no 503.
+      //    generateSubjectFeedback resolves with {success:false, error} rather
+      //    than throwing, so the shape below is guaranteed either way; the
+      //    try/catch stays only as a guard against an unexpected throw.
       // ═══════════════════════════════════════════════════════
       const payload = buildSubjectFeedbackPayload(params);
       console.log(`🤖 Triggering subject AI feedback for attempt ${attemptId}`);
 
       try {
-        result = await runPythonScript(SUBJECT_FEEDBACK_SCRIPT, payload);
-      } catch (pythonErr) {
-        // Includes PythonBusyError (503) when the pool + queue are full.
-        console.warn(`⚠️ Subject feedback Python failed: ${pythonErr.message}`);
-        result = { success: false, error: `Subject feedback failed: ${pythonErr.message}` };
+        result = await generateSubjectFeedback(payload);
+      } catch (aiErr) {
+        console.warn(`⚠️ Subject feedback failed: ${aiErr.message}`);
+        result = { success: false, error: `Subject feedback failed: ${aiErr.message}` };
       }
 
       // Save ai_feedback + ai_feedback_meta + performance_analysis to QuizAttempt.
@@ -614,7 +517,10 @@ async function triggerAiFeedback(params) {
       console.warn(`⚠️ AI feedback issues for attempt ${attemptId}: ${result.error}`);
     }
 
-    // Trigger cumulative feedback regeneration (fire-and-forget)
+    // Trigger cumulative feedback regeneration (fire-and-forget).
+    // NOTE: this one is STILL Python (cumulativeFeedbackService), so it still
+    // takes a slot from the shared pool. It runs off the request path, so a
+    // busy pool delays the cumulative report rather than the student's result.
     if (result.success && params.childId) {
       setImmediate(() => {
         triggerCumulativeFeedback(params.childId).catch((e) =>
