@@ -22,9 +22,9 @@ import {
   createCheckout,
   fetchPurchaseHistory,
   retryPayment,
+  fetchBundles,
   cancelPayment
 } from "@/app/utils/api-payments";
-import { BUNDLE_CATALOG } from "@/app/data/bundleCatalog";
 import PaymentSuccessModal from "@/app/components/payments/PaymentSuccessModal";
 import QuickChildLoginModal from "@/app/components/dashboardComponents/QuickChildLoginModal";
 import FreeTrialOnboarding from "@/app/components/dashboardComponents/FreeTrialOnboarding";
@@ -1292,6 +1292,7 @@ export default function ParentDashboard() {
 
   const [rawChildren,           setRawChildren]           = useState([]);
   const [rawPayments,           setRawPayments]           = useState([]);
+  const [catalogBundles,        setCatalogBundles]        = useState([]);
   const [loading,               setLoading]               = useState(true);
   const [error,                 setError]                 = useState(null);
   const [isAddModalOpen,        setIsAddModalOpen]        = useState(false);
@@ -1463,6 +1464,18 @@ const loadChildren = useCallback(async (silent = false) => {
       // 🔴 RELOAD FIX: gate on the PROFILE, not the token. `isInitializing`
       // is checked so we don't fire before AuthContext has settled; once it
       // has, `isParent` is true for a live session even with no token.
+      // Bundle catalog is public — no token needed, no auth gate.
+      const loadBundles = useCallback(async () => {
+        try {
+          const data = await fetchBundles();
+          setCatalogBundles(Array.isArray(data) ? data : []);
+        } catch (err) {
+          console.error("Failed to load bundles:", err);
+        }
+      }, []);
+
+      useEffect(() => { loadBundles(); }, [loadBundles]);
+
       useEffect(() => {
         if (isInitializing) return;
         if (!isParent) { setLoading(false); return; }
@@ -1697,10 +1710,10 @@ const handleViewChild = (child) => {
       {bundleModalChild && (
         <BundleSelectionModal
           child={bundleModalChild}
-          bundles={BUNDLE_CATALOG.filter(
+          bundles={catalogBundles.filter(
             (b) =>
               Number(b.year_level) === Number(bundleModalChild.year_level || bundleModalChild.yearLevel?.replace("Year ", "")) &&
-              b.is_active
+              b.is_active !== false
           )}
           loadingBundleId={checkoutLoadingBundle}
           onSelect={(bundle) => handleCheckout(bundleModalChild, bundle)}
