@@ -29,6 +29,7 @@ function adminFetch(url, opts = {}) {
   const token = localStorage.getItem("admin_token");
   return fetch(`${API}${url}`, {
     ...opts,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...opts.headers,
@@ -64,7 +65,9 @@ function CreateBundleModal({ bundle, allBundles, onSave, onClose }) {
     year_level: bundle?.year_level?.toString() || "",
     price_cents: bundle ? (bundle.price_cents / 100).toString() : "",
     currency: bundle?.currency || "aud",
-    max_quiz_count: bundle?.max_quiz_count?.toString() || "",
+    max_quiz_count: (
+      bundle?.max_quiz_count || (bundle?.quiz_ids || []).length || ""
+    ).toString(),
     questions_per_quiz: bundle?.questions_per_quiz?.toString() || "",
     distribution_mode: bundle?.distribution_mode || "standard",
     swap_eligible_from: bundle?.swap_eligible_from || [],
@@ -90,8 +93,11 @@ function CreateBundleModal({ bundle, allBundles, onSave, onClose }) {
 
   const handleSubmit = async () => {
     if (!form.bundle_name.trim()) return setError("Bundle name is required");
-    if (!form.price_cents || Number(form.price_cents) < 0) return setError("Valid price is required");
-    if (!form.max_quiz_count || Number(form.max_quiz_count) < 1) return setError("Quiz count must be at least 1");
+    if (form.price_cents === "" || Number.isNaN(Number(form.price_cents)) || Number(form.price_cents) < 0)
+          return setError("Valid price is required");
+
+    if (!form.max_quiz_count || Number(form.max_quiz_count) < 1)
+      return setError("Number of Quizzes must be at least 1 — set it before saving other changes");
 
     setSaving(true);
     setError("");
@@ -104,6 +110,7 @@ function CreateBundleModal({ bundle, allBundles, onSave, onClose }) {
         price_cents: Math.round(Number(form.price_cents) * 100),
         currency: form.currency,
         max_quiz_count: Number(form.max_quiz_count),
+        quiz_count: Number(form.max_quiz_count),
         questions_per_quiz: Number(form.questions_per_quiz) || 0,
         distribution_mode: form.distribution_mode,
         swap_eligible_from: form.distribution_mode === "swap" ? form.swap_eligible_from : [],
