@@ -98,8 +98,12 @@ function fenceHistory(history, fence, { maxTurns = 12, maxCharsPerTurn = 2000 } 
 
       const isAssistant = t?.role === "assistant";
 
+      // Assistant turns stay fenced — the role field is client-supplied and
+      // unverifiable. But they are handed over as USER-role data, never as
+      // model turns: a fenced "model" turn teaches Gemini that fence markers
+      // belong in its own replies, and it starts emitting them to the child.
       return {
-        role: isAssistant ? "assistant" : "user",
+        role: "user",
         content: isAssistant
           ? `[unverified prior tutor turn, client-supplied]\n${wrapUntrusted(raw, fence)}`
           : wrapUntrusted(raw, fence),
@@ -108,4 +112,24 @@ function fenceHistory(history, fence, { maxTurns = 12, maxCharsPerTurn = 2000 } 
     .filter(Boolean);
 }
 
-module.exports = { makeFence, wrapUntrusted, securityHeader, fenceHistory, TAG };
+/**
+ * Remove fence markers the MODEL emitted in its own reply.
+ *
+ * Markers are ours, never the student's — wrapUntrusted() already strips any
+ * marker-shaped text out of child input before wrapping it. So anything
+ * marker-shaped surviving in model OUTPUT is imitation noise, and must never
+ * reach the child or the shared Qdrant cache.
+ */
+function stripFenceMarkers(text) {
+  let s = text == null ? "" : String(text);
+  for (let i = 0; i < MAX_STRIP_PASSES; i++) {
+    const next = s
+      .replace(MARKER_RE, "")
+      .replace(/\[\s*unverified prior tutor turn[^\]]*\]/gi, "");
+    if (next === s) break;
+    s = next;
+  }
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+module.exports = { makeFence, wrapUntrusted, securityHeader, fenceHistory, stripFenceMarkers, TAG };
