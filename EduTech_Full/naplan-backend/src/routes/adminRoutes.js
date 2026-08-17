@@ -1103,7 +1103,7 @@ router.post("/bundles", adminOnly, async (req, res) => {
 router.patch("/bundles/:bundleId", adminOnly, async (req, res) => {
   try {
     await connectDB();
-    const allowedFields = ["bundle_name", "description", "year_level", "tier", "price_cents", "currency", "is_active", "max_quiz_count", "questions_per_quiz", "distribution_mode", "swap_eligible_from", "subjects"];
+    const allowedFields = ["bundle_name", "description", "year_level", "tier", "price_cents", "currency", "is_active","max_quiz_count", "quiz_count", "questions_per_quiz", "distribution_mode", "swap_eligible_from", "subjects"];
     const updates = {};
     for (const f of allowedFields) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     const bundle = await QuizCatalog.findOneAndUpdate({ bundle_id: req.params.bundleId }, { $set: updates }, { new: true }).lean();
