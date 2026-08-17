@@ -659,9 +659,6 @@ router.get("/quizzes/:quizId/export", adminOnly, async (req, res) => {
       });
     });
 
-    const filename = `${(quiz.quiz_name || "quiz").replace(/[^a-zA-Z0-9_]/g, "_")}_questions.xlsx`;
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     await wb.xlsx.write(res);
     res.end();
   } catch (err) {
@@ -1090,9 +1087,12 @@ router.post("/bundles", adminOnly, async (req, res) => {
     const bundle = await QuizCatalog.create({
       bundle_id, bundle_name: bundle_name.trim(), description: description || "",
       year_level: year_level || null, tier: tier || "A", price_cents: Number(price_cents),
-      currency: currency || "aud", max_quiz_count: max_quiz_count || null,
-      questions_per_quiz: questions_per_quiz || null, distribution_mode: distribution_mode || "fixed",
-      swap_eligible_from: swap_eligible_from || null, subjects: subjects || [], quiz_ids: [], is_active: true,
+      currency: currency || "aud",
+      max_quiz_count: max_quiz_count || 0,
+      quiz_count: max_quiz_count || 0,
+      questions_per_quiz: questions_per_quiz || 0,
+      distribution_mode: distribution_mode || "standard",
+      swap_eligible_from: swap_eligible_from || [], subjects: subjects || [], quiz_ids: [], is_active: true,
     });
     return res.status(201).json(bundle);
   } catch (err) {
