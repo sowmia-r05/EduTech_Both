@@ -614,6 +614,7 @@ useEffect(() => {
     quizId={resolvedQuizId}
     attemptId={attemptId}
     subject={result?.subject || ""}
+    childId={childId || childProfile?.childId || result?.child_id || ""}
     yearLevel={childProfile?.yearLevel || result?.year_level || 3}
     apiFetch={apiFetch}
     open={chatOpen}
