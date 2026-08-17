@@ -51,6 +51,18 @@
  *   The widget renders bold/italic only — no LaTeX parser — so "$8 \text{ m}$"
  *   printed literally. Every subject branch now forbids LaTeX.
  *
+ * FIX-14 — SHORT, KID-FRIENDLY OPENER
+ *   Listing every wrong number ('you missed questions 1, 2, 3, 5, 6, 8...')
+ *   reads as a wall of failures. Now: at most two numbers named, the score
+ *   hidden below 50%, one short sentence, chips carry the rest.
+ *
+ * FIX-13 — SUGGESTIONS FROM EXAM HISTORY
+ *   Chips are no longer limited to today's attempt. getHistorySuggestions()
+ *   aggregates topic_breakdown across every completed attempt and ranks by
+ *   MARKS LOST, so a topic the child has quietly been struggling with for
+ *   weeks surfaces even on a quiz they aced. History chips fill any slots the
+ *   attempt chips leave, and become the whole set when there is no attempt.
+ *
  * FIX-12 — PROACTIVE OPENER + SUGGESTION CHIPS
  *   POST /:quizId/chat-intro builds a greeting and tappable suggestions
  *   DETERMINISTICALLY from the student's own attempt — no Gemini call, so it
@@ -421,8 +433,8 @@ async function loadQuizQuestions(quizId, req) {
 }
 
 // -- Topic names come in as "Category, Sub-topic, Difficulty" -----------------
-// The sub-topic is the useful part for a chip: "Fractions", not the whole
-// taxonomy string.
+// The sub-topic is the useful part for a suggestion chip: "Fractions", not
+// "Number and Algebra, Fractions, medium".
 function cleanTopicName(raw) {
   const parts = String(raw || "").split(",").map((p) => p.trim()).filter(Boolean);
   if (parts.length >= 2) return parts[1];
@@ -432,14 +444,17 @@ function cleanTopicName(raw) {
 // =============================================================================
 // FIX-13: suggestions from the child's EXAM HISTORY, not just this attempt.
 //
-// Aggregates topic_breakdown across every completed attempt, so a topic they
-// have quietly been losing marks on for weeks surfaces even on a quiz they aced.
+// Aggregates topic_breakdown across every completed attempt, so a topic the
+// child has quietly been losing marks on for weeks surfaces even when they did
+// fine on today's quiz.
 //
-// Ranked by MARKS LOST, not percentage: a topic at 24% across 21 marks matters
-// more than one at 40% across 5. Under 3 total marks is noise and ignored.
+// Ranked by MARKS LOST rather than percentage: a topic at 24% across 21 marks
+// matters more than one at 40% across 5. Topics with fewer than 3 total marks
+// are ignored as noise.
 //
 // Reads the same collection as getChildHistory() but returns STRUCTURED data —
-// that helper returns a prose block for the prompt, which cannot become chips.
+// that helper returns a prose block for the prompt, which cannot be turned into
+// chips.
 // =============================================================================
 async function getHistorySuggestions(childId, db, { young }) {
   if (!db) return [];
@@ -533,10 +548,10 @@ router.post("/:quizId/chat-intro", async (req, res) => {
     const { childId, childName, yearLevel } = acting;
     const young = Number(yearLevel || 3) <= 5;
 
-  const db = req.app.locals.db;
+    const db = req.app.locals.db;
 
-    // History chips are computed either way — the fallback when we have no
-    // attempt, the tail when we do.
+    // History-based chips are computed regardless of whether we have an attempt
+    // — they are the fallback when we don't, and the tail when we do.
     const historyChips = await getHistorySuggestions(childId, db, { young })
       .catch(() => []);
 
@@ -544,8 +559,8 @@ router.post("/:quizId/chat-intro", async (req, res) => {
       historyChips.length
         ? res.json({
             reply: young
-              ? `Hi ${childName}! Looking back over your quizzes, there are a couple of things worth practising. Want to start with one of these?`
-              : `Looking across your past quizzes, a few topics keep costing you marks. Pick one and we'll work on it.`,
+              ? `Hi! Here's what's worth practising next. Pick one! 😊`
+              : `Here's what keeps costing you marks. Pick one and we'll work on it.`,
             suggestions: historyChips.slice(0, 4),
           })
         : res.json({ reply: null, suggestions: [] });
@@ -588,40 +603,68 @@ router.post("/:quizId/chat-intro", async (req, res) => {
         young ? `Why is question ${n} right?` : `Explain why question ${n} is correct`
       );
     }
-    // Fill any remaining slots from the wider exam history, so a long-standing
-    // weak topic surfaces even on a quiz they did well in.
+    // Fill any remaining slots from the child's wider exam history, so a
+    // long-standing weak topic surfaces even on a quiz they did well in.
     for (const chip of historyChips) {
       if (suggestions.length >= 4) break;
       if (!suggestions.includes(chip)) suggestions.push(chip);
     }
 
+    // =========================================================================
+    // FIX-14: SHORT, KID-FRIENDLY OPENER.
+    //
+    // The first version read out every wrong question number. A child who
+    // scored 11% got "You missed questions 1, 2, 3, 5, 6, 8, 9, 10, 11, 12, 13,
+    // 14, 15, 16, 17 and 18" — a wall of text that lands as a list of failures
+    // before they have done anything. Three rules now:
+    //
+    //   1. NEVER list more than two numbers. Three or more -> name only the
+    //      first and point at the chips, which carry the rest.
+    //   2. HIDE the score below 50%. A struggling child does not need "11%"
+    //      in the opening line; it is already on the results page above.
+    //   3. Keep it to ONE short sentence plus a question, so it fits the
+    //      bubble without scrolling.
+    // =========================================================================
+    const firstName =
+      childName && !/^(child|student|user)$/i.test(String(childName).trim())
+        ? String(childName).trim().split(/\s+/)[0]
+        : "";
+    const hi = firstName ? `Hi ${firstName}!` : `Hi!`;
+
     // -- Opener --
     if (!wrongNums.length && all.length) {
       return res.json({
         reply: young
-          ? `Wow ${childName}, you got every question right! Fantastic work. ` +
-            `Want me to explain how any of them worked, or give you a tricky one to try?`
-          : `Every question correct — excellent work. ` +
-            `Ask me about any question if you want a deeper explanation, or I can set you a harder one.`,
+          ? `${hi} You got every question right! 🎉 Want to try a tricky one?`
+          : `${hi} Every question correct — nice work. Want something harder?`,
         suggestions: suggestions.slice(0, 4),
       });
     }
 
     if (!wrongNums.length) return noAttempt();
 
-    const list =
-      wrongNums.length === 1
-        ? `question ${wrongNums[0]}`
-        : `questions ${wrongNums.slice(0, -1).join(", ")} and ${wrongNums[wrongNums.length - 1]}`;
-
+    // Only show the score when it is not disheartening. It is already on the
+    // results page, so omitting it here loses nothing.
     const scoreBit =
-      ctx.score_pct != null ? ` You scored ${Math.round(ctx.score_pct)}%.` : "";
+      ctx.score_pct != null && ctx.score_pct >= 50
+        ? ` You scored ${Math.round(ctx.score_pct)}%.`
+        : "";
 
-    const reply = young
-      ? `Hi ${childName}! I had a look at your answers.${scoreBit} ` +
-        `You missed ${list}. Want me to help you work out where it went wrong?`
-      : `I've reviewed your attempt.${scoreBit} You lost marks on ${list}. ` +
-        `Pick one below and I'll walk you through it.`;
+    let reply;
+    if (wrongNums.length <= 2) {
+      const list =
+        wrongNums.length === 1
+          ? `question ${wrongNums[0]}`
+          : `questions ${wrongNums[0]} and ${wrongNums[1]}`;
+      reply = young
+        ? `${hi}${scoreBit} Let's look at ${list} together. Ready? 😊`
+        : `${hi}${scoreBit} Let's go through ${list}. Ready?`;
+    } else {
+      // Three or more: name ONE and let the chips carry the rest.
+      reply = young
+        ? `${hi} Some tricky ones in there! 💪 Let's start with question ${wrongNums[0]} — tap below.`
+        : `${hi} A few to work through. Let's start with question ${wrongNums[0]} — tap below.`;
+    }
 
     return res.json({ reply, suggestions: suggestions.slice(0, 4) });
   } catch (err) {
