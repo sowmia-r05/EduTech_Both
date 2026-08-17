@@ -563,8 +563,10 @@ router.post("/:quizId/chat-intro", async (req, res) => {
 
     // History-based chips are computed regardless of whether we have an attempt
     // — they are the fallback when we don't, and the tail when we do.
+    const t0 = Date.now();
     const historyChips = await getHistorySuggestions(childId, db, { young })
       .catch(() => []);
+    console.log(`[quizChat] chat-intro history took ${Date.now() - t0}ms`);
 
     const noAttempt = () =>
       historyChips.length
