@@ -1,12 +1,15 @@
 /**
  * QuizChatWidget.jsx
  * Floating AI chat scoped to a quiz.
- * - Sparkle/AI icon on the FAB
- * - Pulses once after 3s to draw attention
- * - window.__openQuizChat() lets AITutorTab hint open it directly
+ *
+ * - Sparkle/AI icon on the FAB; pulses once after 3s to draw attention
  * - AI replies render **bold**, *italic* and line breaks (lightweight, no deps)
- * - LaTeX emitted by the model is converted to readable plain text at render
- *   time, so raw "$8 \text{ m}$" never reaches the child
+ * - LaTeX emitted by the model is converted to readable plain text at RENDER
+ *   time, so raw "$8 \text{ m}$" never reaches the child — this also repairs
+ *   answers that were cached before the backend prompt was fixed
+ * - On first open it fetches /chat-intro: a greeting built from the student's
+ *   own attempt, plus tappable suggestion chips drawn from the questions they
+ *   got wrong (and a couple they got right)
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -18,10 +21,10 @@ function isYoung(y) { return Number(y || 3) <= YOUNG_CUTOFF; }
 // ── LaTeX → plain text ───────────────────────────────────────────────────────
 //
 // This widget has no maths renderer, so any LaTeX the model emits is printed
-// literally: the child sees "$8 \text{ m} + 4 \text{ m}$" instead of a sum.
-// The backend prompt asks for plain text, but prompts are not contracts, and
-// answers cached before that prompt existed still contain markup. This runs at
-// RENDER time, so it fixes cached and historical messages too.
+// literally: the child sees "$8 \text{ m} + 4 \text{ m}$" instead of a sum. The
+// backend prompt asks for plain text, but prompts are not contracts, and answers
+// cached before that prompt existed still contain markup. Running at RENDER time
+// fixes cached and historical messages too.
 //
 // Ordering matters: multi-argument commands first, then single, then bare
 // commands, then the $ delimiters, then leftover braces.
@@ -33,13 +36,13 @@ function delatex(text) {
     s = s.replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, "$1/$2");
   }
 
-  // \text{ m} -> " m"   \mathrm{cm} -> "cm"
+  // \text{ m} -> " m"    \mathrm{cm} -> "cm"
   s = s.replace(/\\(?:text|mathrm|mathbf|textbf|operatorname)\s*\{([^{}]*)\}/g, "$1");
 
   // \sqrt{16} -> "the square root of 16"
   s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, "the square root of $1");
 
-  // Binary operators and symbols, in words a Year 3–9 student reads naturally.
+  // Operators and symbols, in the form a Year 3–9 student reads naturally.
   s = s.replace(/\\times/g, "x")
        .replace(/\\cdot/g, "x")
        .replace(/\\div/g, "÷")
@@ -149,14 +152,16 @@ export default function QuizChatWidget({
     if (onOpenChange) onOpenChange(next);
     else setInternalOpen(next);
   };
-  const [messages,  setMessages]  = useState([]);
-  const [input,     setInput]     = useState("");
-  const [loading,   setLoading]   = useState(false);
-  const [hasUnread, setHasUnread] = useState(false);
-  const [pulse,     setPulse]     = useState(false);
+  const [messages,    setMessages]    = useState([]);
+  const [input,       setInput]       = useState("");
+  const [loading,     setLoading]     = useState(false);
+  const [hasUnread,   setHasUnread]   = useState(false);
+  const [pulse,       setPulse]       = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
 
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
+  const introRef  = useRef(false);   // fetch the opener exactly once
 
   useEffect(() => {
     if (document.getElementById("qcw-kf")) return;
@@ -176,20 +181,48 @@ export default function QuizChatWidget({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, suggestions]);
 
   useEffect(() => {
     if (open) { setHasUnread(false); setPulse(false); setTimeout(() => inputRef.current?.focus(), 120); }
   }, [open]);
 
+  // ── Proactive opener ──
+  // Built server-side from this child's own attempt, with no Gemini call, so it
+  // is instant and cannot invent a question number. If it returns nothing the
+  // widget simply shows its normal empty state.
+  useEffect(() => {
+    if (!open || introRef.current || !attemptId || !quizId) return;
+    introRef.current = true;
+    (async () => {
+      try {
+        const res  = await apiFetch(`/api/quizzes/${quizId}/chat-intro`, {
+          method: "POST",
+          body: JSON.stringify({ attempt_id: attemptId, childId }),
+        });
+        const data = await res.json();
+        if (data?.reply) {
+          setMessages((prev) =>
+            prev.length ? prev : [{ role: "ai", content: data.reply, cached: false }]
+          );
+        }
+        if (Array.isArray(data?.suggestions)) setSuggestions(data.suggestions);
+      } catch {
+        /* silent — the empty state is a fine fallback */
+      }
+    })();
+  }, [open, attemptId, quizId, childId, apiFetch]);
 
-  const send = useCallback(async () => {
-    const msg = input.trim();
+  // `override` lets a suggestion chip send its own text without touching the
+  // input box.
+  const send = useCallback(async (override) => {
+    const msg = typeof override === "string" ? override.trim() : input.trim();
     if (!msg || loading) return;
     const userMsg = { role: "user", content: msg };
     const next    = [...messages, userMsg];
     setMessages(next);
     setInput("");
+    setSuggestions([]);          // chips are a starting point, not a menu
     setLoading(true);
     const history = next.slice(-(MAX_HISTORY + 1), -1).map((m) => ({
       role: m.role === "user" ? "user" : "assistant", content: m.content,
@@ -276,6 +309,31 @@ export default function QuizChatWidget({
               </div>
             </div>
           )}
+
+          {/* Suggestion chips — generated from this child's own wrong (and right)
+              answers, so there is nothing generic about them. One tap sends. */}
+          {suggestions.length > 0 && !loading && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => send(s)}
+                  style={{
+                    padding: "12px 18px", borderRadius: 999,
+                    fontSize: 20, fontWeight: 600, lineHeight: 1.3,
+                    border: `1.5px solid ${accent}`, background: "#fff",
+                    color: accent, cursor: "pointer", textAlign: "left",
+                    transition: "background 0.15s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "#FFF7ED"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; }}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div ref={bottomRef} />
         </div>
 
@@ -290,7 +348,7 @@ export default function QuizChatWidget({
             maxLength={500}
             style={{ flex: 1, border: "1px solid #D1D5DB", borderRadius: 12, padding: "16px 20px", fontSize: 24, outline: "none", color: "#111827", background: loading ? "#F9FAFB" : "#fff" }}
           />
-          <button onClick={send} disabled={!canSend} style={{ padding: "12px 22px", borderRadius: 12, border: "none", background: canSend ? accent : "#E5E7EB", color: "#fff", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
+          <button onClick={() => send()} disabled={!canSend} style={{ padding: "12px 22px", borderRadius: 12, border: "none", background: canSend ? accent : "#E5E7EB", color: "#fff", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
             <IcSend size={28} />
           </button>
         </div>
