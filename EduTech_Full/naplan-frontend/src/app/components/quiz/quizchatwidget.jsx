@@ -67,7 +67,7 @@ function TypingDots() {
 }
 
 export default function QuizChatWidget({
-  quizId, attemptId, subject, yearLevel, apiFetch,
+  quizId, attemptId, subject, yearLevel, apiFetch, childId,
   open: controlledOpen,
   onOpenChange,
 }) {
@@ -129,12 +129,12 @@ export default function QuizChatWidget({
     try {
       const res  = await apiFetch(`/api/quizzes/${quizId}/chat`, {
         method: "POST",
-        body: JSON.stringify({ message: msg, chat_history: history, attempt_id: attemptId, subject }),
+        body: JSON.stringify({ message: msg, chat_history: history, attempt_id: attemptId, subject, childId }),
       });
       const data = await res.json();
       setMessages((prev) => [...prev, {
         role: "ai",
-        content: data.reply || "Sorry, I couldn't respond. Try again!",
+        content: data.reply || data.error || "Sorry, I couldn't respond. Try again!",
         cached: data.cached || false,
         score:  data.cache_score || null,
       }]);
@@ -142,7 +142,7 @@ export default function QuizChatWidget({
     } catch {
       setMessages((prev) => [...prev, { role: "ai", content: "Something went wrong. Please try again.", cached: false }]);
     } finally { setLoading(false); }
-  }, [input, loading, messages, quizId, apiFetch, open]);
+  }, [input, loading, messages, quizId, apiFetch, open, attemptId, subject, childId]);
 
   const canSend = !!input.trim() && !loading;
 
