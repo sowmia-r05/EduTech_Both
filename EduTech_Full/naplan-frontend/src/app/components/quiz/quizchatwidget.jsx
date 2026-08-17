@@ -4,7 +4,9 @@
  * - Sparkle/AI icon on the FAB
  * - Pulses once after 3s to draw attention
  * - window.__openQuizChat() lets AITutorTab hint open it directly
- * - AI replies render **bold** and line breaks (lightweight, no deps)
+ * - AI replies render **bold**, *italic* and line breaks (lightweight, no deps)
+ * - LaTeX emitted by the model is converted to readable plain text at render
+ *   time, so raw "$8 \text{ m}$" never reaches the child
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,9 +15,75 @@ const MAX_HISTORY  = 6;
 const YOUNG_CUTOFF = 5;
 function isYoung(y) { return Number(y || 3) <= YOUNG_CUTOFF; }
 
+// ── LaTeX → plain text ───────────────────────────────────────────────────────
+//
+// This widget has no maths renderer, so any LaTeX the model emits is printed
+// literally: the child sees "$8 \text{ m} + 4 \text{ m}$" instead of a sum.
+// The backend prompt asks for plain text, but prompts are not contracts, and
+// answers cached before that prompt existed still contain markup. This runs at
+// RENDER time, so it fixes cached and historical messages too.
+//
+// Ordering matters: multi-argument commands first, then single, then bare
+// commands, then the $ delimiters, then leftover braces.
+function delatex(text) {
+  let s = String(text ?? "");
+
+  // \frac{3}{4} -> 3/4   (twice, so simple nesting resolves)
+  for (let i = 0; i < 2; i++) {
+    s = s.replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, "$1/$2");
+  }
+
+  // \text{ m} -> " m"   \mathrm{cm} -> "cm"
+  s = s.replace(/\\(?:text|mathrm|mathbf|textbf|operatorname)\s*\{([^{}]*)\}/g, "$1");
+
+  // \sqrt{16} -> "the square root of 16"
+  s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, "the square root of $1");
+
+  // Binary operators and symbols, in words a Year 3–9 student reads naturally.
+  s = s.replace(/\\times/g, "x")
+       .replace(/\\cdot/g, "x")
+       .replace(/\\div/g, "÷")
+       .replace(/\\pm/g, "+/-")
+       .replace(/\\leq?/g, "<=")
+       .replace(/\\geq?/g, ">=")
+       .replace(/\\neq/g, "!=")
+       .replace(/\\approx/g, "about")
+       .replace(/\\degree|\\circ/g, "°")
+       .replace(/\\%/g, "%")
+       .replace(/\\\$/g, "$");
+
+  // Superscripts: x^2 -> x squared, x^3 -> x cubed, x^{n} -> x^n
+  s = s.replace(/\^\s*\{?\s*2\s*\}?/g, " squared")
+       .replace(/\^\s*\{?\s*3\s*\}?/g, " cubed")
+       .replace(/\^\s*\{([^{}]*)\}/g, "^$1");
+
+  // Subscripts: a_{1} -> a1
+  s = s.replace(/_\s*\{([^{}]*)\}/g, "$1");
+
+  // Sizing/spacing commands carry no meaning in plain text.
+  s = s.replace(/\\left|\\right|\\!|\\,|\\;|\\:|\\quad|\\qquad/g, " ");
+
+  // Any remaining backslash command.
+  s = s.replace(/\\[a-zA-Z]+\s*/g, "");
+
+  // Display maths $$...$$ then inline $...$.
+  // The inline rule is bounded (no newline, max 200 chars) so a lone currency
+  // "$4.50" with no closing partner is left untouched.
+  s = s.replace(/\$\$([\s\S]*?)\$\$/g, "$1");
+  s = s.replace(/\$([^$\n]{1,200})\$/g, "$1");
+
+  // Leftover grouping braces, then tidy whitespace.
+  s = s.replace(/[{}]/g, "");
+  s = s.replace(/[ \t]{2,}/g, " ");
+  s = s.replace(/[ \t]+([.,;:!?])/g, "$1");
+  s = s.replace(/\n{3,}/g, "\n\n");
+
+  return s.trim();
+}
+
 // ── Minimal inline markdown: **bold** + *italic*, newlines via pre-wrap ──
 function renderFormatted(text) {
-  const str = String(text ?? "");
+  const str = delatex(text);
   const parts = str.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**")) {
