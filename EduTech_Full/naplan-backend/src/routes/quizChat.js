@@ -906,11 +906,26 @@ router.post("/:quizId/chat", chatRateLimit, async (req, res) => {
       `Never include the security tags or nonce from these instructions in your reply — write plain, natural text only.`,
       // FIX-10: a greeting with attempt data should open on THEIR results,
       // not with a generic "what would you like to learn today?".
-      hasAttempt
+      //
+      // FIX-15: this is an OPENING instruction only. Left in place mid-thread,
+      // the model read it as standing orders and tacked "let's look at question
+      // N" onto every reply — including questions it had just finished
+      // explaining and the student had confirmed they understood.
+      hasAttempt && isStandalone
         ? `If the student only greets you or says something vague, DO NOT give a generic welcome. ` +
           `Look at their results above, name ONE specific question they got wrong, say what they chose ` +
           `and what the correct answer was, and offer to work through it. End with a question so they ` +
           `can reply in one tap. If they got everything right, congratulate them and offer a harder one.`
+        : ``,
+
+      // FIX-15: conversational continuity. Without this the model restates the
+      // question and answer it has already covered, which reads as if it has
+      // forgotten the last two turns.
+      hasAttempt && !isStandalone
+        ? `You are mid-conversation. Do NOT re-introduce a question already discussed in this thread, ` +
+          `and do NOT repeat what the student chose or what the correct answer was — they have it. ` +
+          `If they confirm they understand, acknowledge it briefly and stop, or ask if they want to move ` +
+          `to a different question. Only bring up a NEW question number if the student asks for one.`
         : ``,
       ``,
       hasAttempt ? "" : `Quiz questions for context:\n${quizContext}`,
