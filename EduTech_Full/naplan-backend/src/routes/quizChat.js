@@ -51,10 +51,13 @@
  *   The widget renders bold/italic only — no LaTeX parser — so "$8 \text{ m}$"
  *   printed literally. Every subject branch now forbids LaTeX.
  *
- * FIX-14 — SHORT, KID-FRIENDLY OPENER
+ * FIX-14 — SHORT, PROFESSIONAL OPENER
  *   Listing every wrong number ('you missed questions 1, 2, 3, 5, 6, 8...')
  *   reads as a wall of failures. Now: at most two numbers named, the score
- *   hidden below 50%, one short sentence, chips carry the rest.
+ *   hidden below 50%, one short sentence, chips carry the rest. No emoji —
+ *   this is a study tool used by schools and parents, so the tone should
+ *   read like a tutor rather than a chat app. The student's first name is
+ *   used when it is a real name, dropped when it is a placeholder.
  *
  * FIX-13 — SUGGESTIONS FROM EXAM HISTORY
  *   Chips are no longer limited to today's attempt. getHistorySuggestions()
@@ -550,6 +553,14 @@ router.post("/:quizId/chat-intro", async (req, res) => {
 
     const db = req.app.locals.db;
 
+    // Placeholder display_names ("child", "student") read worse than no name at
+    // all, so they fall back to a plain greeting.
+    const greetName = (() => {
+      const n = String(childName || "").trim();
+      if (!n || /^(child|student|user)$/i.test(n)) return "Hi.";
+      return `Hi ${n.split(/\s+/)[0]}.`;
+    })();
+
     // History-based chips are computed regardless of whether we have an attempt
     // — they are the fallback when we don't, and the tail when we do.
     const historyChips = await getHistorySuggestions(childId, db, { young })
@@ -559,8 +570,8 @@ router.post("/:quizId/chat-intro", async (req, res) => {
       historyChips.length
         ? res.json({
             reply: young
-              ? `Hi! Here's what's worth practising next. Pick one! 😊`
-              : `Here's what keeps costing you marks. Pick one and we'll work on it.`,
+              ? `${greetName} Here are the topics worth practising next.`
+              : `${greetName} These are the topics costing you the most marks.`,
             suggestions: historyChips.slice(0, 4),
           })
         : res.json({ reply: null, suggestions: [] });
@@ -611,32 +622,33 @@ router.post("/:quizId/chat-intro", async (req, res) => {
     }
 
     // =========================================================================
-    // FIX-14: SHORT, KID-FRIENDLY OPENER.
+    // FIX-14: SHORT, PROFESSIONAL OPENER.
     //
     // The first version read out every wrong question number. A child who
     // scored 11% got "You missed questions 1, 2, 3, 5, 6, 8, 9, 10, 11, 12, 13,
     // 14, 15, 16, 17 and 18" — a wall of text that lands as a list of failures
-    // before they have done anything. Three rules now:
+    // before they have done anything. Four rules now:
     //
     //   1. NEVER list more than two numbers. Three or more -> name only the
     //      first and point at the chips, which carry the rest.
-    //   2. HIDE the score below 50%. A struggling child does not need "11%"
+    //   2. HIDE the score below 50%. A struggling student does not need "11%"
     //      in the opening line; it is already on the results page above.
-    //   3. Keep it to ONE short sentence plus a question, so it fits the
-    //      bubble without scrolling.
+    //   3. ONE short sentence plus a prompt, so it fits without scrolling.
+    //   4. NO emoji. This is a study tool used by schools and parents — the
+    //      tone should read like a tutor, not a chat app.
     // =========================================================================
     const firstName =
       childName && !/^(child|student|user)$/i.test(String(childName).trim())
         ? String(childName).trim().split(/\s+/)[0]
         : "";
-    const hi = firstName ? `Hi ${firstName}!` : `Hi!`;
+    const hi = firstName ? `Hi ${firstName}.` : `Hi.`;
 
     // -- Opener --
     if (!wrongNums.length && all.length) {
       return res.json({
         reply: young
-          ? `${hi} You got every question right! 🎉 Want to try a tricky one?`
-          : `${hi} Every question correct — nice work. Want something harder?`,
+          ? `${hi} You got every question right. Would you like to try a harder one?`
+          : `${hi} Every question correct. Would you like something more challenging?`,
         suggestions: suggestions.slice(0, 4),
       });
     }
@@ -657,13 +669,11 @@ router.post("/:quizId/chat-intro", async (req, res) => {
           ? `question ${wrongNums[0]}`
           : `questions ${wrongNums[0]} and ${wrongNums[1]}`;
       reply = young
-        ? `${hi}${scoreBit} Let's look at ${list} together. Ready? 😊`
-        : `${hi}${scoreBit} Let's go through ${list}. Ready?`;
+        ? `${hi}${scoreBit} Let's work through ${list} together.`
+        : `${hi}${scoreBit} Let's work through ${list}.`;
     } else {
       // Three or more: name ONE and let the chips carry the rest.
-      reply = young
-        ? `${hi} Some tricky ones in there! 💪 Let's start with question ${wrongNums[0]} — tap below.`
-        : `${hi} A few to work through. Let's start with question ${wrongNums[0]} — tap below.`;
+      reply = `${hi} There are a few to work through. Let's start with question ${wrongNums[0]}.`;
     }
 
     return res.json({ reply, suggestions: suggestions.slice(0, 4) });
@@ -714,7 +724,7 @@ router.post("/:quizId/chat", chatRateLimit, async (req, res) => {
     if (offTopicPhrases.some((p) => cleanMsg.toLowerCase().includes(p))) {
       return res.json({
         reply: yearLevel <= 5
-          ? "I can only help with questions from this quiz! Try asking about one of the topics here."
+          ? "I can only help with questions from this quiz. Try asking about one of the topics here."
           : "I can only answer questions related to this quiz and its topics.",
         cached: false,
       });
