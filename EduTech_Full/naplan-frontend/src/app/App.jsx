@@ -38,12 +38,6 @@ import ChildIdleTimeoutProvider from "./components/auth/ChildIdleTimeoutProvider
 import SupportWidgetGate from "@/app/components/support/SupportWidgetGate";
 import { Analytics } from "@vercel/analytics/react";
 
-// 👈 CHANGED: resets window scroll on every route change and disables the
-//    browser's native scroll restoration on reload. Without this, HashRouter
-//    keeps the previous page's scrollY and new pages "land" halfway down.
-//    Path/casing must match exactly — Vercel builds on case-sensitive Linux.
-import ScrollToTop from "@/app/components/ScrollToTop";
-
 
 // Read from env var — add VITE_ADMIN_PATH=/your-secret-path to frontend .env
 const ADMIN_PATH = import.meta.env.VITE_ADMIN_PATH || "/admin";
@@ -90,10 +84,6 @@ function AdminRegisterGuard() {
 export default function AppRoutes() {
   return (
     <AuthProvider>
-      {/* 👈 CHANGED: must sit INSIDE the Router (HashRouter is in main.jsx) and
-           OUTSIDE <Routes> so it survives every navigation. Renders nothing. */}
-      <ScrollToTop />
-
       <Routes>
         {/* ─── Public ─── */}
         <Route path="/" element={<WelcomePage />} />
