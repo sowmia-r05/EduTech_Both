@@ -150,6 +150,37 @@ const isAiPending = (doc) => {
   return false;
 };
 
+/* ═══════════════════════════════════════════════════════════════
+   👈 CHANGED — retry helper.
+   "Failed to fetch" is a TypeError thrown by the browser's network
+   layer when a request gets NO response at all (server restarted
+   mid-flight, dropped connection, blocked by an extension). It is
+   almost always transient, so one blind retry usually turns a dead
+   page into a working one.
+
+   Only network-level TypeErrors are retried. A real HTTP error
+   (404 / 403 / 500) throws a normal Error and is surfaced straight
+   away — retrying those would just waste the user's time.
+   ═══════════════════════════════════════════════════════════════ */
+const isNetworkError = (err) =>
+  err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(err?.message || "");
+
+async function withRetry(fn, { attempts = 3, baseDelayMs = 800, label = "request" } = {}) {
+  let lastErr;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isNetworkError(err) || i === attempts) break;
+      const wait = baseDelayMs * i; // 800ms, 1600ms
+      console.warn(`⚠️ ${label} failed (attempt ${i}/${attempts}) — retrying in ${wait}ms:`, err?.message);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw lastErr;
+}
+
 /* ═══════════════════ Inline Components ═══════════════════ */
 
 const DotLoader = ({ label = "Loading" }) => (
@@ -220,7 +251,11 @@ const AiPendingOverlay = ({ aiMessage }) => (
 
 const isHtmlString = (str) => typeof str === "string" && /<!DOCTYPE|<html|<body|<pre>/i.test(str);
 
-const ResultNotFound = ({ errorMessage, onGoBack }) => {
+/* 👈 CHANGED — now shows the technical detail behind a collapsed
+   <details>. Parents never see it unless they open it, but when you
+   hit this page you can copy the exact URL + message that failed
+   instead of guessing from "Failed to fetch". */
+const ResultNotFound = ({ errorMessage, errorDetail, onGoBack }) => {
   const friendlyMessage = errorMessage && !isHtmlString(errorMessage)
     ? errorMessage
     : "We couldn't load this quiz result. It may still be processing or the link may be incorrect.";
@@ -235,6 +270,17 @@ const ResultNotFound = ({ errorMessage, onGoBack }) => {
           <button onClick={() => window.location.reload()} className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition">Try Again</button>
           <button onClick={onGoBack} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition">Go Back</button>
         </div>
+
+        {errorDetail && (
+          <details className="mt-6 text-left">
+            <summary className="text-[11px] text-gray-400 cursor-pointer select-none hover:text-gray-600">
+              Technical details
+            </summary>
+            <pre className="mt-2 p-3 bg-gray-50 rounded-lg text-[10px] text-gray-600 whitespace-pre-wrap break-all border border-gray-200">
+              {errorDetail}
+            </pre>
+          </details>
+        )}
       </div>
     </div>
   );
@@ -242,7 +288,7 @@ const ResultNotFound = ({ errorMessage, onGoBack }) => {
 
 /* ═══════════════════ DASHBOARD ═══════════════════ */
 export default function Dashboard() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams(); // 👈 CHANGED — need the setter for URL sync
   const navigate = useNavigate();
   const location = useLocation();
   const fromQuizResult = location.state?.fromQuizResult === true;
@@ -260,6 +306,7 @@ export default function Dashboard() {
   const [resultsList, setResultsList] = useState([]);
   const [loadingLatest, setLoadingLatest] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [loadErrorDetail, setLoadErrorDetail] = useState(null); // 👈 CHANGED
   const [selectedDate, setSelectedDate] = useState(null);
   const [showNoDataModal, setShowNoDataModal] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
@@ -284,64 +331,142 @@ export default function Dashboard() {
 
   useEffect(() => { if (!hasResponseId) navigate("/child-dashboard", { replace: true }); }, [hasResponseId, navigate]);
 
+  /* 👈 CHANGED — keep the attempt id in the URL.
+     Previously the id lived ONLY in location.state, which the browser
+     destroys on refresh (F5) or when the link is opened directly. That
+     made the page unreloadable. Copying it into ?r= makes the URL
+     shareable and refresh-safe. replace:true so it doesn't add a
+     history entry, and the guard stops it from looping. */
+  useEffect(() => {
+    if (!responseId) return;
+    if (searchParams.get("r") === responseId) return;
+    const next = new URLSearchParams(searchParams);
+    next.set("r", responseId);
+    if (usernameParam) next.set("username", usernameParam);
+    if (subjectParam)  next.set("subject", subjectParam);
+    if (quizNameParam) next.set("quiz_name", quizNameParam);
+    setSearchParams(next, { replace: true });
+  }, [responseId, usernameParam, subjectParam, quizNameParam, searchParams, setSearchParams]);
+
+  /* ═══════════════════════════════════════════════════════════════
+     👈 CHANGED — THE MAIN FIX.
+
+     BEFORE: the result fetch AND the attempt-history fetch shared one
+     try/catch. The result would load fine, then the history call would
+     fail, the shared catch would set loadError, and the render guard
+     (`if (loadError || !selectedResult)`) threw away the perfectly good
+     result and showed "Result Not Found / Failed to fetch".
+
+     AFTER: they are separated.
+       • The RESULT fetch is critical — retried, and only it can set
+         loadError.
+       • The HISTORY fetch is cosmetic (it only builds the "Viewing 2 of
+         5 attempts" list). It now has its own try/catch and falls back
+         to [doc]. If it fails, the user still sees their full result;
+         the attempt selector just shows a single entry.
+     ═══════════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!hasResponseId || isInitializing) return;
     let cancelled = false;
+
     const load = async () => {
+      const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
+
+      // ── ① CRITICAL: the result itself ──────────────────────────
+      let doc;
       try {
         setLoadingLatest(true);
         setLoadError(null);
-        const authOpts = activeToken ? { headers: { Authorization: `Bearer ${activeToken}` } } : {};
-        const doc = await fetchResultByResponseId(responseId, authOpts);
+        setLoadErrorDetail(null);
+
+        doc = await withRetry(
+          () => fetchResultByResponseId(responseId, authOpts),
+          { label: `fetchResultByResponseId(${responseId})` }
+        );
+
+        if (cancelled) return;
+
         if (!doc) {
-          if (!cancelled) setLoadError("Result not found or still being processed.");
+          setLoadError("Result not found or still being processed.");
+          setLoadErrorDetail(`No document returned for response_id: ${responseId}`);
+          setLoadingLatest(false);
           return;
         }
+
+        setLatestResult(doc);
+        if (isAiPending(doc)) setAiPending(true);
+      } catch (err) {
+        console.error("❌ Dashboard: result fetch failed:", err);
         if (!cancelled) {
-          setLatestResult(doc);
-          if (isAiPending(doc)) setAiPending(true);
-          const username = searchParams.get("username") || doc.username || doc.user?.user_name || "";
-          const subject  = searchParams.get("subject") || "";
-          const childId  = doc.child_id || doc.childId || null;
-          let all;
-          if (username) {
-            all = await fetchResultsByUsername(username, {
-              subject: subject || undefined,
+          const net = isNetworkError(err);
+          setLoadError(
+            net
+              ? "Could not reach the server. Check your connection and try again."
+              : err.message || "Failed to load result."
+          );
+          setLoadErrorDetail(
+            [
+              `stage: primary result fetch`,
+              `response_id: ${responseId}`,
+              `api_base: ${import.meta.env.VITE_API_BASE_URL || "(empty — same origin)"}`,
+              `error: ${err?.name || "Error"}: ${err?.message || String(err)}`,
+              net ? `note: network-level failure — request got no response (server down, CORS, or blocked by a browser extension)` : "",
+            ].filter(Boolean).join("\n")
+          );
+          setLoadingLatest(false);
+        }
+        return;
+      }
+
+      // ── ② NON-CRITICAL: attempt history ────────────────────────
+      // Never allowed to blank the page. Worst case: single attempt.
+      try {
+        const username = usernameParam || doc.username || doc.user?.user_name || "";
+        const childId  = doc.child_id || doc.childId || null;
+        let all;
+
+        if (username) {
+          all = await fetchResultsByUsername(username, {
+            subject: subjectParam || undefined,
+            headers: { Authorization: `Bearer ${activeToken}` },
+          });
+        } else if (childId) {
+          // ✅ Native quiz children have no username/email — fetch by child_id instead
+          const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+          const res = await fetch(
+            `${API_BASE}/api/children/${childId}/results`,
+            { credentials: "include", headers: { Authorization: `Bearer ${activeToken}` } }
+          );
+          const data = res.ok ? await res.json() : [];
+          all = Array.isArray(data) ? data : [doc];
+        } else {
+          const email = doc.user?.email_address || "";
+          if (email) {
+            all = await fetchResultsByEmail(email, {
+              quiz_name: doc.quiz_name,
               headers: { Authorization: `Bearer ${activeToken}` },
             });
-          } else if (childId) {
-            // ✅ Native quiz children have no username/email — fetch by child_id instead
-            const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
-            const res = await fetch(
-              `${API_BASE}/api/children/${childId}/results`,
-              { credentials: "include", headers: { Authorization: `Bearer ${activeToken}` } }
-            );
-            const data = res.ok ? await res.json() : [];
-            all = Array.isArray(data) ? data : [doc];
           } else {
-            const email = doc.user?.email_address || "";
-            if (email) {
-              all = await fetchResultsByEmail(email, {
-                quiz_name: doc.quiz_name,
-                headers: { Authorization: `Bearer ${activeToken}` },
-              });
-            } else {
-              all = [doc];
-            }
+            all = [doc];
           }
-
-          if (!cancelled) setResultsList(all || [doc]);
         }
+
+        if (!cancelled) setResultsList(all || [doc]);
       } catch (err) {
-        console.error("Dashboard load error:", err.message);
-        if (!cancelled) setLoadError(err.message || "Failed to load result.");
+        // ⚠️ Deliberately NOT setLoadError — this is cosmetic data.
+        console.warn("⚠️ Dashboard: attempt-history fetch failed (non-fatal):", err?.message);
+        if (!cancelled) setResultsList([doc]);
       } finally {
         if (!cancelled) setLoadingLatest(false);
       }
     };
+
     load();
-    return () => (cancelled = true);
-  }, [responseId, hasResponseId, searchParams, activeToken, isInitializing]);
+    return () => { cancelled = true; };
+    // 👈 CHANGED: `searchParams` removed from deps (its object identity
+    //    changes on every URL write, which re-triggered the whole load).
+    //    The primitive values it supplied are used instead.
+  }, [responseId, hasResponseId, usernameParam, subjectParam, activeToken, isInitializing]);
 
   useEffect(() => {
     if (!aiPending || !responseId) return;
@@ -358,18 +483,23 @@ export default function Dashboard() {
         if (freshDoc && !isAiPending(freshDoc)) {
           setLatestResult(freshDoc);
           setAiPending(false);
-          const username = searchParams.get("username") || freshDoc.user?.user_name || "";
-          const subject = searchParams.get("subject") || "";
+          const username = usernameParam || freshDoc.user?.user_name || "";
           let all;
-          if (username) {
-            all = await fetchResultsByUsername(username, { subject: subject || undefined, headers: { Authorization: `Bearer ${activeToken}` } });
-          } else {
-            const email = freshDoc.user?.email_address || "";
-          if (email) {
-            all = await fetchResultsByEmail(email, { quiz_name: freshDoc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
-          } else {
+          try {
+            if (username) {
+              all = await fetchResultsByUsername(username, { subject: subjectParam || undefined, headers: { Authorization: `Bearer ${activeToken}` } });
+            } else {
+              const email = freshDoc.user?.email_address || "";
+              if (email) {
+                all = await fetchResultsByEmail(email, { quiz_name: freshDoc.quiz_name, headers: { Authorization: `Bearer ${activeToken}` } });
+              } else {
+                all = [freshDoc];
+              }
+            }
+          } catch (e) {
+            // 👈 CHANGED — same isolation as above: never blank the page
+            console.warn("⚠️ Poll: attempt-history refresh failed (non-fatal):", e?.message);
             all = [freshDoc];
-          }
           }
           if (!cancelled) setResultsList(all || [freshDoc]);
           return;
@@ -380,7 +510,7 @@ export default function Dashboard() {
     };
     const timer = setTimeout(poll, 2000);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [aiPending, responseId, searchParams, activeToken]);
+  }, [aiPending, responseId, usernameParam, subjectParam, activeToken]);
 
      useEffect(() => {
      if (!latestResult || !activeToken) return;
@@ -406,8 +536,8 @@ export default function Dashboard() {
 
   const quizAttempts = useMemo(() => {
     if (!latestResult) return [];
-    const subject = searchParams.get("subject") || "";
-    const quizName = searchParams.get("quiz_name") || "";
+    const subject = subjectParam;
+    const quizName = quizNameParam;
     let attempts;
     if (quizName) {
       attempts = resultsList.filter((r) => r.quiz_name === quizName);
@@ -416,8 +546,11 @@ export default function Dashboard() {
     } else {
       attempts = resultsList.filter((r) => r.quiz_name === latestResult.quiz_name);
     }
+    // 👈 CHANGED — if filtering wipes everything out, fall back to the
+    //    loaded result rather than leaving the attempt list empty.
+    if (!attempts.length) attempts = [latestResult];
     return deduplicateAttempts(attempts);
-  }, [resultsList, latestResult, searchParams]);
+  }, [resultsList, latestResult, subjectParam, quizNameParam]);
 
   const filteredResults = useMemo(() => {
     if (!selectedDate) return quizAttempts;
@@ -533,7 +666,13 @@ export default function Dashboard() {
   }
 
   if (loadError || !selectedResult) {
-    return <ResultNotFound errorMessage={loadError} onGoBack={() => navigate(-1)} />;
+    return (
+      <ResultNotFound
+        errorMessage={loadError}
+        errorDetail={loadErrorDetail}
+        onGoBack={() => navigate(-1)}
+      />
+    );
   }
 
 
