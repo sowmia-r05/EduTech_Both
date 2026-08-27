@@ -284,7 +284,8 @@ export default function QuizResult({
   attemptCount = null,
 }) {
   const navigate = useNavigate();
-  const { childProfile, apiFetch, childToken, parentToken } = useAuth();
+  /* ✅ FIX: childToken / parentToken removed — they are memory-only and null after refresh */
+  const { childProfile, apiFetch } = useAuth();
   const authRef = useRef({ childProfile });
   useEffect(() => { authRef.current = { childProfile }; }, [childProfile]);
 
@@ -292,7 +293,7 @@ export default function QuizResult({
   const [showExplanations, setShowExplanations] = useState(false);
   const [aiPollStatus,     setAiPollStatus]      = useState(null);  // "done"|"error"|null
   const [subscriptionStatus, setSubscriptionStatus] = useState(childStatusProp || null); // "trial"|"active"|null
-  const [chatOpen,         setChatOpen]         = useState(false);  // ✅ NEW: controls QuizChatWidget
+  const [chatOpen,         setChatOpen]         = useState(false);  // controls QuizChatWidget
 
 
 
@@ -311,15 +312,23 @@ export default function QuizResult({
 
   const resolvedName = displayName || childProfile?.displayName || "Student";
 
-  /* AI status polling */
+  /* AI status polling
+     ✅ FIX: uses credentials:"include" so the httpOnly child_token / parent_token
+     cookie is sent cross-origin. The old Bearer-token header was always missing
+     after a page refresh because childToken/parentToken are memory-only. */
   useEffect(() => {
     if (!attemptId || !["queued","generating","pending"].includes(aiStatus)) return;
-    const token = childToken || parentToken;
     let timer;
     const poll = async () => {
       try {
-        const h = { Accept:"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}) };
-        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL||""}/api/attempts/${attemptId}/ai-status`, { headers:h });
+        const res = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL||""}/api/attempts/${attemptId}/ai-status`,
+          {
+            method: "GET",
+            credentials: "include",
+            headers: { Accept: "application/json" },
+          }
+        );
         if (res.ok) {
           const d = await res.json();
           if (d.status==="done"||d.status==="ai_done") setAiPollStatus("done");
@@ -330,24 +339,24 @@ export default function QuizResult({
     };
     timer = setTimeout(poll, 5000);
     return () => clearTimeout(timer);
-  }, [attemptId, aiStatus, childToken, parentToken]);
+  }, [attemptId, aiStatus]);
 
 
-  /* fetch live child subscription status */
-useEffect(() => {
-  if (!childToken && !parentToken) return;
-  // Use childStatusProp if already passed — no extra API call needed
-  if (childStatusProp) {
-    setSubscriptionStatus(childStatusProp);
-    return;
-  }
-  (async () => {
-    try {
-      const res = await apiFetch("/api/auth/me");
-      if (res.ok) { const d = await res.json(); setSubscriptionStatus(d.status || null); }
-    } catch {}
-  })();
-}, [apiFetch, childToken, parentToken, childStatusProp]);
+  /* fetch live child subscription status
+     ✅ FIX: the old `if (!childToken && !parentToken) return;` guard killed this
+     effect on every page reload. apiFetch already sends the cookie. */
+  useEffect(() => {
+    if (childStatusProp) {
+      setSubscriptionStatus(childStatusProp);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await apiFetch("/api/auth/me");
+        if (res.ok) { const d = await res.json(); setSubscriptionStatus(d.status || null); }
+      } catch {}
+    })();
+  }, [apiFetch, childStatusProp]);
 
 
 
@@ -586,7 +595,7 @@ useEffect(() => {
                 </>
               )}  
 
-              {/* ✅ FIX: Show disabled state if attempts exhausted, retake button if allowed */}
+              {/* Show disabled state if attempts exhausted, retake button if allowed */}
               {attemptsExhausted ? (
                 <div className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-400 text-sm font-semibold cursor-not-allowed">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -604,23 +613,19 @@ useEffect(() => {
       )}
 
 
-    {/* ── TAB 1: AI FEEDBACK (non-writing — embedded iframe) ── */}
-      
- 
-   {/* AI Chat Widget — floats over results page */}
       {/* AI Chat Widget — floats over results page */}
-{attemptId && resolvedQuizId && (
-  <QuizChatWidget
-    quizId={resolvedQuizId}
-    attemptId={attemptId}
-    subject={result?.subject || ""}
-    childId={childId || childProfile?.childId || result?.child_id || ""}
-    yearLevel={childProfile?.yearLevel || result?.year_level || 3}
-    apiFetch={apiFetch}
-    open={chatOpen}
-    onOpenChange={setChatOpen}
-  />
-)}
+      {attemptId && resolvedQuizId && (
+        <QuizChatWidget
+          quizId={resolvedQuizId}
+          attemptId={attemptId}
+          subject={result?.subject || ""}
+          childId={childId || childProfile?.childId || result?.child_id || ""}
+          yearLevel={childProfile?.yearLevel || result?.year_level || 3}
+          apiFetch={apiFetch}
+          open={chatOpen}
+          onOpenChange={setChatOpen}
+        />
+      )}
 
     </div>
   );

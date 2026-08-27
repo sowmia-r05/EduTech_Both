@@ -1,26 +1,35 @@
 // src/app/utils/api.js
 // Simple fetch-based API client for your MongoDB-backed backend.
 //
+// ═══════════════════════════════════════════════════════════════════════════
+// 👈 CHANGED — THE FIX: `credentials: "include"` on every request.
+//
+// fetch() defaults to credentials:"same-origin". The frontend is served from
+// https://naplan.kaisolutions.ai and the API lives at
+// https://naplanapi.kaisolutions.ai — a DIFFERENT origin. Under the default,
+// the browser silently strips the Cookie header on every one of these calls.
+//
+// Symptom this caused: parent_token was present in DevTools → Application →
+// Cookies with correct attributes (Domain .kaisolutions.ai, SameSite=None,
+// Secure, HttpOnly), the request reached Express, and the server still
+// answered 401 "No credentials provided" — because the Network tab request
+// carried no Cookie header at all. The cookie was never the problem; the
+// fetch never asked for it.
+//
+// Only calls that route through THIS file were affected. The rest of the app
+// uses apiFetch() from AuthContext, which already sets credentials:"include"
+// — which is why the results page failed while the dashboards worked.
+//
+// Note: credentials:"include" requires the server to send
+// Access-Control-Allow-Credentials: true and to echo a specific origin (never
+// "*"). app.js already does both via cors({ credentials: true }).
+// ═══════════════════════════════════════════════════════════════════════════
+//
 // IMPORTANT:
 // - Set VITE_API_BASE_URL in your frontend .env (Vite) to your backend base URL.
 //   Example:
 //     VITE_API_BASE_URL=http://localhost:3000
 //     VITE_API_BASE_URL=https://xxxx.ngrok-free.app
-//
-// This file assumes your backend exposes these endpoints:
-//   POST /api/users/register
-//   GET  /api/writing/quizzes?email=...
-//   GET  /api/writing/latest?email=...&quiz=...
-//   GET  /api/writing/:responseId
-//   GET  /api/results/quizzes?email=...
-//   GET  /api/results/latest/by-filters?email=...&quiz_name=...&year=...&subject=...
-//   GET  /api/results/by-email?email=...
-//   GET  /api/results/by-username?username=...       ← NEW
-//   GET  /api/results/:responseId
-//
-// OTP endpoints:
-//   POST /api/auth/otp/request  { username }
-//   POST /api/auth/otp/verify   { username, otp }
 
 // In dev with Vite proxy, use "" so /api goes to backend via proxy. Otherwise use env or default.
 const API_BASE =
@@ -31,26 +40,36 @@ const API_BASE =
       : "http://localhost:3000";
 
 /**
- * ✅ FIXED getJson:
+ * ✅ getJson:
  * - Prevents 304 Not Modified from breaking JSON parsing
  * - Disables caching (cache: 'no-store' + no-cache headers)
  * - Accepts fetch options (e.g., { signal } from AbortController)
  * - Tries to surface server error messages when possible
+ * - 👈 CHANGED: sends cookies cross-origin, and no longer lets a caller's
+ *   options object clobber the base headers.
  */
 async function getJson(path, options = {}) {
   const baseUrl = `${API_BASE}${path}`;
 
+  // 👈 CHANGED: pull `headers` out of options before spreading. Previously
+  // `...options` was spread AFTER the headers key, so any caller passing
+  // { headers: { Authorization } } replaced the whole merged headers object
+  // and silently dropped Accept / Cache-Control / Pragma.
+  const { headers: callerHeaders, ...restOptions } = options;
+
   const doFetch = async (url) => {
     return fetch(url, {
       method: "GET",
+      // 👈 CHANGED — sends parent_token / child_token on cross-origin calls.
+      credentials: "include",
+      cache: "no-store",
+      ...restOptions,
       headers: {
         Accept: "application/json",
         "Cache-Control": "no-cache",
         Pragma: "no-cache",
-        ...(options.headers || {}),
+        ...(callerHeaders || {}),
       },
-      cache: "no-store",
-      ...options,
     });
   };
 
@@ -120,6 +139,7 @@ export async function registerUserInFlexiQuiz({
 
   const r = await fetch(`${API_BASE}/api/users/register`, {
     method: "POST",
+    credentials: "include", // 👈 CHANGED
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
@@ -178,8 +198,11 @@ export async function fetchLatestResultByEmail(email, options = {}) {
   if (options.quiz_name) params.set("quiz_name", options.quiz_name);
   if (options.year) params.set("year", options.year);
   if (options.subject) params.set("subject", options.subject);
+  // 👈 CHANGED: forward auth headers, which were previously dropped here.
+  const fetchOpts = options.headers ? { headers: options.headers } : {};
   const data = await getJson(
     `/api/results/latest/by-filters?${params.toString()}`,
+    fetchOpts,
   );
   return data;
 }
@@ -192,7 +215,7 @@ export async function fetchResultsByEmail(email, options = {}) {
   if (options.year) params.set("year", options.year);
   if (options.subject) params.set("subject", options.subject);
 
-  // ✅ FIX: Forward auth headers so backend doesn't return 401
+  // ✅ Forward auth headers so backend doesn't return 401
   const fetchOpts = options.headers ? { headers: options.headers } : {};
   const data = await getJson(
     `/api/results/by-email?${params.toString()}`,
@@ -202,13 +225,8 @@ export async function fetchResultsByEmail(email, options = {}) {
 }
 
 /**
- * ✅ NEW: Fetch all results for a specific child by username (not email).
+ * ✅ Fetch all results for a specific child by username (not email).
  * This avoids mixing results from siblings who share the same parent email.
- *
- * @param {string} username - The child's unique username (= FlexiQuiz user_name)
- * @param {Object} [options]
- * @param {string} [options.quiz_name] - Filter to a specific quiz
- * @param {string} [options.subject] - Filter by inferred subject (e.g. "Reading")
  */
 export async function fetchResultsByUsername(username, options = {}) {
   const u = String(username || "").trim();
@@ -218,7 +236,7 @@ export async function fetchResultsByUsername(username, options = {}) {
   if (options.quiz_name) params.set("quiz_name", options.quiz_name);
   if (options.subject) params.set("subject", options.subject);
 
-  // ✅ FIX: Forward auth headers so backend doesn't return 401
+  // ✅ Forward auth headers so backend doesn't return 401
   const fetchOpts = options.headers ? { headers: options.headers } : {};
   const data = await getJson(
     `/api/results/by-username?${params.toString()}`,
@@ -228,7 +246,7 @@ export async function fetchResultsByUsername(username, options = {}) {
 }
 
 /**
- * ✅ NEW: Fetch all writing submissions for a specific child by username.
+ * ✅ Fetch all writing submissions for a specific child by username.
  * Sibling-safe — doesn't mix children sharing the same parent email.
  */
 export async function fetchWritingsByUsername(username, options = {}) {
@@ -236,12 +254,13 @@ export async function fetchWritingsByUsername(username, options = {}) {
   if (!u) throw new Error("username is required");
   const params = new URLSearchParams({ username: u });
   if (options.quiz_name) params.set("quiz_name", options.quiz_name);
-  const fetchOpts = options.headers ? { headers: options.headers } : {};  // ✅ ADD THIS
+  const fetchOpts = options.headers ? { headers: options.headers } : {};
   const data = await getJson(`/api/writing/by-username?${params.toString()}`, fetchOpts);
   return Array.isArray(data) ? data : [];
 }
+
 /**
- * ✅ NEW: Fetch all writing submissions by child_id.
+ * ✅ Fetch all writing submissions by child_id.
  * Fallback for native quiz children where user.user_name may be null.
  */
 export async function fetchWritingsByChildId(childId, options = {}) {
@@ -255,15 +274,19 @@ export async function fetchWritingsByChildId(childId, options = {}) {
   );
   return Array.isArray(data) ? data : [];
 }
+
 /**
- * ✅ NEW: Fetch latest writing submission by username (sibling-safe).
+ * ✅ Fetch latest writing submission by username (sibling-safe).
  */
 export async function fetchLatestWritingByUsername(username, options = {}) {
   const u = String(username || "").trim();
   if (!u) throw new Error("username is required");
 
+  // 👈 CHANGED: forward auth headers, which were previously dropped here.
+  const fetchOpts = options.headers ? { headers: options.headers } : {};
   const data = await getJson(
     `/api/writing/latest/by-username?username=${encodeURIComponent(u)}`,
+    fetchOpts,
   );
   return data;
 }
@@ -292,6 +315,7 @@ export async function requestOtpByUsername(username) {
 
   const r = await fetch(`${API_BASE}/api/auth/otp/request`, {
     method: "POST",
+    credentials: "include", // 👈 CHANGED
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: u }),
   });
@@ -311,6 +335,7 @@ export async function verifyOtpByUsername(username, otp) {
 
   const r = await fetch(`${API_BASE}/api/auth/otp/verify`, {
     method: "POST",
+    credentials: "include", // 👈 CHANGED
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: u, otp: code }),
   });
@@ -330,6 +355,7 @@ export async function createParentAccount({ firstName, lastName, email }) {
 
   const r = await fetch(`${API_BASE}/api/parents/auth/send-otp`, {
     method: "POST",
+    credentials: "include", // 👈 CHANGED
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
@@ -340,8 +366,13 @@ export async function createParentAccount({ firstName, lastName, email }) {
 }
 
 export async function verifyParentOtp({ email, otp }) {
+  // 👈 CHANGED — this one matters twice over. Without credentials:"include"
+  // the browser also IGNORES the Set-Cookie header on a cross-origin
+  // response, so the parent_token cookie would never be stored in the first
+  // place.
   const r = await fetch(`${API_BASE}/api/parents/auth/verify-otp`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       email: normalizeEmail(email),
