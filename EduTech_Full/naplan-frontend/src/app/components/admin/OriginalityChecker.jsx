@@ -16,16 +16,14 @@ import { ADMIN_PATH } from "@/app/App";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+// Session is the httpOnly admin_token cookie — nothing to read from storage.
+// The cookie is sent automatically by credentials:"include".
 function adminFetch(url, opts = {}) {
-  const token = localStorage.getItem("admin_token");
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    ...(opts.headers || {}),
-  };
+  const headers = { ...(opts.headers || {}) };
   if (!headers["Content-Type"] && typeof opts.body === "string") {
     headers["Content-Type"] = "application/json";
   }
-  return fetch(`${API_BASE}${url}`, { ...opts, headers });
+  return fetch(`${API_BASE}${url}`, { ...opts, credentials: "include", headers });
 }
 
 async function getJSON(url) {
