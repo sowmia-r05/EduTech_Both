@@ -45,13 +45,14 @@ function FileUploadButton({ onUploaded, accept = "image/*,.pdf", label = "Upload
     if (!file) return;
     setUploading(true);
     try {
-      const token = localStorage.getItem("admin_token");
       const formData = new FormData();
       formData.append("file", file);
 
+      // No headers: FormData sets its own multipart boundary, and the session
+      // is the httpOnly admin_token cookie sent by credentials:"include".
       const res = await fetch(`${API}/api/admin/upload`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: formData,
       });
 
