@@ -29,6 +29,18 @@ const router = express.Router();
 const MAX_ATTEMPTS_DEFAULT = 5;
 const TIMER_GRACE_PERIOD_SEC = 60;
 
+
+// Mongoose Map keys cannot contain "." or start with "$"
+function safeTopicKey(name) {
+  return String(name || "")
+    .trim()
+    .replace(/\.+$/, "")   // drop trailing full stops
+    .replace(/\./g, " ")   // any other dots → space
+    .replace(/^\$+/, "")   // no leading $
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // All routes require authentication
 router.use(verifyToken, requireAuth);
 
@@ -497,11 +509,14 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
       totalAvailable += pointsAvailable;
 
       for (const cat of question.categories || []) {
-        if (!topicBreakdown[cat.name]) topicBreakdown[cat.name] = { scored: 0, total: 0 };
-        topicBreakdown[cat.name].scored += pointsScored;
-        topicBreakdown[cat.name].total += pointsAvailable;
+        const key = safeTopicKey(cat?.name);
+        if (!key) continue;
+        if (!topicBreakdown[key]) topicBreakdown[key] = { scored: 0, total: 0 };
+        topicBreakdown[key].scored += pointsScored;
+        topicBreakdown[key].total += pointsAvailable;
       }
 
+  
       return {
         question_id: ans.question_id,
         selected_option_ids: ans.selected_option_ids || [],
