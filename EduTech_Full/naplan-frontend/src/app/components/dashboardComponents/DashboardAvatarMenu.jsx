@@ -3,7 +3,7 @@ import { useAuth } from "@/app/context/AuthContext";
 
 export default function AvatarMenu({ onBackToDashboard }) {
   const navigate = useNavigate();
-  const { childToken, logoutChild, logout } = useAuth();
+  const { isChild, logoutChild, logout } = useAuth();
 
   const handleBackToDashboard = () => {
     if (onBackToDashboard) {
@@ -17,9 +17,14 @@ export default function AvatarMenu({ onBackToDashboard }) {
       try { sessionStorage.removeItem("quizResultState"); } catch {}
       navigate("/child-dashboard");
     }
+    };
+
+  const handleLogout = () => {
+    try { sessionStorage.removeItem("quizResultState"); } catch {}
+    if (isChild) logoutChild();
+    else logout();
+    navigate("/", { replace: true });
   };
-
-
 
   return (
     <div className="flex items-center gap-2">
