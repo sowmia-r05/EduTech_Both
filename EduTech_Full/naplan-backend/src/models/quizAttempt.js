@@ -48,6 +48,7 @@ const AnswerSchema = new mongoose.Schema(
     question_id: { type: String, required: true },
     selected_option_ids: [{ type: String }],
     text_answer: { type: String, default: "" },
+    pairs: { type: mongoose.Schema.Types.Mixed, default: {} },
     points_scored: { type: Number, default: 0 },
     points_available: { type: Number, default: 0 },
     is_correct: { type: Boolean, default: false },
