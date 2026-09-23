@@ -390,6 +390,7 @@ router.get("/quizzes/:quizId/resume", async (req, res) => {
         question_id: a.question_id,
         selected_option_ids: a.selected_option_ids || [],
         text_answer: a.text_answer || "",
+        pairs: a.pairs || {},
       })),
     });
   } catch (err) {
@@ -419,10 +420,11 @@ router.patch("/attempts/:attemptId/autosave", async (req, res) => {
 
     const { answers } = req.body;
     if (Array.isArray(answers)) {
-      attempt.answers = answers.map((a) => ({
+        attempt.answers = answers.map((a) => ({
         question_id: a.question_id,
         selected_option_ids: a.selected_option_ids || [],
         text_answer: a.text_answer || "",
+        pairs: a.pairs || {},
       }));
       await attempt.save();
     }
@@ -474,16 +476,20 @@ router.post("/attempts/:attemptId/submit", async (req, res) => {
       let pointsScored = 0;
       const pointsAvailable = question.points || 1;
 
-      if (question.type === "matching") {
+            if (question.type === "matching" || question.type === "line_match") {
         const pairs = ans.pairs || {};
-        const correctOptions = question.options || [];
+        const norm = (s) => String(s ?? "").trim().toLowerCase();
+        const correctOptions = (question.options || []).filter((o) => (o.match || "").trim());
         let correctCount = 0;
         for (const opt of correctOptions) {
-          if (pairs[opt.option_id] && pairs[opt.option_id] === opt.match) {
-            correctCount++;
-          }
+          // matching keys pairs by option_id; line_match keys pairs by left text
+          const given = pairs[opt.option_id] ?? pairs[opt.text];
+          if (given != null && norm(given) === norm(opt.match)) correctCount++;
         }
-        pointsScored = correctCount === correctOptions.length ? pointsAvailable : 0;
+        pointsScored =
+          correctOptions.length > 0 && correctCount === correctOptions.length
+            ? pointsAvailable
+            : 0;
       } else if (question.type === "short_answer") {
   const studentAnswer = (ans.text_answer || "").trim();
   const correctRaw = question.correct_answer || "";

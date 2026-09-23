@@ -1,5 +1,11 @@
 /**
- * NativeQuizPlayer.jsx  (v5 — FASTER LOADING: parallel API calls)
+ * NativeQuizPlayer.jsx  (v6 — MATCHING ANSWERS FIX)
+ *
+ * ✅ v6 changes:
+ *   - buildAnswersPayload now sends `pairs` (matching / line_match / category drop
+ *     answers were previously dropped, so they were always marked incorrect)
+ *   - resume restores `pairs`
+ *   - answered/unanswered counters treat a question with pairs as answered
  *
  * ✅ v5 changes:
  *   - start + questions fetched in PARALLEL (Promise.all) — saves ~500ms-1s
@@ -276,6 +282,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
                   restoredAnswers[ans.question_id] = {
                     selected: ans.selected_option_ids || [],
                     text: ans.text_answer || "",
+                    pairs: ans.pairs || {}, // ✅ v6: restore matching answers
                   };
                 }
                 setAnswers(restoredAnswers);
@@ -349,7 +356,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
     return () => clearInterval(autoSaveTimer.current);
   }, [phase, attemptId, answers]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ═══ PRELOAD NEXT QUESTION IMAGE ═══   ← ADD THIS BLOCK HERE
+  // ═══ PRELOAD NEXT QUESTION IMAGE ═══
   useEffect(() => {
     if (!questions || questions.length === 0) return;
     const nextIdx = currentIdx + 1;
@@ -373,6 +380,7 @@ export default function NativeQuizPlayer({ quiz, onClose, proctored = true, chil
         question_id: q.question_id,
         selected_option_ids: a.selected || [],
         text_answer: a.text || "",
+        pairs: a.pairs || {}, // ✅ v6: matching / line_match / category drop answers
       };
     });
   }, [questions, answers]);
@@ -448,16 +456,21 @@ const goPrev = useCallback(() => {
   // ── Skip past any opening free_text passage when quiz starts ──
 
   // ─── Stats ───
+  // ✅ v6: a question with at least one matched pair counts as answered
+  const isAnswered = (a) =>
+    !!a &&
+    ((a.selected && a.selected.length > 0) ||
+      (a.text && a.text.trim()) ||
+      (a.pairs && Object.keys(a.pairs).length > 0));
+
   const answeredCount = questions.filter((q) => {
     if (q.type === "free_text") return false; // ← exclude passages
-    const a = answers[q.question_id];
-    return a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim()));
+    return isAnswered(answers[q.question_id]);
   }).length;
 
   const unansweredCount = questions.filter((q) => {
-  if (q.type === "free_text") return false; // ← exclude passages
-  const a = answers[q.question_id];
-  return !(a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim())));
+    if (q.type === "free_text") return false; // ← exclude passages
+    return !isAnswered(answers[q.question_id]);
   }).length;
 
   const answerableQuestions = questions.filter((q) => q.type !== "free_text");
@@ -569,7 +582,6 @@ const activePassage = isReading
         onCancel={handleCancel}
       />
 
-      {/* Main content area */}
       {/* Main content area */}
       {isReading && activePassage ? (
         <ReadingSplitLayout passage={activePassage}>
