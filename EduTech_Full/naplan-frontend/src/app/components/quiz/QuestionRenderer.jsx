@@ -1,5 +1,12 @@
 /**
- * QuestionRenderer.jsx  (v11 — clean rebuild)
+ * QuestionRenderer.jsx  (v12 — TAP-TO-MATCH)
+ *
+ *  ✅ v12: MatchingQuestion rebuilt as tap-to-match (no native <select>)
+ *         - text wraps (no truncation), stacks on mobile, 2 columns on sm+
+ *         - numbered colour badges show which items are paired
+ *         - duplicate right-hand items supported (capacity-based)
+ *         - answer shape unchanged: { pairs: { [option_id]: rightText } }
+ *  ✅ v12: matching receives optionsStyle (same as other option types)
  *
  *  ✅ display_style dispatch for radio_button + matching
  *  ✅ Single render path per question type (no duplicates)
@@ -789,89 +796,197 @@ function FreeTextQuestion() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   MATCHING QUESTION — default dropdown style
+   MATCHING QUESTION — v12 TAP-TO-MATCH (default style)
+   Tap an item in Column A, then tap its match in Column B.
+   Answer shape: { pairs: { [option_id]: "right text" } }
    ═══════════════════════════════════════════════════════════ */
+const PAIR_COLOURS = [
+  "bg-indigo-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500",
+  "bg-sky-500", "bg-violet-500", "bg-lime-600", "bg-orange-500",
+];
+
+function PairBadge({ idx }) {
+  return (
+    <span
+      className={`w-7 h-7 flex-shrink-0 rounded-full ${PAIR_COLOURS[idx % PAIR_COLOURS.length]} text-white text-sm font-bold flex items-center justify-center`}
+    >
+      {idx + 1}
+    </span>
+  );
+}
+
 function MatchingQuestion({ question, answer, onAnswer, textStyle }) {
+  const options = question.options || [];
+  const rightOf = (o) => String(o?.match_text || o?.match || o?.right || "").trim();
+  // Backend scores pairs[option_id] ?? pairs[text] — keep the same key
+  const keyOf = (o) => o.option_id || o.text;
+
+  // Unique right items, stable-shuffled by question_id
   const rightItems = useMemo(() => {
-    const items = (question.options || []).map((o) => o.match_text || o.match || o.right || "").filter(Boolean);
-    const shuffled = [...items];
+    const items = [...new Set(options.map(rightOf).filter(Boolean))];
     let seed = 0;
-    for (let i = 0; i < (question.question_id || "").length; i++) {
-      seed = (seed * 31 + (question.question_id || "").charCodeAt(i)) & 0xffffffff;
-    }
+    const qid = question.question_id || "";
+    for (let i = 0; i < qid.length; i++) seed = (seed * 31 + qid.charCodeAt(i)) & 0xffffffff;
     const rng = () => {
       seed = (seed * 1664525 + 1013904223) & 0xffffffff;
       return (seed >>> 0) / 0xffffffff;
     };
-    for (let i = shuffled.length - 1; i > 0; i--) {
+    for (let i = items.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      [items[i], items[j]] = [items[j], items[i]];
     }
-    return shuffled;
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question.question_id, question.options]);
+
+  // How many rows legitimately need each right item (handles duplicates)
+  const capacity = useMemo(() => {
+    const c = {};
+    for (const o of options) {
+      const r = rightOf(o);
+      if (r) c[r] = (c[r] || 0) + 1;
+    }
+    return c;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question.options]);
 
   const pairs = answer?.pairs || {};
 
-  const handleSelect = (optionId, rightText) => {
+  // Active left row — scoped to this question so it resets on navigation
+  const [activeState, setActiveState] = useState(null);
+  const active = activeState?.qid === question.question_id ? activeState.key : null;
+  const setActive = (key) => setActiveState(key ? { qid: question.question_id, key } : null);
+
+  const rowIndex = {};
+  options.forEach((o, i) => { rowIndex[keyOf(o)] = i; });
+
+  const usedCount = {};
+  const linkedRows = {};
+  for (const [k, v] of Object.entries(pairs)) {
+    if (!v || rowIndex[k] == null) continue;
+    usedCount[v] = (usedCount[v] || 0) + 1;
+    (linkedRows[v] = linkedRows[v] || []).push(rowIndex[k]);
+  }
+
+  const clearRow = (rowKey) => {
     const updated = { ...pairs };
-    if (updated[optionId] === rightText) delete updated[optionId];
-    else updated[optionId] = rightText;
+    delete updated[rowKey];
     onAnswer({ pairs: updated });
   };
 
-  const usedRightItems = Object.values(pairs);
+  const handleRight = (item) => {
+    if (!active) return;
+    const isFull = (usedCount[item] || 0) >= (capacity[item] || 1) && pairs[active] !== item;
+    if (isFull) return;
+
+    const updated = { ...pairs };
+    if (updated[active] === item) delete updated[active];
+    else updated[active] = item;
+    onAnswer({ pairs: updated });
+
+    // Auto-advance to the next unmatched row
+    const next = options.map(keyOf).find((k) => k !== active && !updated[k]);
+    setActive(next || null);
+  };
+
+  const matchedCount = Object.keys(pairs).filter((k) => pairs[k] && rowIndex[k] != null).length;
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-[1fr_32px_1fr] gap-2">
-        <div className="text-base font-bold text-indigo-500 uppercase tracking-wide text-center pb-2 border-b border-indigo-100">Column A</div>
-        <div />
-        <div className="text-base font-bold text-emerald-500 uppercase tracking-wide text-center pb-2 border-b border-emerald-100">Column B</div>
-      </div>
-      {(question.options || []).map((opt) => {
-        const selected = pairs[opt.option_id];
-        return (
-          <div key={opt.option_id} className="grid grid-cols-[1fr_32px_1fr] gap-2 items-center">
-            <div
-              className="px-4 py-4 rounded-xl border-2 border-slate-200 bg-white text-slate-700 text-lg font-semibold text-center"
-              style={textStyle}
-            >
-              {opt.text}
-            </div>
-            <div className="flex items-center justify-center">
-              <svg className={`w-5 h-5 transition-colors ${selected ? "text-indigo-400" : "text-slate-300"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </div>
-            <div className="relative">
-              <select
-                value={selected || ""}
-                onChange={(e) => handleSelect(opt.option_id, e.target.value)}
-                className={`w-full px-3 py-4 rounded-xl border-2 text-lg appearance-none outline-none transition-all cursor-pointer pr-8 ${
-                  selected
-                    ? "border-indigo-400 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100"
-                    : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
-                }`}
-                style={textStyle}
-              >
-                <option value="">— Select match —</option>
-                {rightItems.map((item) => (
-                  <option key={item} value={item} disabled={usedRightItems.includes(item) && selected !== item}>
-                    {item}{usedRightItems.includes(item) && selected !== item ? " ✓" : ""}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
-                <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
+      <p className="text-sm text-slate-500 font-medium">
+        Tap an item in <span className="text-indigo-600 font-semibold">Column A</span>, then tap its match in{" "}
+        <span className="text-emerald-600 font-semibold">Column B</span>.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        {/* Column A */}
+        <div className="space-y-3">
+          <div className="text-sm font-bold text-indigo-500 uppercase tracking-wide pb-2 border-b border-indigo-100">Column A</div>
+          {options.map((opt, idx) => {
+            const rowKey = keyOf(opt);
+            const matched = pairs[rowKey];
+            const isActive = active === rowKey;
+            return (
+              <div key={rowKey || idx} className="flex items-stretch gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActive(isActive ? null : rowKey)}
+                  className={`flex-1 min-h-[56px] flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${
+                    isActive
+                      ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200"
+                      : matched
+                      ? "border-slate-300 bg-slate-50"
+                      : "border-slate-200 bg-white hover:border-indigo-300"
+                  }`}
+                >
+                  <PairBadge idx={idx} />
+                  <span
+                    className="flex-1 text-base sm:text-lg font-semibold text-slate-700 break-words whitespace-normal"
+                    style={textStyle}
+                  >
+                    {opt.text}
+                  </span>
+                  {matched && (
+                    <span className="text-xs sm:text-sm text-emerald-700 font-medium break-words text-right max-w-[45%]">
+                      → {matched}
+                    </span>
+                  )}
+                </button>
+                {matched && (
+                  <button
+                    type="button"
+                    onClick={() => clearRow(rowKey)}
+                    className="w-9 flex-shrink-0 rounded-xl border-2 border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200"
+                    title="Clear this match"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
-            </div>
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+
+        {/* Column B */}
+        <div className="space-y-3">
+          <div className="text-sm font-bold text-emerald-500 uppercase tracking-wide pb-2 border-b border-emerald-100">Column B</div>
+          {rightItems.map((item) => {
+            const links = linkedRows[item] || [];
+            const isFull = (usedCount[item] || 0) >= (capacity[item] || 1) && pairs[active] !== item;
+            const dim = !!active && isFull;
+            return (
+              <button
+                key={item}
+                type="button"
+                onClick={() => handleRight(item)}
+                disabled={dim}
+                className={`w-full min-h-[56px] flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${
+                  dim
+                    ? "border-slate-200 bg-slate-100 opacity-50 cursor-not-allowed"
+                    : links.length
+                    ? "border-emerald-400 bg-emerald-50"
+                    : active
+                    ? "border-emerald-200 bg-white hover:border-emerald-400 hover:bg-emerald-50 cursor-pointer"
+                    : "border-slate-200 bg-white cursor-default"
+                }`}
+              >
+                <span
+                  className="flex-1 text-base sm:text-lg font-semibold text-slate-700 break-words whitespace-normal"
+                  style={textStyle}
+                >
+                  {item}
+                </span>
+                <span className="flex gap-1">
+                  {links.map((i) => <PairBadge key={i} idx={i} />)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <p className="text-sm text-slate-400 text-right font-medium">
-        {Object.keys(pairs).length}/{(question.options || []).length} matched
+        {matchedCount}/{options.length} matched
       </p>
     </div>
   );
@@ -1014,7 +1129,7 @@ export default function QuestionRenderer({
           ? <CategoryDropQuestion question={question} answer={answer} onAnswer={onAnswer} />
           : question.display_style === "line_match"
           ? <LineMatchQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
-          : <MatchingQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={textStyle} />
+          : <MatchingQuestion question={question} answer={answer} onAnswer={onAnswer} textStyle={optionsStyle} />
       )}
 
       {/* ── Image zoom modal ── */}

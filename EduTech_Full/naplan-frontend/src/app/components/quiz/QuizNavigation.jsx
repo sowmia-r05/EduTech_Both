@@ -35,7 +35,11 @@ export default function QuizNavigation({ currentIdx, totalQuestions, questions, 
               {questions.map((q, idx) => {
                 if (q.type === "free_text") return null;
                 const a = answers[q.question_id];
-                const isAnswered = a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim()));
+                const isAnswered =
+                !!a &&
+                ((a.selected && a.selected.length > 0) ||
+                  (a.text && a.text.trim()) ||
+                  (a.pairs && Object.keys(a.pairs).length > 0));
                 const isFlagged = flagged.has(q.question_id);
                 const isCurrent = idx === currentIdx;
 

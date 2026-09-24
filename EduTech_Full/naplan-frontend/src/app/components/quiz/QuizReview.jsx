@@ -22,7 +22,11 @@ const stats = useMemo(() => {
     // ✅ Skip free_text (reading passages) — they are display-only, not answerable
     if (q.type === "free_text") return;
     const a = answers[q.question_id];
-    const hasAnswer = a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim()));
+   const hasAnswer =
+  !!a &&
+  ((a.selected && a.selected.length > 0) ||
+    (a.text && a.text.trim()) ||
+    (a.pairs && Object.keys(a.pairs).length > 0));
     if (hasAnswer) answered++;
     else unanswered++;
     if (flagged.has(q.question_id)) flaggedCount++;
@@ -66,7 +70,11 @@ const stats = useMemo(() => {
               if (q.type === "free_text") return null;  
 
               const a = answers[q.question_id];
-              const isAnswered = a && ((a.selected && a.selected.length > 0) || (a.text && a.text.trim()));
+              const isAnswered =
+              !!a &&
+              ((a.selected && a.selected.length > 0) ||
+                (a.text && a.text.trim()) ||
+                (a.pairs && Object.keys(a.pairs).length > 0));
               const isFlagged = flagged.has(q.question_id);
 
               let bgClass = "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100";
